@@ -5,7 +5,6 @@ use crate::{
     Role, StatefulInteractiveElement, Task, Window, methods::Changes, testing::Probe,
 };
 use futures::StreamExt;
-use gpui::px;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize, Deserialize)]
@@ -135,127 +134,26 @@ fn every_frame_a_view_sends_is_audited() {
     TestAppContext::new().open::<Nameless>();
 }
 
-/// A view whose frame the host would cut: past the node budget, the host
-/// shows the first rows and drops the rest, so its test fails, where it
-/// passed when only a refused frame failed.
 #[derive(Default, Serialize, Deserialize)]
-struct Spreadsheet;
-impl View for Spreadsheet {
-    const NAME: &'static str = "Spreadsheet";
+struct Nested;
+impl View for Nested {
+    const NAME: &'static str = "Nested";
     fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
         Self
     }
 }
-impl Render for Spreadsheet {
+impl Render for Nested {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
-        crate::div()
-            .id("cells")
-            .children((0..crate::wire::MAX_NODES).map(|cell| crate::div().child(cell.to_string())))
+        (0..=crate::wire::MAX_DEPTH).fold(crate::div().child("leaf"), |inner, _| {
+            crate::div().child(inner)
+        })
     }
 }
 
 #[test]
 #[should_panic(expected = "the host would cut this frame")]
 fn a_frame_the_host_would_cut_fails_its_test() {
-    TestAppContext::new().open::<Spreadsheet>();
-}
-
-/// A chart of one rectangle more than the host draws.
-#[derive(Default, Serialize, Deserialize)]
-struct Chart;
-impl View for Chart {
-    const NAME: &'static str = "Chart";
-}
-impl Render for Chart {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
-        let bar = gpui::Bounds::new(gpui::point(px(0.), px(0.)), gpui::size(px(1.), px(1.)));
-        (0..=crate::wire::MAX_CANVAS_PARTS)
-            .fold(crate::canvas(), |chart, _| chart.rect(bar, gpui::red()))
-    }
-}
-
-#[test]
-#[should_panic(expected = "canvases: 1")]
-fn a_canvas_the_host_would_cut_fails_its_test() {
-    TestAppContext::new().open::<Chart>();
-}
-
-/// A list of one item more than the host scrolls through.
-#[derive(Default, Serialize, Deserialize)]
-struct Ledger;
-impl View for Ledger {
-    const NAME: &'static str = "Ledger";
-}
-impl Render for Ledger {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
-        let items = crate::wire::MAX_LIST_ITEMS + 1;
-        let state = crate::ListState::new(items, gpui::ListAlignment::Top, px(0.));
-        crate::list("ledger", state, |item, _, _| {
-            crate::div().child(item.to_string()).into_any_element()
-        })
-    }
-}
-
-#[test]
-#[should_panic(expected = "lists: 1")]
-fn a_list_the_host_would_cut_fails_its_test() {
-    TestAppContext::new().open::<Ledger>();
-}
-
-/// A list that opens inside the host's budget and grows past it.
-#[derive(Default, Serialize, Deserialize)]
-struct Growing {
-    #[serde(skip)]
-    rows: crate::ListState,
-}
-impl View for Growing {
-    const NAME: &'static str = "Growing";
-    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
-        Self {
-            rows: crate::ListState::new(1, gpui::ListAlignment::Top, px(0.)),
-        }
-    }
-}
-impl Render for Growing {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
-        crate::list("ledger", self.rows.clone(), |item, _, _| {
-            crate::div().child(item.to_string()).into_any_element()
-        })
-    }
-}
-
-/// The cut is in a patch: the first frame fits, the one after it does not.
-#[test]
-#[should_panic(expected = "lists: 1")]
-fn a_patch_the_host_would_cut_fails_its_test() {
-    let mut cx = TestAppContext::new();
-    let view = cx.open::<Growing>();
-    view.read(|ledger| ledger.rows.splice(0..0, crate::wire::MAX_LIST_ITEMS));
-    cx.app_mut().notify();
-    cx.tick(Vec::new());
-}
-
-/// A uniform list of one row more than the host scrolls through.
-#[derive(Default, Serialize, Deserialize)]
-struct Register;
-impl View for Register {
-    const NAME: &'static str = "Register";
-}
-impl Render for Register {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl crate::IntoElement {
-        let count = crate::wire::MAX_UNIFORM_LIST_COUNT + 1;
-        crate::uniform_list("rows", count, |range, _, _| {
-            range
-                .map(|row| crate::div().id(row).child(format!("row {row}")))
-                .collect::<Vec<_>>()
-        })
-    }
-}
-
-#[test]
-#[should_panic(expected = "lists: 1")]
-fn a_uniform_list_the_host_would_cut_fails_its_test() {
-    TestAppContext::new().open::<Register>();
+    TestAppContext::new().open::<Nested>();
 }
 
 /// A card a click selects, with a button on it that deletes; what stands
@@ -707,18 +605,15 @@ impl Render for Fanout {
     }
 }
 
-/// One frame carries at most `MAX_REQUESTS`: the rest go in the next, in
-/// order, and every ask is answered; the host never sees a frame it
-/// would refuse.
 #[test]
-fn three_hundred_asks_go_out_a_frames_worth_at_a_time_and_every_one_is_answered() {
+fn three_hundred_asks_go_out_in_one_frame_and_every_one_is_answered() {
     let mut cx = TestAppContext::new();
     cx.host()
         .handle::<crate::methods::HostId>(|prefix| Ok(format!("{prefix}-1")));
     let fanout = cx.open::<Fanout>();
     let sent: Vec<_> = cx.reports().iter().map(|tick| tick.requests).collect();
-    let most = crate::wire::MAX_REQUESTS;
-    assert_eq!(sent, [most, 300 - most, 0]);
+    assert_eq!(sent.first(), Some(&300));
+    assert_eq!(sent.iter().sum::<usize>(), 300);
     fanout.read(|view| assert_eq!(view.answers, 300));
     let asked = cx.host().requests::<crate::methods::HostId>();
     assert_eq!(asked.first().map(String::as_str), Some("n0"));

@@ -11,11 +11,6 @@ use crate::queries::{self, PAGE};
 use crate::state::{ChangeTab, Filter, Forge, Progress, RepoTab};
 use forge::{ChangeFilter, ChangeState, PageRequest, Query, Revision};
 
-/// How many branches the Refs screen compares against the default head in
-/// one pass. Beyond that the screen says so rather than walking a fleet of
-/// refs through the program's compare budget.
-pub(crate) const COMPARED_REFS: usize = 20;
-
 impl Forge {
     pub(crate) fn session_changed(&mut self, next: Session, cx: &mut Context<Self>) {
         if next == self.session {
@@ -281,7 +276,6 @@ impl Forge {
                 let head = self.head_name();
                 self.branches()
                     .into_iter()
-                    .take(COMPARED_REFS)
                     .filter(|name| *name != head)
                     .map(|name| Query::Compare {
                         repo: repo.clone(),

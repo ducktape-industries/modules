@@ -1,11 +1,7 @@
 //! Declarative geometry. Commands contain copied values, never host callbacks.
 use crate::style_sanitize::{clamp_finite, sanitize_hsla};
-use crate::{Budgets, MAX_PIXELS};
 use gpui::Hsla;
 use serde::{Deserialize, Serialize};
-use std::cell::Cell;
-
-pub const MAX_CANVAS_PARTS: usize = 4096;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum CanvasCommand {
@@ -39,7 +35,7 @@ pub enum CanvasShape {
         from: [f32; 2],
         to: [f32; 2],
     },
-    Path(#[serde(deserialize_with = "decode_parts")] Vec<CanvasSegment>),
+    Path(Vec<CanvasSegment>),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -91,7 +87,6 @@ pub struct CanvasStroke {
     pub width: f32,
     pub cap: CanvasLineCap,
     pub join: CanvasLineJoin,
-    #[serde(deserialize_with = "decode_parts")]
     pub dash: Vec<f32>,
     pub dash_offset: u32,
 }
@@ -109,63 +104,9 @@ pub enum CanvasLineJoin {
     Bevel,
 }
 
-thread_local! { static DECODED: Cell<usize> = const { Cell::new(0) }; }
-pub(super) fn reset_decode_budget() {
-    DECODED.set(0);
-}
-
-/// Share a frame-wide allocation budget across command, path and dash lists.
-/// Do not reserve from a sender-supplied collection length.
-pub(super) fn decode_parts<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Vec<T>, D::Error> {
-    struct Parts<T>(std::marker::PhantomData<T>);
-    impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Parts<T> {
-        type Value = Vec<T>;
-        fn expecting(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            out.write_str("bounded canvas geometry")
-        }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(
-            self,
-            mut sequence: A,
-        ) -> Result<Self::Value, A::Error> {
-            let mut parts = Vec::new();
-            while let Some(part) = sequence.next_element::<T>()? {
-                let count = DECODED.get();
-                if count >= MAX_CANVAS_PARTS {
-                    return Err(serde::de::Error::custom("canvas geometry budget exceeded"));
-                }
-                DECODED.set(count + 1);
-                parts.push(part);
-            }
-            Ok(parts)
-        }
-    }
-    deserializer.deserialize_seq(Parts(std::marker::PhantomData))
-}
-
-/// Bounds a canvas's numbers and spends its parts from the frame's canvas
-/// budget. What does not fit, and what is drawn inside a group past 32
-/// deep, is not drawn: the canvas reports one cut.
-pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets) {
-    let mut cut = commands.len() > budgets.canvas_parts;
-    commands.truncate(budgets.canvas_parts.min(MAX_CANVAS_PARTS));
-    let mut scales = vec![1.0_f32];
-    let mut skipped = 0usize;
+pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>) {
+    let mut open = 0usize;
     commands.retain_mut(|command| {
-        if skipped > 0 {
-            match command {
-                CanvasCommand::Push { .. } => skipped += 1,
-                CanvasCommand::Pop => skipped -= 1,
-                CanvasCommand::Draw { .. } => cut = true,
-            }
-            return false;
-        }
-        if budgets.canvas_parts == 0 {
-            cut = true;
-            return false;
-        }
-        budgets.canvas_parts -= 1;
         match command {
             CanvasCommand::Push {
                 translate,
@@ -173,22 +114,10 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
                 scale,
                 clip,
             } => {
-                if scales.len() >= 32 {
-                    skipped = 1;
-                    return false;
-                }
                 point(translate);
                 angle(rotate);
-                let parent = *scales.last().unwrap();
-                for value in scale.iter_mut() {
-                    *value =
-                        finite_or_zero(*value).clamp(0.0, (MAX_PIXELS / parent).min(MAX_PIXELS));
-                }
-                scales.push(if clip.is_some() {
-                    1.0
-                } else {
-                    parent * scale[0].max(scale[1])
-                });
+                scale.iter_mut().for_each(size);
+                open += 1;
                 if let Some([x, y, width, height]) = clip {
                     coordinate(x);
                     coordinate(y);
@@ -197,10 +126,10 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
                 }
             }
             CanvasCommand::Pop => {
-                if scales.len() == 1 {
+                if open == 0 {
                     return false;
                 }
-                scales.pop();
+                open -= 1;
             }
             CanvasCommand::Draw {
                 shape,
@@ -214,12 +143,8 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
                 if let Some(stroke) = stroke {
                     sanitize_hsla(&mut stroke.color);
                     size(&mut stroke.width);
-                    let dashes = budgets.canvas_parts.min(256);
-                    cut |= stroke.dash.len() > dashes;
-                    stroke.dash.truncate(dashes);
-                    budgets.canvas_parts -= stroke.dash.len();
                     for value in &mut stroke.dash {
-                        *value = finite_or_zero(*value).clamp(0.01, MAX_PIXELS);
+                        *value = finite_or_zero(*value).max(0.01);
                     }
                     if !stroke.dash.is_empty() {
                         stroke.dash_offset %= stroke.dash.len() as u32;
@@ -244,9 +169,6 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
                         point(to);
                     }
                     CanvasShape::Path(segments) => {
-                        cut |= segments.len() > budgets.canvas_parts;
-                        segments.truncate(budgets.canvas_parts);
-                        budgets.canvas_parts -= segments.len();
                         for segment in segments {
                             match segment {
                                 CanvasSegment::Rectangle {
@@ -310,20 +232,18 @@ pub(super) fn sanitize(commands: &mut Vec<CanvasCommand>, budgets: &mut Budgets)
         }
         true
     });
-    budgets.cut(|cuts| &mut cuts.canvases, usize::from(cut));
 }
 fn finite_or_zero(value: f32) -> f32 {
     if value.is_finite() { value } else { 0.0 }
 }
 fn coordinate(value: &mut f32) {
-    *value = finite_or_zero(*value).clamp(-MAX_PIXELS, MAX_PIXELS);
+    *value = finite_or_zero(*value);
 }
 fn size(value: &mut f32) {
-    clamp_finite(value, 0.0, MAX_PIXELS);
+    clamp_finite(value, 0.0, f32::MAX);
 }
 fn angle(value: &mut f32) {
-    *value =
-        finite_or_zero(*value).clamp(-std::f32::consts::TAU * 16.0, std::f32::consts::TAU * 16.0);
+    *value = finite_or_zero(*value);
 }
 fn point(value: &mut [f32; 2]) {
     value.iter_mut().for_each(coordinate);
@@ -332,14 +252,7 @@ fn point(value: &mut [f32; 2]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Budgets, Node, StyleId, decode, encode};
 
-    fn node(commands: Vec<CanvasCommand>) -> Node {
-        Node::Canvas {
-            commands,
-            style: StyleId(0),
-        }
-    }
     fn path(parts: usize) -> CanvasCommand {
         CanvasCommand::Draw {
             shape: CanvasShape::Path(vec![CanvasSegment::Close; parts]),
@@ -362,8 +275,7 @@ mod tests {
             CanvasCommand::Pop,
         ];
         let original = commands.clone();
-        let mut budget = Budgets::frame(&crate::styles::testing::held());
-        sanitize(&mut commands, &mut budget);
+        sanitize(&mut commands);
         assert_eq!(
             commands, original,
             "a combined native transform must not be enlarged"
@@ -371,30 +283,8 @@ mod tests {
     }
 
     #[test]
-    fn decoder_counts_nested_parts_and_resets_after_rejection() {
-        let oversized = encode(&node(vec![path(MAX_CANVAS_PARTS)]));
-        assert!(
-            decode::<Node>(&oversized).is_err(),
-            "the command and its segments share a budget"
-        );
-        let valid = node(vec![path(MAX_CANVAS_PARTS - 1)]);
-        let bytes = encode(&valid);
-        assert_eq!(decode::<Node>(&bytes).unwrap(), valid);
-        assert_eq!(decode::<Node>(&bytes).unwrap(), valid);
-    }
-
-    #[test]
-    fn decoder_shares_budget_between_nodes() {
-        let bytes = encode(&vec![node(vec![path(2047)]), node(vec![path(2048)])]);
-        assert!(decode::<Vec<Node>>(&bytes).is_err());
-    }
-
-    #[test]
-    fn sanitizer_shares_parts_budget_and_bounds_numbers() {
-        let mut budget = Budgets::frame(&crate::styles::testing::held());
-        let mut first = vec![path(MAX_CANVAS_PARTS - 2)];
-        sanitize(&mut first, &mut budget);
-        let mut second = vec![
+    fn sanitizer_makes_numbers_finite() {
+        let mut commands = vec![
             CanvasCommand::Draw {
                 shape: CanvasShape::Circle {
                     center: [f32::NAN, f32::MAX],
@@ -411,30 +301,31 @@ mod tests {
             },
             path(10),
         ];
-        sanitize(&mut second, &mut budget);
-        assert_eq!(budget.canvas_parts, 0);
-        assert_eq!(budget.cuts.canvases, 1, "the second canvas lost its path");
+        sanitize(&mut commands);
         assert_eq!(
-            second,
-            vec![CanvasCommand::Draw {
-                shape: CanvasShape::Circle {
-                    center: [0.0, 8192.0],
-                    radius: 0.0
+            commands,
+            vec![
+                CanvasCommand::Draw {
+                    shape: CanvasShape::Circle {
+                        center: [0.0, f32::MAX],
+                        radius: 0.0
+                    },
+                    fill: Some(Hsla {
+                        h: 0.,
+                        s: 0.,
+                        l: 1.,
+                        a: 1.
+                    }),
+                    even_odd: false,
+                    stroke: None,
                 },
-                fill: Some(Hsla {
-                    h: 0.,
-                    s: 0.,
-                    l: 1.,
-                    a: 1.
-                }),
-                even_odd: false,
-                stroke: None,
-            }]
+                path(10),
+            ]
         );
     }
 
     #[test]
-    fn sanitizer_discards_overdeep_groups_and_unmatched_pops() {
+    fn sanitizer_drops_unmatched_pops() {
         let push = CanvasCommand::Push {
             translate: [0.0; 2],
             rotate: 0.0,
@@ -444,38 +335,24 @@ mod tests {
         let mut commands = vec![CanvasCommand::Pop];
         commands.extend(vec![push; 40]);
         commands.push(path(1));
-        commands.extend(vec![CanvasCommand::Pop; 40]);
+        commands.extend(vec![CanvasCommand::Pop; 41]);
         commands.push(path(1));
-        sanitize(
-            &mut commands,
-            &mut Budgets::frame(&crate::styles::testing::held()),
-        );
+        sanitize(&mut commands);
         let mut depth = 0;
-        let mut scale = 1.0;
         for command in &commands {
             match command {
-                CanvasCommand::Push { scale: next, .. } => {
-                    depth += 1;
-                    scale *= next[0];
-                    assert!(depth < 32);
-                    assert!(scale <= 8192.0);
-                }
+                CanvasCommand::Push { .. } => depth += 1,
                 CanvasCommand::Pop => {
                     assert!(depth > 0);
                     depth -= 1;
                 }
-                CanvasCommand::Draw { .. } => {
-                    assert_eq!(depth, 0, "overdeep subtree must be omitted")
-                }
+                CanvasCommand::Draw { .. } => {}
             }
         }
         assert_eq!(depth, 0);
-        assert!(matches!(commands.last(), Some(CanvasCommand::Draw { .. })));
+        assert_eq!(commands.len(), 82);
         let mut again = commands.clone();
-        sanitize(
-            &mut again,
-            &mut Budgets::frame(&crate::styles::testing::held()),
-        );
+        sanitize(&mut again);
         assert_eq!(commands, again);
     }
 }

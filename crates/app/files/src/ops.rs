@@ -6,7 +6,7 @@ use ::program::{
 
 use crate::objects::put_chunk;
 use crate::state::{PINS, minted};
-use crate::{CHUNK_SIZE, MAX_PIN_NAME_BYTES, PinRow};
+use crate::{CHUNK_SIZE, PinRow};
 
 pub(crate) fn stage(ctx: &ExecCtx, bytes: &[u8]) -> Result<(), Error> {
     let fits = !bytes.is_empty() && bytes.len() as u64 <= CHUNK_SIZE;
@@ -24,12 +24,11 @@ pub(crate) fn pin(
     name: String,
     snapshot: BlobId,
 ) -> Result<(), Error> {
-    let readable =
-        !name.is_empty() && name.len() <= MAX_PIN_NAME_BYTES && !name.chars().any(char::is_control);
+    let readable = !name.is_empty() && !name.chars().any(char::is_control);
     if !readable {
-        return Err(invalid(format!(
-            "a pin's name is 1 to {MAX_PIN_NAME_BYTES} bytes with no control characters"
-        )));
+        return Err(invalid(
+            "a pin's name is not empty and has no control characters",
+        ));
     }
     minted(ctx, &snapshot)?;
     if PINS.has(ctx, &name) {

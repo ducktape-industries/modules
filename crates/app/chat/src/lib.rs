@@ -59,20 +59,6 @@ pub mod tables {
 /// The name this program runs under.
 pub const PROGRAM: &str = "chat";
 
-pub const MAX_ID_BYTES: usize = 64;
-pub const MAX_NAME_BYTES: usize = 128;
-pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
-pub const MAX_REVISIONS: u32 = 256;
-pub const MAX_EMOJI_BYTES: usize = 64;
-pub const MAX_REACTION_EMOJIS: usize = 64;
-pub const MAX_THREAD_REPLIES: u64 = 4096;
-/// The most principals a read's `viewer` names (a reader is one account).
-pub const MAX_VIEWERS: usize = 8;
-pub const MAX_TAGS_PER_MESSAGE: usize = 16;
-pub const MAX_TAG_CHARS: usize = 64;
-/// How many postings a search reads before it reports `capped`.
-pub const SEARCH_POSTING_CAP: usize = 1024;
-
 /// A write. The enum only grows at its end (see `op_variants_only_append`).
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum Op {
@@ -356,11 +342,6 @@ pub fn dm_peers(channel_id: &str) -> Option<(AccountNumber, AccountNumber)> {
     Some((a.parse().ok()?, b.parse().ok()?))
 }
 
-/// A program's own ids in chat: `<program>:<name>`, a channel (a review
-/// thread, say) or a message. Only that program creates one; a reader
-/// reaches such a room through its program, not the channel list. The
-/// program's view opens the room at the id's own path: `forge:web:3` is
-/// `duck://<chain>/forge/web/3`. Every id is at most [`MAX_ID_BYTES`].
 pub mod namespace {
     /// `program`'s id `name`: `forge:web:3`.
     pub fn id(program: &str, name: &str) -> String {

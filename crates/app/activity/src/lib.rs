@@ -1,6 +1,5 @@
 //! The `activity` program: where each frame a block carried sits on the chain, kept under the key
-//! that signed it and the account it acted as (the newest `KEPT` of each), as the kernel tells
-//! its hooks. Views list what an account did and read each frame by its place (`chain.tx`).
+//! that signed it and the account it acted as, as the kernel tells its hooks. Views list what an account did and read each frame by its place (`chain.tx`).
 mod program;
 mod rules;
 #[cfg(test)]
@@ -31,9 +30,6 @@ pub struct Used {
     pub program: ProgramId,
     pub frames: u64,
 }
-
-pub const MAX_PAGE: u64 = 256;
-pub const KEPT: u64 = 1_000;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
 #[ask(Activity)]

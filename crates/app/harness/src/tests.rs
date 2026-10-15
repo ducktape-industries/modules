@@ -883,7 +883,7 @@ fn a_request_the_model_finds_too_long_is_summarized_even_with_no_window_known() 
         last["content"][0]["text"]
             .as_str()
             .unwrap()
-            .starts_with("(left out: "),
+            .starts_with("left out of your context: frame 3 is"),
         "with nothing new to summarize, the newest input is left out: {last}"
     );
     chain.at(7, 0);
@@ -919,7 +919,8 @@ fn a_request_the_model_finds_too_long_is_summarized_even_with_no_window_known() 
 }
 
 #[test]
-fn a_result_that_alone_overflows_the_window_is_left_out_and_the_model_asks_for_less() {
+fn a_result_that_alone_overflows_the_window_is_left_out_and_the_model_searches_and_reads_it_in_parts()
+ {
     let world = world();
     let chain = &world.chain;
     let thread = world.opened("m1", "read it", Some(WINDOW));
@@ -938,19 +939,14 @@ fn a_result_that_alone_overflows_the_window_is_left_out_and_the_model_asks_for_l
     let result = &messages[messages.len() - 1]["content"][0];
     assert_eq!(result["type"], "tool_result");
     assert_eq!(result["tool_use_id"], "toolu_l");
-    assert_eq!(result["is_error"], true);
-    assert!(
-        result["content"]
-            .as_str()
-            .unwrap()
-            .ends_with("call again for less of it"),
-        "{result}"
-    );
+    assert_eq!(result["is_error"], false);
     let (text, failed) = result_of(chain, thread, "toolu_l");
-    assert!(
-        !failed && !text.starts_with("left out"),
-        "the transcript keeps the result as it came"
+    assert!(!failed, "the transcript keeps the result as it came");
+    let note = format!(
+        "left out of your context: frame 3 is {} bytes in 1 lines, too large for your context window alone. Find lines in it with thread_search (frame 3) and read parts of it with thread_read (frame 3, an offset and a length).",
+        text.len()
     );
+    assert_eq!(result["content"], note);
     let told = notices(chain, thread);
     assert!(
         told.last()
@@ -958,15 +954,120 @@ fn a_result_that_alone_overflows_the_window_is_left_out_and_the_model_asks_for_l
             .starts_with("the result of files_list call toolu_l alone does not fit"),
         "{told:?}"
     );
+
     chain.at(8, 0);
+    let wanted = &text[2..6];
+    let calls = json!([
+        tool_use(
+            "toolu_s",
+            "thread_search",
+            json!({ "pattern": wanted, "frame": 3, "around": 1 })
+        ),
+        tool_use(
+            "toolu_r",
+            "thread_read",
+            json!({ "frame": 3, "offset": 2, "length": 4 })
+        ),
+        tool_use("toolu_n", "thread_read", json!({ "frame": 99 })),
+    ]);
+    model_says(chain, calls, "tool_use");
+    chain.at(9, 0);
+    for call in ["toolu_s", "toolu_r", "toolu_n"] {
+        relay_back(chain, call);
+    }
+    let (searched, failed) = result_of(chain, thread, "toolu_s");
+    assert!(!failed, "{searched}");
+    let searched: Value = serde_json::from_str(&searched).unwrap();
+    assert_eq!(searched["hits"][0]["frame"], 3);
+    assert_eq!(searched["hits"][0]["line"], 1);
+    assert_eq!(searched["hits"][0]["offsets"][0], 2);
+    assert_eq!(searched["hits"][0]["excerpts"][0], &text[1..7]);
+    let (read, failed) = result_of(chain, thread, "toolu_r");
+    assert!(!failed, "{read}");
+    let read: Value = serde_json::from_str(&read).unwrap();
+    assert_eq!(
+        read,
+        json!({ "frame": 3, "offset": 2, "size": text.len(), "text": wanted, "rest": text.len() - 6 })
+    );
+    let (missing, failed) = result_of(chain, thread, "toolu_n");
+    assert!(failed && missing.contains("no frame 99"), "{missing}");
+    chain.at(10, 0);
+
     model_says(
         chain,
-        json!([{ "type": "text", "text": "I will read less." }]),
+        json!([{ "type": "text", "text": "Found it." }]),
         "end_turn",
     );
     let row = thread_row(chain, thread);
     assert_eq!(row.context, Context::Measured(18));
     assert_eq!(row.asking, Asking::Idle);
+}
+
+#[test]
+fn a_thread_search_finds_what_a_summary_covers_and_reads_whole_lines_on_a_char_boundary() {
+    let world = world();
+    let chain = &world.chain;
+    let thread = world.opened("m1", "the key is é-42", Some(2_000));
+    chain.at(3, 0);
+    model_says_after(
+        chain,
+        json!([{ "type": "text", "text": "Noted." }]),
+        "end_turn",
+        1000,
+    );
+    world.mention("m2", "what was the key?");
+    chain.at(4, 0);
+    summarized(chain, "Ada gave a key.");
+    chain.at(5, 0);
+    let calls = json!([
+        tool_use("toolu_s", "thread_search", json!({ "pattern": "key is" })),
+        tool_use(
+            "toolu_r",
+            "thread_read",
+            json!({ "frame": 1, "offset": 0, "length": 1 })
+        ),
+    ]);
+    model_says(chain, calls, "tool_use");
+    chain.at(6, 0);
+    relay_back(chain, "toolu_s");
+    relay_back(chain, "toolu_r");
+    let (searched, _) = result_of(chain, thread, "toolu_s");
+    let searched: Value = serde_json::from_str(&searched).unwrap();
+    let hits = searched["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 2, "{searched}");
+    assert_eq!(
+        hits[1]["text"], "thread_search {\"pattern\":\"key is\"}",
+        "the model's own turns are searched too"
+    );
+    assert_eq!(hits[0]["frame"], 1);
+    assert!(
+        hits[0]["text"]
+            .as_str()
+            .unwrap()
+            .ends_with("the key is é-42"),
+        "{searched}"
+    );
+    let (read, _) = result_of(chain, thread, "toolu_r");
+    let read: Value = serde_json::from_str(&read).unwrap();
+    assert_eq!(read["offset"], 0);
+    assert_eq!(read["rest"], read["size"].as_u64().unwrap() - 1);
+    let first = frames(chain, thread)[0].text();
+    let middle = first.find('é').unwrap() + 1;
+    let (got, _) = {
+        chain.at(7, 0);
+        let call = tool_use(
+            "toolu_m",
+            "thread_read",
+            json!({ "frame": 1, "offset": middle, "length": 1 }),
+        );
+        model_says(chain, json!([call]), "tool_use");
+        chain.at(8, 0);
+        relay_back(chain, "toolu_m");
+        result_of(chain, thread, "toolu_m")
+    };
+    let got: Value = serde_json::from_str(&got).unwrap();
+    assert_eq!(got["offset"], middle - 1, "a read starts on a character");
+    assert_eq!(got["text"], "é");
 }
 
 #[test]

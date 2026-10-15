@@ -1,14 +1,17 @@
 use super::*;
 
-/// The report says what was cut and where the first cut fell, and no
-/// more: a frame sent on after sanitizing has nothing left to cut, and a
-/// frame inside every bound reports nothing and is left as it came.
 #[test]
-fn a_cut_string_is_reported_with_where_it_fell() {
+fn a_cut_child_is_reported_with_where_it_fell() {
     let mut frame = Frame {
         root: Some(column(vec![
             text("complete"),
-            text(&"x".repeat(MAX_STRING_BYTES + 1)),
+            Node::Overlay {
+                id: ElementIdWire::Name("App/o".into()),
+                label: None,
+                style: StyleId(0),
+                on_dismiss: None,
+                children: vec![text("a"), text("b"), text("c")],
+            },
         ])),
         ..Default::default()
     };
@@ -16,7 +19,7 @@ fn a_cut_string_is_reported_with_where_it_fell() {
     assert_eq!(
         report,
         SanitizeReport {
-            strings: 1,
+            nodes: 1,
             first: Some(vec![1]),
             ..Default::default()
         }
@@ -32,21 +35,9 @@ fn a_cut_string_is_reported_with_where_it_fell() {
     assert_eq!(small, before);
 }
 
-/// Nodes past the node budget and subtrees past the depth bound are cuts,
-/// each at its own place; a clamped number is not.
 #[test]
-fn dropped_nodes_and_cut_depth_are_reported_but_clamps_are_not() {
-    let mut wide = column((0..MAX_NODES + 9).map(|_| text("x")).collect());
-    let report = sanitize_tree(&mut wide, &held()).unwrap();
-    assert_eq!(report.nodes, 10, "{report:?}");
-    assert_eq!(report.first, Some(vec![(MAX_NODES - 1) as u32]));
-    let mut deep = text("leaf");
-    for _ in 0..MAX_DEPTH {
-        deep = column(vec![deep]);
-    }
-    let report = sanitize_tree(&mut deep, &held()).unwrap();
-    assert_eq!((report.depth, report.nodes), (1, 0), "{report:?}");
-    assert_eq!(report.first.map(|at| at.len()), Some(MAX_DEPTH));
+fn a_kept_number_is_not_a_cut() {
+    let rounded = gpui::Styled::rounded_full(gpui::StyleRefinement::default());
     let mut clamped = Frame {
         styles: vec![Style::new(&gpui::Styled::rounded_full(
             gpui::StyleRefinement::default(),
@@ -58,60 +49,7 @@ fn dropped_nodes_and_cut_depth_are_reported_but_clamps_are_not() {
     assert!(sanitize(&mut clamped, &mut styles).unwrap().is_empty());
     assert_eq!(
         styles[StyleId(0)].corner_radii.top_left,
-        Some(gpui::px(MAX_PIXELS).into())
-    );
-}
-
-#[test]
-fn applied_aggregate_text_and_rich_text_loss_is_reported_but_removal_is_not() {
-    let rich = Node::RichText {
-        id: Some(ElementIdWire::Name("rich".into())),
-        style: StyleId(0),
-        text: "y".repeat(MAX_TEXT_BYTES_PER_FRAME / 2),
-        runs: RichTextRuns::default(),
-        font_family_overrides: vec![],
-        clickable_ranges: vec![],
-        on_click: None,
-        on_hover: None,
-        tooltip: None,
-    };
-    let mut root = Node::Container(crate::ContainerNode {
-        id: Some(ElementIdWire::Name("root".into())),
-        style: StyleId(0),
-        interactivity: Default::default(),
-        children: vec![text(&"x".repeat(MAX_TEXT_BYTES_PER_FRAME / 2 + 1))],
-    });
-    let report = apply(
-        &mut root,
-        vec![Patch::Insert {
-            path: vec![],
-            index: 1,
-            node: rich,
-        }],
-        &held(),
-    )
-    .unwrap();
-    assert_eq!(
-        (report.text, report.first),
-        (1, Some(vec![1])),
-        "each node fits, but the applied aggregate loses tail text"
-    );
-    let Node::RichText { text, .. } = &root.children()[1] else {
-        panic!("the rich text")
-    };
-    assert_eq!(text.len(), MAX_TEXT_BYTES_PER_FRAME / 2 - 1);
-    let report = apply(
-        &mut root,
-        vec![Patch::Remove {
-            path: vec![],
-            index: 0,
-        }],
-        &held(),
-    )
-    .unwrap();
-    assert!(
-        report.is_empty(),
-        "intentional removal precedes the measured sanitizer pass"
+        rounded.corner_radii.top_left
     );
 }
 
@@ -131,29 +69,6 @@ fn a_frame_round_trips_at_every_header_width() {
         };
         assert_eq!(decode::<Frame>(&encode(&frame)).unwrap(), frame);
     }
-}
-
-#[test]
-fn tooltip_responses_share_the_frame_node_budget() {
-    let response = || TooltipResponse {
-        request: 1,
-        character_index: None,
-        content: Some(Box::new(column(
-            (0..MAX_NODES).map(|_| Node::empty()).collect(),
-        ))),
-    };
-    let mut frame = Frame {
-        tooltip_responses: vec![response(), response()],
-        ..Default::default()
-    };
-    sanitize_plain(&mut frame).unwrap();
-    assert_eq!(frame.tooltip_responses.len(), 1);
-    assert!(
-        frame.tooltip_responses[0]
-            .content
-            .as_ref()
-            .is_some_and(|content| content.count() <= MAX_NODES)
-    );
 }
 
 #[test]

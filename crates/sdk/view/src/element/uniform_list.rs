@@ -385,7 +385,7 @@ impl UniformLists {
         if request.is_some() {
             state.shown = Some(target.clone());
         }
-        state.window = window(&held, target, count, measure_index);
+        state.window = window(&held, target, count);
         // the measurement row on its own only where the window does not
         // hold it: a row painted twice is paid for twice
         let measurement = measure_index..measure_index.saturating_add(1).min(count);
@@ -421,7 +421,7 @@ impl UniformLists {
             return false;
         }
         if item_height.is_finite() && item_height > 0. {
-            state.item_height = Some(item_height.min(wire::MAX_PIXELS));
+            state.item_height = Some(item_height);
         }
         let shown = clamped(start..end, state.count);
         if shown.is_empty() {
@@ -435,7 +435,7 @@ impl UniformLists {
                 held.start.max(shown.start.saturating_sub(MARGIN_ROWS))
                     ..held.end.min(shown.end.saturating_add(MARGIN_ROWS))
             }
-            false => window(&(0..0), shown, state.count, state.measure_index),
+            false => window(&(0..0), shown, state.count),
         };
         !holds
     }
@@ -501,51 +501,17 @@ fn anchored(
     start..(start + rows).min(count)
 }
 
-/// The window once the list shows `target`: `held` when it holds every row
-/// of it, else `target` with [`MARGIN_ROWS`] past each edge, joined to
-/// `held` where the two touch (a scroll beside the rows on screen keeps
-/// them until the host says where it is; [`UniformLists::request_range`]
-/// trims) and in its place where they do not (a jump). Within `count` and
-/// the rows one frame carries, counted from the target's side.
-fn window(
-    held: &Range<usize>,
-    target: Range<usize>,
-    count: usize,
-    measure_index: usize,
-) -> Range<usize> {
+fn window(held: &Range<usize>, target: Range<usize>, count: usize) -> Range<usize> {
     if !held.is_empty() && held.start <= target.start && target.end <= held.end {
         return held.clone();
     }
-    let max = wire::MAX_UNIFORM_LIST_ROWS;
-    let fits = |rows: &Range<usize>| rows.len() <= room(rows, measure_index);
     let band = target.start.saturating_sub(MARGIN_ROWS)..target.end.saturating_add(MARGIN_ROWS);
     let band = clamped(band, count);
-    if !fits(&band) {
-        // more than one frame carries: the rows shown, from their first
-        let start = target.start.min(count.saturating_sub(max));
-        let rows = room(&(start..start + max), measure_index);
-        return clamped(start..start + rows, count);
-    }
-    if held.is_empty() || band.end < held.start || held.end < band.start {
+    let apart = held.is_empty() || band.end < held.start || held.end < band.start;
+    if apart {
         return band;
     }
-    let joined = held.start.min(band.start)..held.end.max(band.end);
-    if fits(&joined) {
-        return joined;
-    }
-    // more than one frame carries: the target's end of the two
-    if band.start < held.start {
-        band.start..band.start + room(&(band.start..band.start + max), measure_index)
-    } else {
-        band.end - room(&(band.end.saturating_sub(max)..band.end), measure_index)..band.end
-    }
-}
-
-/// The rows one frame carries in `window`: every row a frame holds, less
-/// the measurement row where the window does not hold it, since it is
-/// sent either way.
-fn room(window: &Range<usize>, measure_index: usize) -> usize {
-    wire::MAX_UNIFORM_LIST_ROWS - usize::from(!window.contains(&measure_index))
+    held.start.min(band.start)..held.end.max(band.end)
 }
 
 fn clamped(range: Range<usize>, count: usize) -> Range<usize> {

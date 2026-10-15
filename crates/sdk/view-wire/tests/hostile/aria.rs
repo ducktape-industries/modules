@@ -1,54 +1,8 @@
-//! The aria a view writes: every list it carries is bounded at decode, and
-//! `sanitize` pulls the rest into what the host maps.
+//! The aria a view writes: `sanitize` pulls it into what the host maps.
 use super::*;
 
-fn with_aria(aria: Aria) -> Frame {
-    Frame {
-        root: Some(Node::Container(ContainerNode {
-            id: None,
-            style: PLAIN,
-            interactivity: Some(Box::new(Interactivity {
-                aria,
-                ..Default::default()
-            })),
-            children: Vec::new(),
-        })),
-        ..Frame::default()
-    }
-}
-
-/// At the bound the frame decodes; one past it, `decode` names the list.
-fn refused_past(at: impl Fn(usize) -> Aria, bound: usize, message: &str) {
-    assert!(decode::<Frame>(&encode(&with_aria(at(bound)))).is_ok());
-    let refused = decode::<Frame>(&encode(&with_aria(at(bound + 1)))).unwrap_err();
-    assert!(refused.contains(message), "{refused}");
-}
-
-#[test]
-fn decode_refuses_more_consumed_keys_than_a_node_takes() {
-    use view_wire::interactivity::MAX_CONSUMED_KEYS;
-    let frame = |keys: usize| Frame {
-        root: Some(Node::Container(ContainerNode {
-            id: None,
-            style: PLAIN,
-            interactivity: Some(Box::new(Interactivity {
-                consumes_keys: vec!["escape".into(); keys],
-                ..Default::default()
-            })),
-            children: Vec::new(),
-        })),
-        ..Frame::default()
-    };
-    assert!(decode::<Frame>(&encode(&frame(MAX_CONSUMED_KEYS))).is_ok());
-    let refused = decode::<Frame>(&encode(&frame(MAX_CONSUMED_KEYS + 1))).unwrap_err();
-    assert!(refused.contains("too many consumed keys"), "{refused}");
-}
-
-/// A consumed key the host cannot read is refused, not dropped: it would
-/// cross and stop nothing, and the view's test would pass.
 #[test]
 fn sanitize_refuses_a_consumed_key_gpui_cannot_read() {
-    use view_wire::interactivity::{MAX_CONSUMED_KEYS, MAX_KEYSTROKE_BYTES};
     let frame = |keys: Vec<String>| Frame {
         root: Some(Node::Container(ContainerNode {
             id: None,
@@ -68,18 +22,13 @@ fn sanitize_refuses_a_consumed_key_gpui_cannot_read() {
             .unwrap()
             .is_empty()
     );
-    let long = "a".repeat(MAX_KEYSTROKE_BYTES + 1);
-    for unread in ["esc-ape", "ctrl-a-b", long.as_str()] {
+    for unread in ["esc-ape", "ctrl-a-b"] {
         assert_eq!(
             sanitized(&["escape", unread]),
             Err(Refused::Invalid("a consumed key gpui cannot read")),
             "{unread:?}"
         );
     }
-    assert_eq!(
-        sanitized(&["escape"; MAX_CONSUMED_KEYS + 1]),
-        Err(Refused::Invalid("too many consumed keys"))
-    );
 }
 
 #[test]
@@ -101,30 +50,6 @@ fn sanitize_refuses_a_consumed_click_with_no_click() {
     assert_eq!(
         sanitize(&mut frame(None)),
         Err(Refused::Invalid("consumes a click it does not take"))
-    );
-}
-
-#[test]
-fn decode_refuses_more_actions_than_a_node_advertises() {
-    refused_past(
-        |len| Aria {
-            actions: vec![(Action::Increment, 1); len],
-            ..Default::default()
-        },
-        MAX_ARIA_ACTIONS,
-        "too many aria actions",
-    );
-}
-
-#[test]
-fn decode_refuses_more_custom_actions_than_a_node_offers() {
-    refused_past(
-        |len| Aria {
-            custom_actions: (0..len as i32).map(|id| (id, "Pin".into())).collect(),
-            ..Default::default()
-        },
-        MAX_ARIA_CUSTOM_ACTIONS,
-        "too many aria custom actions",
     );
 }
 
@@ -211,7 +136,7 @@ fn a_heading_level_outside_1_to_6_is_no_level() {
         },
         ..Default::default()
     });
-    assert_eq!(item.unwrap().aria.level, Some(1_000_000));
+    assert_eq!(item.unwrap().aria.level, Some(usize::MAX));
 }
 
 #[test]
@@ -418,11 +343,9 @@ fn actions_the_host_owns_or_repeats_are_dropped() {
 }
 
 #[test]
-fn custom_actions_are_cut_to_the_bound_unique_and_short() {
+fn custom_actions_are_unique() {
     let kept = aria(Aria {
-        custom_actions: (0..MAX_ARIA_CUSTOM_ACTIONS as i32 + 4)
-            .map(|id| (id % 6, "é".repeat(MAX_ARIA_TEXT_BYTES)))
-            .collect(),
+        custom_actions: [1, 1, 2, 1, 3].map(|id| (id, "Pin".into())).to_vec(),
         ..Default::default()
     });
     assert_eq!(
@@ -430,66 +353,8 @@ fn custom_actions_are_cut_to_the_bound_unique_and_short() {
             .iter()
             .map(|(id, _)| *id)
             .collect::<Vec<_>>(),
-        vec![0, 1, 2, 3, 4, 5]
+        [1, 2, 3]
     );
-    for (_, description) in &kept.custom_actions {
-        assert_eq!(description.len(), MAX_ARIA_TEXT_BYTES);
-    }
-    let unique = aria(Aria {
-        custom_actions: (0..MAX_ARIA_CUSTOM_ACTIONS as i32 + 4)
-            .map(|id| (id, "Pin".into()))
-            .collect(),
-        ..Default::default()
-    });
-    assert_eq!(
-        unique
-            .custom_actions
-            .iter()
-            .map(|(id, _)| *id)
-            .collect::<Vec<_>>(),
-        (0..MAX_ARIA_CUSTOM_ACTIONS as i32).collect::<Vec<_>>()
-    );
-    // repeats spend no place: a new id after eight of one is kept
-    let repeated = aria(Aria {
-        custom_actions: [1; MAX_ARIA_CUSTOM_ACTIONS]
-            .into_iter()
-            .chain([2])
-            .map(|id| (id, "Pin".into()))
-            .collect(),
-        ..Default::default()
-    });
-    assert_eq!(
-        repeated
-            .custom_actions
-            .iter()
-            .map(|(id, _)| *id)
-            .collect::<Vec<_>>(),
-        [1, 2]
-    );
-}
-
-#[test]
-fn aria_strings_are_cut_to_the_bound() {
-    let long: gpui::SharedString = "x".repeat(MAX_ARIA_TEXT_BYTES + 1).into();
-    let kept = aria(Aria {
-        label: Some(long.clone()),
-        description: Some(long.clone()),
-        keyshortcuts: Some(long.clone()),
-        value: Some(long.clone()),
-        placeholder: Some(long.clone()),
-        author_id: Some(long),
-        ..Default::default()
-    });
-    for text in [
-        kept.label,
-        kept.description,
-        kept.keyshortcuts,
-        kept.value,
-        kept.placeholder,
-        kept.author_id,
-    ] {
-        assert_eq!(text.unwrap().len(), MAX_ARIA_TEXT_BYTES);
-    }
 }
 
 /// A list's and a divider's interactivity are walked like a container's.

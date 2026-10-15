@@ -7,9 +7,9 @@
 //!
 //! THE CODEC RULE. Two layers cross the view boundary and they want
 //! opposite things. The tree a view draws (`Frame`, [`WidgetCommand`]) must
-//! tolerate a hundred optional fields and is decoded under a budget — that
-//! is MessagePack, in `codec`. Everything a method carries is DATA: the
-//! bytes a program signs, stores or answers with, where the same value must
+//! tolerate a hundred optional fields — that is MessagePack, in `codec`.
+//! Everything a method carries is DATA: the bytes a program signs, stores
+//! or answers with, where the same value must
 //! be the same bytes and an unknown field is a fault. That is borsh, the
 //! codec the program abi is written in, so a program's own request rides a
 //! method with no second encoding around it. The rule is held by types, not

@@ -270,14 +270,12 @@ fn every_key_is_one_row_validators_first() {
     assert_eq!(interactivity.role, Some(view::Role::Heading));
 }
 
-/// The strip spans the last 64, read a page at a time; a resident leads
-/// none, and its cells stay empty.
 #[test]
-fn the_strip_reads_the_last_64_a_page_at_a_time() {
+fn the_strip_reads_the_last_64() {
     let (cx, _) = ready();
     assert!(cx.has_text("Proposed · last 64 blocks · 4,137 → 4,200"));
     let pages = cx.host().requests::<ChainBlocks>();
-    assert_eq!(pages.len(), 4, "{pages:?}");
+    assert_eq!(pages.len(), 1, "{pages:?}");
     assert_eq!(pages[0].before, Some(4201));
     assert_eq!(
         texts_of(&cx, "nodes-row-3"),

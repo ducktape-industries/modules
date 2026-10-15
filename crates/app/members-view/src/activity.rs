@@ -19,8 +19,6 @@ pub struct Signed {
     pub time: u64,
 }
 
-const DESCRIBED_BYTES: u32 = 4 << 10;
-
 pub async fn recent(host: Host, account: u64) -> Result<Recent, Error> {
     let tip = host
         .ask::<ChainBlocks>(BlockPage {
@@ -41,7 +39,7 @@ pub async fn recent(host: Host, account: u64) -> Result<Recent, Error> {
         };
         let ask = TxAsk {
             tx: at,
-            most: DESCRIBED_BYTES,
+            most: u32::MAX,
         };
         let tx = host.ask::<ChainTx>(ask).await.ok().flatten();
         items.push(Signed {

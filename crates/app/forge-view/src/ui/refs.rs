@@ -230,22 +230,15 @@ fn forbidden(forge: &Forge) -> Option<String> {
     Some(format!("This repository forbids {what}."))
 }
 
-/// Each ref's standing against the default head, where it has one: the
-/// head says it is browsed; the first branches are compared (a tag never
-/// is), the rest say nothing.
 fn standings(forge: &Forge, names: &[Vec<u8>], head: &[u8]) -> Vec<Option<String>> {
-    let compared: Vec<Vec<u8>> = forge
-        .branches()
-        .into_iter()
-        .take(crate::sync::COMPARED_REFS)
-        .collect();
     names
         .iter()
         .map(|name| {
             if name == head {
                 return Some("browsing".to_owned());
             }
-            if !compared.contains(name) {
+            let branch = name.starts_with(b"refs/heads/");
+            if !branch {
                 return None;
             }
             let query = Query::Compare {

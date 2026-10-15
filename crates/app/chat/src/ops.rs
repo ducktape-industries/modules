@@ -1,19 +1,17 @@
 //! One function per [`Op`](crate::Op), each named by [`Chat::execute`](crate::Chat)'s
 //! match. Each checks first (`rules`), then writes, so a refused op leaves
 //! the store as it found it.
-use ::program::{
-    Error, ExecCtx, Origin, already_exists, capacity, invalid, unauthorized, wrong_state,
-};
+use ::program::{Error, ExecCtx, Origin, already_exists, invalid, unauthorized, wrong_state};
 
 use crate::attributed::report;
 use crate::rules;
 use crate::state::{
     ANSWERED, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS, REPLIES, ROOTS, channel,
-    fits, message, newest_first, replace_message, toggle,
+    message, newest_first, replace_message, toggle,
 };
 use crate::{
-    AccountNumber, Block, ChannelRow, MAX_REACTION_EMOJIS, MAX_REVISIONS, MAX_THREAD_REPLIES,
-    MemberRow, MsgRow, PostPolicy, Principal, Reaction, dm_channel_id, plain_text, tags,
+    AccountNumber, Block, ChannelRow, MemberRow, MsgRow, PostPolicy, Principal, Reaction,
+    dm_channel_id, plain_text, tags,
 };
 
 // ── channels ────────────────────────────────────────────────────────────────
@@ -167,7 +165,6 @@ pub(crate) fn post(
         thread,
         ..MsgRow::by(sender.clone())
     };
-    fits(&row)?;
     match thread {
         Some(root) => answer(ctx, &channel_id, root, seq)?,
         None => ROOTS.insert(ctx, &(channel_id.clone(), newest_first(seq))),
@@ -185,9 +182,6 @@ fn answer(ctx: &ExecCtx, channel_id: &str, root: u64, seq: u64) -> Result<(), Er
     let mut row = message(ctx, channel_id, root)?;
     if row.thread.is_some() {
         return Err(invalid("a reply cannot be a thread root"));
-    }
-    if row.reply_count >= MAX_THREAD_REPLIES {
-        return Err(capacity("this thread is full"));
     }
     forget_answer(ctx, &row);
     let channel_id = channel_id.to_owned();
@@ -223,9 +217,6 @@ pub(crate) fn edit(
     rules::writable(ctx, &channel(ctx, channel_id)?, sender)?;
     let old = message(ctx, channel_id, seq)?;
     rules::editable(&old, sender)?;
-    if old.rev >= MAX_REVISIONS {
-        return Err(capacity("the message has no revisions left"));
-    }
     let row = MsgRow {
         text: plain_text(&blocks),
         tags: tags(&blocks),
@@ -236,7 +227,6 @@ pub(crate) fn edit(
         base_rev,
         ..old.clone()
     };
-    fits(&row)?;
     replace_message(ctx, Some(&old), &row);
     report(ctx, sender, Some(&old), &row);
     Ok(())
@@ -300,24 +290,20 @@ pub(crate) fn react(
         return Ok(());
     }
     if on {
-        count_in(&mut row.reactions, emoji)?;
+        count_in(&mut row.reactions, emoji);
     } else {
         count_out(&mut row.reactions, emoji);
     }
-    fits(&row)?;
     toggle(ctx, &REACTIONS, &key, on);
     MESSAGES.put(ctx, &(key.0, seq), &row);
     Ok(())
 }
 
 /// One more `emoji`: its count grows, or it joins the list in emoji order.
-fn count_in(reactions: &mut Vec<Reaction>, emoji: &str) -> Result<(), Error> {
+fn count_in(reactions: &mut Vec<Reaction>, emoji: &str) {
     if let Some(reaction) = reactions.iter_mut().find(|r| r.emoji == emoji) {
         reaction.count += 1;
-        return Ok(());
-    }
-    if reactions.len() >= MAX_REACTION_EMOJIS {
-        return Err(capacity("no room for another emoji"));
+        return;
     }
     reactions.push(Reaction {
         emoji: emoji.to_owned(),
@@ -325,7 +311,6 @@ fn count_in(reactions: &mut Vec<Reaction>, emoji: &str) -> Result<(), Error> {
         reacted_by_me: false,
     });
     reactions.sort_by(|a, b| a.emoji.cmp(&b.emoji));
-    Ok(())
 }
 
 /// One fewer `emoji`: at zero it leaves the list.

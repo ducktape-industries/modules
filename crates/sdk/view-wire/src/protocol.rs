@@ -258,28 +258,6 @@ pub struct Request {
     pub payload: Vec<u8>,
 }
 
-/// The most requests one frame may carry: what a host accepts per tick.
-pub const MAX_REQUESTS: usize = 256;
-
-/// The most cancels one frame may carry: a tick may cancel twice what it may
-/// request, so a view dropping many live subscriptions at once is not faulted.
-pub const MAX_CANCELS: usize = 2 * MAX_REQUESTS;
-
-fn decode_patches<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Patch>, D::Error> {
-    crate::bounded_vec(d, MAX_PATCHES, "more patches than the host applies")
-}
-fn decode_tooltip_responses<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Vec<TooltipResponse>, D::Error> {
-    crate::bounded_vec(d, MAX_PATCHES, "too many tooltip responses")
-}
-fn decode_requests<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Request>, D::Error> {
-    crate::bounded_vec(d, MAX_REQUESTS, "too many requests")
-}
-fn decode_cancels<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u64>, D::Error> {
-    crate::bounded_vec(d, MAX_CANCELS, "too many cancels")
-}
-
 /// What one tick of the view produced.
 ///
 /// The tree crosses one of three ways: whole in `root`; not at all, with
@@ -288,27 +266,22 @@ fn decode_cancels<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u64>, D:
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Frame {
     /// Tooltip subtrees built only after a native hover request.
-    #[serde(deserialize_with = "decode_tooltip_responses")]
     pub tooltip_responses: Vec<TooltipResponse>,
     /// The style table's entries this frame brings: all of them beside a
     /// `root`, which replaces the host's table with its tree, and otherwise
     /// the ones the host does not hold yet, in id order after the ones it
     /// does.
-    #[serde(deserialize_with = "crate::styles::decode_table")]
     pub styles: Vec<Style>,
     /// The tree to show. `None` with `unchanged` set means "what you have";
     /// `None` otherwise means "what you have, with `patches` applied".
     pub root: Option<Node>,
     /// Edits to the tree the host holds, in order, when `root` is `None`
     /// and `unchanged` is clear. The host applies them with [`apply`].
-    #[serde(deserialize_with = "decode_patches")]
     pub patches: Vec<Patch>,
     /// What the view asked for while producing this frame.
-    #[serde(deserialize_with = "decode_requests")]
     pub requests: Vec<Request>,
     /// Requests the view stopped waiting on — a dropped future or stream.
     /// The host frees whatever it kept for them and sends no more answers.
-    #[serde(deserialize_with = "decode_cancels")]
     pub cancels: Vec<u64>,
     /// `root` is `None` because the tree is the one the view sent last:
     /// the host keeps what it has instead of decoding it again. Requests and

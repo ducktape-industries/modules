@@ -149,9 +149,8 @@ pub(crate) fn polls(ctx: &QueryCtx, page: &PageRequest) -> Result<PageResponse<P
 ```
 
 `PageRequest { after, limit }` is what a client sends (`PageRequest::first(n)`,
-then `PageRequest::resume(reply.next, n)`); the limit is clamped to
-`PageRequest::MAX_LIMIT` (256), or to a program's own bound with
-`page.bounded(max)`. `PageResponse { height, items, next }` answers with the
+then `PageRequest::resume(reply.next, n)`); no limit asks every row, and a
+bound the network configures applies with `page.bounded(max)`. `PageResponse { height, items, next }` answers with the
 height that answered (the ctx's: no program passes it) and an opaque cursor
 for the page after. A cursor is
 bound to the listing it came from (a cursor from one listing handed to

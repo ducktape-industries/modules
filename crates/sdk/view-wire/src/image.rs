@@ -6,7 +6,7 @@ pub enum ImageData {
     Encoded(
         #[serde(
             serialize_with = "crate::codec::bin::serialize",
-            deserialize_with = "decode_bytes"
+            deserialize_with = "crate::codec::bin::deserialize"
         )]
         Vec<u8>,
     ),
@@ -15,7 +15,7 @@ pub enum ImageData {
         height: u32,
         #[serde(
             serialize_with = "crate::codec::bin::serialize",
-            deserialize_with = "decode_bytes"
+            deserialize_with = "crate::codec::bin::deserialize"
         )]
         pixels: Vec<u8>,
     },
@@ -54,60 +54,34 @@ impl ImageData {
         }
     }
 
-    pub(crate) fn sanitize(data: &mut Option<Self>, budgets: &mut crate::Budgets) {
-        if let Some(Self::Refusal(reason)) = data {
-            super::spend_text(reason, budgets);
-            return;
-        }
-        if let Some(value) = data {
-            if !value.valid_rgba() {
-                *data = None;
-            } else if value.byte_len() > budgets.pictures {
-                *data = None;
-                budgets.cut(|cuts| &mut cuts.pictures, 1);
-            } else {
-                budgets.pictures -= value.byte_len();
-            }
+    pub(crate) fn sanitize(data: &mut Option<Self>) {
+        let invalid = data
+            .as_ref()
+            .is_some_and(|value| !matches!(value, Self::Refusal(_)) && !value.valid_rgba());
+        if invalid {
+            *data = None;
         }
     }
-}
-
-// Bounded by the frame, not the picture allowance: frame sanitization applies
-// that, dropping a picture whole rather than truncating it. A longer `bin` is
-// refused before allocating, even when ImageData is decoded on its own.
-fn decode_bytes<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
-    crate::codec::bin::bounded(
-        deserializer,
-        crate::MAX_FRAME_BYTES,
-        "raster byte limit exceeded",
-    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn invalid_rgba_is_dropped_without_spending_valid_picture_budget() {
-        let mut budget = crate::Budgets::frame(&crate::styles::testing::held());
-        budget.pictures = 4;
+    fn invalid_rgba_is_dropped() {
         let mut invalid = Some(ImageData::Rgba {
             width: u32::MAX,
             height: u32::MAX,
             pixels: vec![0; 4],
         });
-        ImageData::sanitize(&mut invalid, &mut budget);
+        ImageData::sanitize(&mut invalid);
         assert_eq!(invalid, None);
-        assert_eq!(budget.pictures, 4);
         let mut valid = Some(ImageData::Rgba {
             width: 1,
             height: 1,
             pixels: vec![255; 4],
         });
-        ImageData::sanitize(&mut valid, &mut budget);
+        ImageData::sanitize(&mut valid);
         assert!(valid.is_some());
-        assert_eq!(budget.pictures, 0);
-        let mut excess = Some(ImageData::Encoded(vec![1]));
-        ImageData::sanitize(&mut excess, &mut budget);
-        assert_eq!(excess, None);
     }
 }

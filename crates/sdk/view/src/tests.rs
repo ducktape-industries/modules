@@ -300,7 +300,6 @@ fn uniform_list_lowers_a_screenful_before_the_host_asks_and_grows_to_what_it_sho
         (1_000 - margin..1_020 + margin).collect::<Vec<_>>(),
         "the rows shown with a margin past each edge"
     );
-    assert!(cx.reports()[0].patches <= wire::MAX_PATCHES);
 
     cx.simulate_range("rows", 1_005..1_025);
     assert!(
@@ -310,10 +309,10 @@ fn uniform_list_lowers_a_screenful_before_the_host_asks_and_grows_to_what_it_sho
 
     cx.simulate_range("rows", 0..u32::MAX as usize);
     let (_, indices, _) = uniform_rows(&cx);
-    assert_eq!(indices.len(), wire::MAX_UNIFORM_LIST_ROWS);
+    assert_eq!(indices.len(), 2_000);
     assert_eq!(
         indices.last().copied(),
-        Some(wire::MAX_UNIFORM_LIST_ROWS as u32 - 1),
+        Some(1_999),
         "the window's last row is sent, the measurement row inside it"
     );
 }
@@ -542,11 +541,6 @@ fn a_scroll_to_a_row_on_screen_keeps_the_rows_on_screen() {
     assert!(!rows.contains(&125), "the rows left behind are let go");
 }
 
-/// The window grows by a scroll beside it and is trimmed by the host's
-/// word: once the host shows the rows scrolled to, rows more than a margin
-/// off screen leave with the next frame, and the range itself, inside the
-/// window, draws nothing. A window grown past what one frame carries keeps
-/// the side scrolled to.
 #[test]
 fn a_uniform_window_grown_by_a_scroll_is_trimmed_by_the_hosts_range() {
     use gpui::ScrollStrategy::Nearest;
@@ -568,16 +562,6 @@ fn a_uniform_window_grown_by_a_scroll_is_trimmed_by_the_hosts_range() {
         (rows[1], rows.last()),
         (80 - margin, Some(&(100 + margin - 1))),
         "{rows:?}"
-    );
-
-    // a pane of 240 rows holds more than a frame carries with a margin
-    cx.simulate_range("rows", 400..640);
-    let rows = scrolled_to(&mut cx, &view, 399, Nearest);
-    assert_eq!(rows.len(), wire::MAX_UNIFORM_LIST_ROWS);
-    assert_eq!(
-        rows[1],
-        399 - margin,
-        "the side scrolled to is kept: {rows:?}"
     );
 }
 
@@ -638,7 +622,7 @@ fn weak_entity_updates_fail_after_the_view_is_released() {
 }
 
 #[test]
-fn a_self_waking_future_is_budgeted_and_keeps_the_frame_busy() {
+fn a_self_waking_future_keeps_the_frame_busy() {
     let (mut cx, _) = opened::<Probe>();
     let polls = Rc::new(Cell::new(0));
     let counted = polls.clone();
@@ -651,11 +635,10 @@ fn a_self_waking_future_is_budgeted_and_keeps_the_frame_busy() {
         .await;
     });
     assert!(cx.tick(vec![]).busy);
-    assert!(
-        polls.get() > 0 && polls.get() <= 4096,
-        "poll budget must bound a frame: {}",
-        polls.get()
-    );
+    let first = polls.get();
+    assert!(first > 0);
+    assert!(cx.tick(vec![]).busy);
+    assert!(polls.get() > first, "the next tick polls it again");
     assert!(cx.snapshot().is_err());
     drop(task);
     assert!(!cx.tick(vec![]).busy);
@@ -709,7 +692,7 @@ fn messages_and_responses_settle_in_input_order() {
 }
 
 #[test]
-fn repeated_spawns_exhaust_the_round_budget_and_resume_next_frame() {
+fn chained_spawns_finish_in_one_tick() {
     fn enqueue(cx: &mut Context<Probe>, remaining: usize) {
         cx.spawn(async move |this, cx| {
             this.update(cx, |view, cx| {
@@ -725,21 +708,12 @@ fn repeated_spawns_exhaust_the_round_budget_and_resume_next_frame() {
     }
     let (mut cx, probe) = opened::<Probe>();
     cx.update(&probe, |_, _, cx| enqueue(cx, 40));
-    assert!(cx.tick(vec![]).busy);
-    probe.read(|view| assert!(view.received.len() < 40));
-    let mut busy = true;
-    for _ in 0..10 {
-        busy = cx.tick(vec![]).busy;
-        if !busy {
-            break;
-        }
-    }
-    assert!(!busy);
+    assert!(!cx.tick(vec![]).busy);
     probe.read(|view| assert_eq!(view.received.len(), 40));
 }
 
 mod lifecycle;
-mod picture_budget;
+mod pictures;
 mod primitive_tests;
 mod style_table;
 mod tick_alloc;

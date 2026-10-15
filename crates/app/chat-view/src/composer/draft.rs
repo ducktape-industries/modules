@@ -68,7 +68,6 @@ pub(crate) fn matching_choices<'a>(
     choices
         .iter()
         .filter(|choice| choice.label.to_lowercase().starts_with(&needle))
-        .take(32)
         .collect()
 }
 

@@ -1,18 +1,13 @@
-//! Paths as files spells them (NFC, absolute, `/`-separated, bounded) and who may write
+//! Paths as files spells them (NFC, absolute, `/`-separated) and who may write
 //! where: any account under `/home/<label>/` and `/shared/`, the chain anywhere.
 use ::program::{Error, Principal, invalid, unauthorized};
 use unicode_normalization::UnicodeNormalization;
-
-use crate::{MAX_DEPTH, MAX_NAME_BYTES, MAX_PATH_BYTES};
 
 pub fn segments(path: &str) -> Result<Vec<String>, Error> {
     if !path.starts_with('/') {
         return Err(invalid(format!(
             "{path:?} is not absolute: a path starts with /"
         )));
-    }
-    if path.len() > MAX_PATH_BYTES {
-        return Err(invalid(format!("a path is at most {MAX_PATH_BYTES} bytes")));
     }
     if path.contains('\0') {
         return Err(invalid("a path holds no NUL byte"));
@@ -30,13 +25,7 @@ pub fn segments(path: &str) -> Result<Vec<String>, Error> {
         if navigates {
             return Err(invalid(format!("{path:?} has an empty, . or .. segment")));
         }
-        if segment.len() > MAX_NAME_BYTES {
-            return Err(invalid(format!("a name is at most {MAX_NAME_BYTES} bytes")));
-        }
         segments.push(segment.to_owned());
-    }
-    if segments.len() > MAX_DEPTH {
-        return Err(invalid(format!("a path is at most {MAX_DEPTH} deep")));
     }
     Ok(segments)
 }
@@ -82,7 +71,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_path_is_absolute_composed_and_bounded() {
+    fn a_path_is_absolute_and_composed() {
         assert_eq!(segments("/").unwrap(), Vec::<String>::new());
         assert_eq!(segments("/shared/a").unwrap(), ["shared", "a"]);
         for bad in [
@@ -100,10 +89,6 @@ mod tests {
                 "{bad:?}"
             );
         }
-        assert!(segments(&format!("/{}", "a".repeat(MAX_NAME_BYTES))).is_ok());
-        assert!(segments(&format!("/{}", "a".repeat(MAX_NAME_BYTES + 1))).is_err());
-        assert!(segments(&"/a".repeat(MAX_DEPTH)).is_ok());
-        assert!(segments(&"/a".repeat(MAX_DEPTH + 1)).is_err());
     }
 
     #[test]

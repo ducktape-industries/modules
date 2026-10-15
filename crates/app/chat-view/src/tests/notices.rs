@@ -194,8 +194,6 @@ fn the_relaunch_recount_waits_for_the_readers_account() {
     assert_eq!(cx.host().requests::<HostBadge>().last(), Some(&1));
 }
 
-/// A device store that refuses the kept cursors is asked again, then chat
-/// starts from what it sees: reading a room still keeps its cursor.
 #[test]
 fn a_refused_store_read_still_keeps_cursors() {
     use std::collections::BTreeMap;
@@ -219,9 +217,10 @@ fn a_refused_store_read_still_keeps_cursors() {
     cx.open::<Chat>();
     seat(&mut cx);
     let asked = cx.host().requests::<StoreGet>();
-    assert!(
-        asked.iter().filter(|key| *key == "reads/0102").count() > 1,
-        "asked again before giving up: {asked:?}"
+    assert_eq!(
+        asked.iter().filter(|key| *key == "reads/0102").count(),
+        1,
+        "{asked:?}"
     );
     cx.simulate_click("chat-sidebar-channel-general");
     cx.run_until_parked();

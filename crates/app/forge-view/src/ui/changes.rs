@@ -509,7 +509,7 @@ fn reviewers(
         if let Some(form) = &mut forge.form {
             if let Some(at) = form.reviewers.iter().position(|held| *held == key) {
                 form.reviewers.remove(at);
-            } else if form.reviewers.len() < forge::MAX_REVIEWERS {
+            } else {
                 form.reviewers.push(key);
             }
         }
@@ -557,7 +557,6 @@ pub(crate) fn people_picker(
             let name = names.name(person).unwrap_or_default().to_lowercase();
             needle.is_empty() || name.contains(&needle)
         })
-        .take(24)
         .map(|person| {
             let number = person.account().unwrap_or_default();
             let chosen = picked(&person);

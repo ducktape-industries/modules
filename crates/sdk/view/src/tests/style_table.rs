@@ -142,44 +142,6 @@ fn the_test_host_refuses_a_whole_frame_naming_a_style_its_table_does_not_hold() 
     cx.run_until_parked();
 }
 
-/// One node whose style is new every turn.
-#[derive(Default, Serialize, Deserialize)]
-struct Churn(usize);
-impl View for Churn {
-    const NAME: &'static str = "Churn";
-}
-impl Render for Churn {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div().id("churn").w(px(self.0 as f32)).child("churn")
-    }
-}
-
-/// A table that outgrows what the host holds starts over: the tree goes
-/// whole, with the styles it names and no others, and the host takes every
-/// frame on the way.
-#[test]
-fn a_table_past_what_the_host_holds_starts_over_with_a_whole_tree() {
-    let mut driver = Driver::<Churn>::new();
-    let mut held = wire::Styles::default();
-    let mut wholes = Vec::new();
-    for turn in 0..wire::MAX_STYLES + 4 {
-        driver.entity().update(driver.app_mut(), |view, cx| {
-            view.0 = turn;
-            cx.notify();
-        });
-        let mut frame = driver.tick_with(vec![], wire::Frame::clone);
-        if frame.root.is_some() {
-            wholes.push((turn, frame.styles.len()));
-        }
-        wire::sanitize(&mut frame, &mut held).expect("the host takes every frame");
-        assert!(held.len() <= wire::MAX_STYLES);
-    }
-    // the first frame, and the one that started the table over: each
-    // brought the root's style and the text's
-    assert_eq!(wholes, [(0, 2), (wire::MAX_STYLES - 1, 2)]);
-    assert_eq!(held.len(), 2 + 4);
-}
-
 /// A tooltip built in the tick a tree goes whole is renumbered with it.
 #[derive(Default, Serialize, Deserialize)]
 struct Tipped;

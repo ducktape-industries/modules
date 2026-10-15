@@ -12,9 +12,6 @@ use chat::{MsgRow, Op, Principal, parse_message};
 use serde::{Deserialize, Serialize};
 use view::host::Error;
 
-/// The most a composer sends, well under the program's message cap.
-const MAX_BODY_BYTES: usize = 16 * 1024;
-
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Target {
     Post {
@@ -59,11 +56,8 @@ impl Target {
 /// The op a committed draft becomes, `id` naming a new message.
 pub fn op(id: String, send: &Send, target: &Target) -> Result<Op, Error> {
     let body = &send.body;
-    if body.is_empty() || body.len() > MAX_BODY_BYTES {
-        return Err(Error::new(
-            "invalid_body",
-            "Message must contain between 1 byte and 16 KiB",
-        ));
+    if body.is_empty() {
+        return Err(Error::new("invalid_body", "Message must not be empty"));
     }
     let blocks = parse_message(body);
     Ok(match target.clone() {

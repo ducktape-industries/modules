@@ -22,49 +22,66 @@ pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         }
     };
     let list = rows("explorer-accounts-list", "Accounts", view);
-    let list = listed
+    let routes = listed
         .list
         .iter()
-        .take(LIST_ROWS * 4)
-        .fold(list, |list, account| {
-            let name = &account.card.name;
-            let sent = view.used_by(account.number).map(|used| frames(&used));
-            let row = row(
-                SharedString::from(format!("explorer-account-{}", account.number)).into(),
-                name.clone(),
-                Route::Account(account.number),
-                cx,
-                theme,
-            )
-            .child(design::avatar(name, design::size::AVATAR, theme))
-            .child(div().flex_1().truncate().child(name.clone()))
-            .child(div().text_color(theme.muted).child(kind(view, account)))
-            .child(mono(format!("#{}", account.number)).text_color(theme.faint))
-            .child(div().w(DEVICES_W).text_color(theme.muted).child(plural(
-                account.keys().len() as u64,
-                "device",
-                "devices",
-            )))
-            .child(
-                mono(sent.map_or_else(|| "–".to_owned(), |sent| plural(sent, "tx", "tx")))
-                    .w(COUNT_W)
-                    .flex()
-                    .justify_end()
-                    .text_color(theme.muted),
-            );
-            list.row(Route::Account(account.number), row, theme)
-        });
+        .map(|account| Route::Account(account.number))
+        .collect();
+    let list = list.shown(routes, |view, range, cx, theme| {
+        let Some(listed) = view.accounts.ready() else {
+            return Vec::new();
+        };
+        range
+            .filter_map(|index| listed.list.get(index))
+            .map(|account| account_row(view, account, cx, theme))
+            .collect()
+    });
     let caption_text = format!("{} · tx recorded", grouped(listed.list.len() as u64));
     div()
         .id("explorer-accounts")
-        .child(heading(
-            "explorer-accounts-heading",
-            "Accounts",
-            Some(caption(caption_text, theme)),
-            theme,
-        ))
+        .flex_1()
+        .min_h(px(0.))
+        .flex()
+        .flex_col()
+        .child(
+            heading(
+                "explorer-accounts-heading",
+                "Accounts",
+                Some(caption(caption_text, theme)),
+                theme,
+            )
+            .mr(design::size::SCROLLBAR),
+        )
         .child(list.build(cx))
         .into_any_element()
+}
+
+fn account_row(view: &Explorer, account: &Account, cx: Cx, theme: &Theme) -> Stateful<Div> {
+    let name = &account.card.name;
+    let sent = view.used_by(account.number).map(|used| frames(&used));
+    row(
+        SharedString::from(format!("explorer-account-{}", account.number)).into(),
+        name.clone(),
+        Route::Account(account.number),
+        cx,
+        theme,
+    )
+    .child(design::avatar(name, design::size::AVATAR, theme))
+    .child(div().flex_1().truncate().child(name.clone()))
+    .child(div().text_color(theme.muted).child(kind(view, account)))
+    .child(mono(format!("#{}", account.number)).text_color(theme.faint))
+    .child(div().w(DEVICES_W).text_color(theme.muted).child(plural(
+        account.keys().len() as u64,
+        "device",
+        "devices",
+    )))
+    .child(
+        mono(sent.map_or_else(|| "–".to_owned(), |sent| plural(sent, "tx", "tx")))
+            .w(COUNT_W)
+            .flex()
+            .justify_end()
+            .text_color(theme.muted),
+    )
 }
 
 fn frames(used: &[&activity::Used]) -> u64 {

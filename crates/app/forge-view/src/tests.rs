@@ -848,7 +848,7 @@ fn creating_a_repository_validates_its_name_then_shows_the_submission() {
     cx.simulate_click("forge-new-repo-submit");
     cx.run_until_parked();
     assert!(
-        cx.has_text("A repository name is 1–37 bytes of letters, digits, dot, dash or underscore"),
+        cx.has_text("A repository name is letters, digits, dot, dash or underscore"),
         "{:?}",
         cx.texts()
     );

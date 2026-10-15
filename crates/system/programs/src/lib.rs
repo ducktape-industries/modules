@@ -37,10 +37,6 @@ pub const CODE_KIND: &str = "program";
 /// vote schedules.
 pub const NOTICE: u64 = 60;
 
-/// The most changes one account's grants keep waiting at once; the vote's
-/// do not count. It bounds what a maintainer's change scans.
-pub const MAX_PENDING: usize = 8;
-
 /// The names a grant covers: one id, which may run nothing yet (how a team
 /// adds a new program), or every id but those bound to a role the kernel calls.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]

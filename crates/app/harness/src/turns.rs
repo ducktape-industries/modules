@@ -136,32 +136,32 @@ fn opens(thread: &ThreadRow) -> bool {
     thread.sealed == 0 && thread.summary.is_none()
 }
 
-fn withheld(body: Body) -> Body {
-    let left_out = |bytes: usize| {
-        format!("left out: these {bytes} bytes alone do not fit the model's context window")
-    };
+fn left_out(seq: u64, body: &Body) -> String {
+    let text = body.text();
+    format!(
+        "left out of your context: frame {seq} is {} bytes in {} lines, too large for your context window alone. Find lines in it with thread_search (frame {seq}) and read parts of it with thread_read (frame {seq}, an offset and a length).",
+        text.len(),
+        text.split('\n').count()
+    )
+}
+
+fn withheld(seq: u64, body: Body) -> Body {
+    let note = left_out(seq, &body);
     match body {
         Body::Result {
-            call, tool, text, ..
+            call, tool, failed, ..
         } => Body::Result {
             call,
             tool,
-            text: format!("{}; call again for less of it", left_out(text.len())),
-            failed: true,
+            text: note,
+            failed,
         },
-        Body::Refused {
+        Body::Refused { call, tool, .. } => Body::Refused {
             call,
             tool,
-            problem,
-        } => Body::Refused {
-            call,
-            tool,
-            problem: left_out(problem.len()),
+            problem: note,
         },
-        Body::Post { author, text } => Body::Post {
-            author,
-            text: format!("({})", left_out(text.len())),
-        },
+        Body::Post { author, .. } => Body::Post { author, text: note },
         Body::Turn { .. } | Body::Notice { .. } | Body::Compaction { .. } => body,
     }
 }
@@ -169,7 +169,7 @@ fn withheld(body: Body) -> Body {
 fn shown(ctx: &ExecCtx, thread: u64, frame: Frame) -> Frame {
     match WITHHELD.has(ctx, &(thread, frame.seq)) {
         true => Frame {
-            body: withheld(frame.body),
+            body: withheld(frame.seq, frame.body),
             ..frame
         },
         false => frame,
@@ -381,7 +381,7 @@ fn plan_without_largest(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<Option<
         }
     };
     let text = format!(
-        "{what} alone does not fit {}'s context window, so the model is told it was left out",
+        "{what} alone does not fit {}'s context window, so the model reads it in parts",
         thread.model
     );
     append(ctx, thread, Body::Notice { text });

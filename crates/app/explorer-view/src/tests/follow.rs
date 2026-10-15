@@ -265,10 +265,6 @@ fn refused_accounts_say_why_and_retry_reads_again() {
     assert!(cx.has_text("Program · forge"), "{:?}", cx.texts());
 }
 
-/// A pushed head asks the node for the blocks since the top, so one new
-/// block costs one block, not a page of 20 (`chain.blocks { before: None,
-/// limit: 20 }` per head, 2.3-2.6 KB carried for 1 new block on this
-/// fixture chain, before).
 #[test]
 fn a_pushed_head_asks_for_the_blocks_since_the_top() {
     let mut cx = TestAppContext::new();
@@ -356,7 +352,7 @@ fn an_accounts_activity_past_the_window_is_read_by_place_and_follows_the_index()
             height: 11,
             position,
         },
-        most: 4 << 10,
+        most: u32::MAX,
     };
     assert_eq!(cx.host().requests::<ChainTx>(), [at(1), at(0)]);
     assert!(cx.host().requests::<ChainBlock>().is_empty());

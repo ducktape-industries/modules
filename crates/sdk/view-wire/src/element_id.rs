@@ -207,12 +207,6 @@ impl ElementIdWire {
                 if names.is_empty() || names.len() > MAX_ELEMENT_ID_DEPTH {
                     return Err("named-child identity has an invalid depth");
                 }
-                if names
-                    .iter()
-                    .any(|name| name.len() > crate::MAX_STRING_BYTES)
-                {
-                    return Err("named-child identity name is too long");
-                }
                 base.validate_host()
             }
             _ => self.atom().expect("an atom").validate_host(),
@@ -314,17 +308,6 @@ impl ElementIdAtom {
     fn validate_host(&self) -> Result<(), &'static str> {
         match self {
             Self::FocusHandle(_) => Err("focus-handle element IDs are host-local"),
-            Self::Name(name) | Self::NamedInteger(name, _)
-                if name.len() > crate::MAX_STRING_BYTES =>
-            {
-                Err("element identity name is too long")
-            }
-            Self::CodeLocation { file, .. } if file.len() > crate::MAX_STRING_BYTES => {
-                Err("element identity source path is too long")
-            }
-            Self::Path(path) if path.len() > crate::MAX_STRING_BYTES => {
-                Err("element path is too long")
-            }
             Self::CodeLocation { .. } => Err("code-location element IDs cannot cross the wire"),
             Self::Path(path) if std::str::from_utf8(path).is_err() => {
                 Err("element path is not UTF-8")

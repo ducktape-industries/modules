@@ -912,16 +912,12 @@ fn pushed_main(sandbox: &MemorySandbox, source: &MemoryObjects, tip: Oid) {
 }
 
 #[test]
-fn a_tree_wider_than_a_closure_page_is_listed_across_pages() {
-    let sandbox = project(Bounds {
-        max_objects: 2 * forge::CLOSURE_NAMES as u64,
-        ..bounds()
-    });
+fn a_tree_wider_than_the_tree_walk_is_listed_in_one_page() {
+    let sandbox = project(bounds());
     let mut source = MemoryObjects::new(Hash::Sha1);
-    let bodies: Vec<String> = (0..forge::CLOSURE_NAMES + 10)
-        .map(|n| format!("{n}\n"))
-        .collect();
-    let names: Vec<String> = (0..bodies.len()).map(|n| format!("f{n:06}")).collect();
+    let width = bounds().tree_walk as usize + 10;
+    let bodies: Vec<String> = (0..width).map(|n| format!("{n}\n")).collect();
+    let names: Vec<String> = (0..width).map(|n| format!("f{n:06}")).collect();
     let files: Vec<(&str, &[u8])> = names
         .iter()
         .zip(&bodies)
@@ -929,11 +925,6 @@ fn a_tree_wider_than_a_closure_page_is_listed_across_pages() {
         .collect();
     let tip = file_commit(&mut source, &[], 1, &files);
     pushed_main(&sandbox, &source, tip);
-    let listed: BTreeSet<Oid> = closure_of(&sandbox, "project", HashKind::Sha1, &[tip], &[])
-        .into_iter()
-        .map(|item| item.id)
-        .collect();
-    assert_eq!(listed, all_ids(&source).into_iter().collect());
     let first = Query::Closure {
         repo: "project".into(),
         walk: forge::Walk::of(gitcore::walk::Walk::of(&[tip], &[])),
@@ -942,7 +933,8 @@ fn a_tree_wider_than_a_closure_page_is_listed_across_pages() {
     else {
         panic!("a closure answers Closure");
     };
-    assert!(listed.len() <= forge::CLOSURE_NAMES + 1);
-    assert_eq!(next.trees.len(), 1);
-    assert!(next.trees[0].from > 0);
+    let listed: BTreeSet<String> = listed.into_iter().map(|item| item.oid).collect();
+    let all: BTreeSet<String> = all_ids(&source).iter().map(Oid::to_hex).collect();
+    assert_eq!(listed, all);
+    assert!(next.parse(HashKind::Sha1).unwrap().is_done());
 }

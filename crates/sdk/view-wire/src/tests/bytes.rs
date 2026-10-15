@@ -161,21 +161,8 @@ fn an_array_of_integers_is_not_bytes() {
     assert!(error.contains("expected bytes"), "{error}");
 }
 
-/// A picture's bound is checked on the `bin`'s length, and a `bin` that
-/// says it is longer than the bytes it came in is refused where it stands:
-/// neither is copied anywhere first.
 #[test]
-fn a_bin_past_its_bound_is_refused() {
-    let error = decode::<ImageData>(&encode(&ImageData::Encoded(vec![0; MAX_FRAME_BYTES + 1])))
-        .unwrap_err();
-    assert!(error.contains("raster byte limit"), "{error}");
-    let fits = encode(&ImageData::Encoded(vec![0; MAX_FRAME_BYTES]));
-    assert_eq!(
-        decode::<ImageData>(&fits).unwrap().byte_len(),
-        MAX_FRAME_BYTES
-    );
-
-    // {0: bin32 of 4 GiB}, with nothing after the header.
+fn a_bin_longer_than_its_bytes_is_refused() {
     let start = std::time::Instant::now();
     assert!(decode::<ImageData>(&[0x81, 0x00, 0xc6, 0xff, 0xff, 0xff, 0xff]).is_err());
     assert!(start.elapsed() < std::time::Duration::from_secs(1));

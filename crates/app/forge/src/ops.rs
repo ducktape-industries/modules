@@ -8,9 +8,7 @@ use ::program::{
 use gitcore::server::{Policy, RefUpdate};
 use gitcore::{Error as GitError, Limits, server};
 
-use crate::contract::{
-    Bounds, MAX_PATH_BYTES, PACK_KIND, Principal, Repo, Settings, valid_repo_name,
-};
+use crate::contract::{Bounds, PACK_KIND, Principal, Repo, Settings, valid_repo_name};
 use crate::objects::{ObjectWriter, object_not_held};
 use crate::state::{
     WRITERS, delete_ref, is_writer, load_bounds, load_refs, load_repo, repo_exists, repo_hash,
@@ -87,8 +85,7 @@ pub(crate) fn configure(
 ) -> Result<(), Error> {
     let mut repo = load_repo(ctx, name)?;
     require_owner(&repo, actor)?;
-    let head_is_a_ref =
-        settings.head.len() <= MAX_PATH_BYTES && server::valid_ref_name(&settings.head);
+    let head_is_a_ref = server::valid_ref_name(&settings.head);
     if !head_is_a_ref {
         return Err(invalid("head names a ref under refs/"));
     }

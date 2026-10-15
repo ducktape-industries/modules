@@ -3,7 +3,7 @@
 use ::program::{Env, MockHost, Program, code, hook};
 use store::PageRequest;
 
-use crate::{Activity, Frame, KEPT, MAX_PAGE, PROGRAM, Query, Reply, Used};
+use crate::{Activity, Frame, PROGRAM, Query, Reply, Used};
 
 const ADA: &[u8] = &[1; 32];
 const ADA_PHONE: &[u8] = &[2; 32];
@@ -171,106 +171,4 @@ fn only_the_kernel_tells_it_of_a_frame_and_no_one_writes_to_it() {
     let op =
         host.refused(|| ::program::execute::<Activity>(&host.exec(MockHost::env(PROGRAM)), &[]));
     assert_eq!(op.code, code::UNSUPPORTED);
-}
-
-fn every(host: &MockHost, query: impl Fn(PageRequest) -> Query) -> Vec<(u64, u32)> {
-    let mut read = Vec::new();
-    let mut next = None;
-    loop {
-        let (page, more) = frames(ask(host, query(PageRequest::resume(next, MAX_PAGE))));
-        read.extend(page.into_iter().map(|frame| (frame.height, frame.position)));
-        let Some(more) = more else {
-            return read;
-        };
-        next = Some(more);
-    }
-}
-
-fn rows(host: &MockHost, prefix: &[u8]) -> usize {
-    let state = &host.borrow().state;
-    state.keys().filter(|key| key.starts_with(prefix)).count()
-}
-
-#[test]
-fn each_key_and_account_keeps_its_newest_rows_and_drops_its_oldest_first() {
-    let host = MockHost::default();
-    let mut told = vec![(1, 0), (1, 1)];
-    told.extend((2..=KEPT).map(|height| (height, 0)));
-    for (height, position) in &told {
-        let signer = if *height == KEPT { ADA_PHONE } else { ADA };
-        tell(&host, &record(*height, *position, signer, Some(5), "chat"));
-    }
-    tell(&host, &record(7, 1, STRANGER, None, "chat"));
-    let acted = || every(&host, |page| Query::Acted { account: 5, page });
-    let signed = || {
-        every(&host, |page| Query::Signed {
-            key: ADA.to_vec(),
-            page,
-        })
-    };
-    let newest: Vec<(u64, u32)> = told.iter().rev().copied().collect();
-    assert_eq!(acted().len(), KEPT as usize);
-    assert_eq!(
-        acted(),
-        newest[..KEPT as usize],
-        "the oldest frame, (1, 0), went"
-    );
-    assert_eq!(
-        signed(),
-        newest[1..],
-        "ADA signed exactly KEPT frames and kept them all"
-    );
-    tell(&host, &record(KEPT + 1, 0, ADA, Some(5), "forge"));
-    let acted = acted();
-    assert_eq!(acted.len(), KEPT as usize);
-    assert_eq!(acted.first(), Some(&(KEPT + 1, 0)));
-    assert_eq!(
-        acted.last(),
-        Some(&(2, 0)),
-        "(1, 1) went next, before block 2"
-    );
-    let signed = signed();
-    assert_eq!(signed.len(), KEPT as usize);
-    assert_eq!(
-        signed.last(),
-        Some(&(1, 1)),
-        "ADA's first drop is its oldest, (1, 0)"
-    );
-    tell(&host, &record(KEPT + 2, 0, ADA, Some(5), "forge"));
-    assert_eq!(
-        every(&host, |page| Query::Signed {
-            key: ADA.to_vec(),
-            page
-        })
-        .last(),
-        Some(&(2, 0))
-    );
-    assert_eq!(
-        every(&host, |page| Query::Signed {
-            key: STRANGER.to_vec(),
-            page
-        }),
-        [(7, 1)],
-        "another key keeps its own rows"
-    );
-    assert_eq!(
-        rows(&host, b"a/"),
-        KEPT as usize,
-        "no row past the cap is left in state"
-    );
-    assert_eq!(
-        rows(&host, b"k/"),
-        KEPT as usize + 2,
-        "ADA's cap, its phone's one, the stranger's one"
-    );
-    let Reply::Used(used) = ask(
-        &host,
-        Query::Used {
-            page: PageRequest::default(),
-        },
-    ) else {
-        panic!()
-    };
-    let counted: Vec<u64> = used.items.iter().map(|used| used.frames).collect();
-    assert_eq!(counted, [KEPT + 1, 2], "the counts keep every frame");
 }

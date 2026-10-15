@@ -144,8 +144,7 @@ too. The call's origin is the kernel itself (`Origin::Root`, from
 never changes a frame: its receipt stays as it ran, a hook that refuses,
 traps, runs out of fuel or emits a message keeps none of its writes, and
 the block goes on. `activity` (`crates/app/activity`) is the hook this
-repo founds: it indexes who signed what, by key and by account, and keeps
-the newest 1,000 frames of each.
+repo founds: it indexes who signed what, by key and by account.
 
 Who may schedule or cancel (putting a blob is open to any account):
 
@@ -161,8 +160,8 @@ Who may schedule or cancel (putting a blob is open to any account):
   blocks after the block it is made in, so the vote can cancel it first.
   It may not change an id the vote has a change waiting on, nor claim an
   id a maintainer's waiting removal frees (a program under a view being
-  removed, or the reverse) before that removal lands; it keeps at most
-  `MAX_PENDING` (8) changes waiting, and cancels only a grant's change.
+  removed, or the reverse) before that removal lands, and it cancels only a
+  grant's change.
   `Scheduled` answers who made each change (`Pending.by`, `None` for the
   vote).
 - Hooks: a maintainer may replace a hook's code (`Set` of a hooked id).

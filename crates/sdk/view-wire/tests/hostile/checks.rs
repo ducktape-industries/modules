@@ -22,31 +22,7 @@ pub(super) fn tree_depth(node: &Node) -> usize {
     }
 }
 
-pub(super) fn check_string(text: &str, ctx: &str, field: &str) {
-    assert!(
-        text.len() <= MAX_STRING_BYTES,
-        "{ctx}: {field} is {} bytes, over MAX_STRING_BYTES",
-        text.len()
-    );
-    assert!(
-        text.is_char_boundary(text.len()),
-        "{ctx}: {field} does not end on a char boundary"
-    );
-}
-
-/// Walks a sanitized tree asserting every post-condition `sanitize_node`
-/// promises: depth within `MAX_DEPTH`, every string within
-/// `MAX_STRING_BYTES` and on a char boundary, every key unique across the
-/// whole tree, every style it names in `styles` with each size, colour and
-/// border field inside its own bound, and the picture bytes the tree
-/// carries summed into `svg_bytes`.
-pub(super) fn check_bounds(
-    node: &Node,
-    styles: &Styles,
-    depth: usize,
-    svg_bytes: &mut usize,
-    ctx: &str,
-) {
+pub(super) fn check_bounds(node: &Node, styles: &Styles, depth: usize, ctx: &str) {
     assert!(
         depth <= MAX_DEPTH,
         "{ctx}: a node sits at depth {depth}, over MAX_DEPTH"
@@ -87,55 +63,37 @@ pub(super) fn check_bounds(
                 check_native_style(&styles[conditional]);
             }
             for child in children {
-                check_bounds(child, styles, depth + 1, svg_bytes, ctx);
+                check_bounds(child, styles, depth + 1, ctx);
             }
         }
         Node::UniformList { children, .. } => {
             for child in children {
-                check_bounds(child, styles, depth + 1, svg_bytes, ctx);
+                check_bounds(child, styles, depth + 1, ctx);
             }
         }
         Node::List {
             path,
             item_count,
             overdraw,
-            commands,
             range_start,
             children,
             ..
         } => {
-            assert!(path.len() <= view_wire::MAX_DEPTH);
-            assert!(*item_count <= view_wire::MAX_LIST_ITEMS);
-            assert!(overdraw.is_finite() && (0.0..=4096.0).contains(overdraw));
-            assert!(commands.len() <= view_wire::MAX_LIST_COMMANDS);
-            assert!(children.len() <= view_wire::MAX_LIST_ROWS);
+            assert!(!path.is_empty());
+            assert!(overdraw.is_finite() && *overdraw >= 0.0);
             assert!(*range_start <= *item_count);
             assert!(children.len() <= item_count.saturating_sub(*range_start));
             for child in children {
-                check_bounds(child, styles, depth + 1, svg_bytes, ctx);
+                check_bounds(child, styles, depth + 1, ctx);
             }
         }
         Node::Sensor { style, child, .. } => {
             check_native_style(&styles[*style]);
-            check_bounds(child, styles, depth + 1, svg_bytes, ctx);
+            check_bounds(child, styles, depth + 1, ctx);
         }
-        Node::Web {
-            url,
-            style,
-            commands,
-            ..
-        } => {
-            check_native_style(&styles[*style]);
-            assert!(url.len() <= view_wire::MAX_URL_BYTES, "{ctx}: web address");
-            assert!(commands.len() <= view_wire::MAX_WEB_COMMANDS);
-            for command in commands {
-                if let view_wire::WebCommand::Load(url) = command {
-                    assert!(url.len() <= view_wire::MAX_URL_BYTES, "{ctx}: web load");
-                }
-            }
-        }
+        Node::Web { style, .. } => check_native_style(&styles[*style]),
         Node::ResizeHandle { content, .. } => {
-            check_bounds(content, styles, depth + 1, svg_bytes, ctx);
+            check_bounds(content, styles, depth + 1, ctx);
         }
         Node::RichText {
             text,
@@ -144,7 +102,6 @@ pub(super) fn check_bounds(
             clickable_ranges,
             ..
         } => {
-            check_string(text, ctx, "rich text");
             let valid = |range: &std::ops::Range<usize>| {
                 range.start <= range.end
                     && range.end <= text.len()
@@ -162,43 +119,27 @@ pub(super) fn check_bounds(
             assert!(font_family_overrides.iter().all(|(range, _)| valid(range)));
             assert!(clickable_ranges.iter().all(valid));
         }
-        Node::Text(view_wire::TextNode { content, style, .. }) => {
-            check_native_style(&styles[*style]);
-            check_string(content, ctx, "text content");
-        }
+        Node::Text(view_wire::TextNode { style, .. }) => check_native_style(&styles[*style]),
         Node::Image {
             data,
-            label,
             style,
             state_children,
             ..
         } => {
             if let Some(data) = data {
-                *svg_bytes += data.byte_len();
                 assert!(data.valid_rgba(), "{ctx}: invalid RGBA");
-            }
-            if let Some(label) = label {
-                check_string(label, ctx, "image label");
             }
             check_native_style(&styles[*style]);
             for child in state_children {
-                check_bounds(child, styles, depth + 1, svg_bytes, ctx);
+                check_bounds(child, styles, depth + 1, ctx);
             }
         }
         Node::Svg {
-            source,
             transformation,
-            label,
             style,
             interactivity,
             ..
         } => {
-            if let SvgSource::Data { bytes, .. } = source {
-                *svg_bytes += bytes.as_ref().map_or(0, Vec::len);
-            }
-            if let Some(label) = label {
-                check_string(label, ctx, "picture label");
-            }
             check_native_style(&styles[*style]);
             if let Some(hover) = interactivity.as_ref().and_then(|i| i.hover) {
                 check_native_style(&styles[hover]);
@@ -209,7 +150,7 @@ pub(super) fn check_bounds(
                 .chain(transformation.translate)
                 .chain([transformation.rotate])
             {
-                assert!(value.is_finite() && (-MAX_PIXELS..=MAX_PIXELS).contains(&value));
+                assert!(value.is_finite());
             }
         }
         Node::Anchored {
@@ -219,20 +160,15 @@ pub(super) fn check_bounds(
             ..
         } => {
             for value in position.iter().chain(offset).flatten() {
-                assert!(value.is_finite() && (-MAX_PIXELS..=MAX_PIXELS).contains(value));
+                assert!(value.is_finite());
             }
             for child in children {
-                check_bounds(child, styles, depth + 1, svg_bytes, ctx);
+                check_bounds(child, styles, depth + 1, ctx);
             }
         }
-        Node::Deferred { priority, content } => {
-            assert!(*priority <= 16);
-            check_bounds(content, styles, depth + 1, svg_bytes, ctx);
-        }
+        Node::Deferred { content, .. } => check_bounds(content, styles, depth + 1, ctx),
         Node::Field {
             id,
-            options,
-            placeholder,
             value,
             cursor,
             tokens,
@@ -240,13 +176,6 @@ pub(super) fn check_bounds(
             ..
         } => {
             assert!(id.validate_host().is_ok(), "{ctx}: invalid field identity");
-            check_string(placeholder, ctx, "placeholder");
-            check_string(&options.label, ctx, "field label");
-            if let Some(value) = &options.description {
-                check_string(value, ctx, "field description");
-            }
-            // The value is the engine's: sanitize keeps a valid one whole,
-            // and never spends the display budget on it.
             assert_eq!(
                 view_wire::validate_field(value, *cursor, tokens, claims),
                 Ok(()),
@@ -254,24 +183,13 @@ pub(super) fn check_bounds(
             );
         }
         Node::Space => {}
-        Node::Overlay {
-            label, children, ..
-        } => {
-            if let Some(label) = label {
-                check_string(label, ctx, "accessible label");
-            }
+        Node::Overlay { children, .. } => {
             assert!(children.len() <= 2, "{ctx}: overlay child count");
             for child in children {
-                check_bounds(child, styles, depth + 1, svg_bytes, ctx);
+                check_bounds(child, styles, depth + 1, ctx);
             }
         }
-        Node::Canvas { style, commands } => {
-            check_native_style(&styles[*style]);
-            assert!(
-                commands.len() <= view_wire::MAX_CANVAS_PARTS,
-                "{ctx}: canvas command budget"
-            );
-        }
+        Node::Canvas { style, .. } => check_native_style(&styles[*style]),
     }
 }
 
@@ -289,9 +207,6 @@ pub(super) fn field_texts(root: &Node) -> Vec<String> {
     texts
 }
 
-/// Every post-condition `sanitize` promises about a whole frame: the tree's
-/// node count and every bound `check_bounds` covers, each style a node
-/// names among the `styles` the host holds, plus every request's `kind`.
 pub(super) fn check_frame(frame: &Frame, styles: &Styles, ctx: &str) {
     if let Some(root) = &frame.root {
         assert!(
@@ -301,20 +216,7 @@ pub(super) fn check_frame(frame: &Frame, styles: &Styles, ctx: &str) {
     }
 
     if let Some(root) = &frame.root {
-        assert!(
-            root.count() <= MAX_NODES,
-            "{ctx}: {} nodes, over MAX_NODES",
-            root.count()
-        );
-        let mut svg_bytes = 0;
-        check_bounds(root, styles, 0, &mut svg_bytes, ctx);
-        assert!(
-            svg_bytes <= MAX_PICTURE_BYTES_PER_FRAME,
-            "{ctx}: {svg_bytes} picture bytes, over MAX_PICTURE_BYTES_PER_FRAME"
-        );
-    }
-    for request in &frame.requests {
-        check_string(&request.kind, ctx, "request kind");
+        check_bounds(root, styles, 0, ctx);
     }
 }
 

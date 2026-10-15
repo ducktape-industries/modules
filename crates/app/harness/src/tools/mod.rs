@@ -4,6 +4,7 @@ mod chat;
 mod files;
 mod forge;
 mod network;
+mod thread;
 
 use ::program::{BlobId, Error, ExecCtx, Principal, ProgramId, invalid, unexpected_reply};
 use abi::role::identity::AccountNumber;
@@ -69,7 +70,7 @@ const fn entry<T: Tool>() -> Entry {
     }
 }
 
-pub(crate) const CATALOG: [Entry; 23] = [
+pub(crate) const CATALOG: &[Entry] = &[
     entry::<files::List>(),
     entry::<files::Read>(),
     entry::<files::Find>(),
@@ -93,6 +94,8 @@ pub(crate) const CATALOG: [Entry; 23] = [
     entry::<network::Accounts>(),
     entry::<network::Account>(),
     entry::<network::Activity>(),
+    entry::<thread::Search>(),
+    entry::<thread::Read>(),
 ];
 
 pub(crate) fn find(name: &str) -> Option<&'static Entry> {

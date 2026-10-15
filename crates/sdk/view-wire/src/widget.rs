@@ -88,8 +88,8 @@ impl WidgetCommand {
             | Self::ScrollTo { target, .. }
             | Self::ScrollBy { target, .. } => target,
         };
-        if target.is_empty() || target.len() > crate::MAX_DEPTH {
-            return Err("widget target path is empty or too deep".into());
+        if target.is_empty() {
+            return Err("widget target path is empty".into());
         }
         for id in target {
             id.validate_host()?;
@@ -102,22 +102,15 @@ impl WidgetCommand {
             ..
         } = self
         {
-            // the range is bytes of a text under the cap; the cursor is bytes
-            // of the text the replace can leave, at most the cap plus its own
             let off = |range: &TextRange| range.start > range.end;
-            if off(range)
-                || off(cursor)
-                || text.len() > crate::text::MAX_FIELD_BYTES
-                || range.end as usize > crate::text::MAX_FIELD_BYTES
-                || cursor.end as usize > crate::text::MAX_FIELD_BYTES + text.len()
-            {
-                return Err("replace range or text exceeds bounds".into());
+            let unaddressable = u32::try_from(text.len()).is_err();
+            if off(range) || off(cursor) || unaddressable {
+                return Err(
+                    "replace range is reversed or text is longer than a u32 offset reaches".into(),
+                );
             }
-            if token
-                .as_ref()
-                .is_some_and(|id| id.is_empty() || id.len() > crate::MAX_STRING_BYTES)
-            {
-                return Err("replace token id exceeds bounds".into());
+            if token.as_ref().is_some_and(String::is_empty) {
+                return Err("replace token id is empty".into());
             }
         }
         match self {
@@ -145,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn a_replace_keeps_its_target_and_rejects_unbounded_text() {
+    fn a_replace_keeps_its_target_and_rejects_a_reversed_range() {
         let mut command = WidgetCommand::Replace {
             target: target(crate::ElementIdWire::Name("Other/body".into())),
             generation: 1,
@@ -160,50 +153,23 @@ mod tests {
             crate::decode::<WidgetCommand>(&crate::encode(&command)).unwrap(),
             command
         );
-        let WidgetCommand::Replace { text, .. } = &mut command else {
-            unreachable!()
-        };
-        *text = "x".repeat(crate::text::MAX_FIELD_BYTES + 1);
-        assert!(command.validate().is_err());
         let WidgetCommand::Replace { text, range, .. } = &mut command else {
             unreachable!()
         };
         *text = String::new();
         *range = TextRange { start: 2, end: 0 };
         assert!(command.validate().is_err());
-        // a range or cursor off any text a field can hold is refused, not
-        // carried into the host's arithmetic
-        let WidgetCommand::Replace { range, .. } = &mut command else {
-            unreachable!()
-        };
-        *range = TextRange::from(0..crate::text::MAX_FIELD_BYTES + 1);
-        assert!(command.validate().is_err());
-        let WidgetCommand::Replace { range, cursor, .. } = &mut command else {
-            unreachable!()
-        };
-        *range = TextRange::from(0..2);
-        *cursor = TextRange::caret(crate::text::MAX_FIELD_BYTES + 1);
-        assert!(command.validate().is_err());
-        let WidgetCommand::Replace { text, cursor, .. } = &mut command else {
-            unreachable!()
-        };
-        *text = "ab".into();
-        *cursor = TextRange::caret(crate::text::MAX_FIELD_BYTES + 2);
-        assert!(
-            command.validate().is_ok(),
-            "the end of the text the replace can leave"
-        );
     }
 
     #[test]
     fn widget_targets_are_rejected_whole_instead_of_redirected() {
-        let key = crate::ElementIdWire::Name("가".repeat(crate::MAX_STRING_BYTES / 3 + 1).into());
+        let key = crate::ElementIdWire::FocusHandle(1);
         let mut command = WidgetCommand::Focus {
             target: target(key.clone()),
         };
         assert!(
             command.validate().is_err(),
-            "oversized target must be refused"
+            "a host-local target must be refused"
         );
         assert_eq!(
             command,

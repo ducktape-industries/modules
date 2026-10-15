@@ -5,12 +5,6 @@ pub(crate) mod bin;
 mod write;
 pub(crate) use write::SPARSE;
 
-/// What one `decode` may build before it is refused: enough that
-/// [`sanitize`]'s truncation still shapes any tree a real view sends, and
-/// few enough that a hostile one cannot make the host allocate its way
-/// through a frame's worth of nodes every tick.
-pub const MAX_DECODED_NODES: usize = 16 * MAX_NODES;
-
 /// Bounds what a decode may descend into, since decoding is recursive: a
 /// [`Node`] holds its children, a tooltip's content and a patch's subtree,
 /// and serde builds them from the inside out, so a chain of nodes is a
@@ -18,23 +12,15 @@ pub const MAX_DECODED_NODES: usize = 16 * MAX_NODES;
 /// [`sanitize`], the renderer, `Drop` — recurses the same way, which is why
 /// the limit sits at decode rather than in each walk, and on [`Node`]
 /// itself rather than on the fields that happen to hold one.
-///
-/// [`MAX_FRAME_BYTES`] of input is no protection: a chain deep
-/// enough to overflow a host thread's stack is a few tens of kilobytes.
 mod budget {
     use std::cell::Cell;
 
-    use super::{MAX_DECODED_NODES, MAX_DEPTH};
+    use super::MAX_DEPTH;
 
     thread_local! {
         static DEPTH: Cell<usize> = const { Cell::new(0) };
-        static NODES: Cell<usize> = const { Cell::new(0) };
     }
 
-    /// One node being decoded. Descending past what the host walks, or
-    /// building more nodes than it will hold, refuses the whole frame:
-    /// there is no partial tree to keep, and a truncated one would be a
-    /// tree the view did not write.
     pub(super) struct Node(());
 
     impl Node {
@@ -45,7 +31,6 @@ mod budget {
             if depth > MAX_DEPTH {
                 return Err("a tree deeper than the host renders");
             }
-            spend()?;
             DEPTH.set(depth + 1);
             Ok(Self(()))
         }
@@ -56,28 +41,6 @@ mod budget {
             DEPTH.set(DEPTH.get().saturating_sub(1));
         }
     }
-
-    /// One more thing the host will hold: a node, or an entry of the style
-    /// table, which costs what a node costs at no depth.
-    pub(super) fn spend() -> Result<(), &'static str> {
-        let nodes = NODES.get() + 1;
-        if nodes > MAX_DECODED_NODES {
-            return Err("more nodes than the host holds");
-        }
-        NODES.set(nodes);
-        Ok(())
-    }
-
-    /// A fresh budget for one top-level [`decode`](super::decode). The depth
-    /// unwinds itself; the node count is what one frame may spend.
-    pub(super) fn reset() {
-        NODES.set(0);
-    }
-}
-
-/// An entry of the style table decodes on the frame's node budget.
-pub(crate) fn spend_node() -> Result<(), &'static str> {
-    budget::spend()
 }
 
 /// `Node`'s derived shape (`#[serde(remote = "Self")]`).
@@ -87,9 +50,6 @@ impl Serialize for Node {
     }
 }
 
-/// Every node decodes inside the budget, wherever it sits: a frame's root,
-/// a child, a tooltip's content, a patch's subtree. The guard is held while
-/// the node is built: siblings share a depth, and each costs a node.
 impl<'de> Deserialize<'de> for Node {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let _node = budget::Node::enter().map_err(serde::de::Error::custom)?;
@@ -190,8 +150,6 @@ macro_rules! sparse {
 pub(crate) use sparse;
 
 pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, String> {
-    budget::reset();
-    canvas::reset_decode_budget();
     // The reader over the slice itself: a string or a `bin` is lent from
     // `bytes` and copied once, into the value that keeps it.
     let mut deserializer = rmp_serde::Deserializer::from_read_ref(bytes);

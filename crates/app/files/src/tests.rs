@@ -75,7 +75,7 @@ fn text(host: &MockHost, path: &str, at: Option<BlobId>) -> Result<String, Error
             path: path.into(),
             at,
             offset: 0,
-            len: MAX_READ_BYTES,
+            len: u64::MAX,
         },
     )?
     else {
@@ -611,7 +611,7 @@ fn a_pin_names_a_minted_snapshot_and_only_its_owner_removes_it() {
 }
 
 #[test]
-fn a_symlink_reads_as_its_target_and_caps_hold() {
+fn a_symlink_reads_as_its_target_and_a_commit_carries_a_change() {
     let host = MockHost::default();
     commit(
         &host,
@@ -628,23 +628,6 @@ fn a_symlink_reads_as_its_target_and_caps_hold() {
         "/shared/elsewhere"
     );
     let base = head(&host);
-    let big = Op::Commit {
-        base,
-        message: String::new(),
-        changes: vec![Change::Put {
-            path: "/shared/big".into(),
-            exec: false,
-            meta: BTreeMap::new(),
-            content: Content::Inline(vec![0; MAX_INLINE_BYTES + 1]),
-        }],
-    };
-    assert_eq!(refused(&host, ada(), big).code, code::CAPACITY);
-    let long = Op::Commit {
-        base,
-        message: "m".repeat(MAX_MESSAGE_BYTES + 1),
-        changes: vec![put("/shared/a", "")],
-    };
-    assert_eq!(refused(&host, ada(), long).code, code::CAPACITY);
     let empty = Op::Commit {
         base,
         message: String::new(),

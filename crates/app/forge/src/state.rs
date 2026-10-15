@@ -260,17 +260,3 @@ pub fn load_review(ctx: &QueryCtx, repo: &str, n: u64, id: u64) -> Result<Review
         .get(ctx, &(repo.to_owned(), n, id))?
         .ok_or_else(|| storage("authored review missing"))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The longest ids forge gives chat fit chat's id limit, and
-    /// [`MAX_REPO_NAME`](crate::MAX_REPO_NAME) is the longest that does.
-    #[test]
-    fn longest_ids_fit_chat() {
-        let repo = "r".repeat(crate::MAX_REPO_NAME);
-        assert_eq!(channel_id(&repo, u64::MAX).len(), chat::MAX_ID_BYTES);
-        assert!(message_id(u64::MAX).len() <= chat::MAX_ID_BYTES);
-    }
-}

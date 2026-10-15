@@ -3,10 +3,10 @@
 //! typed (`store::KeyCodec`: integers big-endian, strings and principals
 //! NUL-terminated, so names list by name), values borsh. A tuple key scans by its leading
 //! elements, which is how every "in this channel" read works.
-use ::program::{Error, ExecCtx, QueryCtx, capacity, not_found};
+use ::program::{Error, ExecCtx, QueryCtx, not_found};
 use store::{Map, Set};
 
-use crate::{ChannelRow, MAX_MESSAGE_BYTES, MemberRow, MsgRow, Principal, tokens};
+use crate::{ChannelRow, MemberRow, MsgRow, Principal, tokens};
 
 type ChannelId = String;
 type Seq = u64;
@@ -63,19 +63,6 @@ pub(crate) fn messages(
         .collect()
 }
 
-/// Refused when the row would outgrow [`MAX_MESSAGE_BYTES`]: checked before
-/// an op writes anything.
-pub(crate) fn fits(row: &MsgRow) -> Result<(), Error> {
-    if abi::encode(row).len() > MAX_MESSAGE_BYTES {
-        return Err(capacity(format!(
-            "a message is at most {MAX_MESSAGE_BYTES} bytes"
-        )));
-    }
-    Ok(())
-}
-
-/// Stores `row` in place of `old` (none for a new message), moving its
-/// search and tag postings with it. The caller has checked [`fits`].
 pub(crate) fn replace_message(ctx: &ExecCtx, old: Option<&MsgRow>, row: &MsgRow) {
     if let Some(old) = old {
         postings(ctx, old, false);

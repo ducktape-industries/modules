@@ -11,10 +11,10 @@ use view::prelude::*;
 use crate::api::Ask as Forge;
 use forge::{CommitInfo, PageRequest, PageResponse, Query, Reply};
 
-/// What one page asks for: 64 rows, from the start. A limit above the
-/// program's `Bounds.page_size` is clamped to it.
-pub(crate) const PAGE: PageRequest = PageRequest::first(PER_PAGE);
-const PER_PAGE: u64 = 64;
+pub(crate) const PAGE: PageRequest = PageRequest {
+    after: None,
+    limit: None,
+};
 
 /// One read of forge, `next` followed: the pages after the first fold into
 /// it. A cursor refused `stale` (an op landed between two pages) starts the
@@ -118,7 +118,7 @@ pub(crate) async fn conversation(
     viewer: Vec<forge::Principal>,
 ) -> Result<Vec<chat::MsgRow>, Error> {
     let ask = move |ask| host.query(ask);
-    let (rows, _) = chat::view::roots(ask, channel_id, viewer, None, usize::MAX, PER_PAGE).await?;
+    let (rows, _) = chat::view::roots(ask, channel_id, viewer, None, usize::MAX, u64::MAX).await?;
     Ok(rows)
 }
 

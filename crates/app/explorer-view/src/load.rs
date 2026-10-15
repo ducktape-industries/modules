@@ -7,8 +7,7 @@ use view::prelude::*;
 
 use crate::chain::{BlockRow, TxRow};
 use crate::state::Route;
-use crate::ui::LIST_ROWS;
-use crate::{Explorer, PAGE, WINDOW, decode, queries};
+use crate::{Explorer, WINDOW, decode, queries};
 
 impl Explorer {
     /// Everything, again: the boot, a restore, a retry.
@@ -107,15 +106,12 @@ impl Explorer {
             .account(number)
             .map_or(&[][..], |account| account.keys());
         let signed = |tx: &&TxRow| keys.iter().any(|key| key.key == tx.signer);
-        let windowed = self.chain.txs.iter().filter(signed).take(LIST_ROWS);
+        let windowed = self.chain.txs.iter().filter(signed);
         known.extend(windowed.cloned());
         let work = queries::acted(cx.host(), number, known);
         cx.load(self, work, |view| &mut view.acted);
     }
 
-    /// Reads the next page the window wants, if any: the blocks since the
-    /// top when the head is past it (one new block is one block, at most a
-    /// page), else older blocks until the window is full.
     pub(crate) fn pull(&mut self, cx: &mut Context<Self>) {
         if self.pulling {
             return;
@@ -125,12 +121,12 @@ impl Explorer {
             .ready()
             .map(|status| status.height.max(self.head));
         let (before, limit) = match (self.chain.top(), head) {
-            (None, _) => (None, PAGE),
+            (None, _) => (None, u32::MAX),
             (Some(top), Some(head)) if head > top => {
-                (None, (head - top).min(u64::from(PAGE)) as u32)
+                (None, u32::try_from(head - top).unwrap_or(u32::MAX))
             }
             _ if !self.chain.complete && self.chain.blocks.len() < WINDOW => {
-                (self.chain.blocks.last().map(|block| block.height), PAGE)
+                (self.chain.blocks.last().map(|block| block.height), u32::MAX)
             }
             _ => return,
         };

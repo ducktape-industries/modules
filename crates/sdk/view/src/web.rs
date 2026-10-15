@@ -32,9 +32,7 @@ impl WebHandle {
     fn push(&self, command: wire::WebCommand) {
         let mut queue = self.0.borrow_mut();
         queue.revision = queue.revision.wrapping_add(1);
-        if queue.commands.len() < wire::MAX_WEB_COMMANDS {
-            queue.commands.push(command);
-        }
+        queue.commands.push(command);
     }
 
     /// Opens `url`. The host loads only an `https://` page, or an

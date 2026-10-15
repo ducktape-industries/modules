@@ -14,7 +14,6 @@ use crate::ui::{message, quiet};
 use crate::{Chat, Pane, Shape};
 
 pub(crate) const OVERDRAW: f32 = 600.;
-const MAX_SPLICES: usize = 8;
 
 impl Shape {
     fn of(chat: &Chat, pane: Pane) -> Self {
@@ -402,12 +401,7 @@ fn list_state(
 pub(crate) fn splices(old: &[String], new: &[String]) -> Vec<(Range<usize>, usize)> {
     let mut edits = Vec::new();
     diff(old, new, 0, &mut edits);
-    if edits.len() <= MAX_SPLICES {
-        return edits;
-    }
-    let prefix = common(old.iter(), new.iter());
-    let suffix = common(old[prefix..].iter().rev(), new[prefix..].iter().rev());
-    vec![(prefix..old.len() - suffix, new.len() - prefix - suffix)]
+    edits
 }
 
 fn common<'a>(
@@ -424,7 +418,7 @@ fn diff(old: &[String], new: &[String], at: usize, edits: &mut Vec<(Range<usize>
     let (old, new) = (&old[..old.len() - suffix], &new[..new.len() - suffix]);
     let at = at + prefix;
     let unchanged = old.is_empty() && new.is_empty();
-    if unchanged || edits.len() > MAX_SPLICES {
+    if unchanged {
         return;
     }
     let Some((i, j, len)) = longest_run(old, new) else {
