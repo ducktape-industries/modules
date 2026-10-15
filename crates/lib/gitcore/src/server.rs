@@ -33,16 +33,9 @@ pub fn admit_pack<S: Objects + ?Sized>(
         }
     }
     let mut stored = Vec::with_capacity(objects.len());
-    for (id, object) in &objects {
-        let actual = store.put(object.kind, &object.body)?;
-        let same = actual == *id;
-        if !same {
-            return Err(Error::HashMismatch {
-                expected: *id,
-                actual,
-            });
-        }
-        stored.push(*id);
+    for (id, object) in objects {
+        store.keep(id, object)?;
+        stored.push(id);
     }
     Ok(stored)
 }

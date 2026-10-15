@@ -71,6 +71,10 @@ impl Objects for ObjectStore<'_> {
     fn put(&mut self, kind: Kind, body: &[u8]) -> gitcore::Result<Oid> {
         gitcore::oid_of(self.hash, kind, body)
     }
+
+    fn keep(&mut self, _: Oid, _: Object) -> gitcore::Result<()> {
+        Ok(())
+    }
 }
 
 fn get(sandbox: &QueryCtx, id: &Oid) -> gitcore::Result<Option<Object>> {
@@ -89,7 +93,7 @@ fn get(sandbox: &QueryCtx, id: &Oid) -> gitcore::Result<Option<Object>> {
 pub struct ObjectWriter<'a> {
     sandbox: &'a ExecCtx,
     hash: Hash,
-    pending: BTreeMap<Oid, (Kind, Vec<u8>)>,
+    pending: BTreeMap<Oid, Object>,
 }
 
 impl<'a> ObjectWriter<'a> {
@@ -103,9 +107,9 @@ impl<'a> ObjectWriter<'a> {
 
     /// Stores every object the admitted pack brought.
     pub fn flush(self) -> Result<(), Error> {
-        for (_, (kind, body)) in self.pending {
+        for (_, object) in self.pending {
             self.sandbox
-                .blob_put(hash_kind_of(self.hash), kind.as_str(), body)?;
+                .blob_put(hash_kind_of(self.hash), object.kind.as_str(), object.body)?;
         }
         Ok(())
     }
@@ -113,8 +117,8 @@ impl<'a> ObjectWriter<'a> {
 
 impl Objects for ObjectWriter<'_> {
     fn get(&self, id: &Oid) -> gitcore::Result<Option<Object>> {
-        if let Some((kind, body)) = self.pending.get(id) {
-            return Ok(Some(Object::new(*kind, body.clone())));
+        if let Some(object) = self.pending.get(id) {
+            return Ok(Some(object.clone()));
         }
         get(self.sandbox, id)
     }
@@ -125,8 +129,13 @@ impl Objects for ObjectWriter<'_> {
 
     fn put(&mut self, kind: Kind, body: &[u8]) -> gitcore::Result<Oid> {
         let id = gitcore::oid_of(self.hash, kind, body)?;
-        self.pending.insert(id, (kind, body.to_vec()));
+        self.pending.insert(id, Object::new(kind, body.to_vec()));
         Ok(id)
+    }
+
+    fn keep(&mut self, id: Oid, object: Object) -> gitcore::Result<()> {
+        self.pending.insert(id, object);
+        Ok(())
     }
 }
 

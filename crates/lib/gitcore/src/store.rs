@@ -9,6 +9,7 @@ pub trait Objects {
     fn get(&self, id: &Oid) -> Result<Option<Object>>;
     fn has(&self, id: &Oid) -> Result<bool>;
     fn put(&mut self, kind: Kind, body: &[u8]) -> Result<Oid>;
+    fn keep(&mut self, id: Oid, object: Object) -> Result<()>;
 }
 
 #[derive(Clone, Debug)]
@@ -53,6 +54,11 @@ impl Objects for MemoryObjects {
             .entry(id)
             .or_insert_with(|| Object::new(kind, body.to_vec()));
         Ok(id)
+    }
+
+    fn keep(&mut self, id: Oid, object: Object) -> Result<()> {
+        self.objects.entry(id).or_insert(object);
+        Ok(())
     }
 }
 

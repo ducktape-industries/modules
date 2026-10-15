@@ -261,6 +261,10 @@ impl Objects for Budgeted<'_> {
     fn put(&mut self, _: Kind, _: &[u8]) -> gitcore::Result<Oid> {
         Err(Error::Unsupported)
     }
+
+    fn keep(&mut self, _: Oid, _: gitcore::Object) -> gitcore::Result<()> {
+        Err(Error::Unsupported)
+    }
 }
 
 fn listing(store: &MemoryObjects, command: &Fetch, reads: u64) -> (Vec<Listed>, usize) {
