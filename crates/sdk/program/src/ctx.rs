@@ -319,8 +319,9 @@ impl ExecCtx {
     }
 
     /// The account this write acts as ([`sender`](ExecCtx::sender) as a
-    /// number): a person's, an agent's or a program's. The chain itself
-    /// (`Root`) is refused: a row that names an account cannot name it.
+    /// number): a user's, a program account or a system account. The chain
+    /// itself (`Root`) is refused: a row that names an account cannot name
+    /// it.
     pub fn sender_account(&self) -> Result<AccountNumber, Error> {
         self.sender()?
             .account()

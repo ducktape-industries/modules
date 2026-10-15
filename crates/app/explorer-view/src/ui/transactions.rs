@@ -1,16 +1,18 @@
 //! The Transactions tab and one transaction.
 use super::*;
 use crate::decode::{amount, clip, preview, scheme};
+use view::design::Ladder;
 
 pub(super) fn transactions(
     view: &Explorer,
     program: Option<String>,
     cx: Cx,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let frames = match &view.frames {
         Loadable::Ready(frames) | Loadable::Reloading(frames, _) => frames,
-        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme),
+        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme, ladder),
         Loadable::Idle | Loadable::Loading(_) => {
             return quiet("explorer-txs-loading", "Reading transactions…", theme);
         }
@@ -64,7 +66,14 @@ fn sent_to<'a, 'p>(
         .filter(move |frame| program.is_none_or(|program| frame.target == program))
 }
 
-pub(super) fn tx(view: &Explorer, height: u64, position: u32, cx: Cx, theme: &Theme) -> AnyElement {
+pub(super) fn tx(
+    view: &Explorer,
+    height: u64,
+    position: u32,
+    cx: Cx,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let Some(tx) = view.tx_at(height, position) else {
         return match &view.located {
             Loadable::Ready(None) | Loadable::Reloading(None, _) => empty_state(
@@ -77,7 +86,7 @@ pub(super) fn tx(view: &Explorer, height: u64, position: u32, cx: Cx, theme: &Th
                 theme,
             )
             .into_any_element(),
-            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
+            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme, ladder),
             Loadable::Idle
             | Loadable::Loading(_)
             | Loadable::Ready(Some(_))
@@ -123,7 +132,7 @@ pub(super) fn tx(view: &Explorer, height: u64, position: u32, cx: Cx, theme: &Th
         .children(
             tx.receipt
                 .as_ref()
-                .map(|run| field("Status", status(run, "explorer-tx", theme), theme)),
+                .map(|run| field("Status", status(run, "explorer-tx", theme, ladder), theme)),
         )
         .child(field("Hash", mono(abi::hex(&tx.hash)), theme))
         .child(field("From", from(view, tx, cx, theme), theme))
@@ -161,13 +170,17 @@ pub(super) fn tx(view: &Explorer, height: u64, position: u32, cx: Cx, theme: &Th
                 .child("Operation"),
         )
         .child(operation(view, tx, cx, theme))
-        .children(tx.receipt.as_ref().and_then(|run| messages(run, theme)))
+        .children(
+            tx.receipt
+                .as_ref()
+                .and_then(|run| messages(run, theme, ladder)),
+        )
         .into_any_element()
 }
 
 /// A run's outcome as a badge and, where it was rejected, the refusal's
 /// sentence and reason. `id` keeps the badge's id its own.
-fn status(run: &Receipt, id: &str, theme: &Theme) -> Div {
+fn status(run: &Receipt, id: &str, theme: &Theme, ladder: &Ladder) -> Div {
     let (word, color, soft) = outcome(run, theme);
     let refusal = match &run.outcome {
         Outcome::Applied { .. } => None,
@@ -186,18 +199,24 @@ fn status(run: &Receipt, id: &str, theme: &Theme) -> Div {
         .items_center()
         .gap_2()
         .min_w_0()
-        .child(design::badge(format!("{id}-status"), word, color, soft))
+        .child(design::badge(
+            format!("{id}-status"),
+            word,
+            ladder,
+            color,
+            soft,
+        ))
         .children(refusal)
 }
 
 /// The runs a transaction's messages caused, each under the run that sent
 /// it; `None` where it sent none.
-fn messages(run: &Receipt, theme: &Theme) -> Option<impl IntoElement> {
+fn messages(run: &Receipt, theme: &Theme, ladder: &Ladder) -> Option<impl IntoElement> {
     if run.nested.is_empty() {
         return None;
     }
     let mut rows = Vec::new();
-    nested(&run.nested, 0, "explorer-run", theme, &mut rows);
+    nested(&run.nested, 0, "explorer-run", theme, ladder, &mut rows);
     Some(
         div()
             .child(
@@ -216,7 +235,14 @@ fn messages(run: &Receipt, theme: &Theme) -> Option<impl IntoElement> {
 }
 
 /// `runs` and theirs below them, one row each, stepped in by `depth`.
-fn nested(runs: &[Receipt], depth: usize, at: &str, theme: &Theme, rows: &mut Vec<AnyElement>) {
+fn nested(
+    runs: &[Receipt],
+    depth: usize,
+    at: &str,
+    theme: &Theme,
+    ladder: &Ladder,
+    rows: &mut Vec<AnyElement>,
+) {
     for (index, run) in runs.iter().enumerate() {
         let id = format!("{at}-{index}");
         rows.push(
@@ -229,10 +255,10 @@ fn nested(runs: &[Receipt], depth: usize, at: &str, theme: &Theme, rows: &mut Ve
                 .border_b_1()
                 .border_color(theme.border)
                 .child(mono(run.program.clone()).flex_shrink_0())
-                .child(status(run, &id, theme))
+                .child(status(run, &id, theme, ladder))
                 .into_any_element(),
         );
-        nested(&run.nested, depth + 1, &id, theme, rows);
+        nested(&run.nested, depth + 1, &id, theme, ladder, rows);
     }
 }
 
@@ -332,7 +358,7 @@ fn value(view: &Explorer, shown: &Value, at: &str, cx: Cx, theme: &Theme) -> Any
             Some(_) => link(
                 format!("explorer-value-{at}"),
                 name.clone(),
-                Route::Transactions(Some(name.clone())),
+                Route::Program(name.clone()),
                 cx,
                 theme,
             )

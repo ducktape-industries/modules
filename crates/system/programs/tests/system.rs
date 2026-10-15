@@ -1,11 +1,11 @@
 use abi::reason;
-use abi::{BlobId, HostOp, Message, Origin, Outcome, Scan, Scheme};
+use abi::{BlobId, HostOp, Message, Origin, Outcome, Receipt, Scan, Scheme};
 use borsh::{BorshDeserialize, BorshSerialize};
 use commonware_cryptography::{Signer as _, ed25519};
 use commonware_runtime::{Runner as _, deterministic};
 use host::{
-    Applied, Block, BlockId, Founding, FoundingView, Genesis, Host, Layer, Limits, PARKED, Receipt,
-    Roles, Submission, Tip,
+    Applied, Block, BlockId, Founding, FoundingView, Genesis, Host, Layer, Limits, PARKED, Roles,
+    Submission, Tip,
 };
 use identity::AccountNumber;
 use keyscheme::testkit;
@@ -172,6 +172,7 @@ impl Net {
             (abi::role::IDENTITY, identity::PROGRAM),
             (abi::role::BLOBS, blobs::PROGRAM),
             (abi::role::AWAITS, awaits::PROGRAM),
+            (abi::role::SCHEDULER, scheduler::PROGRAM),
         ]);
         let egress_founded = apps.iter().any(|app| app.program == egress::PROGRAM);
         if egress_founded {
@@ -190,7 +191,10 @@ impl Net {
             ]
             .into_iter()
             .chain(apps)
-            .chain([founding(awaits::PROGRAM, &program("awaits"))])
+            .chain([
+                founding(awaits::PROGRAM, &program("awaits")),
+                founding(scheduler::PROGRAM, &program("scheduler")),
+            ])
             .collect(),
             views: vec![FoundingView {
                 name: "lens".into(),
@@ -446,5 +450,7 @@ mod harness_tests;
 mod identity_tests;
 #[path = "system/programs.rs"]
 mod program_programs_tests;
+#[path = "system/scheduler.rs"]
+mod scheduler_tests;
 #[path = "system/valset.rs"]
 mod valset_tests;

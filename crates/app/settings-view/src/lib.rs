@@ -46,8 +46,8 @@ impl View for Settings {
 }
 
 impl Render for Settings {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        ui::render(self, cx)
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        ui::render(self, window.touch(), cx)
     }
 }
 

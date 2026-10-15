@@ -13,6 +13,19 @@ pub(super) fn sanitize_node(
         return Ok(());
     }
     let entered = scopes.enter(identity::segment(node.identity().cloned(), row))?;
+    let opened_sheet = matches!(node, Node::Sheet { .. });
+    if opened_sheet {
+        if walk.in_tooltip {
+            return Err("a sheet inside a tooltip".into());
+        }
+        if walk.in_sheet {
+            return Err("a sheet inside a sheet".into());
+        }
+        if std::mem::replace(&mut walk.sheet_seen, true) {
+            return Err("a second sheet in one frame".into());
+        }
+        walk.in_sheet = true;
+    }
     if let Node::Container(crate::ContainerNode {
         interactivity: Some(interactivity),
         ..
@@ -39,6 +52,9 @@ pub(super) fn sanitize_node(
     } = node
     {
         sanitize_interactivity(interactivity, walk)?;
+        if interactivity.on_back.is_some() && depth > 0 {
+            return Err("on_back below the root".into());
+        }
         // gpui panics (debug) on a second claim under one focused node;
         // the first in tree order keeps it. The budget restarts under
         // every node with a role that takes focus (`sanitize_children`),
@@ -62,6 +78,9 @@ pub(super) fn sanitize_node(
     sanitize_children(node, depth, walk, scopes)?;
     if let Some(claimed) = claimed_outside {
         walk.active_descendant = claimed;
+    }
+    if opened_sheet {
+        walk.in_sheet = false;
     }
     scopes.leave(entered);
     Ok(())
@@ -124,6 +143,10 @@ fn sanitize_fields(
         } => {
             walk.style(*style)?;
             cut_children(children, 2, walk);
+        }
+        Node::Sheet { style, detents, .. } => {
+            walk.style(*style)?;
+            sheet_detents(detents)?;
         }
         Node::Canvas { style, commands } => {
             walk.style(*style)?;
@@ -201,6 +224,27 @@ fn sanitize_fields(
             crate::validate_field(value, *cursor, tokens, claims)?;
             walk.style(*style)?;
         }
+    }
+    Ok(())
+}
+
+/// A sheet opens at its first detent and is dragged up through the rest:
+/// at least one, each a fraction of the body in `0..=1` above zero (a
+/// sheet at zero height is none), strictly ascending, no more than a host
+/// keeps snap points for.
+fn sheet_detents(detents: &[f32]) -> Result<(), &'static str> {
+    const MOST: usize = 8;
+    if detents.is_empty() || detents.len() > MOST {
+        return Err("a sheet has one to eight detents");
+    }
+    if detents
+        .iter()
+        .any(|d| !d.is_finite() || !(0. ..=1.).contains(d) || *d == 0.)
+    {
+        return Err("a sheet detent is a fraction of the body");
+    }
+    if detents.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err("sheet detents ascend");
     }
     Ok(())
 }

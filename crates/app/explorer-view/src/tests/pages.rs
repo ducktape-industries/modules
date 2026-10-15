@@ -457,7 +457,7 @@ fn an_account_shows_its_devices_and_what_it_used() {
     cx.simulate_submit("explorer-search");
     cx.run_until_parked();
     let texts = cx.texts();
-    assert!(cx.has_text("account 3   Person   1 device"), "{texts:?}");
+    assert!(cx.has_text("account 3   User   1 device"), "{texts:?}");
     assert!(
         cx.has_text("laptop") && cx.has_text("last used 1s ago"),
         "{texts:?}"
@@ -589,7 +589,7 @@ fn accounts_say_what_each_is_as_members_does() {
     cx.simulate_click("explorer-tab-accounts");
     cx.run_until_parked();
     for text in [
-        "Person",
+        "User",
         "Agent · managed by Ada · suspended",
         "Program · forge",
     ] {

@@ -13,9 +13,11 @@ pub(crate) use view::design::{badge, button, empty_state, quiet};
 use view::prelude::*;
 
 use crate::Chat;
+use view::design::Ladder;
 
-pub fn render(chat: &Chat, cx: &mut Context<Chat>) -> impl IntoElement {
+pub fn render(chat: &Chat, touch: bool, cx: &mut Context<Chat>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
+    let ladder = &design::ladder(touch);
     // A chosen message has no popup of its own (its strip sits in the
     // row), so no overlay dismisses it: the screen lets it and the copy
     // range go on Escape from anywhere in the view and on a press
@@ -49,7 +51,7 @@ pub fn render(chat: &Chat, cx: &mut Context<Chat>) -> impl IntoElement {
         .when(chat.holds(), |screen| screen.consumes_keys(["escape"]))
         .on_any_mouse_down(press)
         .child(if chat.session.connected {
-            connected(chat, cx, &theme).into_any_element()
+            connected(chat, cx, &theme, ladder).into_any_element()
         } else {
             empty_state(
                 "chat-disconnected",
@@ -60,12 +62,18 @@ pub fn render(chat: &Chat, cx: &mut Context<Chat>) -> impl IntoElement {
             .into_any_element()
         })
         .into_any_element();
-    let screen = with_menu(chat, screen, cx, &theme);
-    with_create(chat, screen, cx, &theme)
+    let screen = with_menu(chat, screen, cx, &theme, ladder);
+    with_create(chat, screen, cx, &theme, ladder)
 }
 
 /// The screen under the open message menu, if any.
-fn with_menu(chat: &Chat, screen: AnyElement, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+fn with_menu(
+    chat: &Chat,
+    screen: AnyElement,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let dismiss = cx.listener(|chat, _: &(), _window, cx| {
         chat.close_menu();
         cx.notify();
@@ -81,7 +89,7 @@ fn with_menu(chat: &Chat, screen: AnyElement, cx: &mut Context<Chat>, theme: &Th
         "chat-menu-overlay",
         label,
         screen,
-        menu::floating(chat, cx, theme),
+        menu::floating(chat, cx, theme, ladder),
     )
     .on_dismiss(dismiss);
     // a confirm asks before anything else happens: it dims the room
@@ -99,12 +107,13 @@ fn with_create(
     screen: AnyElement,
     cx: &mut Context<Chat>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let dismiss = cx.listener(|chat, _: &(), _window, cx| {
         chat.create = None;
         cx.notify();
     });
-    let create = dialogs::channel_create(chat, cx, theme);
+    let create = dialogs::channel_create(chat, cx, theme, ladder);
     let overlay = modal_overlay("chat-create-overlay", "Create channel", screen, create)
         .flex()
         .items_center()
@@ -117,13 +126,18 @@ fn with_create(
     }
 }
 
-fn connected(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+fn connected(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let panes = div()
         .id("chat-panes")
         .relative()
         .flex()
         .size_full()
-        .child(sidebar::render(chat, cx, theme))
+        .child(sidebar::render(chat, cx, theme, ladder))
         .child(design::divider(
             "chat-sidebar-resize",
             "Resize the room list",
@@ -134,12 +148,12 @@ fn connected(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEle
                 chat.layout.clamp();
             },
         ))
-        .child(room::render(chat, cx, theme));
+        .child(room::render(chat, cx, theme, ladder));
     let details = chat.details.is_some() && chat.room.is_some();
     let thread = chat.room.as_ref().is_some_and(|room| room.thread.is_some());
     let (pane, width) = match (details, thread) {
-        (true, _) => (side::details(chat, cx, theme), chat.layout.details),
-        (false, true) => (side::thread(chat, cx, theme), chat.layout.thread),
+        (true, _) => (side::details(chat, cx, theme, ladder), chat.layout.details),
+        (false, true) => (side::thread(chat, cx, theme, ladder), chat.layout.thread),
         (false, false) => return panes,
     };
     // too narrow for the room beside it: the pane covers the whole screen

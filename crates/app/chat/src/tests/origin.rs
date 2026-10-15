@@ -19,12 +19,12 @@ fn identity() -> Vec<Profile> {
         kind,
     };
     vec![
-        profile(1, Kind::Person),
-        profile(2, Kind::Person),
+        profile(1, Kind::User),
+        profile(2, Kind::User),
         profile(
             3,
-            Kind::Managed {
-                runner: None,
+            Kind::Program {
+                script: None,
                 manager: 1,
                 category: Category::Agent,
                 standing: Standing::Active,
@@ -192,7 +192,7 @@ fn the_roster_pages_through_the_identity_role() {
     assert_eq!(numbers(&rest.items), [3]);
     assert!(matches!(
         rest.items[0].kind,
-        Kind::Managed { manager: 1, .. }
+        Kind::Program { manager: 1, .. }
     ));
     assert_eq!(rest.next, None);
 }

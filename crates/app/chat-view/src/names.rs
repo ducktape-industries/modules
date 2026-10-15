@@ -4,7 +4,7 @@
 use chat::Principal;
 use chat::view::Names;
 
-/// Autocomplete candidates: every person and agent that acts
+/// Autocomplete candidates: every user and program account that acts
 /// ([`Names::people`]), then the room's other such members, labelled
 /// without the `@`.
 pub fn mention_choices(names: &Names, members: &[Principal]) -> Vec<MentionChoice> {
@@ -58,23 +58,23 @@ mod tests {
     }
 
     fn agent(manager: u64, standing: Standing) -> Kind {
-        Kind::Managed {
-            runner: None,
+        Kind::Program {
+            script: None,
             manager,
             category: Category::Agent,
             standing,
         }
     }
 
-    /// Mentions and reviewers offer people and agents that act: no
-    /// program's account, no suspended or revoked one. Each wears the one
+    /// Mentions and reviewers offer users and program accounts that act:
+    /// no system account, no suspended or revoked one. Each wears the one
     /// badge and note its kind gives it.
     #[test]
     fn the_pickers_offer_people_and_live_agents_only() {
         let names = Names::from_roster([
-            profile(1, "ada", Kind::Person),
+            profile(1, "ada", Kind::User),
             profile(2, "scout", agent(1, Standing::Active)),
-            profile(3, "forge", Kind::Program("forge".into())),
+            profile(3, "forge", Kind::System("forge".into())),
             profile(4, "idle", agent(1, Standing::Suspended)),
             profile(5, "gone", agent(1, Standing::Revoked)),
         ]);

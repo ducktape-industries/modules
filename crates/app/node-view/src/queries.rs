@@ -93,7 +93,7 @@ pub(crate) async fn operator(host: &Host, key: &[u8]) -> Result<Option<String>, 
     let Some(agent) = host.query(identity::ask::Profile { number }).await? else {
         return Ok(None);
     };
-    let Kind::Managed { manager, .. } = agent.kind else {
+    let Kind::Program { manager, .. } = agent.kind else {
         return Ok(None);
     };
     let manager = host

@@ -1,5 +1,6 @@
 //! What the reader's presses do: reads again, each form's submit, and the
 //! invite. A refusal lands on the form it came from.
+use view::methods::Submitted;
 use view::prelude::*;
 
 use crate::queries::Found;
@@ -63,11 +64,20 @@ impl Settings {
         };
         let ask = cx.host().ask::<Submit<Identity>>(op);
         cx.land(ask, |view, result, cx| {
-            // created: the form stays busy until the host's session
-            // names the new account, which re-reads it
-            if let Err(refusal) = result {
-                view.create_account.busy = false;
-                view.create_account.problem = Some(Problem::Refused(refusal.message));
+            match result {
+                // created: the form stays busy until the host's session
+                // names the new account, which re-reads it
+                Ok(Submitted::Applied { .. }) => {}
+                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
+                    view.create_account.busy = false;
+                    view.create_account.problem = Some(Problem::Refused(refusal.message));
+                }
+                Ok(Submitted::InDoubt { .. }) => {
+                    view.create_account.busy = false;
+                    view.create_account.problem = Some(Problem::Refused(
+                        "No answer came back: it may have gone through.".into(),
+                    ));
+                }
             }
             cx.notify();
         })
@@ -296,8 +306,15 @@ impl Settings {
             let form = form(view);
             form.busy = false;
             match result {
-                Ok(_) => form.text.reset(""),
-                Err(refusal) => form.problem = Some(Problem::Refused(refusal.message)),
+                Ok(Submitted::Applied { .. }) => form.text.reset(""),
+                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
+                    form.problem = Some(Problem::Refused(refusal.message))
+                }
+                Ok(Submitted::InDoubt { .. }) => {
+                    form.problem = Some(Problem::Refused(
+                        "No answer came back: it may have gone through.".into(),
+                    ))
+                }
             }
             // a rename that landed closes its field
             view.rename_agent.retain(|_, form| {

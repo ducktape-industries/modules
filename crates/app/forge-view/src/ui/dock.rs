@@ -7,13 +7,19 @@ use view::{Div, FontWeight, Stateful};
 use crate::Forge;
 use crate::ui::components::{badge, id, path_text, quiet, short_hex};
 use forge::{Mergeability, Verdict};
+use view::design::Ladder;
 
 /// The sidebar's width.
 const SIDEBAR_W: Pixels = px(280.);
 /// A fact's label column in Merge status.
 const LABEL_W: Pixels = px(92.);
 
-pub(crate) fn sidebar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> {
+pub(crate) fn sidebar(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Stateful<Div> {
     let column = div()
         .id(id("forge-dock"))
         .w(SIDEBAR_W)
@@ -29,7 +35,7 @@ pub(crate) fn sidebar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> 
         return column.child(quiet("Reading this change…", theme));
     };
     column
-        .child(reviews(forge, theme))
+        .child(reviews(forge, theme, ladder))
         .child(merge_status(forge, theme))
         .child(comments(forge, cx, theme))
         .child(
@@ -79,7 +85,7 @@ fn section(key: &str, title: &str, note: Option<String>, theme: &Theme) -> State
 /// Each reviewer's latest verdict, then who was asked and has not
 /// answered. Approvals are advisory: the merge is a compare-and-set on
 /// both heads.
-fn reviews(forge: &Forge, theme: &Theme) -> Stateful<Div> {
+fn reviews(forge: &Forge, theme: &Theme, ladder: &Ladder) -> Stateful<Div> {
     let mut section = section("forge-reviews", "Reviews", Some("advisory".into()), theme);
     let Some((change, _, _, reviews)) = forge.change() else {
         return section;
@@ -110,6 +116,7 @@ fn reviews(forge: &Forge, theme: &Theme) -> Stateful<Div> {
             badge(
                 id(format!("forge-reviewer-verdict-{index}")),
                 label,
+                ladder,
                 foreground,
                 background,
             ),
@@ -122,6 +129,7 @@ fn reviews(forge: &Forge, theme: &Theme) -> Stateful<Div> {
             badge(
                 id(format!("forge-reviewer-asked-{index}")),
                 "asked",
+                ladder,
                 theme.muted,
                 theme.surface_raised,
             ),

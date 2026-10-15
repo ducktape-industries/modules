@@ -7,8 +7,14 @@ use super::timeline;
 use crate::Chat;
 use crate::ui::room;
 use crate::ui::{button, empty_state};
+use view::design::Ladder;
 
-pub fn thread(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Stateful<Div> {
+pub fn thread(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Stateful<Div> {
     let close = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         chat.close_thread();
         cx.notify();
@@ -41,12 +47,18 @@ pub fn thread(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Stateful<Di
                         .aria_level(2)
                         .child("Thread"),
                 )
-                .child(button("chat-thread-close", "Close thread", theme, close)),
+                .child(button(
+                    "chat-thread-close",
+                    "Close thread",
+                    ladder,
+                    theme,
+                    close,
+                )),
         );
     if let Some(room) = &chat.room
         && let Some(thread_state) = &room.thread
     {
-        pane = pane.child(timeline::list(chat, crate::Pane::Thread, cx, theme));
+        pane = pane.child(timeline::list(chat, crate::Pane::Thread, cx, theme, ladder));
         if thread_state.replies.is_loading() {
             pane = pane.child(
                 div()
@@ -83,7 +95,12 @@ pub fn thread(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Stateful<Di
 /// The open channel's details: its name, archiving, and its members. A
 /// dm seats its two peers for good: it lists them, with no way to add or
 /// remove one.
-pub fn details(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Stateful<Div> {
+pub fn details(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Stateful<Div> {
     let (Some(details), Some(info)) = (chat.details.as_ref(), chat.room_info()) else {
         return div().id("chat-details-pane");
     };
@@ -101,26 +118,32 @@ pub fn details(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Stateful<D
     // a dm is its two people alike: nothing to rename, archive or seat
     let pane = match dm {
         true => pane
-            .child(details_header("Conversation details", cx, theme))
+            .child(details_header("Conversation details", cx, theme, ladder))
             .child(rule(theme))
             .child(section("People", theme)),
         false => pane
-            .child(details_header("Channel details", cx, theme))
+            .child(details_header("Channel details", cx, theme, ladder))
             .child(rule(theme))
             .children(name_section(
                 &details.name_draft,
                 info.channel.archived,
                 cx,
                 theme,
+                ladder,
             ))
             .child(rule(theme))
             .child(section("Members", theme))
-            .children(member_adder(&details.member_draft, cx, theme)),
+            .children(member_adder(&details.member_draft, cx, theme, ladder)),
     };
     pane.children(members(chat, !dm, cx, theme))
 }
 
-fn details_header(title: &'static str, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+fn details_header(
+    title: &'static str,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let close = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         chat.toggle_details();
         cx.notify();
@@ -139,7 +162,7 @@ fn details_header(title: &'static str, cx: &mut Context<Chat>, theme: &Theme) ->
                 .aria_level(2)
                 .child(title),
         )
-        .child(button("chat-details-close", "Close", theme, close))
+        .child(button("chat-details-close", "Close", ladder, theme, close))
 }
 
 /// The name field, Rename, and Archive or Unarchive.
@@ -148,6 +171,7 @@ fn name_section(
     archived: bool,
     cx: &mut Context<Chat>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Vec<AnyElement> {
     let rename = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         cx.notify();
@@ -164,20 +188,46 @@ fn name_section(
     vec![
         section("Name", theme).into_any_element(),
         field("chat-details-name-input", draft, "Channel name", theme).into_any_element(),
-        button("chat-details-rename-button", "Rename", theme, rename).into_any_element(),
-        button("chat-details-archive", archive_label, theme, archive).into_any_element(),
+        button(
+            "chat-details-rename-button",
+            "Rename",
+            ladder,
+            theme,
+            rename,
+        )
+        .into_any_element(),
+        button(
+            "chat-details-archive",
+            archive_label,
+            ladder,
+            theme,
+            archive,
+        )
+        .into_any_element(),
     ]
 }
 
 /// The field and button that seat a member, and how one is removed.
-fn member_adder(draft: &TextField, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
+fn member_adder(
+    draft: &TextField,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Vec<AnyElement> {
     let add_member = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         cx.notify();
         chat.add_member(cx);
     });
     vec![
         field("chat-details-member-input", draft, "Add member", theme).into_any_element(),
-        button("chat-details-add-member", "Add member", theme, add_member).into_any_element(),
+        button(
+            "chat-details-add-member",
+            "Add member",
+            ladder,
+            theme,
+            add_member,
+        )
+        .into_any_element(),
         div()
             .text_size(design::text::CAPTION)
             .text_color(theme.faint)

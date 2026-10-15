@@ -19,3 +19,4 @@ blobs = { workspace = true }
 identity = { workspace = true }
 valset = { workspace = true }
 programs = { workspace = true }
+scheduler = { workspace = true }

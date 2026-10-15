@@ -713,6 +713,7 @@ fn chained_spawns_finish_in_one_tick() {
 }
 
 mod lifecycle;
+mod phone;
 mod pictures;
 mod primitive_tests;
 mod style_table;

@@ -132,7 +132,7 @@ impl Render for Nodes {
         // the pane's width, as the host lays the frame out: the table fits
         // to it in the frame that shows it
         self.width = window.viewport_size().width.into();
-        ui::render(self, cx)
+        ui::render(self, window.touch(), cx)
     }
 }
 

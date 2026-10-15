@@ -9,8 +9,20 @@ const FIELD_REFUSALS: [&str; 5] = [
     "field claims a key the engine owns",
 ];
 
+/// What `sanitize` refuses a tree for on a sheet's or the root's account:
+/// a shape the generator draws at random too.
+const SHAPE_REFUSALS: [&str; 6] = [
+    "a sheet has one to eight detents",
+    "a sheet detent is a fraction of the body",
+    "sheet detents ascend",
+    "a sheet inside a sheet",
+    "a second sheet in one frame",
+    "on_back below the root",
+];
+
 fn field_refusal(refused: &Refused) -> bool {
-    matches!(refused, Refused::Invalid(reason) if FIELD_REFUSALS.contains(reason))
+    matches!(refused, Refused::Invalid(reason)
+        if FIELD_REFUSALS.contains(reason) || SHAPE_REFUSALS.contains(reason))
 }
 
 // --------------------------------------------------------------- test 1

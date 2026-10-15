@@ -24,6 +24,7 @@ impl Node {
             | Self::ResizeHandle { id, .. }
             | Self::Sensor { id, .. }
             | Self::Overlay { id, .. }
+            | Self::Sheet { id, .. }
             | Self::Web { id, .. } => Some(id),
             Self::Space | Self::Anchored { .. } | Self::Deferred { .. } | Self::Canvas { .. } => {
                 None
@@ -60,6 +61,7 @@ impl Node {
             | Self::Svg { style, .. }
             | Self::Field { style, .. }
             | Self::Overlay { style, .. }
+            | Self::Sheet { style, .. }
             | Self::Canvas { style, .. }
             | Self::Web { style, .. } => Some(*style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => None,
@@ -82,6 +84,7 @@ impl Node {
             | Self::Svg { style, .. }
             | Self::Field { style, .. }
             | Self::Overlay { style, .. }
+            | Self::Sheet { style, .. }
             | Self::Canvas { style, .. }
             | Self::Web { style, .. } => visit(style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => {}
@@ -142,6 +145,7 @@ impl Node {
             } => children,
             Self::Deferred { content, .. }
             | Self::Sensor { child: content, .. }
+            | Self::Sheet { child: content, .. }
             | Self::ResizeHandle { content, .. } => std::slice::from_ref(content),
             Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
@@ -174,6 +178,7 @@ impl Node {
             } => children,
             Self::Deferred { content, .. }
             | Self::Sensor { child: content, .. }
+            | Self::Sheet { child: content, .. }
             | Self::ResizeHandle { content, .. } => std::slice::from_mut(content),
             Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
@@ -201,6 +206,7 @@ impl Node {
             | Self::Overlay { children, .. } => Some(children),
             Self::Deferred { .. }
             | Self::Sensor { .. }
+            | Self::Sheet { .. }
             | Self::ResizeHandle { .. }
             | Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })

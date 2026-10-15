@@ -62,6 +62,28 @@ pub mod type_scale {
     pub const CAPTION: f64 = 11.;
     /// identifiers in the data face
     pub const MONO: f64 = 12.;
+
+    /// The scale under a finger (`window.touch()`): the body is 15px and a
+    /// page title is louder, since the reader is further from a phone than
+    /// from a desk. The values are the design canvas's (views board 0).
+    pub mod touch {
+        /// a page title in a view's own title row
+        pub const TITLE: f64 = 20.;
+        pub const BODY: f64 = 15.;
+        /// a caption, a timestamp, a badge
+        pub const CAPTION: f64 = 12.;
+    }
+}
+
+/// Where a layout changes shape, in logical px of the body a view is laid
+/// out in: below [`COMPACT_BELOW`] one pane at a time (a phone, 360-430),
+/// from [`WIDE_FROM`] every pane docks (explorer's stack point today);
+/// between them the view's own `docks` arithmetic decides. 480 is above the
+/// widest phone and at or below every first-party desktop minimum, so no
+/// desktop layout changes class.
+pub mod width {
+    pub const COMPACT_BELOW: f64 = 480.;
+    pub const WIDE_FROM: f64 = 960.;
 }
 
 /// Corner radii, in pixels. The shell's canvas is square: a control, a
@@ -110,6 +132,21 @@ pub mod height {
     pub const AVATAR: f64 = 20.;
     /// a person's initial heading a card or panel
     pub const AVATAR_LG: f64 = 24.;
+    /// the smallest box a pointer presses, each way (the AX door's AX-017)
+    pub const HIT: f64 = 24.;
+
+    /// The heights under a finger (`window.touch()`): Apple's 44pt, Android's
+    /// 48dp, the Expo app's `theme.ts`, the design canvas's views board 0.
+    pub mod touch {
+        /// a list row
+        pub const ROW: f64 = 48.;
+        /// a control on one line
+        pub const CONTROL: f64 = 44.;
+        /// the smallest box a finger presses, each way
+        pub const HIT: f64 = 44.;
+        /// a person's initial in a list row
+        pub const AVATAR: f64 = 32.;
+    }
 }
 
 /// One sRGB color as the wire carries it: `[r, g, b, a]` in `0.0..=1.0`.
