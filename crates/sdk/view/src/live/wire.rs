@@ -8,7 +8,7 @@ use abi::{BlobId, ProgramId, Roles, Root};
 use borsh::{BorshDeserialize, BorshSerialize};
 use program::abi;
 
-pub const NODE_CONTRACT: u32 = 6;
+pub const NODE_CONTRACT: u32 = 8;
 pub const FRAME_NAMESPACE: &[u8] = b"ducktape:frame";
 
 pub mod route {
