@@ -480,6 +480,14 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 mode: LiveMode::Datagram,
                 priority: 128,
             },
+            Publishing::Waiting,
+        ),
+        exchange::<LivePublishTrack>(
+            LivePublish {
+                track: live_track("presence/3"),
+                mode: LiveMode::Datagram,
+                priority: 128,
+            },
             Publishing::Subscribers(2),
         ),
         exchange::<LiveSendObject>(
@@ -495,7 +503,14 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
         exchange::<LiveSubscribeTrack>(
             LiveSubscribe {
                 track: live_track("doc"),
-                latest: true,
+                from: LiveStart::Latest,
+            },
+            LiveItem::Waiting,
+        ),
+        exchange::<LiveSubscribeTrack>(
+            LiveSubscribe {
+                track: live_track("doc"),
+                from: LiveStart::Latest,
             },
             LiveItem::Opened {
                 by: 3,
@@ -506,7 +521,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
         exchange::<LiveSubscribeTrack>(
             LiveSubscribe {
                 track: live_track("presence/3"),
-                latest: false,
+                from: LiveStart::Next,
             },
             LiveItem::Opened {
                 by: 3,
@@ -517,7 +532,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
         exchange::<LiveSubscribeTrack>(
             LiveSubscribe {
                 track: live_track("doc"),
-                latest: true,
+                from: LiveStart::Latest,
             },
             LiveItem::Object {
                 group: 4,
@@ -528,21 +543,22 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
         exchange::<LiveSubscribeTrack>(
             LiveSubscribe {
                 track: live_track("doc"),
-                latest: true,
+                from: LiveStart::Latest,
             },
             LiveItem::GroupEnd {
                 group: 4,
                 complete: false,
             },
         ),
+        exchange::<LiveTracks>("lobby".into(), Watching::Waiting),
         exchange::<LiveTracks>(
             "lobby".into(),
-            LiveAnnounce {
+            Watching::Announce(LiveAnnounce {
                 name: "presence/3".into(),
                 by: 3,
                 mode: LiveMode::Datagram,
                 up: true,
-            },
+            }),
         ),
     ]
 }

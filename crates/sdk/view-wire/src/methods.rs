@@ -522,9 +522,16 @@ pub struct LivePublish {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub enum Publishing {
-    /// How many are listening (every node counted). 0: stop producing what
-    /// costs; a rise in stream mode: start a new group (a keyframe, a full
-    /// state), so the newcomer has one to start from.
+    /// The room's program has not granted this account the track yet: the
+    /// node holds the ask and takes it on the block that writes the grant,
+    /// and what the view sends onto the track meanwhile goes out then. Told
+    /// each time the ask starts to wait: when first asked, and when a
+    /// reconnect asks again after the grant was taken meanwhile.
+    Waiting,
+    /// How many are listening (every node counted), told each time it
+    /// moves: a track no one subscribes to hears none. 0: stop producing
+    /// what costs; a rise in stream mode: start a new group (a keyframe, a
+    /// full state), so the newcomer has one to start from.
     Subscribers(u32),
 }
 
@@ -544,19 +551,37 @@ pub struct LiveSend {
     pub end: bool,
 }
 
-/// `live.subscribe`'s request. `latest`: the group the node holds first (a
-/// late joiner's state), then everything new; else only what comes next.
+/// `live.subscribe`'s request: the track, and where in it to start.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct LiveSubscribe {
     pub track: LiveTrack,
-    pub latest: bool,
+    pub from: LiveStart,
+}
+
+/// Where a subscription starts in its track, as the node names it.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum LiveStart {
+    /// The group the node holds first (a late joiner's state), then
+    /// everything new.
+    Latest,
+    /// Only groups that start after it: the group in hand is passed over,
+    /// and each later one is heard from its first object.
+    Next,
 }
 
 /// Items of a `live.subscribe` subscription.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub enum LiveItem {
+    /// The room's program has not granted this account the track yet: the
+    /// node holds the ask, and `Opened` follows on the block that writes
+    /// the grant. Told each time the ask starts to wait, as
+    /// [`Publishing::Waiting`] is.
+    Waiting,
     /// The track as the node has it: who publishes it, how, and the group
     /// the node replays first. Comes again when the host opened the track
     /// anew (a reconnect, a publisher that published it again): what was
@@ -577,8 +602,21 @@ pub enum LiveItem {
     GroupEnd { group: u64, complete: bool },
 }
 
-/// Items of a `live.tracks` subscription: the tracks of a room, now and as
-/// they come and go. A person's presence is their own track being up.
+/// Items of a `live.tracks` subscription.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum Watching {
+    /// The room's program has not granted this account watching the room
+    /// yet: the node holds the ask, and the announces follow on the block
+    /// that writes the grant. Told each time the ask starts to wait, as
+    /// [`Publishing::Waiting`] is.
+    Waiting,
+    /// A track of the room came up or went down.
+    Announce(LiveAnnounce),
+}
+
+/// One track of a room, up or down. A person's presence is their own track
+/// being up.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct LiveAnnounce {
@@ -671,15 +709,13 @@ methods! {
     /// bidi controls and line or paragraph separators.
     HostTitle, "host.title", String, ();
     /// `live.publish`: a subscription that IS the published track; its
-    /// items are [`Publishing`]. An object the host or the node refused
-    /// (`too_large`, `in_flight_limit`) is an `Err` item that does not end
-    /// it, and so is a `not_granted` before the first `Subscribers`: the
-    /// room's program has not granted the track yet, and it waits for the
-    /// block that does, its objects held till then. It ends with a refusal
-    /// when the track ends (`not_granted`: the grant taken back,
-    /// `duplicate_track`, `malformed_request`, `bad_proof`,
-    /// `live_unavailable`). A reconnect publishes the track again on the
-    /// new connection.
+    /// items are [`Publishing`]: `Waiting` while the room's program has not
+    /// granted the track, the subscriber count as it moves. An object the
+    /// host or the node refused (`too_large`, `in_flight_limit`) is an
+    /// `Err` item that does not end it. It ends with a refusal
+    /// (`not_granted`: the grant taken back; `duplicate_track`,
+    /// `malformed_request`, `bad_proof`, `live_unavailable`). A reconnect
+    /// publishes the track again on the new connection.
     LivePublishTrack, "live.publish", LivePublish, Publishing;
     /// `live.send`: one object onto a track this view publishes. Answered
     /// only when it names no track the view publishes
@@ -687,22 +723,23 @@ methods! {
     /// reply per frame. A refused object is told on the track's
     /// `live.publish` subscription.
     LiveSendObject, "live.send", LiveSend, ();
-    /// `live.subscribe`: a subscription to a track; items [`LiveItem`]. A
-    /// `not_granted` item before [`LiveItem::Opened`] does not end it: the
-    /// room's program has not granted it yet, and it waits for the block
-    /// that does. Ends with a refusal when the track ends (`track_ended`,
-    /// `publisher_gone`, `unknown_track`, `not_granted`: the grant taken
-    /// back, `malformed_request`, `bad_proof`, `live_unavailable`). A
-    /// reconnect subscribes again with `latest`, and the next item is a
+    /// `live.subscribe`: a subscription to a track; items [`LiveItem`]:
+    /// `Waiting` while the room's program has not granted it, then
+    /// [`LiveItem::Opened`] and what the track carries. Ends with a refusal
+    /// (`track_ended`, `publisher_gone`, `unknown_track`; `not_granted`:
+    /// the grant taken back, this account's or the publisher's;
+    /// `malformed_request`, `bad_proof`, `live_unavailable`). A reconnect
+    /// subscribes again from [`LiveStart::Latest`], and the next item is a
     /// fresh [`LiveItem::Opened`].
     LiveSubscribeTrack, "live.subscribe", LiveSubscribe, LiveItem;
     /// `live.tracks`: a subscription to a room's track list; items
-    /// [`LiveAnnounce`]; the tracks up at subscribe come first, `up: true`.
-    /// A `not_granted` item before them does not end it: the room's
-    /// program has not granted watching the room yet, and it waits for the
-    /// block that does. It ends with a refusal (`not_granted`: the grant
-    /// taken back; `malformed_request`, `bad_proof`, `live_unavailable`).
-    LiveTracks, "live.tracks", String, LiveAnnounce;
+    /// [`Watching`]: `Waiting` while the room's program has not granted
+    /// watching the room, then an `Announce` per track up at subscribe
+    /// (`up: true`) and one per track that comes or goes after, each a
+    /// track this account's grant lets it subscribe to. It ends with a
+    /// refusal (`not_granted`: the grant taken back; `malformed_request`,
+    /// `bad_proof`, `live_unavailable`).
+    LiveTracks, "live.tracks", String, Watching;
 }
 
 /// The `<capability>` half of every kind in [`ALL`]: what a view's manifest
@@ -843,10 +880,10 @@ pub mod refusal {
     /// A `live.send` onto a track this view does not publish (never, or no
     /// longer: its publication was refused or ended).
     pub const LIVE_NOT_PUBLISHED: &str = "live_not_published";
-    /// The view's program wrote no grant yet that lets this account
-    /// publish or subscribe to this track in this room: an item that does
-    /// not end the request, which waits for the block that writes one. Or
-    /// the program took the grant back: the request's last item.
+    /// The view's program took back the grant that let this account
+    /// publish, subscribe to or watch this: the request's last item. An ask
+    /// the program has not granted yet is not refused: it waits, and hears
+    /// `Waiting` ([`super::Publishing::Waiting`]).
     pub const NOT_GRANTED: &str = "not_granted";
     /// The node did not take the proof the host signed with the session's
     /// key, and opened no live session: the request's last item.
