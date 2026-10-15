@@ -1,5 +1,8 @@
 //! Static metadata for a ducktape view. Parsing never instantiates or runs a view.
 
+use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
+
 use crate::methods::Capability;
 
 pub const MANIFEST_SECTION: &str = "ducktape.view.manifest";
@@ -18,7 +21,10 @@ pub const LINES: [&str; 8] = [
     "icon",
 ];
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Crosses the wire as `blob.manifest`'s answer, so its shape is in
+/// `tests/golden/schema.txt` with the rest.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Manifest {
     /// the [`crate::WIRE_ID`] the view was built against
     pub wire_id: String,
