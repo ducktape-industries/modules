@@ -6,12 +6,12 @@ use ::program::{Error, ExecCtx, Origin, already_exists, invalid, unauthorized, w
 use crate::attributed::report;
 use crate::rules;
 use crate::state::{
-    ANSWERED, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS, REPLIES, ROOTS, channel,
-    message, newest_first, replace_message, toggle,
+    ANSWERED, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, REACTIONS, REPLIES, ROOTS, channel, message,
+    newest_first, put_message, toggle,
 };
 use crate::{
     AccountNumber, Block, ChannelRow, MemberRow, MsgRow, PostPolicy, Principal, Reaction,
-    dm_channel_id, plain_text, tags,
+    dm_channel_id,
 };
 
 // ── channels ────────────────────────────────────────────────────────────────
@@ -159,8 +159,6 @@ pub(crate) fn post(
         message_id: message_id.clone(),
         height: ctx.env().height,
         time: ctx.env().time,
-        text: plain_text(&blocks),
-        tags: tags(&blocks),
         blocks,
         thread,
         ..MsgRow::by(sender.clone())
@@ -169,7 +167,7 @@ pub(crate) fn post(
         Some(root) => answer(ctx, &channel_id, root, seq)?,
         None => ROOTS.insert(ctx, &(channel_id.clone(), newest_first(seq))),
     }
-    replace_message(ctx, None, &row);
+    put_message(ctx, &row);
     report(ctx, sender, None, &row);
     MESSAGE_IDS.put(ctx, &message_id, &(channel_id.clone(), seq));
     HEADS.put(ctx, &channel_id, &seq);
@@ -187,10 +185,10 @@ fn answer(ctx: &ExecCtx, channel_id: &str, root: u64, seq: u64) -> Result<(), Er
     let channel_id = channel_id.to_owned();
     let answered = (channel_id.clone(), row.author.clone(), newest_first(seq));
     ANSWERED.put(ctx, &answered, &root);
-    REPLIES.insert(ctx, &(channel_id.clone(), root, seq));
+    REPLIES.insert(ctx, &(channel_id, root, seq));
     row.reply_count += 1;
     row.last_reply_seq = Some(seq);
-    MESSAGES.put(ctx, &(channel_id, root), &row);
+    put_message(ctx, &row);
     Ok(())
 }
 
@@ -218,8 +216,6 @@ pub(crate) fn edit(
     let old = message(ctx, channel_id, seq)?;
     rules::editable(&old, sender)?;
     let row = MsgRow {
-        text: plain_text(&blocks),
-        tags: tags(&blocks),
         blocks,
         rev: old.rev + 1,
         edited: true,
@@ -227,14 +223,14 @@ pub(crate) fn edit(
         base_rev,
         ..old.clone()
     };
-    replace_message(ctx, Some(&old), &row);
+    put_message(ctx, &row);
     report(ctx, sender, Some(&old), &row);
     Ok(())
 }
 
 /// The author or the channel's owner deletes. What stays is a tombstone
-/// holding the message's place in its timeline or thread; its body, its
-/// postings and its reactions go.
+/// holding the message's place in its timeline or thread; its body and its
+/// reactions go.
 pub(crate) fn delete(
     ctx: &ExecCtx,
     sender: &Principal,
@@ -256,13 +252,11 @@ pub(crate) fn delete(
     }
     let tombstone = MsgRow {
         blocks: Vec::new(),
-        text: String::new(),
-        tags: Vec::new(),
         reactions: Vec::new(),
         deleted: true,
         ..old.clone()
     };
-    replace_message(ctx, Some(&old), &tombstone);
+    put_message(ctx, &tombstone);
     report(ctx, sender, Some(&old), &tombstone);
     Ok(())
 }
@@ -295,7 +289,7 @@ pub(crate) fn react(
         count_out(&mut row.reactions, emoji);
     }
     toggle(ctx, &REACTIONS, &key, on);
-    MESSAGES.put(ctx, &(key.0, seq), &row);
+    put_message(ctx, &row);
     Ok(())
 }
 
