@@ -1,11 +1,11 @@
 //! The `awaits` program: it opens a ticket for each call a parked frame waits on, and hands the
-//! frame its answer when the called program resolves the ticket or anyone expires it once overdue.
+//! frame its answer when the called program resolves the ticket.
 mod program;
 mod rules;
 #[cfg(test)]
 mod tests;
 
-pub use abi::role::awaits::{Call, EXPIRY_BLOCKS, Op, Query, Reply, TicketRow, cancelled, expired};
+pub use abi::role::awaits::{Call, Op, Query, Reply, TicketRow, cancelled};
 pub use program::Awaits;
 
 pub const PROGRAM: &str = "awaits";
@@ -29,10 +29,6 @@ pub fn describe(op: &Op) -> describe::Description {
             format!("Resolve · call {ticket}"),
             vec![field("answered", Value::Text(answer.is_ok().to_string()))],
         ),
-        Op::Expire { ticket } => (
-            format!("Expire · call {ticket}"),
-            vec![field("ticket", text(*ticket))],
-        ),
         Op::Close { frame } => (
             format!("Close · frame {frame}"),
             vec![field("frame", text(*frame))],
@@ -45,8 +41,5 @@ describe::export!(Op, describe);
 
 #[test]
 fn op_variants_only_append() {
-    assert_eq!(
-        describe::variants::<Op>(),
-        ["Park", "Resolve", "Expire", "Close"]
-    );
+    assert_eq!(describe::variants::<Op>(), ["Park", "Resolve", "Close"]);
 }

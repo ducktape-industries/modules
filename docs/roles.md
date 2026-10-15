@@ -1,13 +1,15 @@
 # Roles, accounts and updates
 
-The kernel knows five programs by what they do, never by their ids, and the
-node knows a sixth. Genesis binds each role to a founding program; every call
-the kernel makes goes to the program bound to that role, speaking the role's
-interface in `crates/sdk/abi` (`abi::role::{programs, validators, identity,
-awaits}`) or, for blobs, ducktape's `blob::contract`. The programs in
-`crates/system/` are one implementation of each. The egress role
-(`abi::role::egress`) is optional and the kernel never calls it: a node reads
-it, and `crates/app/egress` fills it.
+The kernel knows five programs by what they do, never by their ids, a sixth
+when the network binds one, and the node knows a seventh. Genesis binds each
+role to a founding program; every call the kernel makes goes to the program
+bound to that role, speaking the role's interface in `crates/sdk/abi`
+(`abi::role::{programs, validators, identity, awaits, scheduler}`) or, for
+blobs, ducktape's `blob::contract`. The programs in `crates/system/` are one
+implementation of each. The scheduler role (`abi::role::scheduler`) is
+optional: on a network that binds none, nothing scheduled runs. The egress
+role (`abi::role::egress`) is optional and the kernel never calls it: a node
+reads it, and `crates/app/egress` fills it.
 
 ## The roles
 
@@ -16,8 +18,9 @@ it, and `crates/app/egress` fills it.
 | `programs` | `programs` | at founding, writes its params (`role::programs::Genesis`: every founding program and view, and the founding hooks); at each block, before any frame, asks `At(height)` and admits, swaps or drops programs to match the answer, then asks `Hooks(height)` for the programs it tells of each frame the block carries ("Hooks", below) |
 | `validators` | `valset` | at founding, writes its params (`role::validators::Genesis`: the founding validators and the member cap, the most members it may ever hold, 1 to `MAX_MEMBERS` = 128); at founding and on the last block of each epoch, asks `Validators` and `Members`: it seats the Validators for the next epoch and tracks the Members (a Resident follows the chain but never votes or proposes); a Members answer past the cap halts the network there. The node (`ducktape join`, `invite`, `vote`, `halo`, `leave`) signs the role's `Op` with its identity key. Each member registers the halo address other members dial it at (`Member.halo`, host:port): `Enroll` and `SetHalo` refuse an unspecified or loopback host as `invalid_input` |
 | `identity` | `identity` | as it admits a program (at founding, and later off the programs role), executes `RegisterProgram { program }` with the `System` origin; for each signed frame asks `Account(key)`; for each message and reply asks `OfProgram(sender)`, and for a message a program sends as another account asks `Runs { program, account }` |
-| `awaits` | `awaits` | when a frame parks waiting on calls, sends `Park { frame, program, calls }` with the `System` origin, and `Close { frame }` when the frame finishes or the programs role changes its code; the role opens a ticket per call, and a `Resolve { ticket, answer }` from the called program, or an `Expire { ticket }` from anyone once the ticket is `EXPIRY_BLOCKS` old, makes it hand the frame its answer through the host's `Resume`. A refusal of `Park` fails the frame |
-| `egress` | `egress` | nothing: the node reads it. After each block a member node asks `Assigned { key }` with its own key, `Overdue` and `Node { key }`; it calls each request elected to it, through the services its `egress.toml` names, and signs `Answer { id, answer }`; it signs `Expire { id }` for each overdue one, and `Serve { services }` while the role's record of it differs from its config. A program asks `Serving { service }` for the member nodes that would be elected, and calls the role with `Request` |
+| `awaits` | `awaits` | when a frame parks waiting on calls, sends `Park { frame, program, calls }` with the `System` origin, and `Close { frame }` when the frame finishes or the programs role changes its code; the role opens a ticket per call, and a `Resolve { ticket, answer }` from the called program makes it hand the frame its answer through the host's `Resume`; a ticket has no deadline. A refusal of `Park` fails the frame |
+| `scheduler` | `scheduler` | at the end of each block, after its frames and hooks and before the epoch step, asks `Due { height }` page by page (no limit: every entry) and, for each entry still due (`Entry { id }` asked again first, so a run that cancels a later entry of the same block holds), runs `payload` on `target` as the program that scheduled the entry would send a message: `Origin::Program(scheduler)`, that program's account, `Cause::Scheduled { entry }`, the network's per-frame limits; a refused run undoes only its own writes. It then sends `Ran { entry, receipt }` with the `System` origin, and the role keeps the receipt on the entry; the block does not carry it. A program sends `Schedule { height, target, payload }` (the SDK's `ctx.schedule`), answered with the entry id: the role takes the scheduler from the origin, so a program schedules only as itself, and refuses a height not after the current one, so a scheduled run never lands in its own block. Only the scheduling program sends `Cancel { entry }`, before the run |
+| `egress` | `egress` | nothing: the node reads it. After each block a member node asks `Assigned { key }` with its own key and `Node { key }`; it calls each request elected to it, through the services its `egress.toml` names, and signs `Answer { id, answer }`, and `Serve { services }` while the role's record of it differs from its config. A program asks `Serving { service }` for the member nodes that would be elected, and calls the role with `Request { request, wait }`. The egress program expires a request itself: it schedules its own `Expire { id }` through the scheduler role `wait` blocks on (`DEFAULT_WAIT`, 64, when `wait` is `None`) and cancels it when the answer comes; no node signs an expiry |
 | `blobs` | `blobs` | when a program reads a blob (`blob_get`) that no program put, and when the programs role admits code, asks `Held { blob }`: the blob is served only once a bundle naming it is held, which it is from the receipt that brings two thirds of the current validators. The node watches the role's writes: it gathers every bundle put, and a validator's node receipts a bundle once it holds every blob |
 
 The founding file binds them in its `[roles]` table, one row per role: the
@@ -32,12 +35,14 @@ identity = "identity"
 blobs = "blobs"
 awaits = "awaits"
 egress = "egress"
+scheduler = "scheduler"
 ```
 
 The roles are a table, not a fixed set of fields: `abi::Roles` maps a role's
 name to its program, and the names are constants in `abi::role` (`PROGRAMS`,
-`VALIDATORS`, `IDENTITY`, `BLOBS`, `AWAITS`, `EGRESS`). A new role is a new
-row. The first five are required (`abi::role::REQUIRED`), egress is not.
+`VALIDATORS`, `IDENTITY`, `BLOBS`, `AWAITS`, `EGRESS`, `SCHEDULER`). A new
+role is a new row. The first five are required (`abi::role::REQUIRED`),
+egress and scheduler are not.
 Founding refuses a table missing a required role, naming it, and a role bound
 to a program the founding does not list; a node refuses a network that records
 no roles. Every frame's `Env` carries the table (`env.roles`), so a program

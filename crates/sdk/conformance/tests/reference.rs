@@ -321,3 +321,18 @@ impl conformance::awaits::Fixture for Awaits {
 fn awaits_fills_the_awaits_role() {
     conformance::awaits::run(&Awaits);
 }
+
+struct Scheduler;
+
+impl conformance::scheduler::Fixture for Scheduler {
+    type Program = scheduler::Scheduler;
+
+    fn host(&self) -> MockHost {
+        MockHost::default()
+    }
+}
+
+#[test]
+fn scheduler_fills_the_scheduler_role() {
+    conformance::scheduler::run(&Scheduler);
+}

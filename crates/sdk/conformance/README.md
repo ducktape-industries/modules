@@ -1,7 +1,7 @@
 # conformance
 
 Proof that a program fills a role the kernel calls: `programs`,
-`validators`, `identity` or `awaits` (`abi::role`). The suite runs your program's
+`validators`, `identity`, `awaits` or `scheduler` (`abi::role`). The suite runs your program's
 native `program::Program` over `MockHost` and speaks only the role's bytes:
 it encodes `abi::role` values, hands them to your program's own decoding,
 and reads the answers back as the role's replies. It checks the contract,
@@ -48,8 +48,8 @@ fn fills_the_identity_role() {
 ```
 
 `conformance::env(program, height, origin, sender)` builds the env your
-fixture's ops run in. `tests/reference.rs` has the fixtures of the four
-reference programs (`identity`, `valset`, `programs`, `awaits`).
+fixture's ops run in. `tests/reference.rs` has the fixtures of the five
+reference programs (`identity`, `valset`, `programs`, `awaits`, `scheduler`).
 
 ## What each role is held to
 
@@ -97,13 +97,23 @@ founding hooks, a hook set (`set_hook`) from its height, a hook removed
 **awaits**: the role's `Op`, `Query` and `Reply` are the program's first
 variants, byte for byte; `Park` and `Close` are refused `unauthorized` from
 a signed frame or a program; `Park` opens one ticket per call, opened at the
-parking height and due `EXPIRY_BLOCKS` later, and resumes nothing; only the
+parking height, and resumes nothing; only the
 called program resolves its ticket (anyone else is refused `unauthorized`),
 which closes it and resumes its frame with the answer, a refusal included;
 a `Resolve` of a ticket no longer open is no refusal and resumes nothing;
-`Expire` before the deadline is refused `not_yet`, and at it, from anyone,
-resumes the frame with `expired(ticket, height)`; `Close` drops that frame's
-tickets alone and resumes nothing; `Owed` and `Overdue` page by `after` and
-`limit`, `Owed` listing a target's open tickets and `Overdue` those due by
-the height. The fixture is only the founded host: the role leaves nothing
-to the program's own ops.
+`Close` drops that frame's tickets alone and resumes nothing; `Owed` pages a
+target's open tickets by `after` and `limit`. The fixture is only the
+founded host: the role leaves nothing to the program's own ops.
+
+**scheduler**: the role's `Op`, `Query` and `Reply` are the program's first
+variants, byte for byte; `Schedule` is refused `unauthorized` from a signed
+frame or the kernel, and `invalid_input` for a height not after the current
+one, and a refused one keeps nothing; a program's `Schedule` answers a new
+entry id, and the entry names that program as its scheduler; only that
+program cancels the entry (anyone else is refused `unauthorized`), which
+removes it from `Due`, and a cancel after the run is refused `wrong_state`;
+only the kernel sends `Ran` (anyone else is refused `unauthorized`), the
+entry keeps the receipt and leaves `Due`, and a second `Ran` is refused;
+`Due` lists one height's entries in the order they were made, every one
+with no limit, and pages by `limit` and `after`. The fixture is only the
+founded host.

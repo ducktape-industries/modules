@@ -26,4 +26,5 @@ store = { workspace = true }
 [dev-dependencies]
 awaits = { workspace = true }
 identity = { workspace = true }
+scheduler = { workspace = true }
 valset = { workspace = true }

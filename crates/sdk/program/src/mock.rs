@@ -118,6 +118,7 @@ impl MockHost {
             (role::BLOBS, "blobs"),
             (role::AWAITS, "awaits"),
             (role::EGRESS, "egress"),
+            (role::SCHEDULER, "scheduler"),
         ])
     }
 
