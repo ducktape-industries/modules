@@ -450,6 +450,8 @@ mod harness_tests;
 mod identity_tests;
 #[path = "system/programs.rs"]
 mod program_programs_tests;
+#[path = "system/push.rs"]
+mod push_tests;
 #[path = "system/scheduler.rs"]
 mod scheduler_tests;
 #[path = "system/valset.rs"]

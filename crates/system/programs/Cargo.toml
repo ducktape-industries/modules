@@ -33,6 +33,7 @@ chat = { workspace = true }
 files = { workspace = true }
 attribution = { workspace = true }
 harness = { workspace = true }
+push = { workspace = true }
 egress = { workspace = true }
 forge = { workspace = true }
 gitcore = { workspace = true }

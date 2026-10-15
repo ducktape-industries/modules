@@ -4,7 +4,6 @@
 use ::program::{Error, ExecCtx, Origin, already_exists, invalid, unauthorized, wrong_state};
 
 use crate::attributed::report;
-use crate::rules;
 use crate::state::{
     ANSWERED, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS, REPLIES, ROOTS, channel,
     message, newest_first, replace_message, toggle,
@@ -13,6 +12,7 @@ use crate::{
     AccountNumber, Block, ChannelRow, MemberRow, MsgRow, PostPolicy, Principal, Reaction,
     dm_channel_id, plain_text, tags,
 };
+use crate::{notice, rules};
 
 // ── channels ────────────────────────────────────────────────────────────────
 
@@ -148,7 +148,8 @@ pub(crate) fn post(
 ) -> Result<(), Error> {
     rules::id("message_id", &message_id)?;
     rules::namespace(&message_id, &ctx.env())?;
-    rules::writable(ctx, &channel(ctx, &channel_id)?, sender)?;
+    let room = channel(ctx, &channel_id)?;
+    rules::writable(ctx, &room, sender)?;
     if MESSAGE_IDS.has(ctx, &message_id) {
         return Err(already_exists(format!("message {message_id} exists")));
     }
@@ -171,6 +172,7 @@ pub(crate) fn post(
     }
     replace_message(ctx, None, &row);
     report(ctx, sender, None, &row);
+    notice::send(ctx, &room, &row)?;
     MESSAGE_IDS.put(ctx, &message_id, &(channel_id.clone(), seq));
     HEADS.put(ctx, &channel_id, &seq);
     Ok(())

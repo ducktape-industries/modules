@@ -10,6 +10,7 @@ use crate::{Op, PageRequest, PostPolicy, Principal, Query, Reply, parse_message}
 mod attributed;
 mod channels;
 mod messages;
+mod notice;
 mod origin;
 mod properties;
 mod reactions;

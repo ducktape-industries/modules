@@ -8,7 +8,9 @@ use std::future::Future;
 
 use ::program::Error;
 
-use crate::{Kind, MsgRow, PageRequest, PageResponse, Principal, Profile, Standing, ask};
+use crate::{
+    Block, Kind, Mark, MsgRow, PageRequest, PageResponse, Principal, Profile, Span, Standing, ask,
+};
 
 /// Every account's profile, every page of it, folded into [`Names`].
 pub async fn roster<F: Future<Output = Result<PageResponse<Profile>, Error>>>(
@@ -176,4 +178,38 @@ pub fn unnamed(principal: &Principal) -> String {
         Principal::Account(number) => format!("account {number}"),
         Principal::Root => "system".into(),
     }
+}
+
+/// The message as one run of plain text, a mention read as the name it addresses (`@name`): what
+/// a notice says ([`crate::notice::of`]).
+pub fn message_body(blocks: &[Block], names: &Names) -> String {
+    blocks
+        .iter()
+        .map(|block| match block {
+            Block::Paragraph(spans) => span_text(spans, names),
+            Block::Quote(spans) => format!("“{}”", span_text(spans, names)),
+            Block::Code { lang, text } => match lang {
+                Some(lang) => format!("{lang}\n{text}"),
+                None => text.clone(),
+            },
+            Block::Divider => "────────".to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A run of spans as text, each mention as the name it addresses.
+pub fn span_text(spans: &[Span], names: &Names) -> String {
+    spans
+        .iter()
+        .map(|span| {
+            span.marks
+                .iter()
+                .find_map(|mark| match mark {
+                    Mark::Mention(principal) => Some(names.mention(principal)),
+                    _ => None,
+                })
+                .unwrap_or_else(|| span.text.clone())
+        })
+        .collect()
 }

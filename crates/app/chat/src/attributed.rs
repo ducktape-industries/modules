@@ -10,7 +10,7 @@ use crate::{AccountNumber, Block, Mark, MsgRow, Principal, dm_peers};
 pub const MESSAGE: &str = "message";
 pub const DIRECT: &str = "direct";
 
-fn mentioned(blocks: &[Block]) -> impl Iterator<Item = AccountNumber> + '_ {
+pub(crate) fn mentioned(blocks: &[Block]) -> impl Iterator<Item = AccountNumber> + '_ {
     blocks
         .iter()
         .flat_map(|block| match block {

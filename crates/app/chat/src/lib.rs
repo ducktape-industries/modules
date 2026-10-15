@@ -14,6 +14,7 @@
 //! - `origin.rs`: the identity role's roster
 //! - `queries.rs`: one short function per question
 //! - `text.rs`: what search and tags read out of a message
+//! - `notice.rs`: the notices a posted message makes, which `push` carries to devices
 //! - `view.rs`: the reads a view makes of chat, folded into [`view::Names`]
 //! - `description.rs`: [`describe()`], an op in a person's words
 //!
@@ -23,6 +24,7 @@
 pub mod attributed;
 mod description;
 pub mod message;
+pub mod notice;
 mod ops;
 mod origin;
 mod program;
