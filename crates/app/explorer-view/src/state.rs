@@ -104,7 +104,8 @@ pub struct Frames {
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Acted {
     pub account: u64,
-    pub rows: Vec<TxRow>,
+    #[serde(with = "borsh_bytes")]
+    pub frames: Vec<activity::Frame>,
 }
 
 /// What the programs role runs, lists and will change, and who may change it,
@@ -233,10 +234,10 @@ impl Explorer {
         )
     }
 
-    pub(crate) fn acted(&self, number: u64) -> Option<&[TxRow]> {
+    pub(crate) fn acted(&self, number: u64) -> Option<&[activity::Frame]> {
         let acted = self.acted.ready()?;
         let this_account = acted.account == number;
-        this_account.then_some(acted.rows.as_slice())
+        this_account.then_some(acted.frames.as_slice())
     }
 
     /// Whether the programs role runs `program`.

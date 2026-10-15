@@ -101,20 +101,11 @@ impl Explorer {
         let Route::Account(number) = self.route else {
             return;
         };
-        let mut known = match self.acted(number) {
-            Some(rows) => rows.to_vec(),
-            None => {
-                self.acted = Loadable::Idle;
-                Vec::new()
-            }
-        };
-        let keys = self
-            .account(number)
-            .map_or(&[][..], |account| account.keys());
-        let signed = |tx: &&TxRow| keys.iter().any(|key| key.key == tx.signer);
-        let windowed = self.chain.txs.iter().filter(signed);
-        known.extend(windowed.cloned());
-        let work = queries::acted(cx.host(), number, known);
+        let unheld = self.acted(number).is_none();
+        if unheld {
+            self.acted = Loadable::Idle;
+        }
+        let work = queries::acted(cx.host(), number);
         cx.load(self, work, |view| &mut view.acted);
     }
 
@@ -248,14 +239,8 @@ impl Explorer {
             Some(Some((_, txs))) => txs.as_slice(),
             _ => &[],
         };
-        let acted = self.acted.ready().map_or(&[][..], |acted| &acted.rows);
         let located = self.located.ready().and_then(Option::as_ref);
-        self.chain
-            .txs
-            .iter()
-            .chain(opened)
-            .chain(acted)
-            .chain(located)
+        self.chain.txs.iter().chain(opened).chain(located)
     }
 
     pub(crate) fn tx(&self, hash: &[u8; 32]) -> Option<&TxRow> {

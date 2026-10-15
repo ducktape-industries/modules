@@ -580,29 +580,19 @@ fn tx_rows(
     list: Rows,
     view: &Explorer,
     select: impl Fn(&Explorer) -> Vec<&TxRow> + 'static,
-    height: bool,
-    who: bool,
 ) -> Rows {
     let routes = select(view).iter().map(|tx| tx_route(tx)).collect();
     list.shown(routes, move |view, range, cx, theme| {
         let txs = select(view);
         range
-            .map(|index| tx_row(view, txs[index], height, who, cx, theme))
+            .map(|index| tx_row(view, txs[index], cx, theme))
             .collect()
     })
 }
 
 /// Its id is its place on the chain, which a frame the node landed again
-/// (the same hash) does not share; `height` adds the block column; `who` the signer column, which an account's own activity leaves
-/// out.
-fn tx_row(
-    view: &Explorer,
-    tx: &TxRow,
-    height: bool,
-    who: bool,
-    cx: Cx,
-    theme: &Theme,
-) -> Stateful<Div> {
+/// (the same hash) does not share.
+fn tx_row(view: &Explorer, tx: &TxRow, cx: Cx, theme: &Theme) -> Stateful<Div> {
     let id = SharedString::from(format!("explorer-tx-{}-{}", tx.height, tx.index));
     let now = view.chain.now();
     view.open(tx, cx);
@@ -649,8 +639,7 @@ fn tx_row(
                 )
                 .child(div().truncate().child(title)),
         )
-        .children(who.then(|| signer(view, &tx.signer, theme)))
-        .children(height.then(|| mono(grouped(tx.height)).text_color(theme.muted)))
+        .child(signer(view, &tx.signer, theme))
         .child(
             mono(ago(now, tx.time))
                 .w(AGE_W)
@@ -695,12 +684,8 @@ fn frame_row(view: &Explorer, frame: &activity::Frame, cx: Cx, theme: &Theme) ->
     let (height, position) = (frame.height, frame.position);
     let id = SharedString::from(format!("explorer-tx-{height}-{position}"));
     let now = view.chain.now();
-    let (word, color, _) = verdict(frame.applied, theme);
-    let label = format!(
-        "{}, {word}, block {} · {position}",
-        frame.target,
-        grouped(height)
-    );
+    let (_, color, _) = verdict(frame.applied, theme);
+    let label = activity::view::label(&frame.target, frame.applied, &grouped(height), position);
     let mark = div()
         .id(SharedString::from(format!(
             "explorer-tx-mark-{height}-{position}"
@@ -729,9 +714,10 @@ fn outcome(run: &Receipt, theme: &Theme) -> (&'static str, Hsla, Hsla) {
 }
 
 fn verdict(applied: bool, theme: &Theme) -> (&'static str, Hsla, Hsla) {
+    let word = activity::view::verdict(applied);
     match applied {
-        true => ("Accepted", theme.success, theme.success_soft),
-        false => ("Rejected", theme.danger, theme.danger_soft),
+        true => (word, theme.success, theme.success_soft),
+        false => (word, theme.danger, theme.danger_soft),
     }
 }
 

@@ -18,6 +18,7 @@ const DETAIL_MIN: Pixels = px(440.);
 /// A detail row's first column: a device's label, an agent's name. It
 /// gives way first when the pane is narrow.
 const KEY_COLUMN: Pixels = px(180.);
+const MARK: Pixels = px(6.);
 
 pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
@@ -842,24 +843,33 @@ fn activity(view: &Members, theme: &Theme) -> impl IntoElement {
             .iter()
             .enumerate()
             .map(|(index, signed)| {
+                let place = design::grouped(signed.height);
+                let label = ::activity::view::label(
+                    &signed.target,
+                    signed.applied,
+                    &place,
+                    signed.position,
+                );
+                let color = verdict(signed.applied, theme);
+                let mark = div().size(MARK).flex_shrink_0().bg(color);
                 line()
+                    .child(mark)
                     .child(
                         div()
                             .flex_1()
                             .min_w(px(0.))
                             .truncate()
-                            .child(signed.title.clone()),
+                            .child(signed.target.clone()),
                     )
-                    .child({
-                        let label = format!("block {}", design::grouped(signed.height));
+                    .child(
                         design::link(
-                            format!("members-block-{}", index),
-                            label.clone(),
-                            format!("duck://explorer/block/{}", signed.height),
+                            format!("members-tx-{index}"),
+                            format!("block {place} · {}", signed.position),
+                            format!("duck://explorer/tx/{}/{}", signed.height, signed.position),
                             theme,
                         )
-                        .aria_label(format!("Open {label} in Explorer"))
-                    })
+                        .aria_label(format!("Open {label} in Explorer")),
+                    )
                     .child(
                         div()
                             .w(px(52.))
@@ -880,4 +890,11 @@ fn activity(view: &Members, theme: &Theme) -> impl IntoElement {
         body,
         theme,
     )
+}
+
+fn verdict(applied: bool, theme: &Theme) -> Hsla {
+    match applied {
+        true => theme.success,
+        false => theme.danger,
+    }
 }

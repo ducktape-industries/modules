@@ -1,10 +1,9 @@
 //! Explorer: the chain as this node lists it. Finalized blocks and the
 //! transactions each carries come from `chain.blocks` and `chain.block`;
-//! every transaction, newest first, from `activity`, and what each
-//! account did, its frames read by their place (`chain.tx`); one
-//! transaction opened by its place, and its whole payload, from
-//! `chain.tx`; who signed them from `identity`; the validators from
-//! `valset`; the programs from `programs`.
+//! every transaction, newest first, and what each account did, from
+//! `activity`; one transaction opened by its place, and its whole
+//! payload, from `chain.tx`; who signed them from `identity`; the
+//! validators from `valset`; the programs from `programs`.
 //!
 //! What the node does not keep is not shown: there is no per-block state
 //! root or write set. The block list is the last [`WINDOW`] blocks, read a

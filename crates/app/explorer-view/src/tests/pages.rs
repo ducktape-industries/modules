@@ -465,7 +465,7 @@ fn an_account_shows_its_devices_and_what_it_used() {
         "{texts:?}"
     );
     assert!(cx.has_text("Programs used") && cx.has_text("2 tx"));
-    assert!(!cx.has_text("mystery · 4 bytes"), "not Ada's");
+    assert!(!cx.has_text("mystery"), "not Ada's");
 }
 
 #[test]

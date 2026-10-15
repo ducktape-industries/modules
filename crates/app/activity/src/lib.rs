@@ -5,6 +5,7 @@ mod program;
 mod rules;
 #[cfg(test)]
 mod tests;
+pub mod view;
 
 pub use program::Activity;
 pub use store::{PageRequest, PageResponse};

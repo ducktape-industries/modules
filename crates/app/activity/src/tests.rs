@@ -6,6 +6,7 @@ use store::PageRequest;
 use crate::{Activity, Frame, PROGRAM, Query, Reply, Used};
 
 mod frames;
+mod view;
 
 const ADA: &[u8] = &[1; 32];
 const ADA_PHONE: &[u8] = &[2; 32];

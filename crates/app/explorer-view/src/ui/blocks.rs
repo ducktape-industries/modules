@@ -70,13 +70,9 @@ pub(super) fn block(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> AnyE
     });
     let list = rows("explorer-block-txs", "Transactions", view);
     let rows = (!txs.is_empty()).then(|| {
-        tx_rows(
-            list,
-            view,
-            move |view| view.block(height).map_or_else(Vec::new, |(_, txs)| txs),
-            false,
-            true,
-        )
+        tx_rows(list, view, move |view| {
+            view.block(height).map_or_else(Vec::new, |(_, txs)| txs)
+        })
         .whole(view, cx, theme)
         .build(cx)
     });

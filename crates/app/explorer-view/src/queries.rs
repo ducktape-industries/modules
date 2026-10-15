@@ -3,7 +3,6 @@
 //! account did (activity). The window's blocks are the host's (`load.rs`).
 use view::prelude::*;
 
-use crate::chain::{TxRow, located};
 use crate::state::{Accounts, Acted, Frames, Network, Used};
 
 /// Every account.
@@ -67,33 +66,12 @@ pub(crate) async fn frames(host: Host) -> Result<Frames, Error> {
     Ok(Frames { list })
 }
 
-pub(crate) async fn acted(host: Host, account: u64, known: Vec<TxRow>) -> Result<Acted, Error> {
-    let asked = activity::ask::Acted {
-        account,
-        page: activity::PageRequest {
-            after: None,
-            limit: None,
-        },
-    };
-    let frames = host.query(asked).await?.items;
-    let mut acted = Vec::with_capacity(frames.len());
-    for frame in frames {
-        let at = |row: &&TxRow| (row.height, row.index) == (frame.height, frame.position);
-        if let Some(row) = known.iter().find(at) {
-            acted.push(row.clone());
-            continue;
-        }
-        let ask = TxAsk {
-            tx: TxRef::At {
-                height: frame.height,
-                position: frame.position,
-            },
-            most: u32::MAX,
-        };
-        acted.extend(host.ask::<ChainTx>(ask).await?.map(located));
-    }
-    Ok(Acted {
-        account,
-        rows: acted,
-    })
+pub(crate) async fn acted(host: Host, account: u64) -> Result<Acted, Error> {
+    let frames = host
+        .query_all(|after| activity::ask::Acted {
+            account,
+            page: activity::PageRequest { after, limit: None },
+        })
+        .await?;
+    Ok(Acted { account, frames })
 }

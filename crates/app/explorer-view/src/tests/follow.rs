@@ -323,7 +323,7 @@ fn a_pushed_head_asks_for_the_blocks_since_the_top() {
 }
 
 #[test]
-fn an_accounts_activity_past_the_window_is_read_by_place_and_follows_the_index() {
+fn an_accounts_activity_past_the_window_lists_its_frames_and_reads_no_transaction() {
     let mut cx = TestAppContext::new();
     let tip = Rc::new(RefCell::new(WINDOW as u64 + 100));
     node(&mut cx, tip.clone());
@@ -336,21 +336,23 @@ fn an_accounts_activity_past_the_window_is_read_by_place_and_follows_the_index()
     assert!(cx.has_text("2 tx"), "Ada's two, long out of the window");
     cx.simulate_click("explorer-account-3");
     cx.run_until_parked();
-    for text in [
-        "2 transactions recorded",
-        "Post in #design",
-        "Direct message",
-    ] {
-        assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
+    assert!(cx.has_text("2 transactions recorded"), "{:?}", cx.texts());
+    let label = |id: &str| cx.interactivity(id).aria.label.as_deref().map(String::from);
+    assert_eq!(
+        label("explorer-tx-11-1").as_deref(),
+        Some("chat, Accepted, block 11 · 1")
+    );
+    assert_eq!(
+        label("explorer-tx-11-0").as_deref(),
+        Some("chat, Accepted, block 11 · 0")
+    );
+    for title in ["Post in #design", "Direct message"] {
+        assert!(!cx.has_text(title), "a row shows no op title: {title}");
     }
-    let at = |position| TxAsk {
-        tx: TxRef::At {
-            height: 11,
-            position,
-        },
-        most: u32::MAX,
-    };
-    assert_eq!(cx.host().requests::<ChainTx>(), [at(1), at(0)]);
+    assert!(
+        cx.host().requests::<ChainTx>().is_empty(),
+        "no transaction is read to list them"
+    );
     assert!(cx.host().requests::<ChainBlock>().is_empty());
     let asked = cx.host().requests::<Query<Activity>>().len();
     heads.send(Some(view::methods::Change {
@@ -363,18 +365,22 @@ fn an_accounts_activity_past_the_window_is_read_by_place_and_follows_the_index()
         asked + 3,
         "every frame, the counts and the open account are read again"
     );
-    assert_eq!(
-        cx.host().requests::<ChainTx>().len(),
-        2,
-        "a row already read is not read again"
-    );
+    assert!(cx.host().requests::<ChainTx>().is_empty());
     cx.simulate_click("explorer-tx-11-0");
     cx.run_until_parked();
     assert!(
         cx.has_text("In block 11") && cx.has_text("hello there"),
-        "a row of the account's activity opens though the window has no such hash: {:?}",
+        "a row of the account's activity opens by its place: {:?}",
         cx.texts()
     );
+    let opened = TxAsk {
+        tx: TxRef::At {
+            height: 11,
+            position: 0,
+        },
+        most: u32::MAX,
+    };
+    assert_eq!(cx.host().requests::<ChainTx>(), [opened]);
 }
 
 #[test]

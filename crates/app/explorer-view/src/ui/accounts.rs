@@ -99,16 +99,10 @@ fn acted(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> AnyElement {
         return quiet("explorer-no-activity", "No activity recorded.", theme);
     }
     let list = rows("explorer-activity-list", "Activity", view);
-    tx_rows(
-        list,
-        view,
-        move |view| {
-            view.acted(number)
-                .map_or_else(Vec::new, |rows| rows.iter().collect())
-        },
-        true,
-        false,
-    )
+    frame_rows(list, view, move |view| {
+        view.acted(number)
+            .map_or_else(Vec::new, |frames| frames.iter().collect())
+    })
     .whole(view, cx, theme)
     .build(cx)
     .into_any_element()
@@ -213,7 +207,7 @@ fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
     let now = view.chain.now();
     let sent = view.acted(account.number).unwrap_or_default();
     let devices = account.keys().iter().enumerate().map(|(index, key)| {
-        let last = sent.iter().find(|tx| tx.signer == key.key);
+        let last = sent.iter().find(|frame| frame.signer == key.key);
         let label = key
             .label
             .clone()
@@ -235,7 +229,7 @@ fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
             )
             .child(
                 mono(match last {
-                    Some(tx) => format!("last used {} ago", ago(now, tx.time)),
+                    Some(frame) => format!("last used {} ago", ago(now, frame.time)),
                     None => "not used lately".into(),
                 })
                 .text_size(design::text::CAPTION)
