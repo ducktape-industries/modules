@@ -154,7 +154,12 @@ fn founding_more_validators_than_the_cap_is_refused() {
 
 #[test]
 fn founding_a_validator_at_a_halo_address_no_member_dials_is_refused() {
-    for unregistrable in ["0.0.0.0:9100", "127.0.0.1:9100", "[::1]:9100", "localhost:9100"] {
+    for unregistrable in [
+        "0.0.0.0:9100",
+        "127.0.0.1:9100",
+        "[::1]:9100",
+        "localhost:9100",
+    ] {
         let genesis = abi::encode(&Genesis {
             validators: vec![
                 member(1),
