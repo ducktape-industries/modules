@@ -1,5 +1,6 @@
 //! What each op checks and writes: a member node serving, a program's call and the chain
-//! electing its provider, the provider answering it, and an overdue call expiring.
+//! electing its provider, the next provider elected when one stops serving or leaves, the
+//! provider answering it, and an overdue call expiring.
 use ::program::kernel::error_from;
 use ::program::{
     BlobId, Cause, Error, ExecCtx, QueryCtx, invalid, not_found, unauthorized, unexpected_reply,
@@ -47,31 +48,46 @@ pub(crate) fn serve(ctx: &ExecCtx, mut services: Vec<String>) -> Result<(), Erro
     if !stopping && !members(ctx)?.contains(&key) {
         return Err(unauthorized("only a member node of this network provides"));
     }
-    let since = match PROVIDERS.get(ctx, &key)? {
-        Some(previous) => {
-            for service in previous.services {
-                SERVING.remove(ctx, &(service, key.clone()));
-            }
-            previous.since
-        }
-        None => ctx.env().height,
-    };
-    if stopping {
-        PROVIDERS.remove(ctx, &key);
-        return Ok(());
+    let previous = PROVIDERS.get(ctx, &key)?;
+    let since = previous
+        .as_ref()
+        .map_or(ctx.env().height, |previous| previous.since);
+    let served = previous
+        .map(|previous| previous.services)
+        .unwrap_or_default();
+    for service in &served {
+        SERVING.remove(ctx, &(service.clone(), key.clone()));
     }
     for service in &services {
         SERVING.insert(ctx, &(service.clone(), key.clone()));
     }
-    PROVIDERS.put(
-        ctx,
-        &key,
-        &ProviderRow {
-            key: key.clone(),
-            services,
-            since,
-        },
-    );
+    let dropped: Vec<String> = served
+        .into_iter()
+        .filter(|service| !services.contains(service))
+        .collect();
+    match stopping {
+        true => PROVIDERS.remove(ctx, &key),
+        false => PROVIDERS.put(
+            ctx,
+            &key,
+            &ProviderRow {
+                key: key.clone(),
+                services,
+                since,
+            },
+        ),
+    }
+    hand_on_dropped(ctx, &key, &dropped)
+}
+
+fn hand_on_dropped(ctx: &ExecCtx, key: &[u8], dropped: &[String]) -> Result<(), Error> {
+    for (_, id) in ASSIGNED.scan(ctx, ASSIGNED.prefix_of(&key.to_vec()))? {
+        let stored = open(ctx, id)?;
+        let unserved = dropped.contains(&stored.row.service);
+        if unserved {
+            reelect(ctx, stored)?;
+        }
+    }
     Ok(())
 }
 
@@ -96,14 +112,31 @@ pub(crate) fn serving(ctx: &QueryCtx, service: &str) -> Result<Vec<Vec<u8>>, Err
         .collect())
 }
 
-fn elect(ctx: &ExecCtx, service: &str) -> Result<Vec<u8>, Error> {
+enum Election {
+    Elected { provider: Vec<u8>, next_turn: u64 },
+    Unserved,
+}
+
+fn election(ctx: &QueryCtx, service: &str) -> Result<Election, Error> {
     let eligible = serving(ctx, service)?;
-    if eligible.is_empty() {
-        return Err(not_found(format!("no member node serves {service}")));
+    let unserved = eligible.is_empty();
+    if unserved {
+        return Ok(Election::Unserved);
     }
     let turn = TURNS.get(ctx, &service.to_owned())?.unwrap_or(0);
-    TURNS.put(ctx, &service.to_owned(), &(turn + 1));
-    Ok(eligible[(turn % eligible.len() as u64) as usize].clone())
+    let provider = eligible[(turn % eligible.len() as u64) as usize].clone();
+    Ok(Election::Elected {
+        provider,
+        next_turn: turn + 1,
+    })
+}
+
+fn unserved(service: &str) -> Error {
+    not_found(format!("no member node serves {service}"))
+}
+
+fn take_turn(ctx: &ExecCtx, service: &str, next_turn: u64) {
+    TURNS.put(ctx, &service.to_owned(), &next_turn);
 }
 
 pub(crate) fn request(ctx: &ExecCtx, request: Request) -> Result<(), Error> {
@@ -116,7 +149,14 @@ pub(crate) fn request(ctx: &ExecCtx, request: Request) -> Result<(), Error> {
     }
     service_name(&request.service)?;
     check_parts(ctx, &request.parts)?;
-    let provider = elect(ctx, &request.service)?;
+    let Election::Elected {
+        provider,
+        next_turn,
+    } = election(ctx, &request.service)?
+    else {
+        return Err(unserved(&request.service));
+    };
+    take_turn(ctx, &request.service, next_turn);
     let ticket = ctx.defer()?;
     let id = COUNT.get(ctx)?.unwrap_or(0) + 1;
     let made = ctx.env().height;
@@ -149,6 +189,42 @@ fn close(ctx: &ExecCtx, stored: Stored, answer: Result<Vec<u8>, Error>) {
     ASSIGNED.remove(ctx, &(row.provider.clone(), row.id));
     DEADLINES.remove(ctx, &(row.deadline, row.id));
     ctx.resolve(stored.ticket, answer);
+}
+
+fn reelect(ctx: &ExecCtx, stored: Stored) -> Result<(), Error> {
+    match election(ctx, &stored.row.service)? {
+        Election::Elected {
+            provider,
+            next_turn,
+        } => hand_on(ctx, stored, provider, next_turn),
+        Election::Unserved => fail_unserved(ctx, stored),
+    }
+    Ok(())
+}
+
+fn hand_on(ctx: &ExecCtx, mut stored: Stored, provider: Vec<u8>, next_turn: u64) {
+    take_turn(ctx, &stored.row.service, next_turn);
+    ASSIGNED.remove(ctx, &(stored.row.provider.clone(), stored.row.id));
+    ASSIGNED.insert(ctx, &(provider.clone(), stored.row.id));
+    stored.row.provider = provider;
+    REQUESTS.put(ctx, &stored.row.id, &stored);
+}
+
+fn fail_unserved(ctx: &ExecCtx, stored: Stored) {
+    let refusal = unserved(&stored.row.service);
+    close(ctx, stored, Err(refusal));
+}
+
+pub(crate) fn reassign(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
+    let stored = open(ctx, id)?;
+    let still_serving = serving(ctx, &stored.row.service)?.contains(&stored.row.provider);
+    if still_serving {
+        return Err(wrong_state(format!(
+            "request {id}'s provider is a member node that still serves {}: it answers, or the request expires",
+            stored.row.service
+        )));
+    }
+    reelect(ctx, stored)
 }
 
 pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error> {

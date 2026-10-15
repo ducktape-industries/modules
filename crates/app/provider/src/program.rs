@@ -2,7 +2,7 @@
 use ::program::{Error, ExecCtx, Program, QueryCtx};
 
 use crate::rules::{
-    answer, assigned, expire, overdue, providers, request, request_row, serve, serving,
+    answer, assigned, expire, overdue, providers, reassign, request, request_row, serve, serving,
 };
 use crate::{Op, PROGRAM, Query, Reply};
 
@@ -20,6 +20,7 @@ impl Program for Provider {
             Op::Request(asked) => request(ctx, asked),
             Op::Answer { id, answer: given } => answer(ctx, id, given),
             Op::Expire { id } => expire(ctx, id),
+            Op::Reassign { id } => reassign(ctx, id),
         }
     }
 

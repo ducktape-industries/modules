@@ -1,5 +1,5 @@
 //! provider on a `MockChain` beside valset, the awaits role and a program that calls it:
-//! serving, the election's turns, answers that resolve the call, refusals and expiry.
+//! serving, the election's turns, re-election, answers that resolve the call, refusals and expiry.
 use ::program::{
     Awaiting, Blob, Ctx, Error, HashKind, MockChain, Origin, Program, QueryCtx, Reply as Wanted,
     blob_id, code,
@@ -125,6 +125,25 @@ fn answer(chain: &MockChain, key: [u8; 32], id: u64, answer: Answer) -> Result<V
 
 fn answers(chain: &MockChain) -> Answers {
     chain.query(ASKER, &()).unwrap()
+}
+
+fn ids(chain: &MockChain, key: [u8; 32]) -> Vec<u64> {
+    assigned(chain, key).iter().map(|row| row.id).collect()
+}
+
+fn open_row(chain: &MockChain, id: u64) -> Option<RequestRow> {
+    let Reply::Request(row) = chain.query(PROGRAM, &Query::Request { id }).unwrap() else {
+        panic!()
+    };
+    row
+}
+
+fn reassign(chain: &MockChain, id: u64) -> Result<Vec<u8>, Error> {
+    chain.submit(
+        Origin::Signed(STRANGER.to_vec()),
+        PROGRAM,
+        &Op::Reassign { id },
+    )
 }
 
 #[test]
@@ -342,4 +361,80 @@ fn an_http_head_withholds_what_only_the_provider_sets() {
     }
     assert!(head(vec![("X-Upper", "x")], "/").check().is_err());
     assert!(head(Vec::new(), "https://elsewhere/").check().is_err());
+}
+
+#[test]
+fn a_node_that_drops_a_service_hands_its_requests_to_the_next_serving_node() {
+    let chain = chain();
+    serve(&chain, ADA, &["anthropic", RELAY]).unwrap();
+    serve(&chain, BO, &[RELAY]).unwrap();
+    ask(&chain, RELAY, b"ping");
+    ask(&chain, RELAY, b"ping");
+    ask(&chain, "anthropic", b"model");
+    assert_eq!((ids(&chain, ADA), ids(&chain, BO)), (vec![1, 3], vec![2]));
+    let deadline = open_row(&chain, 1).unwrap().deadline;
+
+    serve(&chain, ADA, &["anthropic"]).unwrap();
+    assert_eq!((ids(&chain, ADA), ids(&chain, BO)), (vec![3], vec![1, 2]));
+    let moved = open_row(&chain, 1).unwrap();
+    assert_eq!((moved.provider, moved.deadline), (BO.to_vec(), deadline));
+
+    chain.at(2, 0);
+    let old = answer(&chain, ADA, 1, Answer::Output(Vec::new())).unwrap_err();
+    assert_eq!(old.code, code::UNAUTHORIZED);
+    answer(&chain, BO, 1, Answer::Output(b"pong".to_vec())).unwrap();
+    let [pong] = answers(&chain).try_into().unwrap();
+    assert_eq!(pong.unwrap(), b"pong");
+}
+
+#[test]
+fn reassign_hands_on_the_request_of_a_node_that_left_the_member_set() {
+    let chain = chain();
+    serve(&chain, ADA, &[RELAY]).unwrap();
+    serve(&chain, BO, &[RELAY]).unwrap();
+    ask(&chain, RELAY, b"ping");
+    ask(&chain, RELAY, b"ping");
+    assert_eq!(ids(&chain, BO), [2]);
+    let deadline = open_row(&chain, 2).unwrap().deadline;
+    chain
+        .submit(Origin::Signed(BO.to_vec()), "valset", &valset::Op::Leave)
+        .unwrap();
+
+    reassign(&chain, 2).unwrap();
+    assert_eq!((ids(&chain, ADA), ids(&chain, BO)), (vec![1, 2], vec![]));
+    assert_eq!(open_row(&chain, 2).unwrap().deadline, deadline);
+    chain.at(2, 0);
+    let old = answer(&chain, BO, 2, Answer::Output(Vec::new())).unwrap_err();
+    assert_eq!(old.code, code::UNAUTHORIZED);
+    answer(&chain, ADA, 2, Answer::Output(b"pong".to_vec())).unwrap();
+    let [pong] = answers(&chain).try_into().unwrap();
+    assert_eq!(pong.unwrap(), b"pong");
+}
+
+#[test]
+fn reassign_is_refused_while_the_elected_node_still_serves() {
+    let chain = chain();
+    serve(&chain, ADA, &[RELAY]).unwrap();
+    serve(&chain, BO, &[RELAY]).unwrap();
+    ask(&chain, RELAY, b"ping");
+    let refused = reassign(&chain, 1).unwrap_err();
+    assert_eq!(refused.code, code::WRONG_STATE);
+    assert_eq!(ids(&chain, ADA), [1]);
+    assert_eq!(reassign(&chain, 7).unwrap_err().code, code::NOT_FOUND);
+}
+
+#[test]
+fn a_request_no_member_node_serves_any_longer_fails_the_call() {
+    let chain = chain();
+    serve(&chain, ADA, &[RELAY]).unwrap();
+    ask(&chain, RELAY, b"ping");
+    serve(&chain, ADA, &[]).unwrap();
+    let [unserved] = answers(&chain).try_into().unwrap();
+    let unserved = unserved.unwrap_err();
+    assert_eq!(
+        (unserved.code.as_str(), unserved.message.as_str()),
+        (code::NOT_FOUND, "no member node serves relay")
+    );
+    assert_eq!(open_row(&chain, 1), None);
+    assert!(assigned(&chain, ADA).is_empty());
 }

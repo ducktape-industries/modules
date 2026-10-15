@@ -26,6 +26,7 @@ pub enum Op {
     Request(Request),
     Answer { id: u64, answer: Answer },
     Expire { id: u64 },
+    Reassign { id: u64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -114,6 +115,7 @@ pub fn describe(op: &Op) -> describe::Description {
             (format!("Answer request {id}"), vec![field])
         }
         Op::Expire { id } => (format!("Expire request {id}"), Vec::new()),
+        Op::Reassign { id } => (format!("Reassign request {id}"), Vec::new()),
     };
     describe::Description { title, fields }
 }
@@ -124,6 +126,6 @@ describe::export!(Op, describe);
 fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
-        ["Serve", "Request", "Answer", "Expire"]
+        ["Serve", "Request", "Answer", "Expire", "Reassign"]
     );
 }
