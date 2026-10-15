@@ -641,30 +641,39 @@ pub mod role {
         pub type AccountNumber = u64;
 
         /// What an account is, in one field, so no account is two things
-        /// at once: a person holds their own keys; a managed account holds
-        /// the keys its `manager`, a person, gives it and acts only while
-        /// its `standing` is `Active`; a program's account is the program's own
-        /// and holds no keys.
+        /// at once. A `User` is a person who holds their own keys. A
+        /// `Program` account is managed by the user its `manager` names:
+        /// it holds the keys that user gives it, acts only while its
+        /// `standing` is `Active`, and its `script` runs its actions: the
+        /// script `calls` one program and hands it `config`, text that
+        /// program alone gives a meaning. A `System` account is a
+        /// program's own account and holds no keys.
         #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
         pub enum Kind {
-            Person,
-            Managed {
+            User,
+            Program {
                 manager: AccountNumber,
                 category: Category,
                 standing: Standing,
-                runner: Option<ProgramId>,
+                script: Option<Script>,
             },
-            Program(ProgramId),
+            System(ProgramId),
         }
 
-        /// What a manager declares a managed account to be. The enum only
+        #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+        pub struct Script {
+            pub calls: ProgramId,
+            pub config: String,
+        }
+
+        /// What a manager declares a program account to be. The enum only
         /// grows at its end.
         #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
         pub enum Category {
             Agent,
         }
 
-        /// Whether a managed account acts. Its manager alone changes it;
+        /// Whether a program account acts. Its manager alone changes it;
         /// `Revoked` is final.
         #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
         pub enum Standing {
@@ -693,7 +702,7 @@ pub mod role {
         pub enum Query {
             /// The kernel's: the account a frame signed by this key acts
             /// as, `None` for a key that holds none. Refused while that
-            /// account does not act (a managed one whose [`Standing`] is
+            /// account does not act (a program account whose [`Standing`] is
             /// not `Active`). The host rejects a frame whose key is
             /// refused.
             Account(Vec<u8>),
@@ -1081,21 +1090,21 @@ pub mod role {
 /// this crate: the kernel shows no one anything.
 impl role::identity::Kind {
     /// The badge beside an account's name: `"Agent · managed by <name>"` or
-    /// `"Program · <program>"`. A person wears none. `name_of` names the
-    /// manager.
+    /// `"Program · <program>"` for a system account. A user wears none.
+    /// `name_of` names the manager.
     pub fn badge(
         &self,
         name_of: impl FnOnce(role::identity::AccountNumber) -> String,
     ) -> Option<String> {
         use role::identity::{Category, Kind};
         match self {
-            Kind::Person => None,
-            Kind::Managed {
+            Kind::User => None,
+            Kind::Program {
                 manager,
                 category: Category::Agent,
                 ..
             } => Some(format!("Agent · managed by {}", name_of(*manager))),
-            Kind::Program(program) => Some(format!("Program · {program}")),
+            Kind::System(program) => Some(format!("Program · {program}")),
         }
     }
 
@@ -1104,17 +1113,17 @@ impl role::identity::Kind {
     pub fn note(&self) -> Option<&'static str> {
         use role::identity::{Kind, Standing};
         match self {
-            Kind::Managed {
+            Kind::Program {
                 standing: Standing::Suspended,
                 ..
             } => Some("suspended"),
-            Kind::Managed {
+            Kind::Program {
                 standing: Standing::Revoked,
                 ..
             } => Some("revoked"),
-            Kind::Person
-            | Kind::Program(_)
-            | Kind::Managed {
+            Kind::User
+            | Kind::System(_)
+            | Kind::Program {
                 standing: Standing::Active,
                 ..
             } => None,

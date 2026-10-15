@@ -270,8 +270,8 @@ mod tests {
                 bio: None,
                 updated_at: 1,
             },
-            control: identity::Control::Managed {
-                runner: None,
+            control: identity::Control::Program {
+                script: None,
                 manager: 7,
                 category: identity::Category::Agent,
                 life: identity::Life::Active { keys: Vec::new() },
@@ -329,12 +329,12 @@ mod tests {
     fn a_refusal_is_shown_where_it_happened() {
         let mut cx = seated();
         cx.host()
-            .refuse::<Submit<Identity>>("unauthorized", "Only a person manages agents.");
+            .refuse::<Submit<Identity>>("unauthorized", "Only a user manages agents.");
         cx.simulate_input("name", "Rover");
         cx.simulate_submit("name");
         cx.run_until_parked();
         assert!(
-            cx.has_text("Only a person manages agents."),
+            cx.has_text("Only a user manages agents."),
             "{:?}",
             cx.texts()
         );

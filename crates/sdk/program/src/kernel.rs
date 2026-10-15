@@ -82,7 +82,7 @@ pub type AccountNumber = abi::role::identity::AccountNumber;
     serde(rename_all = "snake_case", deny_unknown_fields)
 )]
 pub enum Principal {
-    /// a person, an agent or a program: an identity account.
+    /// a user, a program account or a system account: an identity account.
     Account(AccountNumber),
     /// genesis and system-internal writes.
     Root,

@@ -30,7 +30,7 @@ pub struct Account {
     #[serde(with = "view::borsh_bytes")]
     pub kind: Kind,
     pub keys: Vec<Key>,
-    /// a person's account manages agents; an agent's or a program's none
+    /// a user's account manages agents; a program or system account none
     pub manages: bool,
     pub agents: Vec<Agent>,
 }
@@ -41,7 +41,7 @@ pub struct Agent {
     pub number: u64,
     pub name: String,
     pub keys: usize,
-    /// what identity says it is: always `Kind::Managed` (checked on read)
+    /// what identity says it is: always `Kind::Program` (checked on read)
     #[serde(with = "view::borsh_bytes")]
     pub kind: Kind,
     #[serde(with = "view::borsh_bytes")]
@@ -52,8 +52,8 @@ pub struct Agent {
 impl Agent {
     pub fn standing(&self) -> Standing {
         match self.kind {
-            Kind::Managed { standing, .. } => standing,
-            Kind::Person | Kind::Program(_) => Standing::Active,
+            Kind::Program { standing, .. } => standing,
+            Kind::User | Kind::System(_) => Standing::Active,
         }
     }
 }
@@ -98,7 +98,7 @@ pub(crate) async fn account(
     for key in account.keys() {
         keys.push(read_key(&host, key.key.clone(), key.label.clone()).await?);
     }
-    let manages = matches!(account.control, Control::Person { .. });
+    let manages = matches!(account.control, Control::User { .. });
     let agents = if manages {
         agents(&host, number).await?
     } else {
@@ -136,7 +136,7 @@ async fn agents(host: &Host, manager: u64) -> Result<Vec<Agent>, Error> {
         .await?;
     let mut agents = Vec::new();
     for agent in listed {
-        let kind @ Kind::Managed { .. } = agent.kind() else {
+        let kind @ Kind::Program { .. } = agent.kind() else {
             return Err(malformed(format!(
                 "identity lists account {} as managed, and it is not",
                 agent.number
@@ -194,8 +194,8 @@ pub(crate) async fn find(host: Host, typed: String) -> Result<Found, Error> {
             .query(identity::ask::Profiles { after, limit: 100 })
             .await?;
         let named = profiles.into_iter().filter(|profile| {
-            let program = matches!(profile.kind, Kind::Program(_));
-            !program && profile.name.to_lowercase() == wanted
+            let system = matches!(profile.kind, Kind::System(_));
+            !system && profile.name.to_lowercase() == wanted
         });
         matched.extend(named.map(|profile| profile.number));
         let Some(next) = next else { break };

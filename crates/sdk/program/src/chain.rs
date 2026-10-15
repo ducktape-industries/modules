@@ -132,7 +132,7 @@ struct Parked {
 ///
 /// ```ignore
 /// let chain = MockChain::default();
-/// chain.hold(b"ada-key", 1); // a person, unless a profile says otherwise
+/// chain.hold(b"ada-key", 1); // a user, unless a profile says otherwise
 /// chain.register("forge", 900);
 /// assert_eq!(chain.roster().keys[b"ada-key".as_slice()], 1);
 /// ```
@@ -151,11 +151,11 @@ impl Roster {
             Query::OfProgram(program) => self
                 .profiles
                 .values()
-                .find(|profile| profile.kind == Kind::Program(program.clone()))
+                .find(|profile| profile.kind == Kind::System(program.clone()))
                 .map(|profile| profile.number),
             Query::Runs { program, account } => {
                 let runs = self.profiles.get(account).is_some_and(|profile| {
-                    matches!(&profile.kind, Kind::Managed { runner: Some(runner), .. } if runner == program)
+                    matches!(&profile.kind, Kind::Program { script: Some(script), .. } if &script.calls == program)
                 });
                 if !runs {
                     return Err(unauthorized(format!(
@@ -170,7 +170,7 @@ impl Roster {
         };
         if let Some(number) = number
             && let Some(profile) = self.profiles.get(&number)
-            && let Kind::Managed { standing, .. } = profile.kind
+            && let Kind::Program { standing, .. } = profile.kind
             && standing != Standing::Active
         {
             // identity's own words (`of_key`), revoked or suspended
@@ -329,7 +329,7 @@ impl MockChain {
     }
 
     /// Seats `key` in `account`, as identity would; an account no profile
-    /// names yet is a person. The roster answers only while no program is
+    /// names yet is a user's. The roster answers only while no program is
     /// seated at the identity role: then identity's own ops seat keys.
     pub fn hold(&self, key: impl Into<Vec<u8>>, account: AccountNumber) {
         let mut roster = self.roster_mut();
@@ -337,12 +337,12 @@ impl MockChain {
         roster.profiles.entry(account).or_insert_with(|| Profile {
             number: account,
             name: format!("account {account}"),
-            kind: Kind::Person,
+            kind: Kind::User,
         });
     }
 
-    /// Adds or replaces an account's profile: a program's account, an agent
-    /// and its standing (the roster's, like [`hold`](MockChain::hold)).
+    /// Adds or replaces an account's profile: a system account, a program
+    /// account and its standing (the roster's, like [`hold`](MockChain::hold)).
     pub fn profile(&self, profile: Profile) {
         self.roster_mut().profiles.insert(profile.number, profile);
     }
@@ -449,7 +449,7 @@ impl MockChain {
         self.profile(Profile {
             number,
             name: program.into(),
-            kind: Kind::Program(program.into()),
+            kind: Kind::System(program.into()),
         });
     }
 

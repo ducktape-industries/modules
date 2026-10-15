@@ -9,25 +9,27 @@ use super::{Run, Seat, Tool, cursor_schema, next, object, page, unexpected};
 
 fn kind(kind: &Kind) -> Value {
     match kind {
-        Kind::Person => json!("person"),
-        Kind::Managed {
+        Kind::User => json!("user"),
+        Kind::Program {
             manager,
             category: Category::Agent,
             standing,
-            runner,
+            script,
         } => {
             let standing = match standing {
                 Standing::Active => "active",
                 Standing::Suspended => "suspended",
                 Standing::Revoked => "revoked",
             };
-            let run = match runner {
-                Some(program) => format!(", run by program {program}"),
+            let run = match script {
+                Some(script) => format!(", its script calls program {}", script.calls),
                 None => String::new(),
             };
-            json!(format!("agent of account {manager}, {standing}{run}"))
+            json!(format!(
+                "program account, an agent managed by account {manager}, {standing}{run}"
+            ))
         }
-        Kind::Program(program) => json!(format!("program {program}")),
+        Kind::System(program) => json!(format!("system account of program {program}")),
     }
 }
 
@@ -48,7 +50,7 @@ pub(crate) struct Accounts;
 
 impl Tool for Accounts {
     const NAME: &'static str = "network_accounts";
-    const DESCRIPTION: &'static str = "List the network's accounts in number order: each one's name and whether it is a person, an agent or a program.";
+    const DESCRIPTION: &'static str = "List the network's accounts in number order: each one's name and whether it is a user, a program account or a system account.";
     type Args = AccountsArgs;
 
     fn schema() -> Value {

@@ -108,11 +108,14 @@ fn world() -> World {
         name: "Scout".into(),
     };
     let agent = number(identity_op(&chain, ADA, create).unwrap());
-    let hand = identity::Op::SetRunner {
+    let script = identity::Op::SetScript {
         account: agent,
-        runner: Some(PROGRAM.into()),
+        script: Some(identity::Script {
+            calls: PROGRAM.into(),
+            config: String::new(),
+        }),
     };
-    identity_op(&chain, ADA, hand).unwrap();
+    identity_op(&chain, ADA, script).unwrap();
     chain.submit(signed(ADA), PROGRAM, &hire(agent)).unwrap();
     let general = chat::Op::CreateChannel {
         channel_id: "general".into(),
@@ -418,19 +421,19 @@ fn a_direct_message_reaches_the_agent_and_only_its_audience_is_heard() {
 }
 
 #[test]
-fn only_its_manager_hires_an_agent_handed_to_harness_and_a_dismissed_one_hears_nothing() {
+fn only_its_manager_hires_an_agent_whose_script_calls_harness_and_a_dismissed_one_hears_nothing() {
     let world = world();
     let chain = &world.chain;
     let stranger = chain.submit(signed(BO), PROGRAM, &hire(world.agent));
     assert_eq!(stranger.unwrap_err().code, code::UNAUTHORIZED);
-    let person = chain.submit(signed(ADA), PROGRAM, &hire(world.bo));
-    assert_eq!(person.unwrap_err().code, code::WRONG_STATE);
+    let user = chain.submit(signed(ADA), PROGRAM, &hire(world.bo));
+    assert_eq!(user.unwrap_err().code, code::WRONG_STATE);
     let create = identity::Op::CreateAgent {
         name: "Idle".into(),
     };
     let idle = number(identity_op(chain, ADA, create).unwrap());
-    let unhanded = chain.submit(signed(ADA), PROGRAM, &hire(idle));
-    assert_eq!(unhanded.unwrap_err().code, code::WRONG_STATE);
+    let no_script = chain.submit(signed(ADA), PROGRAM, &hire(idle));
+    assert_eq!(no_script.unwrap_err().code, code::WRONG_STATE);
     for service in egress::RESERVED {
         let Op::Hire {
             agent,
@@ -685,9 +688,9 @@ fn a_write_is_the_agents_and_reaches_only_where_the_agent_may_write() {
     assert_eq!(posted.author, Principal::Account(world.agent));
     assert_eq!((posted.text.as_str(), posted.thread), ("hi all", Some(1)));
 
-    let take_back = identity::Op::SetRunner {
+    let take_back = identity::Op::SetScript {
         account: world.agent,
-        runner: None,
+        script: None,
     };
     identity_op(chain, ADA, take_back).unwrap();
     chain.at(5, 0);

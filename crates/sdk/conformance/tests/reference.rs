@@ -50,16 +50,16 @@ impl Identity {
 
     /// `op`, signed by `agent`'s manager.
     fn as_manager(host: &MockHost, agent: AccountNumber, op: identity::Op) {
-        let identity::Control::Managed { manager, .. } = Self::get(host, agent).control else {
-            panic!("{agent} is managed");
+        let identity::Control::Program { manager, .. } = Self::get(host, agent).control else {
+            panic!("{agent} is a program account");
         };
         let key = Self::get(host, manager).keys()[0].key.clone();
         Self::run(host, &key, Some(manager), op);
     }
 
-    fn person(host: &MockHost, key: &[u8]) -> AccountNumber {
+    fn user(host: &MockHost, key: &[u8]) -> AccountNumber {
         let op = identity::Op::Create {
-            name: "person".into(),
+            name: "user".into(),
             scheme: Scheme::Ed25519,
         };
         Self::run(host, key, None, op)
@@ -77,7 +77,7 @@ impl conformance::identity::Fixture for Identity {
     }
 
     fn account(&self, host: &MockHost, key: &[u8]) -> AccountNumber {
-        Self::person(host, key)
+        Self::user(host, key)
     }
 
     /// A suspended agent holding `key`.
@@ -87,7 +87,7 @@ impl conformance::identity::Fixture for Identity {
         agent
     }
 
-    /// A person keeps their last key: a spare joins, then `key` goes.
+    /// A user keeps their last key: a spare joins, then `key` goes.
     fn drop_key(&self, host: &MockHost, account: AccountNumber, key: &[u8]) {
         let spare = [key, b"'s spare"].concat();
         Self::run(host, &spare, None, Self::add_key(key, account));
@@ -101,7 +101,7 @@ impl conformance::identity::Fixture for Identity {
     /// An active agent holding `key`.
     fn managed(&self, host: &MockHost, key: &[u8]) -> AccountNumber {
         let manager_key = [key, b"'s manager"].concat();
-        let manager = Self::person(host, &manager_key);
+        let manager = Self::user(host, &manager_key);
         let create = identity::Op::CreateAgent {
             name: "agent".into(),
         };
@@ -114,10 +114,13 @@ impl conformance::identity::Fixture for Identity {
         Self::as_manager(host, account, identity::Op::Revoke { account });
     }
 
-    fn hand(&self, host: &MockHost, account: AccountNumber, program: &str) {
-        let op = identity::Op::SetRunner {
+    fn script(&self, host: &MockHost, account: AccountNumber, program: &str) {
+        let op = identity::Op::SetScript {
             account,
-            runner: Some(program.into()),
+            script: Some(identity::Script {
+                calls: program.into(),
+                config: String::new(),
+            }),
         };
         Self::as_manager(host, account, op);
     }
