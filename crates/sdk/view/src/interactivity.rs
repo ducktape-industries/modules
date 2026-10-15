@@ -24,6 +24,11 @@ struct TooltipBuilder {
     hoverable: bool,
 }
 
+/// The person asked to go back: the phone's gesture or its bar. Shaped as
+/// `ClickEvent` listeners are; it carries nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BackEvent;
+
 /// An assistive-technology action's listener, as gpui takes it.
 type A11yListener = Box<dyn FnMut(Option<&accesskit::ActionData>, &mut Window, &mut App)>;
 
@@ -90,6 +95,7 @@ pub(crate) struct Interactions {
     modifiers_changed: Vec<EventListener<gpui::ModifiersChangedEvent>>,
     consumes_keys: Vec<SharedString>,
     on_hover: Option<EventListener<bool>>,
+    pub(crate) on_back: Option<EventListener<BackEvent>>,
     hover_listener_mode: gpui::HoverListenerMode,
     on_file_drop_exit: Vec<EventListener<FileDropEvent>>,
     tooltip: Option<TooltipBuilder>,
@@ -749,6 +755,19 @@ pub trait StatefulInteractiveElement: InteractiveElement {
     }
     fn on_hover(mut self, listener: impl Fn(&bool, &mut Window, &mut App) + 'static) -> Self {
         self.interactivity().interactions().on_hover = Some(Box::new(listener));
+        self
+    }
+    /// Hears Back (a phone's gesture or its bar) while the view has
+    /// somewhere to go back to. On the ROOT element only, and set exactly
+    /// when a page sits under the root of the view's [`Pages`] or a sheet
+    /// is open (`.when(pages.depth() > 0, |root| root.on_back(..))`):
+    /// absent, the host leaves the program instead; below the root the
+    /// host refuses the frame. A host with no Back (the desktop) never
+    /// sends it.
+    ///
+    /// [`Pages`]: crate::design::Pages
+    fn on_back(mut self, listener: impl Fn(&BackEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.interactivity().interactions().on_back = Some(Box::new(listener));
         self
     }
     fn hover_listener_mode(mut self, mode: gpui::HoverListenerMode) -> Self {

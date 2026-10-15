@@ -1,7 +1,7 @@
 //! A program's code blob as genesis packs it: a core wasm module that is
 //! nothing but custom sections, the view in `ducktape.view` and the
 //! describe module in `ducktape.describe`, which the app reads out by name
-//! (`backend::views::view_section`, `describe::host::section`).
+//! (`backend::views::view_section`, `describe::section`).
 
 /// A core module holding `sections` and nothing else.
 pub fn wrapper(sections: &[(&str, &[u8])]) -> Vec<u8> {

@@ -510,7 +510,25 @@ impl Network {
             "op.submit" => {
                 let call: methods::Call =
                     methods::decode(payload).map_err(|error| malformed(&error))?;
-                self.applied(self.run(Origin::Signed(signer), call.target, call.body))
+                let receipt = self.run(Origin::Signed(signer), call.target, call.body);
+                // the live node lands the block in the same breath, so
+                // the answer is the prediction and the fact at once
+                let state = self.0.borrow();
+                let tx = state.blocks.last().and_then(|block| block.txs.last());
+                let tx = tx.expect("the block just landed holds its tx");
+                let (frame, until) = (tx.hash, tx.anchor.height + ANCHOR_WINDOW);
+                Ok(methods::encode(&match receipt.outcome {
+                    methods::Outcome::Applied { output } => methods::Submitted::Applied {
+                        frame,
+                        until,
+                        output,
+                    },
+                    methods::Outcome::Rejected(refusal) => methods::Submitted::Refused {
+                        frame,
+                        until,
+                        refusal,
+                    },
+                }))
             }
             "chain.status" => Ok(methods::encode(&self.status())),
             "chain.network" => {

@@ -109,7 +109,10 @@ pub mod mouse;
 pub use interactivity::{DispatchPhase, HoverListenerMode, Tooltip, TooltipResponse};
 
 mod protocol;
-pub use protocol::{Error, Event, Frame, InputOptions, Request, RichTextHover, code};
+pub use protocol::{
+    Autocapitalize, Error, Event, Frame, InputOptions, Request, RichTextHover, TextInput,
+    TextInputAction, VirtualKeyboard, code,
+};
 
 mod frame_sanitize;
 pub mod identity;

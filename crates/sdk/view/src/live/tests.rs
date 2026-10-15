@@ -180,7 +180,13 @@ fn the_chain_backs_a_fake_host() {
         channel.fulfill(id, result, done);
     }
     assert_eq!(futures::executor::block_on(asked).unwrap(), Some(net.me()));
-    let agent: u64 = methods::decode(&futures::executor::block_on(created).unwrap()).unwrap();
+    let methods::Submitted::Applied { output, until, .. } =
+        futures::executor::block_on(created).unwrap()
+    else {
+        panic!("the live node applies a CreateAgent")
+    };
+    assert_eq!(until, net.height() - 1 + 256, "anchor plus the window");
+    let agent: u64 = methods::decode(&output).unwrap();
     assert!(agent > net.me());
     let change = futures::executor::block_on(changes.next())
         .unwrap()

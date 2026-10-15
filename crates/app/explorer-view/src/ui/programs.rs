@@ -10,11 +10,12 @@ use crate::acting::{self, Edit, Form, Path};
 use crate::decode::{preview, size};
 use crate::state::blob_ref;
 use ::programs::{Grant, NOTICE, Pending, Scope};
+use view::design::Ladder;
 
-pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
+pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let network = match &view.network {
         Loadable::Ready(network) | Loadable::Reloading(network, _) => network,
-        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme),
+        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme, ladder),
         Loadable::Idle | Loadable::Loading(_) => {
             return quiet(
                 "explorer-programs-loading",
@@ -41,13 +42,13 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         plural(network.programs.len() as u64, "program", "programs"),
         theme,
     );
-    let running = running(view, network, cx, theme);
-    let views = listed(view, network, cx, theme);
+    let running = running(view, network, cx, theme, ladder);
+    let views = listed(view, network, cx, theme, ladder);
     let scheduled: Vec<_> = network
         .changes
         .iter()
         .enumerate()
-        .map(|(index, change)| scheduled(view, index, change, cx, theme))
+        .map(|(index, change)| scheduled(view, index, change, cx, theme, ladder))
         .collect();
     let nothing_scheduled = scheduled.is_empty().then(|| {
         quiet(
@@ -61,8 +62,9 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         |edit| !edits_a_view(edit) && *edit != Edit::Grant,
         cx,
         theme,
+        ladder,
     );
-    let views_form = form(view, edits_a_view, cx, theme);
+    let views_form = form(view, edits_a_view, cx, theme, ladder);
     div()
         .id("explorer-list")
         .child(heading(
@@ -94,7 +96,7 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         ))
         .children(scheduled)
         .children(nothing_scheduled)
-        .child(access(view, network, cx, theme))
+        .child(access(view, network, cx, theme, ladder))
         .into_any_element()
 }
 
@@ -117,7 +119,13 @@ fn beside(parts: impl IntoIterator<Item = Option<AnyElement>>) -> AnyElement {
 
 /// Each running program, a row that opens its page, with who maintains it
 /// and the reader's presses.
-fn running(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Stateful<Div> {
+fn running(
+    view: &Explorer,
+    network: &Network,
+    cx: Cx,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Stateful<Div> {
     let list = rows("explorer-programs-list", "Programs", view);
     network
         .programs
@@ -131,7 +139,7 @@ fn running(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Statefu
                 cx,
                 theme,
             )
-            .child(named(view, network, &entry.program, theme))
+            .child(named(view, network, &entry.program, theme, ladder))
             .child(
                 div()
                     .text_size(design::text::SECONDARY)
@@ -151,7 +159,13 @@ fn running(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Statefu
 
 /// The view-only entries, each a row that opens its page; `None` where the
 /// programs role lists none.
-fn listed(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Option<Stateful<Div>> {
+fn listed(
+    view: &Explorer,
+    network: &Network,
+    cx: Cx,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Option<Stateful<Div>> {
     if network.views.is_empty() {
         return None;
     }
@@ -165,7 +179,7 @@ fn listed(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Option<S
             cx,
             theme,
         )
-        .child(named(view, network, &listed.name, theme))
+        .child(named(view, network, &listed.name, theme, ladder))
         .child(muted("view only", theme))
         .child(mono(short(listed.view.digest())).text_color(theme.muted))
         .children(presses(view, network, &listed.name, true, cx, theme));
@@ -175,7 +189,7 @@ fn listed(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Option<S
 }
 
 /// A name and who changes it ([`changers`]); a hook marked so.
-fn named(view: &Explorer, network: &Network, name: &str, theme: &Theme) -> Div {
+fn named(view: &Explorer, network: &Network, name: &str, theme: &Theme, ladder: &Ladder) -> Div {
     let hook = network.hooks.iter().any(|hook| hook == name);
     div()
         .flex_1()
@@ -185,14 +199,20 @@ fn named(view: &Explorer, network: &Network, name: &str, theme: &Theme) -> Div {
         .gap_2()
         .overflow_hidden()
         .child(mono(name.to_owned()))
-        .children(hook.then(|| chip(format!("explorer-hook-{name}"), "hook", theme)))
-        .children(changers(view, network, name, theme))
+        .children(hook.then(|| chip(format!("explorer-hook-{name}"), "hook", theme, ladder)))
+        .children(changers(view, network, name, theme, ladder))
 }
 
 /// Who changes `name`: the validators' vote for a role's program, else its
 /// maintainers (an agent marked so) and, when any account holds every
 /// program, those too. Empty: no one but the vote, which holds every name.
-fn changers(view: &Explorer, network: &Network, name: &str, theme: &Theme) -> Vec<AnyElement> {
+fn changers(
+    view: &Explorer,
+    network: &Network,
+    name: &str,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Vec<AnyElement> {
     let bound = network
         .roles
         .as_ref()
@@ -205,7 +225,7 @@ fn changers(view: &Explorer, network: &Network, name: &str, theme: &Theme) -> Ve
         .grants
         .iter()
         .filter(|grant| grant.scope == Scope::Program(name.to_owned()))
-        .map(|grant| holder(view, grant.account, theme))
+        .map(|grant| holder(view, grant.account, theme, ladder))
         .chain(every.then(|| muted("every-program maintainers", theme)))
         .collect()
 }
@@ -245,10 +265,16 @@ fn allows(capability: Capability) -> &'static str {
 /// it, the role and hook it fills, what is scheduled for it, and the way to
 /// its transactions. The reader's presses sit beside the title, their form
 /// under it.
-pub(super) fn program(view: &Explorer, name: &str, cx: Cx, theme: &Theme) -> AnyElement {
+pub(super) fn program(
+    view: &Explorer,
+    name: &str,
+    cx: Cx,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let network = match &view.network {
         Loadable::Ready(network) | Loadable::Reloading(network, _) => network,
-        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme),
+        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme, ladder),
         Loadable::Idle | Loadable::Loading(_) => {
             return quiet(
                 "explorer-program-loading",
@@ -287,8 +313,8 @@ pub(super) fn program(view: &Explorer, name: &str, cx: Cx, theme: &Theme) -> Any
             name.to_owned(),
             theme,
         ))
-        .children(hook.then(|| chip("explorer-program-hook".into(), "hook", theme)))
-        .children(role.map(|role| chip("explorer-program-role".into(), role, theme)))
+        .children(hook.then(|| chip("explorer-program-hook".into(), "hook", theme, ladder)))
+        .children(role.map(|role| chip("explorer-program-role".into(), role, theme, ladder)))
         .child(div().flex_1())
         .children(copy_button(
             view,
@@ -307,6 +333,7 @@ pub(super) fn program(view: &Explorer, name: &str, cx: Cx, theme: &Theme) -> Any
         },
         cx,
         theme,
+        ladder,
     );
     let count = manifest.map(|manifest| {
         caption(
@@ -354,7 +381,7 @@ pub(super) fn program(view: &Explorer, name: &str, cx: Cx, theme: &Theme) -> Any
         ))
         .into_any_element(),
     });
-    let mut who = changers(view, network, name, theme);
+    let mut who = changers(view, network, name, theme, ladder);
     if who.is_empty() {
         who.push(muted("no account: the validators' vote only", theme));
     }
@@ -398,7 +425,7 @@ pub(super) fn program(view: &Explorer, name: &str, cx: Cx, theme: &Theme) -> Any
         .iter()
         .enumerate()
         .filter(|(_, pending)| pending.change.program() == name)
-        .map(|(index, pending)| scheduled(view, index, pending, cx, theme))
+        .map(|(index, pending)| scheduled(view, index, pending, cx, theme, ladder))
         .collect();
     let nothing_scheduled = scheduled.is_empty().then(|| {
         quiet(
@@ -419,7 +446,7 @@ pub(super) fn program(view: &Explorer, name: &str, cx: Cx, theme: &Theme) -> Any
             count,
             theme,
         ))
-        .children(capabilities(view, listed, cx, theme))
+        .children(capabilities(view, listed, cx, theme, ladder))
         .child(heading("explorer-about-header", "About", None, theme))
         .child(field("Code", code_field, theme))
         .children(sizes.map(|sizes| field("Size", muted(&sizes, theme), theme)))
@@ -456,7 +483,13 @@ pub(super) fn program(view: &Explorer, name: &str, cx: Cx, theme: &Theme) -> Any
 /// The capabilities the code's view declares, a line each, or why none are
 /// shown: unread yet, refused (with a retry), code the node does not hold,
 /// a program that draws nothing, a manifest this app cannot read.
-fn capabilities(view: &Explorer, listed: bool, cx: Cx, theme: &Theme) -> Vec<AnyElement> {
+fn capabilities(
+    view: &Explorer,
+    listed: bool,
+    cx: Cx,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Vec<AnyElement> {
     let blob = match &view.manifest {
         Loadable::Idle | Loadable::Loading(_) => {
             return vec![quiet(
@@ -465,7 +498,7 @@ fn capabilities(view: &Explorer, listed: bool, cx: Cx, theme: &Theme) -> Vec<Any
                 theme,
             )];
         }
-        Loadable::Failed(refusal) => return vec![failed(&refusal.message, cx, theme)],
+        Loadable::Failed(refusal) => return vec![failed(&refusal.message, cx, theme, ladder)],
         Loadable::Ready(blob) | Loadable::Reloading(blob, _) => blob,
     };
     let Some(blob) = blob else {
@@ -536,10 +569,11 @@ fn muted(text: &str, theme: &Theme) -> AnyElement {
         .into_any_element()
 }
 
-fn chip(id: String, label: &str, theme: &Theme) -> AnyElement {
+fn chip(id: String, label: &str, theme: &Theme, ladder: &Ladder) -> AnyElement {
     design::badge(
         SharedString::from(id),
         label.to_owned(),
+        ladder,
         theme.muted,
         theme.surface,
     )
@@ -548,7 +582,7 @@ fn chip(id: String, label: &str, theme: &Theme) -> AnyElement {
 
 /// An account by its name (`account N` while unread), an agent marked so,
 /// the reader marked "(you)".
-fn holder(view: &Explorer, number: u64, theme: &Theme) -> AnyElement {
+fn holder(view: &Explorer, number: u64, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let account = view.account(number);
     let name = account.map_or_else(|| format!("account {number}"), |a| a.card.name.clone());
     let you = view.acting.account == Some(number);
@@ -559,7 +593,7 @@ fn holder(view: &Explorer, number: u64, theme: &Theme) -> AnyElement {
         .gap_1()
         .text_size(design::text::SECONDARY)
         .child(if you { format!("{name} (you)") } else { name })
-        .children(agent.then(|| chip(format!("explorer-agent-{number}"), "agent", theme)))
+        .children(agent.then(|| chip(format!("explorer-agent-{number}"), "agent", theme, ladder)))
         .into_any_element()
 }
 
@@ -638,6 +672,7 @@ fn scheduled(
     pending: &Pending,
     cx: Cx,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let change = &pending.change;
     let (foreground, background) = match change.code() {
@@ -678,6 +713,7 @@ fn scheduled(
         .child(design::badge(
             ElementId::named_usize("explorer-change-verb", index),
             change.verb(),
+            ladder,
             foreground,
             background,
         ))
@@ -718,7 +754,7 @@ fn name_of(view: &Explorer, number: u64) -> String {
 
 /// Every grant: what it covers, who holds it. The reader's own steps down
 /// by grant; a reader with voices proposes a grant or a revoke.
-fn access(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Div {
+fn access(view: &Explorer, network: &Network, cx: Cx, theme: &Theme, ladder: &Ladder) -> Div {
     let about = view.status.ready().map_or_else(String::new, |status| {
         format!(" (about {} min)", minutes(NOTICE, status.block_time_ms))
     });
@@ -739,7 +775,7 @@ fn access(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Div {
         .grants
         .iter()
         .enumerate()
-        .map(|(index, grant)| granted(view, network, index, grant, cx, theme))
+        .map(|(index, grant)| granted(view, network, index, grant, cx, theme, ladder))
         .collect();
     let none = rows.is_empty().then(|| {
         quiet(
@@ -755,7 +791,7 @@ fn access(view: &Explorer, network: &Network, cx: Cx, theme: &Theme) -> Div {
             Some(beside([Some(notice), propose])),
             theme,
         ))
-        .children(form(view, |edit| *edit == Edit::Grant, cx, theme))
+        .children(form(view, |edit| *edit == Edit::Grant, cx, theme, ladder))
         .children(rows)
         .children(none)
 }
@@ -767,6 +803,7 @@ fn granted(
     grant: &Grant,
     cx: Cx,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let unseated = match &grant.scope {
         Scope::Program(id) if !network.names(id) => Some(muted(
@@ -805,7 +842,7 @@ fn granted(
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(holder(view, grant.account, theme))
+                .child(holder(view, grant.account, theme, ladder))
                 .children(unseated),
         )
         .child(muted("Maintainer", theme))
@@ -819,6 +856,7 @@ fn form(
     here: impl Fn(&Edit) -> bool,
     cx: Cx,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Option<AnyElement> {
     let form = view.acting.form.as_ref().filter(|form| here(&form.edit))?;
     let network = view.network.ready()?;
@@ -861,6 +899,7 @@ fn form(
                 design::button(
                     SharedString::from(format!("explorer-form-{label}")),
                     label.to_owned(),
+                    ladder,
                     theme,
                     pick,
                 )
@@ -976,12 +1015,12 @@ fn form(
                     .flex()
                     .gap_2()
                     .child(
-                        design::button("explorer-form-submit", submit, theme, send)
+                        design::button("explorer-form-submit", submit, ladder, theme, send)
                             .kind(design::Kind::Primary)
                             .enabled(!view.acting.busy),
                     )
                     .child(
-                        design::button("explorer-form-close", "Close", theme, close)
+                        design::button("explorer-form-close", "Close", ladder, theme, close)
                             .kind(design::Kind::Outline),
                     ),
             )

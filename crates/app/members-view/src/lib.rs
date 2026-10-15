@@ -175,7 +175,7 @@ impl Render for Members {
         // the pane's width, as the host lays the frame out: the detail
         // docks or floats by it in the frame that shows it
         self.width = window.viewport_size().width.into();
-        ui::render(self, cx)
+        ui::render(self, window.touch(), cx)
     }
 }
 

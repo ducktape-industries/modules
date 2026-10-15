@@ -102,6 +102,22 @@ pub(super) fn gen_field(rng: &mut Rng) -> Node {
             invalid: rng.next_bool().then_some(Invalid::True),
             required: rng.next_bool(),
             read_only: rng.next_bool(),
+            text_input: TextInput {
+                autocorrect: rng.next_bool(),
+                autocapitalize: *rng.choose(&[
+                    Autocapitalize::None,
+                    Autocapitalize::Words,
+                    Autocapitalize::Sentences,
+                    Autocapitalize::Characters,
+                ]),
+                suggestions: rng.next_bool(),
+                input_action: *rng.choose(&[TextInputAction::Unspecified, TextInputAction::Send]),
+                virtual_keyboard: *rng.choose(&[
+                    VirtualKeyboard::Text,
+                    VirtualKeyboard::Url,
+                    VirtualKeyboard::Numeric,
+                ]),
+            },
         }),
         placeholder: gen_string(rng),
         secure: rng.next_bool(),
@@ -246,6 +262,7 @@ pub(super) fn gen_container(rng: &mut Rng, children: Vec<Node>) -> Node {
             active: refinement(rng),
             group_hover: group(rng),
             group_active: group(rng),
+            on_back: (rng.next_range(8) == 0).then(|| rng.next_u64() as u32),
             ..Default::default()
         })),
         children,

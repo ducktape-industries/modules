@@ -2,6 +2,7 @@
 use super::*;
 use crate::decode::scheme;
 use identity::Account;
+use view::design::Ladder;
 
 /// What `account` is, its manager named from the list: "Person", "Agent ·
 /// managed by Dev · suspended", "Program · forge" (identity's own wording,
@@ -13,10 +14,10 @@ fn kind(view: &Explorer, account: &Account) -> String {
     })
 }
 
-pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
+pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let listed = match &view.accounts {
         Loadable::Ready(listed) | Loadable::Reloading(listed, _) => listed,
-        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme),
+        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme, ladder),
         Loadable::Idle | Loadable::Loading(_) => {
             return quiet("explorer-accounts-loading", "Reading accounts…", theme);
         }
@@ -88,10 +89,10 @@ fn frames(used: &[&activity::Used]) -> u64 {
     used.iter().map(|used| used.frames).sum()
 }
 
-fn acted(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> AnyElement {
+fn acted(view: &Explorer, number: u64, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let Some(acted) = view.acted(number) else {
         return match &view.acted {
-            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
+            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme, ladder),
             _ => quiet("explorer-activity-loading", "Reading its activity…", theme),
         };
     };
@@ -108,7 +109,13 @@ fn acted(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> AnyElement {
     .into_any_element()
 }
 
-pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> AnyElement {
+pub(super) fn account(
+    view: &Explorer,
+    number: u64,
+    cx: Cx,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let Some(account) = view.account(number) else {
         return match &view.accounts {
             Loadable::Ready(_) | Loadable::Reloading(_, _) => empty_state(
@@ -118,7 +125,7 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> An
                 theme,
             )
             .into_any_element(),
-            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
+            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme, ladder),
             Loadable::Idle | Loadable::Loading(_) => {
                 quiet("explorer-account-loading", "Reading the account…", theme)
             }
@@ -140,7 +147,7 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> An
             recorded,
             theme,
         ))
-        .child(acted(view, number, cx, theme));
+        .child(acted(view, number, cx, theme, ladder));
     div()
         .id("explorer-account")
         .flex()

@@ -10,6 +10,7 @@
 use abi::hex;
 use programs::{Change, Entry, Pending};
 use valset::{Motion, Op, Valset, Voted};
+use view::methods::Submitted;
 use view::prelude::*;
 
 use crate::Nodes;
@@ -168,14 +169,17 @@ impl Nodes {
         cx.land(ask, |view, answer, cx| {
             view.voting.busy = false;
             view.voting.outcome = Some(match answer {
-                Ok(output) => Ok(match abi::decode::<Voted>(&output) {
+                Ok(Submitted::Applied { output, .. }) => Ok(match abi::decode::<Voted>(&output) {
                     Ok(Voted::Enacted) => "Enacted".to_owned(),
                     Ok(Voted::Counted { votes, needed }) => {
                         format!("Vote counted: {votes} of {needed}")
                     }
                     Err(_) => "Voted".to_owned(),
                 }),
-                Err(refusal) => Err(refusal.message),
+                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => Err(refusal.message),
+                Ok(Submitted::InDoubt { .. }) => {
+                    Err("No answer came back: it may have gone through.".into())
+                }
             });
             view.read_voices(cx);
             cx.notify();

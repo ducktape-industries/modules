@@ -46,6 +46,9 @@ pub(crate) struct AppState {
     /// The size the view is laid out in, as the host last said
     /// (`Event::Viewport`): what [`Window::viewport_size`] reads.
     pub viewport: Cell<gpui::Size<gpui::Pixels>>,
+    /// The device's primary pointer is a finger, as the host last said
+    /// (`Event::Pointer`): what [`Window::touch`] reads.
+    pub touch: Cell<bool>,
 }
 impl App {
     /// The style table a host holds after the trees lowered so far, for a
@@ -85,6 +88,7 @@ impl App {
                 #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
                 root: Cell::new(None),
                 viewport: Cell::default(),
+                touch: Cell::default(),
             }),
         }
     }

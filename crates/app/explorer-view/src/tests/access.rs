@@ -94,12 +94,13 @@ fn reader_on(
             _ => valset::Reply::Validators(vec![VALIDATOR.to_vec()]),
         })
     });
-    cx.host().handle::<Submit<Programs>>(|_| Ok(Vec::new()));
+    cx.host()
+        .handle::<Submit<Programs>>(|_| Ok(view::testing::applied(Vec::new())));
     cx.host().handle::<Submit<Valset>>(|_| {
-        Ok(abi::encode(&Voted::Counted {
+        Ok(view::testing::applied(abi::encode(&Voted::Counted {
             votes: 1,
             needed: 2,
-        }))
+        })))
     });
     let session = cx.host().stream::<HostSession>();
     cx.open::<Explorer>();

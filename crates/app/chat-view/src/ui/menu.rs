@@ -30,6 +30,7 @@ type Press = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 mod picker;
 use picker::{picker_size, reactions};
+use view::design::Ladder;
 
 fn prefix(pane: Pane) -> &'static str {
     match pane {
@@ -48,12 +49,17 @@ pub fn focus_key(pane: Pane, mode: Mode) -> String {
     format!("{}{suffix}", prefix(pane))
 }
 
-pub fn floating(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<AnyElement> {
+pub fn floating(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Option<AnyElement> {
     let menu = chat.menu.as_ref()?;
     let (at, size) = popup_geometry(menu, more_items(chat, menu).len())?;
     // a fixed size where the popup must not jump under the pointer; the
     // delete confirmation sizes to its words and buttons
-    let content = message_menu(chat, menu, cx, theme);
+    let content = message_menu(chat, menu, cx, theme, ladder);
     // the picker's focus key names its search field, which takes the keys
     let id = match menu.mode {
         Mode::Reactions => format!("{}reaction-frame", prefix(menu.pane)),
@@ -168,10 +174,16 @@ pub fn editing(chat: &Chat, pane: Pane, cx: &mut Context<Chat>) -> Option<AnyEle
     )
 }
 
-fn message_menu(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+fn message_menu(
+    chat: &Chat,
+    menu: &Menu,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     match menu.mode {
         Mode::Toolbar | Mode::More => actions(chat, menu, cx, theme),
-        Mode::Reactions => reactions(chat, menu, cx, theme),
+        Mode::Reactions => reactions(chat, menu, cx, theme, ladder),
         Mode::Delete => delete(chat, cx, theme),
         Mode::Editing => div().into_any_element(),
     }

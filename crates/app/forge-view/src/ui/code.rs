@@ -16,24 +16,34 @@ use crate::tree::{Key, Row, Slot};
 use crate::ui::components::{button, empty_state, heading, id, path_text, quiet};
 use crate::ui::{highlight, markdown, staged};
 use forge::{BlobView, Content, EntryKind, Query, Reply};
+use view::design::Ladder;
 
-pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+pub(crate) fn render(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let mut columns = div().id(id("forge-code")).flex().flex_1().min_h(px(0.));
     // wide, the tree stands beside the file; narrow, an open file takes
     // its place until closed (the rail's toggle is the rail's alone)
     if !forge.layout.narrow() || forge.nav().blob.is_none() {
-        columns = columns.child(tree(forge, cx, theme)).child(design::divider(
-            id("forge-files-resize"),
-            "Resize the file tree",
-            theme,
-            cx,
-            |forge: &mut Forge, dx| {
-                forge.layout.files += dx;
-                forge.layout.clamp();
-            },
-        ));
+        columns = columns
+            .child(tree(forge, cx, theme, ladder))
+            .child(design::divider(
+                id("forge-files-resize"),
+                "Resize the file tree",
+                theme,
+                cx,
+                |forge: &mut Forge, dx| {
+                    forge.layout.files += dx;
+                    forge.layout.clamp();
+                },
+            ));
     }
-    columns.child(body(forge, cx, theme)).into_any_element()
+    columns
+        .child(body(forge, cx, theme, ladder))
+        .into_any_element()
 }
 
 /// How far each tree level indents its rows.
@@ -41,7 +51,7 @@ const INDENT_STEP: f32 = 14.;
 /// The column a row's expand/kind glyph sits in.
 const GLYPH: Pixels = px(12.);
 
-fn tree(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+fn tree(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let column = tree_column(forge, theme);
     let Some(query) = forge.tree_query(Vec::new()) else {
         // `refs()` lands (even empty) before `head_oid()` ever resolves for
@@ -60,6 +70,7 @@ fn tree(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         "Reading the tree…",
         cx,
         theme,
+        ladder,
     ) {
         return column.child(state).into_any_element();
     }
@@ -277,7 +288,7 @@ pub(crate) fn no_commits(forge: &Forge, theme: &Theme) -> AnyElement {
     .into_any_element()
 }
 
-fn body(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+fn body(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let Some((path, oid)) = forge.nav().blob.clone() else {
         return div()
             .id(id("forge-code-blank"))
@@ -297,13 +308,21 @@ fn body(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         .flex()
         .flex_col()
         .min_h(px(0.))
-        .child(blob_header(&path, &oid, cx, theme));
+        .child(blob_header(&path, &oid, cx, theme, ladder));
     let query = Query::Blob {
         repo: forge.repo_name(),
         oid: oid.clone(),
         range: None,
     };
-    let reply = match staged(forge, &query, "forge-blob", "Reading the file…", cx, theme) {
+    let reply = match staged(
+        forge,
+        &query,
+        "forge-blob",
+        "Reading the file…",
+        cx,
+        theme,
+        ladder,
+    ) {
         Ok(reply) => reply,
         Err(state) => return pane.child(state).into_any_element(),
     };
@@ -315,7 +334,13 @@ fn body(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
 }
 
 /// The open file's path, id and close button.
-fn blob_header(path: &[u8], oid: &str, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> {
+fn blob_header(
+    path: &[u8],
+    oid: &str,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Stateful<Div> {
     let close = cx.listener(|forge, _: &ClickEvent, _, cx| {
         forge.nav_close_blob(cx);
     });
@@ -331,7 +356,13 @@ fn blob_header(path: &[u8], oid: &str, cx: &mut Context<Forge>, theme: &Theme) -
         .child(heading(id("forge-blob-title"), path_text(path), 2, theme))
         .child(quiet(crate::ui::components::short_hex(oid), theme))
         .child(div().flex_1())
-        .child(button(id("forge-blob-close"), "Close", theme, close))
+        .child(button(
+            id("forge-blob-close"),
+            "Close",
+            ladder,
+            theme,
+            close,
+        ))
 }
 
 /// A blob as its content reads: markdown rendered, text highlighted, or
