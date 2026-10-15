@@ -30,7 +30,6 @@ impl Chat {
                 if let Some((channel, seq)) = links::route_target(&route) {
                     chat.search_clear();
                     chat.open_at(channel, seq, cx);
-                    chat.settle_badge(cx);
                     cx.notify();
                 }
             }

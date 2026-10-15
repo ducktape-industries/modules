@@ -13,24 +13,48 @@
 //! - `sync`: which reads the screen needs; `queries`: how one read is asked.
 //! - `navigate`, `actions`, `review`, `tree`: what an event changes.
 //! - `ui`: the screens; `ui::markdown`: documents and their links.
+//!
+//! What becomes a notice is forge's NOTIFIER's (`notifier.rs`): the host
+//! runs it once per network, open panes or none. The `notifier` feature
+//! builds it alone in place of the view.
+mod notifier;
+pub use notifier::ForgeNotices;
+#[cfg(feature = "notifier")]
+view::export_notifier!(ForgeNotices);
+
+#[cfg(not(feature = "notifier"))]
 mod api;
+#[cfg(not(feature = "notifier"))]
 mod queries;
+#[cfg(not(feature = "notifier"))]
 mod select;
+#[cfg(not(feature = "notifier"))]
 mod state;
+#[cfg(not(feature = "notifier"))]
 mod sync;
+#[cfg(not(feature = "notifier"))]
 mod tree;
 
+#[cfg(not(feature = "notifier"))]
 mod actions;
+#[cfg(not(feature = "notifier"))]
 mod navigate;
+#[cfg(not(feature = "notifier"))]
 mod review;
+#[cfg(not(feature = "notifier"))]
 mod ui;
 
+#[cfg(not(feature = "notifier"))]
 use view::prelude::*;
 
+#[cfg(not(feature = "notifier"))]
 use identity::Identity;
+#[cfg(not(feature = "notifier"))]
 pub(crate) use select::Stage;
+#[cfg(not(feature = "notifier"))]
 pub use state::Forge;
 
+#[cfg(not(feature = "notifier"))]
 impl View for Forge {
     const NAME: &'static str = "Forge";
     const DESCRIPTION: &'static str =
@@ -101,6 +125,7 @@ impl View for Forge {
     }
 }
 
+#[cfg(not(feature = "notifier"))]
 impl Render for Forge {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // the pane's size, as the host lays the frame out: the rail and
@@ -112,10 +137,12 @@ impl Render for Forge {
         // a change's title lands async: the frame is the one place that
         // sees each
         self.settle_title(cx);
+        self.settle_showing(cx);
         ui::render(self, cx)
     }
 }
 
+#[cfg(not(feature = "notifier"))]
 impl Forge {
     /// The window's title: `Repositories` over the list, a repository's
     /// name, a change as `<repo> · #<n>` and its title once it lands. Sent
@@ -134,9 +161,26 @@ impl Forge {
             self.title = Some(title);
         }
     }
+
+    /// Names the change or repository open to the host when it changed
+    /// (`<repo>/<n>`, `<repo>`, empty over the list), as a route opens it:
+    /// a change on screen is one forge's notifier leaves alone.
+    fn settle_showing(&mut self, cx: &mut Context<Self>) {
+        let showing = match (&self.nav.repo, self.nav.change) {
+            (None, _) => String::new(),
+            (Some(repo), None) => repo.clone(),
+            (Some(repo), Some(n)) => format!("{repo}/{n}"),
+        };
+        if self.showing.as_ref() != Some(&showing) {
+            cx.host().notify::<HostShowing>(showing.clone());
+            self.showing = Some(showing);
+        }
+    }
 }
 
+#[cfg(not(feature = "notifier"))]
 export_view!(Forge);
 
 #[cfg(test)]
+#[cfg(not(feature = "notifier"))]
 mod tests;

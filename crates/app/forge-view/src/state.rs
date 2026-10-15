@@ -37,6 +37,9 @@ pub struct Forge {
     /// the window's title last sent
     #[serde(skip)]
     pub(crate) title: Option<String>,
+    /// the route last named to the host as the one shown (`host.showing`)
+    #[serde(skip)]
+    pub(crate) showing: Option<String>,
     pub(crate) layout: Layout,
     #[serde(skip)]
     /// every read on screen, keyed by the query that asked it

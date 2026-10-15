@@ -101,8 +101,8 @@ mod slots;
 mod driver;
 pub(crate) use driver::Driver;
 mod notifier;
-pub(crate) use notifier::NotifierDriver;
 pub use notifier::Notifier;
+pub(crate) use notifier::NotifierDriver;
 
 const MANIFEST_HEADER: &str = "ducktape.view.manifest\n";
 

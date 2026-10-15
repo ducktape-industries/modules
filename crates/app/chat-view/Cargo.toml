@@ -10,6 +10,12 @@ publish = false
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# Builds chat's notifier alone (`notifier.rs`, `export_notifier!`) in place
+# of the view: what a founding packs as the program's `ducktape.notify`
+# section. Never on in the view's build.
+notifier = []
+
 [dependencies]
 view.workspace = true
 futures.workspace = true
