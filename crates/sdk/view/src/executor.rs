@@ -44,6 +44,8 @@ impl<R> std::fmt::Debug for Task<R> {
 pub(crate) struct Running {
     future: LocalBoxFuture<'static, ()>,
     woken: Arc<Woken>,
+    woke_itself: bool,
+    done: bool,
 }
 struct Woken(AtomicBool);
 impl Wake for Woken {
@@ -75,6 +77,8 @@ pub(crate) fn task<R: 'static>(future: impl Future<Output = R> + 'static) -> (Ta
         Running {
             future: Box::pin(future),
             woken: Arc::new(Woken(AtomicBool::new(true))),
+            woke_itself: false,
+            done: false,
         },
     )
 }
@@ -87,25 +91,36 @@ pub(crate) fn snapshot_ready(tasks: &[Running], host: &crate::Host) -> bool {
             && host.waiting_stream(&Waker::from(task.woken.clone()))
     })
 }
-const MAX_POLLS: usize = 64;
+pub(crate) fn begin_tick(tasks: &mut [Running]) {
+    for task in tasks {
+        task.woke_itself = false;
+    }
+}
 
 pub(crate) fn poll(tasks: &mut Vec<Running>) -> bool {
-    for _ in 0..MAX_POLLS {
+    loop {
         let mut polled = false;
-        tasks.retain_mut(|task| {
-            if !task.woken.0.swap(false, Ordering::SeqCst) {
-                return true;
+        let mut finished = false;
+        for task in tasks.iter_mut() {
+            let due = !task.woke_itself && task.woken.0.swap(false, Ordering::SeqCst);
+            if !due {
+                continue;
             }
             polled = true;
             let waker = Waker::from(task.woken.clone());
-            task.future
-                .as_mut()
-                .poll(&mut Context::from_waker(&waker))
-                .is_pending()
-        });
+            match task.future.as_mut().poll(&mut Context::from_waker(&waker)) {
+                Poll::Ready(()) => {
+                    task.done = true;
+                    finished = true;
+                }
+                Poll::Pending => task.woke_itself = task.woken.0.load(Ordering::SeqCst),
+            }
+        }
+        if finished {
+            tasks.retain(|task| !task.done);
+        }
         if !polled {
-            return false;
+            return ready(tasks);
         }
     }
-    ready(tasks)
 }

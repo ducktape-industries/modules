@@ -39,7 +39,7 @@ fn the_overview_shows_the_head_and_the_latest_blocks_and_transactions() {
         cx.host().requests::<ChainBlocks>(),
         vec![BlockPage {
             before: None,
-            limit: PAGE
+            limit: u32::MAX
         }],
         "13 blocks is the whole archive: one page"
     );
@@ -220,7 +220,7 @@ fn an_arrow_and_enter_on_the_accounts_opens_the_second_account() {
     assert_eq!(list.aria.label.as_deref(), Some("Accounts"));
     assert!(list.focusable && list.tab_stop == Some(true));
     let rows: Vec<String> = cx
-        .find("explorer-accounts-list")
+        .find("explorer-accounts-list-rows")
         .expect("the list")
         .children()
         .iter()
@@ -586,11 +586,6 @@ fn accounts_say_what_each_is_as_members_does() {
     );
 }
 
-/// The Transactions list lowers the rows the host shows and a margin, not
-/// all fifty: the first frame is a screenful from the top, a scroll brings
-/// the rows it reaches and lets the ones far above go, ↓ scrolls the list
-/// to the row it moves to ahead of the frame that claims it, and the page
-/// opens at its top again.
 #[test]
 fn the_transactions_list_lowers_only_the_rows_the_host_shows() {
     use view::wire::Node;
@@ -613,7 +608,7 @@ fn the_transactions_list_lowers_only_the_rows_the_host_shows() {
         other => panic!("no list of rows: {other:?}"),
     };
     let (count, lowered, _) = list(&cx);
-    assert_eq!(count, 50, "the fifty the page draws");
+    assert_eq!(count, WINDOW);
     assert!(
         (14..count).contains(&lowered),
         "a screenful and a margin, not every row: {lowered}"
@@ -661,7 +656,6 @@ fn the_transactions_list_lowers_only_the_rows_the_host_shows() {
 /// there (no gutter of its own) and the list reaches the edge, where the
 /// host keeps the bar's gutter beside it. The view writes no room for the
 /// bar; the heading keeps the same inset, so it ends where the rows do.
-/// Every other page scrolls, with the gutter the SDK keeps.
 #[test]
 fn the_transactions_list_reaches_the_panes_edge_and_writes_no_gutter() {
     use view::wire::Node;
@@ -693,10 +687,6 @@ fn the_transactions_list_reaches_the_panes_edge_and_writes_no_gutter() {
     );
 }
 
-/// Only the Transactions page draws its rows as a window. An account's
-/// Activity sits beside a column, a block's transactions under its fields,
-/// each in a page that scrolls whole: they are drawn whole, every row, so
-/// the page is laid out by its rows.
 #[test]
 fn an_accounts_activity_and_a_blocks_transactions_are_drawn_whole() {
     let mut cx = TestAppContext::new();
@@ -720,8 +710,6 @@ fn an_accounts_activity_and_a_blocks_transactions_are_drawn_whole() {
         cx.find("explorer-activity-list-rows").is_none(),
         "an account's activity is no window"
     );
-    // Ada signed every transaction in the window: the fifty the list draws
     let row = |index: usize| format!("explorer-tx-{}-0", WINDOW - index);
-    assert!(cx.find(&row(0)).is_some() && cx.find(&row(49)).is_some());
-    assert!(cx.find(&row(50)).is_none());
+    assert!(cx.find(&row(0)).is_some() && cx.find(&row(WINDOW - 1)).is_some());
 }

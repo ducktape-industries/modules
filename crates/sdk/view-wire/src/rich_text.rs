@@ -1,5 +1,5 @@
 //! Lossless serde adapters for GPUI rich text values.
-use crate::{Budgets, finite, spend_text, style_sanitize};
+use crate::{finite, style_sanitize};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
@@ -158,13 +158,11 @@ fn sanitize_run(value: &mut TextRun) {
 }
 
 pub(super) fn sanitize(
-    text: &mut String,
+    text: &str,
     runs: &mut Runs,
     font_family_overrides: &mut Vec<(Range<usize>, gpui::SharedString)>,
     clickable_ranges: &mut Vec<Range<usize>>,
-    budgets: &mut Budgets,
 ) {
-    spend_text(text, budgets);
     match runs {
         Runs::Highlights(highlights) => {
             let mut end = 0;
@@ -221,21 +219,14 @@ mod tests {
 
     #[test]
     fn hostile_utf8_ranges_and_run_lengths_never_reach_gpui() {
-        let mut text = "aéz".to_owned();
+        let text = "aéz".to_owned();
         let mut runs = Runs::Highlights(vec![
             (1..2, HighlightStyle::from(gpui::HighlightStyle::default())),
             (1..3, HighlightStyle::from(gpui::HighlightStyle::default())),
         ]);
         let mut overrides = vec![(3..99, "Mono".into()), (1..3, "Mono".into())];
         let mut clicks = vec![1..2, 1..3, 3..4, std::ops::Range { start: 4, end: 3 }];
-        let mut budgets = Budgets::frame(&crate::styles::testing::held());
-        sanitize(
-            &mut text,
-            &mut runs,
-            &mut overrides,
-            &mut clicks,
-            &mut budgets,
-        );
+        sanitize(&text, &mut runs, &mut overrides, &mut clicks);
         assert_eq!(
             runs,
             Runs::Highlights(vec![(1..3, gpui::HighlightStyle::default().into())])
@@ -244,13 +235,7 @@ mod tests {
         assert_eq!(clicks, vec![0..0, 1..3, 3..4, 0..0]);
 
         let mut runs = Runs::Runs(vec![gpui::TextStyle::default().to_run(2).into()]);
-        sanitize(
-            &mut text,
-            &mut runs,
-            &mut vec![],
-            &mut vec![],
-            &mut Budgets::frame(&crate::styles::testing::held()),
-        );
+        sanitize(&text, &mut runs, &mut vec![], &mut vec![]);
         assert_eq!(runs, Runs::Highlights(vec![]));
     }
 

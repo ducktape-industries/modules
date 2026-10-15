@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use unicode_normalization::UnicodeNormalization;
 
-use crate::{Block, MAX_TAG_CHARS, MAX_TAGS_PER_MESSAGE, Mark};
+use crate::{Block, Mark};
 
 /// The message as one line of text, blocks joined by a space. A block's
 /// spans are runs of one text split where a mark starts or ends, so they
@@ -38,8 +38,6 @@ pub fn tokens(text: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// `#tag` labels in appearance order, at most [`MAX_TAGS_PER_MESSAGE`]:
-/// outside code and links, each one `tag_label`-normalized.
 pub fn tags(blocks: &[Block]) -> Vec<String> {
     let spans = blocks.iter().flat_map(|block| match block {
         Block::Paragraph(spans) | Block::Quote(spans) => spans.as_slice(),
@@ -58,7 +56,6 @@ pub fn tags(blocks: &[Block]) -> Vec<String> {
             }
         }
     }
-    out.truncate(MAX_TAGS_PER_MESSAGE);
     out
 }
 
@@ -83,7 +80,7 @@ fn span_tags(text: &str) -> Vec<String> {
             .chars()
             .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
             .collect();
-        if opens && (1..=MAX_TAG_CHARS).contains(&body.chars().count()) {
+        if opens && !body.is_empty() {
             out.push(tag_label(&body));
         }
         prev = Some(body.chars().next_back().unwrap_or('#'));

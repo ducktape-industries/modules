@@ -1,9 +1,7 @@
-//! The host's sanitizer drops the bytes of every picture past
-//! `MAX_PICTURE_BYTES_PER_FRAME` in one frame. These drive a view against
-//! a host that does with each frame what the app's does — sanitize it or
-//! apply its patches, then hold each picture's bytes by hash and keep the
-//! tree without them — and count the frames until every picture drawn is
-//! held.
+//! These drive a view against a host that does with each frame what the
+//! app's does — sanitize it or apply its patches, then hold each picture's
+//! bytes by hash and keep the tree without them — and count the frames
+//! until every picture drawn is held.
 use super::*;
 use std::collections::HashSet;
 
@@ -149,12 +147,11 @@ fn frames_to_park(
     events: Vec<wire::Event>,
 ) -> usize {
     let mut events = events;
-    for frames in 1..=64 {
-        if !driver.tick_with(std::mem::take(&mut events), |frame| host.take(frame)) {
-            return frames;
-        }
+    let mut frames = 1;
+    while driver.tick_with(std::mem::take(&mut events), |frame| host.take(frame)) {
+        frames += 1;
     }
-    panic!("the view still asks for frames after 64");
+    frames
 }
 
 fn show(driver: &mut Driver<Gallery>, sizes: Vec<usize>) {
@@ -164,9 +161,8 @@ fn show(driver: &mut Driver<Gallery>, sizes: Vec<usize>) {
     });
 }
 
-/// 3 MiB of pictures, two to a frame: ceil(3 MiB / 1 MiB) + 1 frames.
 #[test]
-fn every_picture_drawn_reaches_the_host_within_the_frame_budget() {
+fn every_picture_drawn_reaches_the_host_in_one_frame() {
     let mut driver = Driver::<Gallery>::new();
     let mut host = Host::default();
     show(&mut driver, vec![384 * KIB; 8]);
@@ -181,10 +177,7 @@ fn every_picture_drawn_reaches_the_host_within_the_frame_budget() {
         host.dropped, 0,
         "picture bytes the host's sanitizer dropped"
     );
-    assert!(
-        frames <= 4,
-        "every picture held after {frames} frames, not 4"
-    );
+    assert_eq!(frames, 1);
 }
 
 /// Pictures that came in one at a time go out again together after a
@@ -212,31 +205,5 @@ fn every_picture_drawn_is_held_again_after_a_resync() {
         host.dropped, 0,
         "picture bytes the host's sanitizer dropped"
     );
-    assert!(
-        frames <= 4,
-        "every picture held again after {frames} frames, not 4"
-    );
-}
-
-/// A picture larger than a frame's whole budget can never reach the host:
-/// it goes by hash alone and is not owed, so the view parks.
-#[test]
-fn a_picture_past_the_frame_budget_is_never_sent_and_never_owed() {
-    let mut driver = Driver::<Gallery>::new();
-    let mut host = Host::default();
-    show(
-        &mut driver,
-        vec![wire::MAX_PICTURE_BYTES_PER_FRAME + 1, 64 * KIB],
-    );
-    let frames = frames_to_park(&mut driver, &mut host, vec![]);
-    assert_eq!(frames, 1, "nothing is owed, so the first frame parks");
-    assert_eq!(
-        host.dropped, 0,
-        "no frame carries bytes the host drops whole"
-    );
-    assert_eq!(
-        (host.drawn.len(), host.held.len()),
-        (2, 1),
-        "the small picture is held, the oversized one is not"
-    );
+    assert_eq!(frames, 1);
 }

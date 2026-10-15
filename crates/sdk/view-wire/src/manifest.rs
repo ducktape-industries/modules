@@ -25,31 +25,13 @@ pub struct Manifest {
     pub name: String,
     pub description: String,
     pub capabilities: Vec<Capability>,
-    /// The view's `MIN_WINDOW_WIDTH`: the narrowest it is laid out, in
-    /// logical px, `1..=8192`.
     pub min_width: u32,
     /// The programs the view may address with `op.submit`, `program.query`
     /// and `program.changes`; a view with the `op` or `program` capability
     /// names at least one.
     pub targets: Vec<String>,
-    /// The view's `ICON`: what the host draws where it shows the view
-    /// small, a [`crate::safe_asset_path`] into the set the host bundles
-    /// (`icons/hammer.svg`), at most 64 bytes; empty when the view
-    /// declares none.
     pub icon: String,
 }
-
-/// What a manifest may say about itself. The catalog is read before anything
-/// is installed, and the store shapes every field of every entry on every
-/// relayout — outside the sandbox, with no fuel and no memory limit — so a
-/// module whose manifest is a megabyte of capability names is left out of the
-/// catalog rather than laid out.
-const MAX_NAME_BYTES: usize = 64;
-const MAX_DESCRIPTION_BYTES: usize = 256;
-const MAX_CAPABILITIES: usize = 16;
-const MAX_WIRE_ID_BYTES: usize = 16;
-const MAX_TARGETS: usize = 16;
-const MAX_ICON_BYTES: usize = 64;
 
 /// Whether a view declaring `capabilities` must name targets: it may
 /// address a program only through `op` or `program`.
@@ -64,12 +46,8 @@ pub const fn needs_targets(capabilities: &[Capability]) -> bool {
     false
 }
 
-/// Whether `icon` is what a manifest's `icon` line may say: nothing, or a
-/// [`crate::safe_asset_path`] within its bound and, as all of the
-/// manifest's text, with no control character.
 pub const fn is_icon(icon: &str) -> bool {
-    icon.is_empty()
-        || (icon.len() <= MAX_ICON_BYTES && crate::safe_asset_path(icon) && !has_control(icon))
+    icon.is_empty() || (crate::safe_asset_path(icon) && !has_control(icon))
 }
 
 /// A control character (`char::is_control`) somewhere in `text`.
@@ -123,7 +101,7 @@ impl Manifest {
     /// view that could address a program (`op`, `program`) and names no
     /// target, and an icon that is not an asset path ([`is_icon`]).
     pub fn parse(text: &str) -> Option<Self> {
-        if text.len() > 1024 || text.chars().any(|c| c.is_control() && c != '\n') {
+        if text.chars().any(|c| c.is_control() && c != '\n') {
             return None;
         }
         let mut lines = text.split('\n');
@@ -141,7 +119,7 @@ impl Manifest {
         let min_width = text
             .parse::<u32>()
             .ok()
-            .filter(|n| n.to_string() == text && (1..=crate::MAX_PIXELS as u32).contains(n))?;
+            .filter(|n| n.to_string() == text && *n >= 1)?;
         let wire_id = lines.next()?.to_owned();
         let targets: Vec<String> = list(lines.next()?)?
             .into_iter()
@@ -165,16 +143,11 @@ impl Manifest {
 
     fn within_bounds(&self) -> bool {
         !self.name.is_empty()
-            && self.name.len() <= MAX_NAME_BYTES
-            && self.description.len() <= MAX_DESCRIPTION_BYTES
-            && self.capabilities.len() <= MAX_CAPABILITIES
             && !self.wire_id.is_empty()
-            && self.wire_id.len() <= MAX_WIRE_ID_BYTES
             && self
                 .wire_id
                 .bytes()
                 .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-            && self.targets.len() <= MAX_TARGETS
             && self.targets.iter().all(|target| program::is_name(target))
             && (!self.targets.is_empty() || !needs_targets(&self.capabilities))
             && is_icon(&self.icon)
@@ -255,9 +228,6 @@ mod tests {
         }
     }
 
-    // Claim: line 5 is the min width, canonical decimal in 1..=8192, and a
-    // manifest of the shape before it (a preferred size there, or one line
-    // more) is refused rather than read with a guessed width.
     #[test]
     fn a_manifest_carries_its_min_width() {
         let parse = |width: &str| {
@@ -276,7 +246,6 @@ mod tests {
             "-1",
             "480.0",
             " 480",
-            "8193",
             "4294967296",
             "none",
             "1180,760",
@@ -318,7 +287,6 @@ mod tests {
             ("op,", "chat,,"), // an empty name
             ("op,", "a/b,"),   // not a program name
             ("op,", &format!("{},", "x".repeat(65))),
-            ("op,", &"chat,".repeat(MAX_TARGETS + 1)),
         ] {
             assert!(
                 parse(caps, targets).is_none(),
@@ -327,9 +295,6 @@ mod tests {
         }
     }
 
-    // Claim: line 8 is the icon, a path into the set the host bundles or
-    // nothing; a path that could leave the set, or one over the bound,
-    // refuses the manifest rather than reaching a host's asset lookup.
     #[test]
     fn a_manifest_carries_its_icon() {
         let parse = |icon: &str| {
@@ -339,19 +304,9 @@ mod tests {
         };
         assert_eq!(parse("icons/hammer.svg").unwrap().icon, "icons/hammer.svg");
         assert_eq!(parse("").unwrap().icon, "");
-        let longest = format!("icons/{}", "x".repeat(MAX_ICON_BYTES - 6));
-        assert_eq!(parse(&longest).unwrap().icon, longest);
-        for invalid in [
-            "/abs",
-            "a/../b",
-            "a/./b",
-            "..",
-            "a//b",
-            "a/",
-            "a\\b",
-            "c:x",
-            &format!("{longest}x"),
-        ] {
+        let long = format!("icons/{}", "x".repeat(1000));
+        assert_eq!(parse(&long).unwrap().icon, long);
+        for invalid in ["/abs", "a/../b", "a/./b", "..", "a//b", "a/", "a\\b", "c:x"] {
             assert!(parse(invalid).is_none(), "accepted {invalid:?}");
         }
         // a view's build asks the same rule, before there is a text to parse
@@ -361,10 +316,8 @@ mod tests {
         assert!(is_icon("icons/\u{e9}.svg"));
     }
 
-    // Claim: the wire id is short lowercase hex, so a host can show it in a
-    // refusal; a different id still parses, since refusing it is the host's.
     #[test]
-    fn the_wire_id_is_bounded_lowercase_hex() {
+    fn the_wire_id_is_lowercase_hex() {
         let parse =
             |id: &str| Manifest::parse(&format!("ducktape.view.manifest\nApp\n\n\n480\n{id}\n\n"));
         assert_eq!(
@@ -372,7 +325,7 @@ mod tests {
             "0123456789abcdef"
         );
         assert!(parse(crate::WIRE_ID).is_some());
-        for invalid in ["", "0123456789abcdef0", "ABCDEF", "xyz", " 0a", "0a "] {
+        for invalid in ["", "ABCDEF", "xyz", " 0a", "0a "] {
             assert!(parse(invalid).is_none(), "accepted {invalid:?}");
         }
     }

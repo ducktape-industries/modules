@@ -156,14 +156,7 @@ fn latest_blocks(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl Int
     .text_size(design::text::SECONDARY)
     .into_any_element();
     let list = rows("explorer-latest-blocks-list", "Latest blocks", view);
-    let blocks = block_lines(
-        list,
-        &view.chain.blocks,
-        LATEST,
-        view.chain.now(),
-        cx,
-        theme,
-    );
+    let blocks = block_lines(list, view, LATEST).whole(view, cx, theme);
     div()
         .id("explorer-latest-blocks")
         .when(side, |panel| {

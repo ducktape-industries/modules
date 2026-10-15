@@ -539,16 +539,8 @@ pub enum OpReply {
 
 pub const PACK_KIND: &str = "pack";
 
-pub const CLOSURE_NAMES: usize = 16_384;
-
-/// The longest repository name whose change channels fit chat's id limit:
-/// `forge:<repo>:<n>` is the program, two `:` and up to 20 digits of `n`.
-pub const MAX_REPO_NAME: usize =
-    chat::MAX_ID_BYTES - crate::PROGRAM.len() - 2 - (u64::MAX.ilog10() as usize + 1);
-
 pub fn valid_repo_name(name: &str) -> bool {
     !name.is_empty()
-        && name.len() <= MAX_REPO_NAME
         && name
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))

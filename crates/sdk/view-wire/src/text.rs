@@ -6,13 +6,6 @@
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
-/// The most bytes one field holds.
-pub const MAX_FIELD_BYTES: usize = 1 << 20;
-/// The most atomic spans one field carries.
-pub const MAX_FIELD_TOKENS: usize = 256;
-/// The most keys one field claims.
-pub const MAX_FIELD_CLAIMS: usize = 32;
-
 /// Bytes `start..end` of a field's text; a caret when empty.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextRange {
@@ -279,45 +272,17 @@ pub struct TextChange {
     pub text: String,
     pub cursor: TextRange,
     pub preedit: Option<TextRange>,
-    #[serde(deserialize_with = "decode_tokens")]
     pub tokens: Vec<TextToken>,
 }
 
-pub(crate) fn decode_tokens<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Vec<TextToken>, D::Error> {
-    crate::bounded_vec(d, MAX_FIELD_TOKENS, "field token limit")
-}
-
-pub(crate) fn decode_claims<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Vec<KeyClaim>, D::Error> {
-    crate::bounded_vec(d, MAX_FIELD_CLAIMS, "field claim limit")
-}
-
-pub(crate) fn decode_token_slice<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Box<[TextToken]>, D::Error> {
-    decode_tokens(d).map(Vec::into_boxed_slice)
-}
-
-pub(crate) fn decode_claim_slice<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Box<[KeyClaim]>, D::Error> {
-    decode_claims(d).map(Vec::into_boxed_slice)
-}
-
-/// What is wrong with a field as the view sent it, if anything: text over
-/// the cap, a cursor or token off the text's character boundaries, tokens
-/// out of order or overlapping, a claim on a key the engine owns.
 pub fn validate_field(
     value: &str,
     cursor: TextRange,
     tokens: &[TextToken],
     claims: &[KeyClaim],
 ) -> Result<(), &'static str> {
-    if value.len() > MAX_FIELD_BYTES {
-        return Err("field text exceeds its cap");
+    if u32::try_from(value.len()).is_err() {
+        return Err("field text is longer than a u32 offset reaches");
     }
     let on_text = |range: TextRange| {
         range.start <= range.end
@@ -333,8 +298,8 @@ pub fn validate_field(
         if range.start < last || range.is_empty() || !on_text(range) {
             return Err("field token is off its text");
         }
-        if token.id.is_empty() || token.id.len() > crate::MAX_STRING_BYTES {
-            return Err("field token id exceeds bounds");
+        if token.id.is_empty() {
+            return Err("field token id is empty");
         }
         last = range.end;
     }
@@ -542,14 +507,5 @@ mod tests {
         }
         assert!(!claim(Key::Character("z".into())).engine_owned());
         assert!(!claim(Key::Named(Named::Enter)).engine_owned());
-        assert_eq!(
-            validate_field(
-                &"x".repeat(MAX_FIELD_BYTES + 1),
-                TextRange::default(),
-                &[],
-                &[]
-            ),
-            Err("field text exceeds its cap")
-        );
     }
 }

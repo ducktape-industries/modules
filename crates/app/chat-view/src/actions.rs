@@ -435,11 +435,8 @@ impl Chat {
             return;
         };
         let name = create.name.text().trim().to_string();
-        if name.is_empty() || name.len() > chat::MAX_NAME_BYTES || name.contains('\0') {
-            create.error = format!(
-                "Enter a channel name of at most {} bytes",
-                chat::MAX_NAME_BYTES
-            );
+        if name.is_empty() || name.contains('\0') {
+            create.error = "Enter a channel name".to_string();
             return;
         }
         create.error.clear();

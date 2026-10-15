@@ -149,17 +149,14 @@ pub enum Node {
         /// `revision` moves, never again for the frames that carry it on.
         scroll_request: Option<crate::list::UniformListScrollRequest>,
         revision: u64,
-        #[serde(deserialize_with = "list::decode_indices")]
         indices: Vec<u32>,
         children: Vec<Node>,
     },
-    /// A native variable-height GPUI list with a bounded frame-owned row window.
     List {
         /// The id its author gave it: the list is a scope of its own, and
         /// the host keeps its state and draws its rows under it.
         id: ElementIdWire,
         /// The path the list is filed under, ending in `id`.
-        #[serde(deserialize_with = "list::decode_path")]
         path: Vec<ElementIdWire>,
         item_count: usize,
         alignment: ListAlignment,
@@ -167,7 +164,6 @@ pub enum Node {
         sizing: ListSizingBehavior,
         following_tail: bool,
         revision: u64,
-        #[serde(deserialize_with = "list::decode_commands")]
         commands: Vec<ListCommand>,
         request_handler: u32,
         scroll_handler: Option<u32>,
@@ -250,9 +246,7 @@ pub enum Node {
         cursor: TextRange,
         generation: u64,
         revision: u64,
-        #[serde(deserialize_with = "text::decode_token_slice")]
         tokens: Box<[TextToken]>,
-        #[serde(deserialize_with = "text::decode_claim_slice")]
         claims: Box<[KeyClaim]>,
         options: Box<InputOptions>,
         placeholder: String,
@@ -277,7 +271,6 @@ pub enum Node {
     /// Bounded geometry painted by the host, in widget-local coordinates.
     Canvas {
         style: StyleId,
-        #[serde(deserialize_with = "canvas::decode_parts")]
         commands: Vec<CanvasCommand>,
     },
     /// A web page, drawn by the host's browser engine in the node's box.
@@ -306,7 +299,6 @@ pub enum Node {
         url: String,
         style: StyleId,
         revision: u64,
-        #[serde(deserialize_with = "crate::web::decode_commands")]
         commands: Vec<crate::web::WebCommand>,
         on_state: Option<u32>,
     },

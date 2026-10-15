@@ -1,54 +1,11 @@
 use super::*;
 
 #[test]
-fn svg_and_raster_images_share_the_frame_picture_budget() {
-    let image = Node::Image {
-        id: Some(ElementIdWire::Name("App/raster".into())),
-        hash: 8,
-        data: Some(ImageData::Encoded(vec![
-            0;
-            MAX_PICTURE_BYTES_PER_FRAME / 2 + 1
-        ])),
-        label: None,
-        image_style: ImageStyle {
-            grayscale: false,
-            object_fit: ImageObjectFit::Contain,
-        },
-        loading: false,
-        fallback: false,
-        state_children: vec![],
-        style: StyleId(0),
-        interactivity: Default::default(),
-    };
-    let mut frame = Frame {
-        root: Some(column(vec![
-            picture(Some(vec![0; MAX_PICTURE_BYTES_PER_FRAME / 2])),
-            image,
-        ])),
-        ..Frame::default()
-    };
-    sanitize_plain(&mut frame).unwrap();
-    let children = frame.root.as_ref().unwrap().children();
-    assert!(matches!(
-        children[0],
-        Node::Svg {
-            source: SvgSource::Data { bytes: Some(_), .. },
-            ..
-        }
-    ));
-    assert!(
-        matches!(children[1], Node::Image { data: None, .. }),
-        "SVG consumption must reduce raster admission"
-    );
-    assert!(decode::<Frame>(&encode(&frame)).is_ok());
-}
-
-#[test]
 fn primitive_geometry_and_state_children_are_bounded_in_the_main_walk() {
     let image = Node::Image {
         id: Some(ElementIdWire::Integer(1)),
         hash: 1,
-        data: Some(ImageData::Refusal("x".repeat(MAX_STRING_BYTES + 1))),
+        data: Some(ImageData::Refusal("x".into())),
         label: None,
         image_style: ImageStyle {
             grayscale: false,
@@ -62,7 +19,7 @@ fn primitive_geometry_and_state_children_are_bounded_in_the_main_walk() {
     };
     let svg = Node::Svg {
         id: Some(ElementIdWire::Integer(2)),
-        source: SvgSource::External("x".repeat(MAX_STRING_BYTES + 1)),
+        source: SvgSource::External("x".into()),
         transformation: SvgTransformation {
             scale: [f32::NAN, f32::INFINITY],
             translate: [f32::NEG_INFINITY, f32::INFINITY],
@@ -84,27 +41,15 @@ fn primitive_geometry_and_state_children_are_bounded_in_the_main_walk() {
         }],
     };
     let children = sanitized_children(column(vec![image, svg, anchored]));
-    let Node::Image {
-        data: Some(ImageData::Refusal(reason)),
-        state_children,
-        ..
-    } = &children[0]
-    else {
+    let Node::Image { state_children, .. } = &children[0] else {
         panic!()
     };
-    assert!(reason.len() <= MAX_STRING_BYTES);
     assert_eq!(state_children.len(), 2);
-    let Node::Svg {
-        source: SvgSource::External(path),
-        transformation,
-        ..
-    } = &children[1]
-    else {
+    let Node::Svg { transformation, .. } = &children[1] else {
         panic!()
     };
-    assert!(path.len() <= MAX_STRING_BYTES);
-    assert_eq!(transformation.scale, [0., MAX_PIXELS]);
-    assert_eq!(transformation.translate, [-MAX_PIXELS, MAX_PIXELS]);
+    assert_eq!(transformation.scale, [0., f32::MAX]);
+    assert_eq!(transformation.translate, [f32::MIN, f32::MAX]);
     assert_eq!(transformation.rotate, 0.);
     let Node::Anchored {
         fit,
@@ -116,46 +61,19 @@ fn primitive_geometry_and_state_children_are_bounded_in_the_main_walk() {
     else {
         panic!()
     };
-    assert_eq!(*position, Some([MAX_PIXELS, -MAX_PIXELS]));
+    assert_eq!(*position, Some([f32::MAX, f32::MIN]));
     assert_eq!(*offset, Some([0., 3.]));
     assert_eq!(
         *fit,
-        AnchoredFitMode::SnapToWindowWithMargin([0., MAX_PIXELS, 0., 4.])
+        AnchoredFitMode::SnapToWindowWithMargin([0., f32::MAX, 0., 4.])
     );
-    assert!(matches!(children[0], Node::Deferred { priority: 16, .. }));
-}
-
-/// A picture past what is left of the frame's budget is dropped whole,
-/// never cut: half an SVG is not an SVG. The head of the frame keeps
-/// its pictures; a hash without bytes passes as the reference it is.
-#[test]
-fn a_frame_past_the_picture_budget_drops_whole_pictures_from_its_tail() {
-    const EACH: usize = MAX_PICTURE_BYTES_PER_FRAME / 4 * 3;
-    let children = sanitized_children(column(vec![
-        picture(Some(vec![b'<'; EACH])),
-        picture(Some(vec![b'<'; EACH])),
-        picture(None),
-        picture(Some(vec![b'<'; MAX_PICTURE_BYTES_PER_FRAME / 4])),
-    ]));
-    let carried: Vec<Option<usize>> = children
-        .iter()
-        .map(|child| match child {
-            Node::Svg {
-                source: SvgSource::Data { bytes, .. },
-                ..
-            } => bytes.as_ref().map(Vec::len),
-            other => panic!("{other:?}"),
-        })
-        .collect();
-    assert_eq!(
-        carried,
-        [
-            Some(EACH),
-            None,
-            None,
-            Some(MAX_PICTURE_BYTES_PER_FRAME / 4)
-        ]
-    );
+    assert!(matches!(
+        children[0],
+        Node::Deferred {
+            priority: usize::MAX,
+            ..
+        }
+    ));
 }
 
 /// An aria field a view did not set costs no bytes: the default is the

@@ -8,15 +8,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use ::program::{AccountNumber, BlobId, Env, Origin, Principal, ProgramId};
 use ::program::{
-    Error, ExecCtx, QueryCtx, already_exists, capacity, invalid, not_found, unauthorized,
-    unexpected_reply, wrong_state,
+    Error, ExecCtx, QueryCtx, already_exists, invalid, not_found, unauthorized, unexpected_reply,
+    wrong_state,
 };
 use abi::role::identity;
 use store::{Item, KeyCodec, Map, Set};
 
 use crate::{
-    CODE_KIND, Change, Entry, Genesis, Grant, MAX_PENDING, NOTICE, Scheduled, Scope, View,
-    grant_refused, role_bound,
+    CODE_KIND, Change, Entry, Genesis, Grant, NOTICE, Scheduled, Scope, View, grant_refused,
+    role_bound,
 };
 
 const PROGRAMS: Map<ProgramId, Entry> = Map::new("p/");
@@ -125,10 +125,6 @@ fn maintains(ctx: &QueryCtx, account: AccountNumber, name: &str) -> Result<(), E
     Ok(())
 }
 
-/// A maintainer's change, before the checks every change meets: no hook,
-/// a name it maintains, [`NOTICE`] blocks ahead, no change of the vote's
-/// waiting on the name, no claim on a name a maintainer's removal frees,
-/// and fewer than [`MAX_PENDING`] of its own.
 fn by_grant(ctx: &QueryCtx, account: AccountNumber, scheduled: &Scheduled) -> Result<(), Error> {
     let name = scheduled.change.program();
     if matches!(scheduled.change, Change::SetHook(_) | Change::RemoveHook(_)) {
@@ -161,17 +157,6 @@ fn by_grant(ctx: &QueryCtx, account: AccountNumber, scheduled: &Scheduled) -> Re
     {
         return Err(wrong_state(format!(
             "{name} is held until a maintainer's removal lands: wait, or cancel it"
-        )));
-    }
-    // a row with no change behind it (a `programs` rolled back) holds nothing
-    let waiting = BY
-        .all(ctx)?
-        .iter()
-        .filter(|(at, by)| *by == account && SCHEDULE.has(ctx, at))
-        .count();
-    if waiting >= MAX_PENDING {
-        return Err(capacity(format!(
-            "account {account} has {MAX_PENDING} changes waiting"
         )));
     }
     Ok(())

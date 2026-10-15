@@ -76,28 +76,10 @@ fn the_strip_asks_the_highest_missing_run_then_keeps_its_span() {
         first,
         BlockPage {
             before: Some(101),
-            limit: 20
+            limit: 64
         }
     );
-    recent.land(100, led(81, 100, |_| 1));
-    let older = recent.next(100).unwrap();
-    assert_eq!(
-        older,
-        BlockPage {
-            before: Some(81),
-            limit: 20
-        }
-    );
-    for page in [
-        older,
-        BlockPage {
-            before: Some(61),
-            limit: 20,
-        },
-    ] {
-        let below = page.before.unwrap();
-        recent.land(100, led(below - 20, below - 1, |_| 1));
-    }
+    recent.land(100, led(41, 100, |_| 1));
     assert_eq!(
         recent.next(100),
         Some(BlockPage {

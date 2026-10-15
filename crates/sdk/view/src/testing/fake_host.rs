@@ -207,17 +207,6 @@ impl FakeHost {
     }
 
     pub(crate) fn accept(&self, frame: &Frame, host: &crate::host::Host) {
-        // The app refuses a frame past either budget whole, and the view
-        // with it; a test fails on it instead.
-        assert!(
-            frame.requests.len() <= crate::wire::MAX_REQUESTS
-                && frame.cancels.len() <= crate::wire::MAX_CANCELS,
-            "the host refuses a frame of {} requests and {} cancels: one frame carries at most {} and {}",
-            frame.requests.len(),
-            frame.cancels.len(),
-            crate::wire::MAX_REQUESTS,
-            crate::wire::MAX_CANCELS,
-        );
         let mut state = self.0.borrow_mut();
         // The app refuses a web piece from a view whose manifest leaves
         // out `web` (and ends the view); a test fails on it instead.

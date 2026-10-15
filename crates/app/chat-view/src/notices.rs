@@ -12,9 +12,6 @@ use crate::names::dm_peer_of;
 use crate::{Chat, links};
 use chat::view::Names;
 
-/// The most new messages read out of one room per change.
-const MAX_NEW: u64 = 20;
-
 impl Chat {
     /// The channel list landed: the rooms, then a notice for what moved in
     /// a room the reader is not looking at, and the badge.
@@ -80,7 +77,7 @@ impl Chat {
         me: u64,
         cx: &mut Context<Self>,
     ) {
-        let fresh = (head - was).min(MAX_NEW);
+        let fresh = head - was;
         let viewer = self.viewer();
         let asked = cx.host().query(chat::ask::MessagesAround {
             channel_id: channel.clone(),
@@ -88,7 +85,7 @@ impl Chat {
             viewer,
             page: chat::PageRequest {
                 after: None,
-                limit: Some(fresh * 2),
+                limit: Some(fresh.saturating_mul(2)),
             },
         });
         cx.land(asked, move |chat, asked, cx| {

@@ -2,10 +2,9 @@
 use super::*;
 
 pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
-    let now = view.chain.now();
     let held = view.chain.blocks.len() as u64;
     let list = rows("explorer-blocks-list", "Blocks", view);
-    let list = block_lines(list, &view.chain.blocks, LIST_ROWS, now, cx, theme);
+    let list = block_lines(list, view, view.chain.blocks.len());
     let unlisted = view
         .chain
         .unlisted_below()
@@ -13,15 +12,22 @@ pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         .map(|from| quiet("explorer-blocks-unindexed", unindexed(from), theme));
     div()
         .id("explorer-blocks")
-        .child(heading(
-            "explorer-blocks-heading",
-            "Blocks",
-            Some(caption(
-                format!("the last {}", plural(held, "block", "blocks")),
+        .flex_1()
+        .min_h(px(0.))
+        .flex()
+        .flex_col()
+        .child(
+            heading(
+                "explorer-blocks-heading",
+                "Blocks",
+                Some(caption(
+                    format!("the last {}", plural(held, "block", "blocks")),
+                    theme,
+                )),
                 theme,
-            )),
-            theme,
-        ))
+            )
+            .mr(design::size::SCROLLBAR),
+        )
         .child(list.build(cx))
         .children(unlisted)
         .into_any_element()

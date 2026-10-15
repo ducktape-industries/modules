@@ -325,7 +325,7 @@ programs it addresses with `op.submit`, `program.query` and `program.changes`,
 by each `Program`'s `NAME`, `&[]` by default: a method naming another is
 refused `undeclared_target`, and a view with `op` or `program` that names
 none does not compile), `MIN_WINDOW_WIDTH` (the narrowest width in px it works at, default 480,
-`1..=8192` or it does not compile: the app never lays it out narrower, and
+at least 1 or it does not compile: the app never lays it out narrower, and
 a narrower window scrolls it sideways), `new(window, cx)`, the state on
 first mount (`Default::default()` unless the view says otherwise), and
 `attach(window, cx)`, which runs on every mount, first or restored from a
@@ -333,8 +333,7 @@ snapshot, and starts what the view follows and reads. Subscribe in `attach`,
 never in `new`: a restored view is not built again, and only what `attach`
 starts follows the host after a redeploy. The snapshot is the view's own serde
 as named MessagePack (`src/snapshot.rs`), refused while work is
-pending; a host holds it to `view_wire::MAX_SNAPSHOT_BYTES` (8 MiB,
-`view-wire/src/snapshot.rs`). Derive `Default`/`Serialize`/`Deserialize`
+pending. Derive `Default`/`Serialize`/`Deserialize`
 and keep `Task`s out of the state (`Loadable` does). A program's type that
 derives only borsh goes in the state as its bytes:
 `#[serde(with = "view::borsh_bytes")]` on the field
@@ -405,9 +404,7 @@ or `simulate_range(key, range)` then show it the rows the host shows.
 A sensor hears nothing until `simulate_bounds(name, origin, size)` lays
 its child out, and then as the app tells it: the same bounds again are no
 event. A web piece hears its page through `simulate_web_state(name, state)`.
-The reader's offset is UTC until `simulate_offset(minutes)`. A frame
-carries at most
-`view_wire::MAX_REQUESTS` requests; the rest go in the next.
+The reader's offset is UTC until `simulate_offset(minutes)`.
 Every frame the view sends is held to `view_wire::audit`: a fault panics with
 its kind and key path, so each screen a test reaches is gated.
 `testing::lower(build)` is the one path that is not: it lowers a single

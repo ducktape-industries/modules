@@ -38,8 +38,6 @@ pub struct PageRequest {
 }
 
 impl PageRequest {
-    pub const MAX_LIMIT: u64 = 256;
-
     pub const fn first(limit: u64) -> PageRequest {
         PageRequest::resume(None, limit)
     }
@@ -54,9 +52,7 @@ impl PageRequest {
     }
 
     pub fn limit(&self) -> u64 {
-        self.limit
-            .unwrap_or(Self::MAX_LIMIT)
-            .clamp(1, Self::MAX_LIMIT)
+        self.limit.unwrap_or(u64::MAX).max(1)
     }
 
     /// The same page, its limit capped at `max` (a program's own bound).
@@ -151,7 +147,7 @@ impl Listing {
     }
 
     pub fn scan_ahead(&self, prefix: &[u8]) -> program::Range {
-        self.scan(prefix).limit(self.limit + 1)
+        self.scan(prefix).limit(self.limit.saturating_add(1))
     }
 
     /// Consume ordered rows, retaining one lookahead to detect the final page.
@@ -254,7 +250,7 @@ mod tests {
         assert_eq!(scan.limit, Some(2));
         assert_eq!(
             listing(&PageRequest::default()).scan(b"p/").limit,
-            Some(PageRequest::MAX_LIMIT)
+            Some(u64::MAX)
         );
         assert_eq!(PageRequest::first(500).bounded(10).limit(), 10);
         let other = page.listing(&at(7), b"q/".to_vec()).unwrap_err();

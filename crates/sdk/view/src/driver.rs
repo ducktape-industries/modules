@@ -3,8 +3,6 @@ use crate::{
     App, Context, Entity, Host, IntoElement, Lowering, Theme, View, executor, px, slots, wire,
 };
 
-const MAX_ROUNDS: usize = 8;
-
 /// One view's run loop: the wasm exports drive it on the host, and
 /// [`TestAppContext`](crate::testing::TestAppContext) drives it in a test.
 pub(crate) struct Driver<V: View> {
@@ -110,7 +108,7 @@ impl<V: View> Driver<V> {
 
     fn tick_wire(&mut self, events: Vec<wire::Event>) -> wire::Frame {
         self.busy = false;
-        let owed = slots::start_frame(&self.app.inner.slots);
+        executor::begin_tick(&mut self.app.inner.tasks.borrow_mut());
         self.settle();
         for event in events {
             if let Some(callback) = self.dispatch(event) {
@@ -123,7 +121,7 @@ impl<V: View> Driver<V> {
             }
         }
         self.settle();
-        self.frame(owed)
+        self.frame()
     }
 
     /// Runs one event: its route or its handler. A handler's message comes
@@ -236,13 +234,7 @@ impl<V: View> Driver<V> {
                 None
             }
             wire::Event::Viewport { width, height } => {
-                let side = |v: f32| {
-                    px(if v.is_finite() {
-                        v.clamp(0., wire::MAX_PIXELS)
-                    } else {
-                        0.
-                    })
-                };
+                let side = |v: f32| px(if v.is_finite() { v.max(0.) } else { 0. });
                 let viewport = gpui::size(side(width), side(height));
                 if self.app.inner.viewport.replace(viewport) != viewport {
                     self.app.notify();
@@ -298,28 +290,14 @@ impl<V: View> Driver<V> {
         }
     }
 
-    /// The frame after this tick's events: the tree lowered if anything
-    /// changed, or if the last frame owed a picture it drew, then sent whole
-    /// or as patches against the last one. A frame that owes a picture
-    /// asks for the next, until every picture drawn is sent.
-    fn frame(&mut self, owed: bool) -> wire::Frame {
-        let render = self.app.inner.dirty.replace(false)
-            || self.last_root.is_none()
-            || owed
-            || self.styles_outgrown();
+    fn frame(&mut self) -> wire::Frame {
+        let render = self.app.inner.dirty.replace(false) || self.last_root.is_none();
         let mut root = render.then(|| self.render_root());
-        // a table past what the host holds starts over, which a tree sent
-        // whole does: there is no last tree to patch
-        if self.styles_outgrown() {
-            self.last_root = None;
-        }
         crate::window::send_widgets(
             &self.app.inner.slots,
             root.as_ref().or(self.last_root.as_ref()),
         );
-        self.busy |= self.app.inner.dirty.get()
-            || executor::ready(&self.app.inner.tasks.borrow())
-            || slots::pictures_owed(&self.app.inner.slots);
+        self.busy |= self.app.inner.dirty.get() || executor::ready(&self.app.inner.tasks.borrow());
         // Patches against the last tree, unless there is none — a first
         // frame or a resync. Nothing lowered is nothing changed, and a
         // lowered tree that diffs to no patches is the same tree
@@ -339,8 +317,6 @@ impl<V: View> Driver<V> {
         let host = self.app.host();
         let requests = host.drain_outbox();
         let cancels = host.drain_cancels();
-        // what one frame cannot carry goes in the next
-        self.busy |= host.outbox_waiting();
         let mut tooltip_responses = slots::take_tooltip_responses(&self.app.inner.slots);
         wire::Frame {
             styles: self.styles(root.as_mut(), &mut tooltip_responses),
@@ -352,11 +328,6 @@ impl<V: View> Driver<V> {
             unchanged,
             busy: self.busy,
         }
-    }
-
-    /// Whether the style table holds more entries than the host takes.
-    fn styles_outgrown(&self) -> bool {
-        self.app.inner.styles.borrow().len() > wire::MAX_STYLES
     }
 
     /// The style entries a frame carries. A tree sent whole starts the
@@ -446,7 +417,7 @@ impl<V: View> Driver<V> {
                 .sum();
             tree.count() + taken
         };
-        if patches.len() > wire::MAX_PATCHES || (!only_props && carried() >= nodes()) {
+        if !only_props && carried() >= nodes() {
             put_back(&mut tree, std::mem::take(patches));
         }
         // A frame that carries patches sends no tree, so the tree itself is
@@ -473,19 +444,18 @@ impl<V: View> Driver<V> {
     }
 
     fn settle(&mut self) {
-        for _ in 0..MAX_ROUNDS {
+        loop {
             let mut tasks = std::mem::take(&mut *self.app.inner.tasks.borrow_mut());
-            let cut_short = executor::poll(&mut tasks);
+            let still_woken = executor::poll(&mut tasks);
             self.app.refresh_globals();
-            let added = !self.app.inner.tasks.borrow().is_empty();
+            let spawned = !self.app.inner.tasks.borrow().is_empty();
             tasks.append(&mut self.app.inner.tasks.borrow_mut());
             *self.app.inner.tasks.borrow_mut() = tasks;
-            self.busy |= cut_short;
-            if !added {
+            if !spawned {
+                self.busy |= still_woken;
                 return;
             }
         }
-        self.busy = true;
     }
 }
 

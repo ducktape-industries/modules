@@ -61,33 +61,11 @@ impl Node {
     }
 }
 
-/// The most patches one frame may carry. A diff of a tree the host holds
-/// needs at most one patch per node it keeps, and a view past that sends
-/// the tree whole; a host applying more would spend, per patch, a walk of
-/// a path and a shift of a child list, which is a frame's worth of work at
-/// this count already.
-pub const MAX_PATCHES: usize = 1024;
-
-/// Applies a patch frame to the tree the host holds, then pulls the result
-/// inside every bound [`sanitize`] promises — a patch is the view's, so an
-/// inserted subtree can push the tree past [`MAX_NODES`] or [`MAX_DEPTH`],
-/// reuse a key the tree already has or name a style `styles` does not hold,
-/// and the bounds are on the whole. `styles` is the table the frame's own
-/// entries have already joined ([`sanitize`]).
-///
-/// `Err` names a patch the tree cannot take: a path to no node, an index
-/// past a list, a list operation on a node with no list, a [`Patch::Props`]
-/// whose arity is not the node's, or more patches than [`MAX_PATCHES`]. The
-/// tree is then part-way through the sequence and not one the view ever
-/// sent: the host drops it and asks for a whole one with [`Event::Resync`].
 pub fn apply(
     root: &mut Node,
     patches: Vec<Patch>,
     styles: &Styles,
 ) -> Result<SanitizeReport, Refused> {
-    if patches.len() > MAX_PATCHES {
-        return Err("more patches than the host applies".into());
-    }
     for patch in patches {
         apply_one(root, patch)?;
     }

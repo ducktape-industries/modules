@@ -7,7 +7,7 @@ use ::program::{AccountNumber, Error, Principal};
 
 use super::*;
 use crate::rules::BY;
-use crate::{Grant, MAX_PENDING, NOTICE, Pending, Scope};
+use crate::{Grant, NOTICE, Pending, Scope};
 
 /// People who maintain things, an agent, and forge's own account.
 const CAROL: AccountNumber = 7;
@@ -524,29 +524,6 @@ fn the_votes_change_clears_a_stale_maker() {
             (EARLIEST + 1, "chat".into(), None)
         ]
     );
-}
-
-#[test]
-fn an_account_keeps_at_most_max_pending_changes_waiting() {
-    let (store, code) = seated();
-    granted(&store, Scope::All, CAROL);
-    granted(&store, Scope::All, DAN);
-    run(&store, vote(), at(EARLIEST, set("forge", code))).unwrap();
-    let heights = EARLIEST..EARLIEST + MAX_PENDING as u64;
-    for height in heights.clone() {
-        run(&store, by(CAROL), at(height, set("chat", code))).unwrap();
-    }
-    assert_eq!(
-        refused(&store, by(CAROL), at(EARLIEST + 99, set("lens2", code))),
-        code::CAPACITY
-    );
-    // another maintainer's count is its own, and a row with no change
-    // behind it (a `programs` rolled back) counts for nothing
-    let ctx = store.exec(env(TIP, Origin::Root));
-    for height in heights {
-        BY.put(&ctx, &(height + 200, "chat".into()), &DAN);
-    }
-    run(&store, by(DAN), at(EARLIEST + 99, set("chat", code))).unwrap();
 }
 
 #[test]

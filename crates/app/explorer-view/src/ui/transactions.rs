@@ -16,7 +16,7 @@ pub(super) fn transactions(
         tx_rows(
             list,
             view,
-            move |view| sent_to(view, program.as_deref()).take(LIST_ROWS).collect(),
+            move |view| sent_to(view, program.as_deref()).collect(),
             true,
             true,
         )

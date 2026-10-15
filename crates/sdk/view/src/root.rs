@@ -83,8 +83,6 @@ pub trait View: Render + Serialize + DeserializeOwned + Default {
     /// # fn main() {}
     /// ```
     ///
-    /// Outside `1..=8192` the view does not compile:
-    ///
     /// ```compile_fail,E0080
     /// # use serde::{Deserialize, Serialize};
     /// # use view::{View, prelude::*};

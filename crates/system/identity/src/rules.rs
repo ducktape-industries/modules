@@ -4,7 +4,7 @@ use ::program::{
     Error, ExecCtx, Origin, ProgramId, QueryCtx, Scheme, already_exists, invalid, not_found,
     unauthorized, wrong_state,
 };
-use store::{Item, Map, PageRequest, Set};
+use store::{Item, Map, Set};
 
 use crate::{
     Account, AccountNumber, Admission, Audience, CONSENT_NAMESPACE, Card, Category, Consent,
@@ -56,14 +56,12 @@ pub(crate) fn resolve(
     }
 }
 
-/// A page of profiles past `after`, at most `limit` (capped as every page
-/// is); `next` names the last one while more remain.
 pub(crate) fn profiles(
     ctx: &QueryCtx,
     after: Option<AccountNumber>,
     limit: u32,
 ) -> Result<Reply, Error> {
-    let limit = u64::from(limit).clamp(1, PageRequest::MAX_LIMIT);
+    let limit = u64::from(limit.max(1));
     let mut range = ACCOUNTS.prefix_of(&());
     if let Some(after) = after {
         range = range.after(ACCOUNTS.key(&after));

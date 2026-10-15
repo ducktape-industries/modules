@@ -25,7 +25,7 @@ only.
   The kernel runs each emission once the handler returns Ok, in the same frame,
   so the record and its channel land in one block or not at all.
 - A review is one immutable operation: verdict, body, pinned head and base, and
-  up to `MAX_REVIEW_COMMENTS` line comments. An anchor is `(path, side, line)`;
+  its line comments. An anchor is `(path, side, line)`;
   `Old` addresses `base_oid`, `New` addresses `commit_oid`. Both are retained.
   Compare the review's head to `Change.source_head` to show outdated; never move
   positions. A stale draft may be submitted against its original pin.
@@ -194,7 +194,7 @@ consensus. Paths must be relative, lines positive, bodies nonblank, and anchors
 distinct within a batch. Old-side comments require a base. Empty approve/request
 verdicts are valid; a comment verdict needs body text or line comments. Clients
 validate positions against the displayed endpoint bytes, stage one draft per
-anchor, read the exported cap, and preserve drafts on failed submission.
+anchor, and preserve drafts on failed submission.
 
 ## Bounds, refusals, and the current host seam
 
@@ -209,10 +209,7 @@ have derived read budgets (`2 * log_walk + 1` and `8 * log_walk + tree_walk`).
 `merge_cost` bounds the Myers edit distance searched per file: the common head and
 tail are matched first and a one-sided middle (a file added, deleted or grown in one
 place) is not searched; a file past it is answered `Oversize`, the rest of its page
-comes. `record_bytes` bounds each encoded change/review; `MAX_REVIEW_COMMENTS`, `MAX_REVIEWERS`, `MAX_TITLE_BYTES`,
-`MAX_PATH_BYTES` and `MAX_REPO_NAME`
-are exported contract constants; a configured head is at most `MAX_PATH_BYTES`. Repo names
-are at most `MAX_REPO_NAME`, derived from chat's `MAX_ID_BYTES` so even `forge:<repo>:<u64::MAX>` fits.
+comes. `record_bytes` bounds each encoded change/review.
 
 A UI query failure is an ABI `Refusal { reason, sentence }`. Stable reasons
 include `object_not_held`, `capacity`, `invalid_input`, `not_found`, `stale`, and

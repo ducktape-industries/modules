@@ -296,20 +296,13 @@ fn fits(ctx: &QueryCtx, record: &impl borsh::BorshSerialize) -> Result<(), Error
 }
 
 fn check_title(title: &str) -> Result<(), Error> {
-    if title.trim().is_empty() || title.len() > MAX_TITLE_BYTES {
-        return Err(invalid(format!(
-            "a title is nonblank and at most {MAX_TITLE_BYTES} bytes"
-        )));
+    if title.trim().is_empty() {
+        return Err(invalid("a title is nonblank"));
     }
     Ok(())
 }
 
 fn check_reviewers(ctx: &QueryCtx, reviewers: &[Principal]) -> Result<(), Error> {
-    if reviewers.len() > MAX_REVIEWERS {
-        return Err(capacity(format!(
-            "a change asks at most {MAX_REVIEWERS} reviewers"
-        )));
-    }
     let mut seen = BTreeSet::new();
     for reviewer in reviewers {
         require_person_or_agent(ctx, reviewer)?;
@@ -339,11 +332,6 @@ fn check_branch(name: &[u8]) -> Result<(), Error> {
 }
 
 fn check_comments(draft: &ReviewDraft) -> Result<(), Error> {
-    if draft.comments.len() > MAX_REVIEW_COMMENTS {
-        return Err(capacity(format!(
-            "a review carries at most {MAX_REVIEW_COMMENTS} line comments"
-        )));
-    }
     let mut anchors = BTreeSet::new();
     for comment in &draft.comments {
         check_path(&comment.path, false)?;
@@ -374,8 +362,7 @@ pub fn check_path(path: &[u8], root: bool) -> Result<(), Error> {
     if root && path.is_empty() {
         return Ok(());
     }
-    let well_formed = path.len() <= MAX_PATH_BYTES
-        && !path.contains(&0)
+    let well_formed = !path.contains(&0)
         && path
             .split(|b| *b == b'/')
             .all(|part| !part.is_empty() && part != b"." && part != b"..");

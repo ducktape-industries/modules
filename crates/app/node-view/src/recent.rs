@@ -9,9 +9,6 @@ use view::prelude::*;
 
 /// The blocks the strip spans.
 pub const WINDOW: u64 = 64;
-/// Blocks per `chain.blocks` page: explorer-view's, small so one reply's
-/// decoding stays well inside a tick's fuel.
-const PAGE: u64 = 20;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Recent {
@@ -36,7 +33,7 @@ impl Recent {
         let run = (low..=high).rev().take_while(missing).count() as u64;
         Some(BlockPage {
             before: Some(high + 1),
-            limit: run.min(PAGE) as u32,
+            limit: run as u32,
         })
     }
 

@@ -2,7 +2,7 @@
 //! and the head, then the head's tree edited, written back and named by a new snapshot.
 use std::collections::{BTreeMap, BTreeSet};
 
-use ::program::{BlobId, Error, ExecCtx, Principal, QueryCtx, capacity, invalid, stale};
+use ::program::{BlobId, Error, ExecCtx, Principal, QueryCtx, invalid, stale};
 
 use crate::objects::{
     FileObj, SnapshotObj, check_chunks, digest, put_bytes, put_file, put_snapshot,
@@ -10,10 +10,7 @@ use crate::objects::{
 use crate::paths::{join, writable_path};
 use crate::state::{COUNT, HEAD, HISTORY, SNAPSHOTS, minted, newest_first};
 use crate::tree::{TreeEdit, node_at};
-use crate::{
-    Change, Content, MAX_CHANGES, MAX_INLINE_BYTES, MAX_MESSAGE_BYTES, MAX_META_ENTRIES,
-    MAX_META_KEY_BYTES, MAX_META_VALUE_BYTES, MAX_SYMLINK_TARGET_BYTES, Node, SnapshotRow,
-};
+use crate::{Change, Content, Node, SnapshotRow};
 
 enum Step {
     Put {
@@ -46,18 +43,8 @@ pub(crate) fn commit(
     message: String,
     changes: Vec<Change>,
 ) -> Result<(), Error> {
-    if message.len() > MAX_MESSAGE_BYTES {
-        return Err(capacity(format!(
-            "a commit message is at most {MAX_MESSAGE_BYTES} bytes"
-        )));
-    }
     if changes.is_empty() {
         return Err(invalid("a commit carries at least one change"));
-    }
-    if changes.len() > MAX_CHANGES {
-        return Err(capacity(format!(
-            "a commit carries at most {MAX_CHANGES} changes"
-        )));
     }
     let base_root = base
         .as_ref()
@@ -90,7 +77,6 @@ pub(crate) fn commit(
 fn plan(ctx: &QueryCtx, author: &Principal, changes: Vec<Change>) -> Result<Plan, Error> {
     let mut touched = Vec::new();
     let mut seen = BTreeSet::new();
-    let mut inline = 0usize;
     let mut touch = |segments: &Vec<String>| {
         let fresh = seen.insert(segments.clone());
         if !fresh {
@@ -114,16 +100,8 @@ fn plan(ctx: &QueryCtx, author: &Principal, changes: Vec<Change>) -> Result<Plan
                 let segments = writable_path(author, &path)?;
                 touch(&segments)?;
                 check_meta(&meta)?;
-                match &content {
-                    Content::Inline(bytes) => {
-                        inline = inline.saturating_add(bytes.len());
-                        if inline > MAX_INLINE_BYTES {
-                            return Err(capacity(format!(
-                                "a commit carries at most {MAX_INLINE_BYTES} inline bytes: stage larger files as chunks"
-                            )));
-                        }
-                    }
-                    Content::Chunks { size, chunks } => check_chunks(ctx, *size, chunks)?,
+                if let Content::Chunks { size, chunks } = &content {
+                    check_chunks(ctx, *size, chunks)?;
                 }
                 Step::Put {
                     segments,
@@ -152,10 +130,8 @@ fn plan(ctx: &QueryCtx, author: &Principal, changes: Vec<Change>) -> Result<Plan
             Change::Symlink { path, target } => {
                 let segments = writable_path(author, &path)?;
                 touch(&segments)?;
-                if target.is_empty() || target.len() > MAX_SYMLINK_TARGET_BYTES {
-                    return Err(invalid(format!(
-                        "a symlink's target is 1 to {MAX_SYMLINK_TARGET_BYTES} bytes"
-                    )));
+                if target.is_empty() {
+                    return Err(invalid("a symlink's target is not empty"));
                 }
                 Step::Symlink { segments, target }
             }
@@ -166,23 +142,8 @@ fn plan(ctx: &QueryCtx, author: &Principal, changes: Vec<Change>) -> Result<Plan
 }
 
 fn check_meta(meta: &BTreeMap<String, String>) -> Result<(), Error> {
-    if meta.len() > MAX_META_ENTRIES {
-        return Err(capacity(format!(
-            "a file carries at most {MAX_META_ENTRIES} metadata entries"
-        )));
-    }
-    for (key, value) in meta {
-        let key_fits = !key.is_empty() && key.len() <= MAX_META_KEY_BYTES;
-        if !key_fits {
-            return Err(invalid(format!(
-                "a metadata key is 1 to {MAX_META_KEY_BYTES} bytes"
-            )));
-        }
-        if value.len() > MAX_META_VALUE_BYTES {
-            return Err(invalid(format!(
-                "a metadata value is at most {MAX_META_VALUE_BYTES} bytes"
-            )));
-        }
+    if meta.keys().any(String::is_empty) {
+        return Err(invalid("a metadata key is not empty"));
     }
     Ok(())
 }

@@ -32,7 +32,7 @@ use view::prelude::*;
 const PAGE: usize = 64;
 /// Rows a room keeps on screen before paging older.
 const WINDOW: usize = 256;
-const SPAN: usize = chat::PageRequest::MAX_LIMIT as usize;
+const SPAN: usize = WINDOW;
 
 impl View for Chat {
     const NAME: &'static str = "Chat";
