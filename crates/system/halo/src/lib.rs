@@ -1,14 +1,15 @@
 //! The `halo` program: the lanes halo carries between members, as chain state. Each lane is a
-//! name with a wire id, the class its streams are served at most, and whether it is served.
-//! Names come from the founding and from the validators' vote; the program knows none itself.
-//! An id is handed out once, in order from 0, and never again.
+//! name with a wire id, the class its streams are served at most, whether it is served, and
+//! whether the founding pinned it (no vote pauses or closes a pinned lane). Names come from
+//! the founding and from the validators' vote; the program knows none itself. An id is handed
+//! out once, in order from 0, and never again.
 //! Types, rules and [`Halo`] always build; `program` adds the wasm exports.
 mod program;
 mod rules;
 #[cfg(test)]
 mod tests;
 
-pub use abi::role::halo::{Class, Genesis, Lane, LaneId, MAX_NAME, Op, Query, Reply};
+pub use abi::role::halo::{Class, Founded, Genesis, Lane, LaneId, MAX_NAME, Op, Query, Reply};
 pub use program::Halo;
 pub use rules::admissible;
 

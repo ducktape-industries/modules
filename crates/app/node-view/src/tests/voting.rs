@@ -5,6 +5,7 @@
 use super::*;
 use crate::queries::Names;
 use crate::voting::words;
+use abi::role::halo;
 use programs::{Change, Entry, Grant, Programs, Scheduled, Scope};
 use valset::{Motion, Op, Pending, Voted};
 use view::methods::{HostSession, Session, Submit};
@@ -467,10 +468,51 @@ fn every_motion_reads_in_words() {
             grant(false, Scope::All, 99),
             "Grant account 99 every program",
         ),
+        (
+            lanes(halo::Op::Open {
+                name: "chat".into(),
+                cap: halo::Class::Member,
+            }),
+            "Open lane chat at class Member",
+        ),
+        (
+            lanes(halo::Op::Set {
+                name: "chat".into(),
+                cap: halo::Class::Client,
+                enabled: true,
+            }),
+            "Serve lane chat at class Client",
+        ),
+        (
+            lanes(halo::Op::Set {
+                name: "chat".into(),
+                cap: halo::Class::Client,
+                enabled: false,
+            }),
+            "Pause lane chat",
+        ),
+        (
+            lanes(halo::Op::Close {
+                name: "chat".into(),
+            }),
+            "Close lane chat",
+        ),
+        (
+            Motion::Halo {
+                op: b"not an op".to_vec(),
+            },
+            "A lane change this screen can't read",
+        ),
     ];
     let names = Names::from([(12, "carol".into()), (13, "release-bot".into())]);
     for (motion, said) in cases {
         assert_eq!(words(&motion, &roster, &names), said);
+    }
+}
+
+fn lanes(op: halo::Op) -> Motion {
+    Motion::Halo {
+        op: abi::encode(&op),
     }
 }
 

@@ -1,13 +1,16 @@
 //! [`Relay`]: the node's live tracks for two or more views under test, each
 //! in its own [`TestAppContext`], so what one publishes the others hear.
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::rc::Rc;
+
+use program::live::Grant;
 
 use crate::host::Error;
 use crate::methods::{
     LiveAnnounce, LiveItem, LiveMode, LivePublish, LivePublishTrack, LiveSend, LiveSendObject,
-    LiveSubscribe, LiveSubscribeTrack, LiveTrack, LiveTracks, Method, Publishing, refusal,
+    LiveStart, LiveSubscribe, LiveSubscribeTrack, LiveTrack, LiveTracks, Method, Publishing,
+    Watching, refusal,
 };
 use crate::wire::{Event, Frame};
 
@@ -18,9 +21,18 @@ use super::{FakeHost, TestAppContext};
 /// node would: a track a view publishes is announced to every
 /// `live.tracks` of its room, an object one view sends reaches every view
 /// subscribed to the track, the latest group is replayed to a late
-/// subscriber, and a publisher hears its subscriber count. Every room is
-/// granted unless the test [`hold`](Relay::hold)s it; the n-th view linked
-/// acts as account n.
+/// subscriber, and a publisher hears its subscriber count. The n-th view
+/// linked acts as account n.
+///
+/// Grants are rows, as the room's program writes them
+/// (`program::live::grant`), decided as the node decides them
+/// ([`Grant::publishes`], [`Grant::subscribes`]): an account's own row,
+/// else the room's `*` row, else nothing. Every room starts as if its
+/// program wrote `*` = [`Grant::all`]; [`hold`](Relay::hold) takes every
+/// row of a room away, [`grant`](Relay::grant) and
+/// [`revoke`](Relay::revoke) write and remove one, each the block that does
+/// it. An ask its row does not cover hears `Waiting` and waits for a block
+/// that covers it; a request a block no longer covers ends `not_granted`.
 ///
 /// An item lands in a view's host as the frame that caused it is taken,
 /// and the view reads it on its next tick: `a.simulate_click("send");
@@ -45,13 +57,14 @@ struct State {
     subscriptions: BTreeMap<(usize, u64), (String, String)>,
     /// Every `live.tracks` open: its room, by link and id.
     watches: BTreeMap<(usize, u64), String>,
-    /// The rooms whose program has granted nothing yet.
-    held: BTreeSet<String>,
-    /// Every ask a held room keeps, in the order asked.
+    /// The grant rows of each room a test changed, by who (`None` the `*`
+    /// row). A room not here holds `*` = [`Grant::all`].
+    rows: BTreeMap<String, BTreeMap<Option<u64>, Grant>>,
+    /// Every ask no row covers yet, in the order asked.
     waiting: Vec<Waiting>,
 }
 
-/// An ask a held room keeps until [`Relay::grant`], answered then as if
+/// An ask no row covers yet, kept until a block's does, answered then as if
 /// just asked.
 struct Waiting {
     link: usize,
@@ -84,16 +97,22 @@ impl Ask {
         }
     }
 
-    /// The `not_granted` item that tells the view its ask waits.
-    fn waits(&self, id: u64) -> Event {
-        let refusal = refused(
-            refusal::NOT_GRANTED,
-            "the room's program has granted nothing yet",
-        );
+    /// Whether `grant` lets `account` ask this: publish or subscribe to the
+    /// track, or, for a room list, subscribe to anything in the room.
+    fn granted(&self, grant: &Grant, account: u64) -> bool {
         match self {
-            Ask::Publish(..) => item::<LivePublishTrack>(id, Err(refusal), false),
-            Ask::Subscribe(_) => item::<LiveSubscribeTrack>(id, Err(refusal), false),
-            Ask::Watch(_) => item::<LiveTracks>(id, Err(refusal), false),
+            Ask::Publish(publish, _) => grant.publishes(&publish.track.name, account),
+            Ask::Subscribe(subscribe) => grant.subscribes(&subscribe.track.name, account),
+            Ask::Watch(_) => !grant.subscribe.is_empty(),
+        }
+    }
+
+    /// The `Waiting` item that tells the view its ask waits.
+    fn waits(&self, id: u64) -> Event {
+        match self {
+            Ask::Publish(..) => item::<LivePublishTrack>(id, Ok(Publishing::Waiting), false),
+            Ask::Subscribe(_) => item::<LiveSubscribeTrack>(id, Ok(LiveItem::Waiting), false),
+            Ask::Watch(_) => item::<LiveTracks>(id, Ok(Watching::Waiting), false),
         }
     }
 }
@@ -105,7 +124,22 @@ struct Published {
     /// The group in hand: its number, the objects sent in it so far, and
     /// whether it closed. What a late subscriber is replayed.
     group: Option<Group>,
-    subscribers: Vec<(usize, u64)>,
+    subscribers: Vec<Subscriber>,
+}
+
+/// One `live.subscribe` of a track.
+struct Subscriber {
+    link: usize,
+    id: u64,
+    /// A [`LiveStart::Next`] subscription's group in hand when it
+    /// subscribed: it hears none of that group, only the ones after.
+    passed: Option<u64>,
+}
+
+impl Subscriber {
+    fn hears(&self, group: u64) -> bool {
+        self.passed.is_none_or(|passed| group > passed)
+    }
 }
 
 struct Group {
@@ -114,16 +148,19 @@ struct Group {
     closed: bool,
 }
 
+const REVOKED: &str = "the room's program took the grant back";
+
+/// The last item of a request its room's rows no longer cover.
+fn revoked() -> Error {
+    Error::new(refusal::NOT_GRANTED, REVOKED)
+}
+
 fn item<M: Method>(id: u64, reply: Result<M::Reply, Error>, done: bool) -> Event {
     Event::Response {
         id,
         result: reply.map(|reply| M::encode_reply(&reply)),
         done,
     }
-}
-
-fn refused(code: &str, message: &str) -> Error {
-    Error::new(code, message)
 }
 
 impl Relay {
@@ -145,26 +182,47 @@ impl Relay {
         self
     }
 
-    /// `room`'s program has granted nothing yet, as before the block that
-    /// writes its rows: each `live.publish`, `live.subscribe` and
-    /// `live.tracks` in it hears one `not_granted` item that does not end
-    /// it, and waits for [`grant`](Relay::grant). What a view sends onto a
-    /// waiting track goes out once the track is up.
+    /// `room`'s program has written no row yet, as before the block that
+    /// writes its first: each `live.publish`, `live.subscribe` and
+    /// `live.tracks` in it hears `Waiting`, and waits for a
+    /// [`grant`](Relay::grant) that covers it. What a view sends onto a
+    /// waiting track goes out once the track is up. Call it before the
+    /// views ask.
     pub fn hold(&self, room: &str) -> &Self {
-        self.0.borrow_mut().held.insert(room.to_owned());
+        self.0
+            .borrow_mut()
+            .rows
+            .insert(room.to_owned(), BTreeMap::new());
         self
     }
 
-    /// The block that writes `room`'s rows: each ask waiting in it is
-    /// answered as if just asked, the publications first, so a waiting
+    /// The block that writes `who`'s row in `room` (`None`: the `*` row),
+    /// replacing the one it had. What the room's rows no longer cover ends
+    /// `not_granted`; then each ask waiting in the room that they now cover
+    /// is answered as if just asked, the publications first, so a waiting
     /// subscription to one of them finds it up.
-    pub fn grant(&self, room: &str) {
-        self.0.borrow_mut().grant(room);
+    pub fn grant(&self, room: &str, who: Option<u64>, grant: Grant) {
+        let mut state = self.0.borrow_mut();
+        state.rows_of(room).insert(who, grant);
+        state.block(room);
+    }
+
+    /// The block that removes `who`'s row in `room` (`None`: the `*` row), as
+    /// `program::live::revoke`. What it allowed and no row covers now ends
+    /// with a final `not_granted`: a publication (its subscribers hear it end
+    /// and every `live.tracks` hears the track go down), a subscription (its
+    /// publisher hears the lower count) and a room list. An ask waiting for
+    /// `who` that the `*` row covers is answered.
+    pub fn revoke(&self, room: &str, who: Option<u64>) {
+        let mut state = self.0.borrow_mut();
+        state.rows_of(room).remove(&who);
+        state.block(room);
     }
 
     /// The view linked as `cx` goes away with its tracks up, as an app
     /// that quit: each one ends `publisher_gone` for its subscribers and
-    /// goes down in every `live.tracks`; its subscriptions are dropped.
+    /// goes down in every `live.tracks`; each of its subscriptions is
+    /// dropped, and the track's publisher hears the lower count.
     pub fn gone(&self, cx: &TestAppContext) {
         let host = cx.host();
         let mut state = self.0.borrow_mut();
@@ -180,7 +238,15 @@ impl Relay {
         for track in up {
             state.end(&track, refusal::PUBLISHER_GONE, "the publisher went away");
         }
-        state.subscriptions.retain(|(at, _), _| *at != link);
+        let subscribed: Vec<u64> = state
+            .subscriptions
+            .keys()
+            .filter(|(at, _)| *at == link)
+            .map(|(_, id)| *id)
+            .collect();
+        for id in subscribed {
+            state.unsubscribe(link, id);
+        }
         state.watches.retain(|(at, _), _| *at != link);
         state.waiting.retain(|waiting| waiting.link != link);
     }
@@ -229,6 +295,40 @@ impl State {
         link as u64 + 1
     }
 
+    /// The grant `room`'s rows give `account`: its own row, else the `*`
+    /// row.
+    fn grant_of(&self, room: &str, account: u64) -> Option<Grant> {
+        let Some(rows) = self.rows.get(room) else {
+            return Some(Grant::all());
+        };
+        rows.get(&Some(account))
+            .or_else(|| rows.get(&None))
+            .cloned()
+    }
+
+    /// Whether `room`'s rows let `link` ask `ask`.
+    fn covers(&self, link: usize, ask: &Ask) -> bool {
+        let account = Self::account(link);
+        self.grant_of(ask.room(), account)
+            .is_some_and(|grant| ask.granted(&grant, account))
+    }
+
+    /// Whether `link`'s room list of `room` hears the track `name`: its row
+    /// lets it subscribe to it.
+    fn hears(&self, link: usize, room: &str, name: &str) -> bool {
+        let account = Self::account(link);
+        self.grant_of(room, account)
+            .is_some_and(|grant| grant.subscribes(name, account))
+    }
+
+    /// `room`'s rows, made explicit: a room a test never changed holds
+    /// `*` = [`Grant::all`].
+    fn rows_of(&mut self, room: &str) -> &mut BTreeMap<Option<u64>, Grant> {
+        self.rows
+            .entry(room.to_owned())
+            .or_insert_with(|| BTreeMap::from([(None, Grant::all())]))
+    }
+
     fn announce(&self, (room, name): &(String, String), link: usize, mode: LiveMode, up: bool) {
         let announce = LiveAnnounce {
             name: name.clone(),
@@ -237,12 +337,14 @@ impl State {
             up,
         };
         for ((at, id), watched) in &self.watches {
-            if watched == room {
-                self.tell(*at, item::<LiveTracks>(*id, Ok(announce.clone()), false));
+            if watched == room && self.hears(*at, room, name) {
+                let announced = Watching::Announce(announce.clone());
+                self.tell(*at, item::<LiveTracks>(*id, Ok(announced), false));
             }
         }
     }
 
+    /// The publisher hears its subscriber count, which just moved.
     fn count(&self, published: &Published) {
         let count = Publishing::Subscribers(published.subscribers.len() as u32);
         self.tell(
@@ -251,9 +353,9 @@ impl State {
         );
     }
 
-    /// An ask, kept waiting while its room is held.
+    /// An ask, kept waiting while no row of its room covers it.
     fn ask(&mut self, link: usize, id: u64, ask: Ask) {
-        if self.held.contains(ask.room()) {
+        if !self.covers(link, &ask) {
             self.tell(link, ask.waits(id));
             self.waiting.push(Waiting { link, id, ask });
             return;
@@ -274,17 +376,77 @@ impl State {
         }
     }
 
-    fn grant(&mut self, room: &str) {
-        self.held.remove(room);
-        let (granted, held): (Vec<_>, Vec<_>) = std::mem::take(&mut self.waiting)
+    /// A block that wrote `room`'s rows, as the node takes it: every open
+    /// request in the room its rows no longer cover ends, then every ask
+    /// waiting in it is asked again, the publications first, so a waiting
+    /// subscription to one of them finds it up.
+    fn block(&mut self, room: &str) {
+        self.recheck(room);
+        let (in_room, elsewhere): (Vec<_>, Vec<_>) = std::mem::take(&mut self.waiting)
             .into_iter()
             .partition(|waiting| waiting.ask.room() == room);
-        self.waiting = held;
-        let (publications, others): (Vec<_>, Vec<_>) = granted
+        self.waiting = elsewhere;
+        let (publications, others): (Vec<_>, Vec<_>) = in_room
             .into_iter()
             .partition(|waiting| waiting.ask.publishes());
-        for Waiting { link, id, ask } in publications.into_iter().chain(others) {
-            self.admit(link, id, ask);
+        for waiting in publications.into_iter().chain(others) {
+            if !self.covers(waiting.link, &waiting.ask) {
+                // waits still, and is not told again
+                self.waiting.push(waiting);
+                continue;
+            }
+            self.admit(waiting.link, waiting.id, waiting.ask);
+        }
+    }
+
+    /// Every open request in `room` its rows no longer cover ends with a
+    /// final `not_granted`: publications first (their subscribers hear the
+    /// same, and the tracks go down), then subscriptions, then room lists.
+    fn recheck(&mut self, room: &str) {
+        let unpublished: Vec<(String, String)> = self
+            .tracks
+            .iter()
+            .filter(|((at, name), published)| {
+                let account = Self::account(published.link);
+                let publishes = self
+                    .grant_of(at, account)
+                    .is_some_and(|grant| grant.publishes(name, account));
+                at == room && !publishes
+            })
+            .map(|(track, _)| track.clone())
+            .collect();
+        for track in unpublished {
+            let Some(published) = self.end(&track, refusal::NOT_GRANTED, REVOKED) else {
+                continue;
+            };
+            let ended = item::<LivePublishTrack>(published.request, Err(revoked()), true);
+            self.tell(published.link, ended);
+        }
+        let unsubscribed: Vec<(usize, u64)> = self
+            .subscriptions
+            .iter()
+            .filter(|((link, _), (at, name))| at == room && !self.hears(*link, at, name))
+            .map(|(subscription, _)| *subscription)
+            .collect();
+        for (link, id) in unsubscribed {
+            self.unsubscribe(link, id);
+            self.tell(link, item::<LiveSubscribeTrack>(id, Err(revoked()), true));
+        }
+        let unwatched: Vec<(usize, u64)> = self
+            .watches
+            .iter()
+            .filter(|((link, _), watched)| {
+                let account = Self::account(*link);
+                let watches = self
+                    .grant_of(watched, account)
+                    .is_some_and(|grant| !grant.subscribe.is_empty());
+                *watched == room && !watches
+            })
+            .map(|(watch, _)| *watch)
+            .collect();
+        for (link, id) in unwatched {
+            self.watches.remove(&(link, id));
+            self.tell(link, item::<LiveTracks>(id, Err(revoked()), true));
         }
     }
 
@@ -309,7 +471,7 @@ impl State {
         if let Some(held) = self.tracks.get(&track)
             && held.link != link
         {
-            let refusal = refused(refusal::DUPLICATE_TRACK, "another account publishes it");
+            let refusal = Error::new(refusal::DUPLICATE_TRACK, "another account publishes it");
             self.tell(link, item::<LivePublishTrack>(id, Err(refusal), true));
             return;
         }
@@ -324,23 +486,23 @@ impl State {
             group: None,
             subscribers: Vec::new(),
         };
-        self.count(&published);
+        // no count yet: the publisher hears one when a subscriber moves it
         self.announce(&track, link, publish.mode, true);
         self.tracks.insert(track, published);
     }
 
     /// The track ends with `code` for each subscriber and goes down in
-    /// every `live.tracks`.
-    fn end(&mut self, track: &(String, String), code: &str, message: &str) {
-        let Some(published) = self.tracks.remove(track) else {
-            return;
-        };
-        for (at, id) in &published.subscribers {
-            self.subscriptions.remove(&(*at, *id));
-            let refusal = refused(code, message);
-            self.tell(*at, item::<LiveSubscribeTrack>(*id, Err(refusal), true));
+    /// every `live.tracks`; its publication, if it was up.
+    fn end(&mut self, track: &(String, String), code: &str, message: &str) -> Option<Published> {
+        let published = self.tracks.remove(track)?;
+        for subscriber in &published.subscribers {
+            self.subscriptions.remove(&(subscriber.link, subscriber.id));
+            let refusal = Error::new(code, message);
+            let ended = item::<LiveSubscribeTrack>(subscriber.id, Err(refusal), true);
+            self.tell(subscriber.link, ended);
         }
         self.announce(track, published.link, published.mode, false);
+        Some(published)
     }
 
     fn cancel(&mut self, link: usize, id: u64) {
@@ -356,18 +518,25 @@ impl State {
                 "the publisher ended the track",
             );
         }
-        if let Some(track) = self.subscriptions.remove(&(link, id))
-            && let Some(published) = self.tracks.get_mut(&track)
-        {
-            published
-                .subscribers
-                .retain(|subscriber| *subscriber != (link, id));
-            let published = &self.tracks[&track];
-            self.count(published);
-        }
+        self.unsubscribe(link, id);
         self.watches.remove(&(link, id));
         self.waiting
             .retain(|waiting| (waiting.link, waiting.id) != (link, id));
+    }
+
+    /// `link`'s subscription `id`, if it has one, is dropped from its track,
+    /// and the track's publisher hears the lower count.
+    fn unsubscribe(&mut self, link: usize, id: u64) {
+        let Some(track) = self.subscriptions.remove(&(link, id)) else {
+            return;
+        };
+        let Some(published) = self.tracks.get_mut(&track) else {
+            return;
+        };
+        published
+            .subscribers
+            .retain(|subscriber| (subscriber.link, subscriber.id) != (link, id));
+        self.count(&self.tracks[&track]);
     }
 
     fn send(&mut self, link: usize, id: u64, send: LiveSend) {
@@ -377,10 +546,11 @@ impl State {
         }
         let track = (send.track.room, send.track.name);
         let Some(published) = self.tracks.get_mut(&track).filter(|held| held.link == link) else {
-            let refusal = refused(refusal::LIVE_NOT_PUBLISHED, "no such track is published");
+            let refusal = Error::new(refusal::LIVE_NOT_PUBLISHED, "no such track is published");
             self.tell(link, item::<LiveSendObject>(id, Err(refusal), true));
             return;
         };
+        // each item with the group it belongs to
         let mut items = Vec::new();
         match published.mode {
             LiveMode::Datagram => {
@@ -397,11 +567,12 @@ impl State {
                     objects: vec![(send.object, send.body.clone())],
                     closed: false,
                 });
-                items.push(LiveItem::Object {
+                let object = LiveItem::Object {
                     group: send.group,
                     object: send.object,
                     body: send.body,
-                });
+                };
+                items.push((send.group, object));
             }
             LiveMode::Stream => {
                 let open = published
@@ -411,10 +582,11 @@ impl State {
                 if !open {
                     // a newer group closes the one before it
                     if let Some(group) = published.group.as_ref().filter(|group| !group.closed) {
-                        items.push(LiveItem::GroupEnd {
+                        let end = LiveItem::GroupEnd {
                             group: group.number,
                             complete: true,
-                        });
+                        };
+                        items.push((group.number, end));
                     }
                     published.group = Some(Group {
                         number: send.group,
@@ -426,38 +598,51 @@ impl State {
                 if !send.body.is_empty() || !send.end {
                     let object = group.objects.len() as u32;
                     group.objects.push((object, send.body.clone()));
-                    items.push(LiveItem::Object {
+                    let object = LiveItem::Object {
                         group: send.group,
                         object,
                         body: send.body,
-                    });
+                    };
+                    items.push((send.group, object));
                 }
                 if send.end {
                     group.closed = true;
-                    items.push(LiveItem::GroupEnd {
+                    let end = LiveItem::GroupEnd {
                         group: send.group,
                         complete: true,
-                    });
+                    };
+                    items.push((send.group, end));
                 }
             }
         }
-        for (at, subscription) in &published.subscribers {
-            for live in &items {
-                let event = item::<LiveSubscribeTrack>(*subscription, Ok(live.clone()), false);
-                self.hosts[*at].owe(vec![event]);
+        let mut told = Vec::new();
+        for subscriber in &published.subscribers {
+            for (group, live) in &items {
+                if !subscriber.hears(*group) {
+                    continue;
+                }
+                let event = item::<LiveSubscribeTrack>(subscriber.id, Ok(live.clone()), false);
+                told.push((subscriber.link, event));
             }
+        }
+        for (at, event) in told {
+            self.tell(at, event);
         }
     }
 
     fn subscribe(&mut self, link: usize, id: u64, subscribe: LiveSubscribe) {
         let track = (subscribe.track.room, subscribe.track.name);
         let Some(published) = self.tracks.get_mut(&track) else {
-            let refusal = refused(refusal::UNKNOWN_TRACK, "no one publishes this track");
+            let refusal = Error::new(refusal::UNKNOWN_TRACK, "no one publishes this track");
             self.tell(link, item::<LiveSubscribeTrack>(id, Err(refusal), true));
             return;
         };
-        published.subscribers.push((link, id));
-        let replay = published.group.as_ref().filter(|_| subscribe.latest);
+        let in_hand = published.group.as_ref();
+        let (replay, passed) = match subscribe.from {
+            LiveStart::Latest => (in_hand, None),
+            LiveStart::Next => (None, in_hand.map(|group| group.number)),
+        };
+        published.subscribers.push(Subscriber { link, id, passed });
         let mut items = vec![LiveItem::Opened {
             by: Self::account(published.link),
             mode: published.mode,
@@ -476,11 +661,9 @@ impl State {
                 });
             }
         }
-        let events = items
-            .into_iter()
-            .map(|live| item::<LiveSubscribeTrack>(id, Ok(live), false))
-            .collect();
-        self.hosts[link].owe(events);
+        for live in items {
+            self.tell(link, item::<LiveSubscribeTrack>(id, Ok(live), false));
+        }
         self.subscriptions.insert((link, id), track.clone());
         self.count(&self.tracks[&track]);
     }
@@ -489,7 +672,7 @@ impl State {
         let up: Vec<_> = self
             .tracks
             .iter()
-            .filter(|((at, _), _)| *at == room)
+            .filter(|((at, name), _)| *at == room && self.hears(link, at, name))
             .map(|((_, name), published)| LiveAnnounce {
                 name: name.clone(),
                 by: Self::account(published.link),
@@ -497,33 +680,30 @@ impl State {
                 up: true,
             })
             .collect();
-        let events = up
-            .into_iter()
-            .map(|announce| item::<LiveTracks>(id, Ok(announce), false))
-            .collect();
-        self.hosts[link].owe(events);
+        for announce in up {
+            let announced = Watching::Announce(announce);
+            self.tell(link, item::<LiveTracks>(id, Ok(announced), false));
+        }
         self.watches.insert((link, id), room);
     }
 }
 
-/// The kinds the relay answers, so a test can hold its arms to
-/// [`crate::methods::ALL`].
-#[cfg(test)]
-const KINDS: [&str; 4] = [
-    LivePublishTrack::KIND,
-    LiveSendObject::KIND,
-    LiveSubscribeTrack::KIND,
-    LiveTracks::KIND,
-];
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::live::{Received, Track, subscribe};
+    use crate::live::{DEFAULT_PRIORITY, Received, Track, subscribe};
     use crate::methods::{Capability, LiveTrack};
     use crate::prelude::*;
     use crate::{Task, View};
     use serde::{Deserialize, Serialize};
+
+    /// The kinds the relay answers, held to [`crate::methods::ALL`].
+    const KINDS: [&str; 4] = [
+        LivePublishTrack::KIND,
+        LiveSendObject::KIND,
+        LiveSubscribeTrack::KIND,
+        LiveTracks::KIND,
+    ];
 
     #[test]
     fn the_relay_answers_every_live_kind() {
@@ -542,6 +722,13 @@ mod tests {
         }
     }
 
+    fn latest(name: &str) -> LiveSubscribe {
+        LiveSubscribe {
+            track: track(name),
+            from: LiveStart::Latest,
+        }
+    }
+
     /// One line per person: publishes `echo/<me>` in stream mode, one
     /// group per line, and hears every `echo/*` `live.tracks` announces.
     #[derive(Default, Serialize, Deserialize)]
@@ -550,6 +737,8 @@ mod tests {
         heard: Vec<String>,
         roster: Vec<(String, u64, bool)>,
         subscribers: Option<u32>,
+        /// `Waiting` items, of any of its asks.
+        waits: u32,
         refused: Vec<String>,
         #[serde(skip)]
         mine: Option<Track<String>>,
@@ -574,36 +763,41 @@ mod tests {
         fn start(&mut self, me: u64, cx: &mut Context<Self>) {
             self.me = me;
             cx.notify();
-            self.mine = Some(Track::publish(
-                cx,
-                track(&format!("echo/{me}")),
-                LiveMode::Stream,
-                |view: &mut Echo, item, cx| {
-                    match item {
-                        Ok(Publishing::Subscribers(count)) => view.subscribers = Some(count),
-                        Err(refusal) => view.refused.push(refusal.code),
-                    }
-                    cx.notify();
-                },
-            ));
-            self.watch = Some(cx.follow::<LiveTracks>("lobby".into(), |view, item, cx| {
-                let Ok(LiveAnnounce { name, by, up, .. }) = item else {
-                    return;
-                };
-                view.roster.push((name.clone(), by, up));
-                cx.notify();
-                if up && by != view.me {
-                    view.hear(&name, cx);
+            let mine = LivePublish {
+                track: track(&format!("echo/{me}")),
+                mode: LiveMode::Stream,
+                priority: DEFAULT_PRIORITY,
+            };
+            self.mine = Some(Track::publish(cx, mine, |view: &mut Echo, item, cx| {
+                match item {
+                    Ok(Publishing::Waiting) => view.waits += 1,
+                    Ok(Publishing::Subscribers(count)) => view.subscribers = Some(count),
+                    Err(refusal) => view.refused.push(refusal.code),
                 }
+                cx.notify();
+            }));
+            self.watch = Some(cx.follow::<LiveTracks>("lobby".into(), |view, item, cx| {
+                match item {
+                    Ok(Watching::Waiting) => view.waits += 1,
+                    Ok(Watching::Announce(LiveAnnounce { name, by, up, .. })) => {
+                        view.roster.push((name.clone(), by, up));
+                        if up && by != view.me {
+                            view.hear(&name, cx);
+                        }
+                    }
+                    Err(refusal) => view.refused.push(refusal.code),
+                }
+                cx.notify();
             }));
         }
 
         /// Subscribes to `name`: its lines into `heard`, its refusals into
         /// `refused`.
         fn hear(&mut self, name: &str, cx: &mut Context<Self>) {
-            let task = subscribe(cx, track(name), true, |view: &mut Echo, item, cx| {
+            let task = subscribe(cx, latest(name), |view: &mut Echo, item, cx| {
                 match item {
                     Ok(Received::Object { value, .. }) => view.heard.push(value),
+                    Ok(Received::Waiting) => view.waits += 1,
                     Ok(Received::Opened { .. } | Received::GroupEnd { .. }) => return,
                     Err(refusal) => view.refused.push(refusal.code),
                 }
@@ -661,6 +855,22 @@ mod tests {
     }
 
     #[test]
+    fn a_publisher_hears_its_count_only_as_it_moves_and_a_subscriber_gone_lowers_it() {
+        let (mut a, mut b) = (TestAppContext::new(), TestAppContext::new());
+        let relay = Relay::new();
+        relay.link(&a).link(&b);
+        let one = echo(&mut a, 1);
+        // up, and no one listens: no count, as the node tells none
+        assert_eq!(a.update(&one, |echo, _, _| echo.subscribers), None);
+        let _two = echo(&mut b, 2);
+        a.run_until_parked();
+        assert_eq!(a.update(&one, |echo, _, _| echo.subscribers), Some(1));
+        relay.gone(&b);
+        a.run_until_parked();
+        assert_eq!(a.update(&one, |echo, _, _| echo.subscribers), Some(0));
+    }
+
+    #[test]
     fn a_publisher_gone_ends_each_subscription_and_takes_its_track_down() {
         let (mut a, mut b) = (TestAppContext::new(), TestAppContext::new());
         let relay = Relay::new();
@@ -710,15 +920,19 @@ mod tests {
         // a line said while the track waits goes out with it
         a.update(&one, |echo, _, cx| echo.say("early", cx));
         a.run_until_parked();
+        // a's publication and room list each hear `Waiting`, nothing refused
         let waited = a.update(&one, |echo, _, _| {
-            (echo.refused.clone(), echo.subscribers, echo.roster.clone())
+            (
+                echo.waits,
+                echo.refused.clone(),
+                echo.subscribers,
+                echo.roster.clone(),
+            )
         });
-        assert_eq!(waited, (vec![refusal::NOT_GRANTED.into()], None, vec![]));
-        assert_eq!(
-            b.update(&two, |echo, _, _| echo.refused.clone()),
-            [refusal::NOT_GRANTED, refusal::NOT_GRANTED]
-        );
-        relay.grant("lobby");
+        assert_eq!(waited, (2, vec![], None, vec![]));
+        let waited = b.update(&two, |echo, _, _| (echo.waits, echo.refused.clone()));
+        assert_eq!(waited, (2, vec![]));
+        relay.grant("lobby", None, Grant::all());
         a.run_until_parked();
         b.run_until_parked();
         // a's track came up first, so b's subscription found it and heard
@@ -726,15 +940,147 @@ mod tests {
         assert!(b.has_text("early"), "{:?}", b.texts());
         assert_eq!(
             b.update(&two, |echo, _, _| echo.refused.clone()),
-            [
-                refusal::NOT_GRANTED,
-                refusal::NOT_GRANTED,
-                refusal::UNKNOWN_TRACK
-            ]
+            [refusal::UNKNOWN_TRACK]
         );
-        // a's publication and room list went on past their `not_granted`
+        // a's publication and room list went on past their `Waiting`
         let admitted = a.update(&one, |echo, _, _| (echo.subscribers, echo.roster.clone()));
         assert_eq!(admitted, (Some(1), vec![("echo/1".into(), 1, true)]));
+    }
+
+    fn listens() -> Grant {
+        Grant {
+            publish: Vec::new(),
+            subscribe: vec!["*".into()],
+        }
+    }
+
+    #[test]
+    fn an_accounts_own_row_replaces_the_star_row_and_account_names_the_asker() {
+        let (mut a, mut b) = (TestAppContext::new(), TestAppContext::new());
+        let relay = Relay::new();
+        relay.link(&a).link(&b);
+        // each publishes under its own number and hears all; account 2 only listens
+        let open = Grant {
+            publish: vec!["echo/{account}".into()],
+            subscribe: vec!["*".into()],
+        };
+        relay.grant("lobby", None, open);
+        relay.grant("lobby", Some(2), listens());
+        let one = echo(&mut a, 1);
+        let two = echo(&mut b, 2);
+        a.run_until_parked();
+        // 2's own row is the whole of what it may do: its track waits, its
+        // room list does not
+        let heard = b.update(&two, |echo, _, _| (echo.waits, echo.roster.clone()));
+        assert_eq!(heard, (1, vec![("echo/1".into(), 1, true)]));
+        assert_eq!(a.update(&one, |echo, _, _| echo.subscribers), Some(1));
+        // `{account}` is the asker's number: 1 may not publish 2's name, and
+        // the ask waits rather than being refused
+        let theirs = LivePublish {
+            track: track("echo/2"),
+            mode: LiveMode::Stream,
+            priority: DEFAULT_PRIORITY,
+        };
+        let _theirs = a.update(&one, |_, _, cx| {
+            Track::<String>::publish(cx, theirs, |echo: &mut Echo, item, cx| {
+                if let Ok(Publishing::Waiting) = item {
+                    echo.waits += 1;
+                }
+                cx.notify();
+            })
+        });
+        a.run_until_parked();
+        let asked = a.update(&one, |echo, _, _| (echo.waits, echo.refused.clone()));
+        assert_eq!(asked, (1, vec![]));
+    }
+
+    #[test]
+    fn a_row_taken_back_ends_what_it_allowed_with_a_final_not_granted() {
+        let (mut a, mut b) = (TestAppContext::new(), TestAppContext::new());
+        let relay = Relay::new();
+        relay.link(&a).link(&b);
+        let one = echo(&mut a, 1);
+        let two = echo(&mut b, 2);
+        a.run_until_parked();
+        // 1 may listen and no longer speak: its own row replaces the `*` row
+        relay.grant("lobby", Some(1), listens());
+        a.run_until_parked();
+        b.run_until_parked();
+        // 1's publication ended, and 2's subscription to it; 2's room list
+        // heard it go down
+        assert_eq!(
+            a.update(&one, |echo, _, _| echo.refused.clone()),
+            [refusal::NOT_GRANTED]
+        );
+        let (refused, roster) = b.update(&two, |echo, _, _| {
+            (echo.refused.clone(), echo.roster.clone())
+        });
+        assert_eq!(refused, [refusal::NOT_GRANTED]);
+        assert!(roster.contains(&("echo/1".into(), 1, false)), "{roster:?}");
+        // and 1 still hears 2
+        b.update(&two, |echo, _, cx| echo.say("still here", cx));
+        b.run_until_parked();
+        a.run_until_parked();
+        assert!(a.has_text("still here"), "{:?}", a.texts());
+        // the `*` row taken back: 2 has no row, so its publication and its
+        // room list end, and 1's subscription to 2 with them
+        relay.revoke("lobby", None);
+        a.run_until_parked();
+        b.run_until_parked();
+        assert_eq!(
+            b.update(&two, |echo, _, _| echo.refused.clone()),
+            [refusal::NOT_GRANTED; 3]
+        );
+        let (refused, roster) = a.update(&one, |echo, _, _| {
+            (echo.refused.clone(), echo.roster.clone())
+        });
+        assert_eq!(refused, [refusal::NOT_GRANTED; 2]);
+        assert!(roster.contains(&("echo/2".into(), 2, false)), "{roster:?}");
+    }
+
+    #[test]
+    fn an_own_row_removed_leaves_the_star_row_to_answer_what_waited() {
+        let (mut a, mut b) = (TestAppContext::new(), TestAppContext::new());
+        let relay = Relay::new();
+        relay.link(&a).link(&b);
+        // 2 may do nothing in the room, the `*` row everything
+        relay.grant("lobby", Some(2), Grant::default());
+        let one = echo(&mut a, 1);
+        let two = echo(&mut b, 2);
+        a.run_until_parked();
+        assert_eq!(b.update(&two, |echo, _, _| echo.waits), 2);
+        relay.revoke("lobby", Some(2));
+        a.run_until_parked();
+        b.run_until_parked();
+        // b's subscription to 1 tells 1 its count
+        a.run_until_parked();
+        // the `*` row covers 2's asks now: its track is up, and each hears
+        // the other
+        let heard_two = a.update(&one, |echo, _, _| echo.roster.clone());
+        assert!(
+            heard_two.contains(&("echo/2".into(), 2, true)),
+            "{heard_two:?}"
+        );
+        let heard_one = b.update(&two, |echo, _, _| echo.roster.clone());
+        assert!(
+            heard_one.contains(&("echo/1".into(), 1, true)),
+            "{heard_one:?}"
+        );
+        assert_eq!(a.update(&one, |echo, _, _| echo.subscribers), Some(1));
+        // 2 may publish and no longer listen: its subscription ends, and 1
+        // hears the lower count
+        let speaks = Grant {
+            publish: vec!["*".into()],
+            subscribe: Vec::new(),
+        };
+        relay.grant("lobby", Some(2), speaks);
+        a.run_until_parked();
+        b.run_until_parked();
+        assert_eq!(a.update(&one, |echo, _, _| echo.subscribers), Some(0));
+        assert_eq!(
+            b.update(&two, |echo, _, _| echo.refused.clone()),
+            [refusal::NOT_GRANTED; 2]
+        );
     }
 
     #[test]
@@ -751,24 +1097,23 @@ mod tests {
         a.update(&one, |echo, _, _| echo.mine = None);
         a.run_until_parked();
         relay.gone(&b);
-        relay.grant("lobby");
+        relay.grant("lobby", None, Grant::all());
         let three = echo(&mut c, 3);
         let roster = c.update(&three, |echo, _, _| echo.roster.clone());
         assert_eq!(roster, [("echo/3".into(), 3, true)]);
     }
 
     #[test]
-    fn publish_at_asks_the_node_for_its_priority() {
+    fn a_track_asks_the_node_for_the_priority_it_names() {
         let mut a = TestAppContext::new();
         let one = a.open::<Echo>();
+        let top = LivePublish {
+            track: track("cursor/1"),
+            mode: LiveMode::Datagram,
+            priority: 0,
+        };
         let _top = a.update(&one, |_, _, cx| {
-            Track::<u32>::publish_at(
-                cx,
-                track("cursor/1"),
-                LiveMode::Datagram,
-                0,
-                |_: &mut Echo, _, _| {},
-            )
+            Track::<u32>::publish(cx, top, |_: &mut Echo, _, _| {})
         });
         a.run_until_parked();
         let asked = a.host().requests::<LivePublishTrack>();
@@ -779,19 +1124,81 @@ mod tests {
     }
 
     #[test]
+    fn a_next_subscription_passes_over_the_group_in_hand() {
+        let (mut a, mut b) = (TestAppContext::new(), TestAppContext::new());
+        let relay = Relay::new();
+        relay.link(&a).link(&b);
+        let one = a.open::<Echo>();
+        let mut doc: Option<Track<u32>> = None;
+        let request = LivePublish {
+            track: track("doc"),
+            mode: LiveMode::Stream,
+            priority: DEFAULT_PRIORITY,
+        };
+        a.update(&one, |_, _, cx| {
+            doc = Some(Track::publish(cx, request, |_: &mut Echo, _, _| {}));
+        });
+        a.run_until_parked();
+        let doc = doc.as_mut().unwrap();
+        a.update(&one, |_, _, cx| doc.send(&cx.host(), &1));
+        a.run_until_parked();
+        let two = b.open::<Echo>();
+        let heard = Rc::new(RefCell::new(Vec::new()));
+        let sink = heard.clone();
+        let next = LiveSubscribe {
+            track: track("doc"),
+            from: LiveStart::Next,
+        };
+        let _task = b.update(&two, |_, _, cx| {
+            subscribe(
+                cx,
+                next,
+                move |_: &mut Echo, item: Result<Received<u32>, _>, _| {
+                    sink.borrow_mut().push(item.unwrap());
+                },
+            )
+        });
+        b.run_until_parked();
+        a.update(&one, |_, _, cx| {
+            doc.send(&cx.host(), &2);
+            doc.next_group(&cx.host());
+            doc.send(&cx.host(), &3);
+        });
+        a.run_until_parked();
+        b.run_until_parked();
+        // the rest of group 0 and its end are passed over; group 1 is heard
+        // from its first object
+        assert_eq!(
+            *heard.borrow(),
+            [
+                Received::Opened {
+                    by: 1,
+                    mode: LiveMode::Stream,
+                    latest: None
+                },
+                Received::Object {
+                    group: 1,
+                    object: 0,
+                    value: 3
+                }
+            ]
+        );
+    }
+
+    #[test]
     fn a_datagram_track_keeps_the_newest_and_drops_an_older_object() {
         let (mut a, mut b) = (TestAppContext::new(), TestAppContext::new());
         let relay = Relay::new();
         relay.link(&a).link(&b);
         let one = a.open::<Echo>();
         let mut cursor: Option<Track<u32>> = None;
+        let request = LivePublish {
+            track: track("cursor/1"),
+            mode: LiveMode::Datagram,
+            priority: DEFAULT_PRIORITY,
+        };
         a.update(&one, |_, _, cx| {
-            cursor = Some(Track::publish(
-                cx,
-                track("cursor/1"),
-                LiveMode::Datagram,
-                |_: &mut Echo, _, _| {},
-            ));
+            cursor = Some(Track::publish(cx, request, |_: &mut Echo, _, _| {}));
         });
         a.run_until_parked();
         let cursor = cursor.as_mut().unwrap();
@@ -806,22 +1213,28 @@ mod tests {
         let _task = b.update(&two, |_, _, cx| {
             subscribe(
                 cx,
-                track("cursor/1"),
-                true,
+                latest("cursor/1"),
                 move |_: &mut Echo, item: Result<Received<u32>, _>, _| {
                     sink.borrow_mut().push(item.unwrap());
                 },
             )
         });
         b.run_until_parked();
-        // the newest object alone is replayed
+        // the newest object alone is replayed, its group named first
         assert_eq!(
-            heard.borrow()[1..],
-            [Received::Object {
-                group: 5,
-                object: 1,
-                value: 51
-            }]
+            *heard.borrow(),
+            [
+                Received::Opened {
+                    by: 1,
+                    mode: LiveMode::Datagram,
+                    latest: Some(5)
+                },
+                Received::Object {
+                    group: 5,
+                    object: 1,
+                    value: 51
+                }
+            ]
         );
         a.update(&one, |_, _, cx| {
             cursor.send_latest(&cx.host(), 4, &40);

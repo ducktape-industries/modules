@@ -16,7 +16,7 @@ implementation of each.
 | `identity` | `identity` | as it admits a program (at founding, and later off the programs role), executes `RegisterProgram { program }` with the `System` origin; for each signed frame asks `Account(key)`; for each message and reply asks `OfProgram(sender)`, and for a message a program sends as another account asks `Runs { program, account }` |
 | `awaits` | `awaits` | when a frame parks waiting on calls, sends `Park { frame, program, calls }` with the `System` origin, and `Close { frame }` when the frame finishes or the programs role changes its code; the role opens a ticket per call, and a `Resolve { ticket, answer }` from the called program, or an `Expire { ticket }` from anyone once the ticket is `EXPIRY_BLOCKS` old, makes it hand the frame its answer through the host's `Resume`. A refusal of `Park` fails the frame |
 | `blobs` | `blobs` | when a program reads a blob (`blob_get`) that no program put, and when the programs role admits code, asks `Held { blob }`: the blob is served only once a bundle naming it is held, which it is from the receipt that brings two thirds of the current validators. The node watches the role's writes: it gathers every bundle put, and a validator's node receipts a bundle once it holds every blob |
-| `halo` | `halo` | at founding, writes its params (`role::halo::Genesis`: the founding lanes, given ids in order from 0); at boot and after any block that writes the role's state, the node asks `Lanes` and serves halo's lanes by that table: a lane's name to its wire id, the class its streams are served at most, and whether it is served. Only the validators' vote (`Motion::Halo`) changes it: `Open` lists a name at the next id, `Set` changes its cap or pauses it, `Close` unlists it, and no id is handed out twice |
+| `halo` | `halo` | at founding, writes its params (`role::halo::Genesis`: the founding lanes, given ids in order from 0, each `Founded { name, cap, pinned }`); at boot and after any block that writes the role's state, the node asks `Lanes` and serves halo's lanes by that table: a lane's name to its wire id, the class its streams are served at most, whether it is served, and whether it is pinned. Only the validators' vote (`Motion::Halo`) changes it: `Open` lists a name at the next id, unpinned, `Set` changes its cap or pauses it, `Close` unlists it, and no id is handed out twice. A pinned lane is never paused or closed (`invalid_input`, refused at the first vote too): this repo's founding pins `ducktape/blobs`, over which a node fetches the blobs it needs to apply a block, so no vote can cut a node off from the block that would undo it |
 
 The founding file binds them (ducktape's `[roles]` table; qa's
 `founding.toml` is a working one):
@@ -91,8 +91,8 @@ Who may do what (the acting account is `ctx.sender()`):
 | `SetRunner { account, runner }` | the agent's manager, not once revoked. `Some(program)` names a program that has an account; that program then sends messages as the agent (`Runs`). `None` takes it back |
 | `SetAudience { account, audience }` | the agent's manager, not once revoked. It records whom the agent answers: `Manager`, `Accounts` (the manager and the accounts named) or `Anyone`. The agent's runtime reads it with `Query::Audience`; nothing on the chain enforces it. An agent with no setting, or a revoked one, answers `Manager` |
 
-The role's queries, which views and other modules ask too, are
-`Account(key)`, `OfModule(module)`, `Profile(number)`,
+The role's queries, which views and other programs ask too, are
+`Account(key)`, `OfProgram(program)`, `Profile(number)`,
 `Profiles { after, limit }` and `Runs { program, account }`. A `Profile` is
 `{ number, name, kind }`, where `Kind` is `Person`,
 `Managed { manager, category, standing, runner }` or `Program(id)`. `Kind::badge` and `Kind::note` in `abi` turn it into what a view
@@ -197,11 +197,14 @@ key (`env.signer()`); every other origin is refused.
 - `Leave`: the signer leaves; the last validator cannot.
 - `Vote(motion)`: a validator votes for `Promote` (a resident),
   `Demote` (a validator), `Remove` (a member), `Door { open }` (the other
-  state) or `Programs { op }`. A motion passes at `n - (n-1)/3` of the
-  current validators; a voter no longer a validator is dropped at the
-  tally. The output is `Voted::Counted { votes, needed }` or
-  `Voted::Enacted`. Removing a member clears the open motions that name
-  it, and the last validator is neither demoted nor removed.
+  state), `Programs { op }` or `Halo { op }` (each enacted by emitting
+  `op` to the program bound to that role). A motion passes at
+  `n - (n-1)/3` of the current validators; a voter no longer a validator
+  is dropped at the tally. The output is `Voted::Counted { votes, needed }`
+  or `Voted::Enacted`. Removing a member clears the open motions that name
+  it, enacting a `Halo` op clears the halo motions it leaves no vote able
+  to pass (an `Open` of a name now listed, a `Set` or `Close` of one now
+  closed), and the last validator is neither demoted nor removed.
 
 ## Filling a role with another program
 

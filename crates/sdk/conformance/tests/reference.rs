@@ -321,3 +321,18 @@ impl conformance::awaits::Fixture for Awaits {
 fn awaits_fills_the_awaits_role() {
     conformance::awaits::run(&Awaits);
 }
+
+struct Halo;
+
+impl conformance::halo::Fixture for Halo {
+    type Program = halo::Halo;
+
+    fn host(&self) -> MockHost {
+        MockHost::default()
+    }
+}
+
+#[test]
+fn halo_fills_the_halo_role() {
+    conformance::halo::run(&Halo);
+}

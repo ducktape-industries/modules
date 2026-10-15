@@ -271,6 +271,37 @@ is the answer.
 account number, `None` until the host resolves one), `endpoint`; an item per
 change. Read "who am I" from `account`; no view asks identity for it.
 
+## Live tracks
+
+A view that declares `Capability::Live` publishes and subscribes to tracks
+in its program's rooms, through the connected node and off consensus: the
+four `live.*` methods, and two helpers over them in `src/live.rs`.
+`Track::publish(cx, LivePublish { track, mode, priority }, on)` owns a
+publication (dropping it unpublishes) and numbers what it sends (`send` and
+`next_group` in stream mode, `send_latest` in datagram mode);
+`live::subscribe(cx, LiveSubscribe { track, from }, each)` decodes what a
+track carries; who is in a room is `cx.follow::<LiveTracks>(room, ..)`.
+Build them in `attach`, as any subscription.
+
+The node lets an account into a room only as the view's program granted
+it, in rows the program writes (`program::live::grant`) and the node reads
+from blocks. An ask the rows do not cover yet hears `Waiting` and stays
+open; the node answers it on the block that writes the row. A view that
+opens a room submits the op writing the row on that item, once:
+
+```rust
+let mine = LivePublish { track, mode: LiveMode::Stream, priority: DEFAULT_PRIORITY };
+self.mine = Some(Track::publish(cx, mine, |view, item, cx| match item {
+    // the view's own: submits its program's op that writes the row
+    Ok(Publishing::Waiting) => view.join(cx),
+    Ok(Publishing::Subscribers(count)) => view.listening = count,
+    Err(refusal) => view.refused = Some(refusal),
+}));
+```
+
+`not_granted` is the grant taken back: the request's last item. The codes
+each method ends with are in its doc in `methods.rs`.
+
 ## When a view renders, and who decides
 
 A view renders on the tick after it called `cx.notify()`, once however many
@@ -407,6 +438,15 @@ event. A web piece hears its page through `simulate_web_state(name, state)`.
 The reader's offset is UTC until `simulate_offset(minutes)`.
 Every frame the view sends is held to `view_wire::audit`: a fault panics with
 its kind and key path, so each screen a test reaches is gated.
+Views that talk live are tested together over `testing::Relay`
+(`src/testing/relay.rs`): `relay.link(&a).link(&b)`, one
+`TestAppContext` each, and it answers their `live.*` requests as one node
+would, the n-th view linked acting as account n. Its grants are the rows a
+program writes, decided as the node decides them: every room starts with
+`*` = `Grant::all()`, `hold(room)` takes every row away (each ask hears
+`Waiting`), and `grant(room, who, grant)` and `revoke(room, who)` are the
+block that writes or removes one: what waited and is covered now is
+answered, and what the rows no longer cover ends `not_granted`.
 `testing::lower(build)` is the one path that is not: it lowers a single
 element with no host, sanitizer or audit, for a test of what that element
 carries (`testing::assert_accessible(&tree)` audits it when the test wants).

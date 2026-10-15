@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::fs;
 use std::path::Path;
 
-use abi::role::halo::{Class, Genesis};
+use abi::role::halo::{Class, Founded, Genesis};
 use wasm_encoder::{CustomSection, Encode, Section};
 use wasmparser::{Encoding, Parser, Payload, Validator};
 
@@ -53,13 +53,22 @@ pub fn forge_bounds() -> forge::Bounds {
 
 /// The lanes halo serves from the first block, given ids in order from 0. blobs' lane is
 /// `Critical`: a node that lags fetches the blobs a block names at that class before it can
-/// apply the block. The live relay's lane carries clients' tracks, so it is served no higher
-/// than `Client`.
+/// apply the block, and it is pinned, so no vote pauses or closes it: a node cut off from
+/// blobs could never apply the block that opened it again. The live relay's lane carries
+/// clients' tracks, so it is served no higher than `Client`, and a vote may pause it.
 pub fn halo_lanes() -> Genesis {
     Genesis {
         lanes: vec![
-            ("ducktape/blobs".into(), Class::Critical),
-            ("ducktape/live".into(), Class::Client),
+            Founded {
+                name: "ducktape/blobs".into(),
+                cap: Class::Critical,
+                pinned: true,
+            },
+            Founded {
+                name: "ducktape/live".into(),
+                cap: Class::Client,
+                pinned: false,
+            },
         ],
     }
 }

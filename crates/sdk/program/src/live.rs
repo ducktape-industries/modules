@@ -4,16 +4,21 @@
 //! row ([`abi::live`]); the node reads the row from blocks and enforces it:
 //! a row counts from the block that writes it, not from the op's
 //! preconfirmed answer, and an ask made before that block waits for it; a
-//! row removed ends what it covered on the next block. No row for an
-//! account and no `*` row: the account does nothing in the room.
+//! row removed ends what it covered on the next block. An account's own row
+//! is the whole of what it may do in the room; the `*` row counts only for
+//! an account with no row of its own. No row for an account and no `*`
+//! row: the account does nothing in the room.
 //!
 //! `{account}` in a pattern stands for the number of the account that
 //! asks, so one `*` row binds each name to its own publisher: with
 //! `publish: ["echo/{account}"]`, account 42 publishes `echo/42` and no
-//! one else's.
+//! one else's. [`Grant::publishes`] and [`Grant::subscribes`] decide a name
+//! for an account as the node does, so a program tests what its rows let
+//! through.
 //!
 //! ```ignore
-//! // chat's SetMembership: the members of a channel talk live in it
+//! // a program that keeps members, in the op that seats one: the
+//! // members of a channel talk live in it
 //! program::live::grant(ctx, &channel, Some(account), Grant::all());
 //! // a lobby open to everyone who acts on the chain, each publishing under
 //! // their own number and hearing all
@@ -28,7 +33,10 @@ pub use abi::live::{Grant, TABLE, key};
 use crate::{AccountNumber, ExecCtx};
 
 /// Lets `who` (one account, or with `None` every account that acts on the
-/// chain) do what `grant` says in `room`; replaces the row it had.
+/// chain) do what `grant` says in `room`; replaces the row it had. An
+/// account's own row replaces the `*` row for it, not adds to it: with `*`
+/// = `subscribe: ["*"]` and 42's row `publish: ["stage"]`, 42 publishes
+/// `stage` and subscribes to nothing.
 pub fn grant(ctx: &ExecCtx, room: &str, who: Option<AccountNumber>, grant: Grant) {
     ctx.put(key(room, who), &grant);
 }

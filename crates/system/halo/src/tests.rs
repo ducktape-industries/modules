@@ -4,7 +4,7 @@
 use ::program::{Error, MockChain, Origin, code};
 use valset::{Member, Motion, Valset, Voted};
 
-use crate::{Class, Genesis, Halo, Lane, LaneId, MAX_NAME, Op, PROGRAM, Query, Reply};
+use crate::{Class, Founded, Genesis, Halo, Lane, LaneId, MAX_NAME, Op, PROGRAM, Query, Reply};
 
 const VALIDATORS: [u8; 2] = [1, 2];
 
@@ -12,7 +12,16 @@ fn key(n: u8) -> Vec<u8> {
     vec![n; 32]
 }
 
-/// valset seating validators 1 and 2, and halo founded with `blobs` at 0 and `live` at 1.
+fn founding(name: &str, cap: Class, pinned: bool) -> Founded {
+    Founded {
+        name: name.into(),
+        cap,
+        pinned,
+    }
+}
+
+/// valset seating validators 1 and 2, and halo founded with `blobs` at 0, pinned, and `live`
+/// at 1.
 fn chain() -> MockChain {
     let mut chain = MockChain::default();
     chain.seat::<Valset>(valset::PROGRAM);
@@ -32,8 +41,8 @@ fn chain() -> MockChain {
     chain.init(valset::PROGRAM, &seated).unwrap();
     let lanes = Genesis {
         lanes: vec![
-            ("blobs".into(), Class::Critical),
-            ("live".into(), Class::Client),
+            founding("blobs", Class::Critical, true),
+            founding("live", Class::Client, false),
         ],
     };
     chain.init(PROGRAM, &lanes).unwrap();
@@ -46,15 +55,17 @@ fn lane(name: &str, id: LaneId, cap: Class, since: u64) -> Lane {
         id,
         cap,
         enabled: true,
+        pinned: false,
         since,
     }
 }
 
 fn founded() -> Vec<Lane> {
-    vec![
-        lane("blobs", 0, Class::Critical, 0),
-        lane("live", 1, Class::Client, 0),
-    ]
+    let blobs = Lane {
+        pinned: true,
+        ..lane("blobs", 0, Class::Critical, 0)
+    };
+    vec![blobs, lane("live", 1, Class::Client, 0)]
 }
 
 fn lanes(chain: &MockChain) -> Vec<Lane> {
@@ -114,8 +125,8 @@ fn founding_refuses_a_repeated_name() {
     chain.seat::<Halo>(PROGRAM);
     let repeated = Genesis {
         lanes: vec![
-            ("blobs".into(), Class::Critical),
-            ("blobs".into(), Class::Client),
+            founding("blobs", Class::Critical, true),
+            founding("blobs", Class::Client, false),
         ],
     };
     let refused = chain.init(PROGRAM, &repeated).unwrap_err();
@@ -209,14 +220,47 @@ fn set_keeps_the_id_and_a_paused_lane_resumes_under_it() {
 fn a_closed_name_reopens_at_a_fresh_id() {
     let chain = chain();
     let close = Op::Close {
-        name: "blobs".into(),
+        name: "live".into(),
     };
     enacted(&chain, &close).unwrap();
-    assert_eq!(lanes(&chain), founded()[1..]);
+    assert_eq!(lanes(&chain), founded()[..1]);
     chain.at(4, 0);
-    enacted(&chain, &open("blobs", Class::Critical)).unwrap();
-    let reopened = lane("blobs", 2, Class::Critical, 4);
-    assert_eq!(lanes(&chain), [&founded()[1..], &[reopened]].concat());
+    enacted(&chain, &open("live", Class::Client)).unwrap();
+    let reopened = lane("live", 2, Class::Client, 4);
+    assert_eq!(lanes(&chain), [&founded()[..1], &[reopened]].concat());
+}
+
+#[test]
+fn a_pinned_lane_is_never_paused_or_closed_and_its_cap_still_moves() {
+    let chain = chain();
+    let pause = Op::Set {
+        name: "blobs".into(),
+        cap: Class::Critical,
+        enabled: false,
+    };
+    let close = Op::Close {
+        name: "blobs".into(),
+    };
+    for refused in [&pause, &close] {
+        // at the first vote, before it counts
+        let voted = vote(&chain, 1, refused).unwrap_err();
+        assert_eq!(voted.code, code::INVALID_INPUT, "{refused:?}");
+        // and by the program, whoever enacts it
+        let enacted = enacted(&chain, refused).unwrap_err();
+        assert_eq!(enacted.code, code::INVALID_INPUT, "{refused:?}");
+    }
+    assert_eq!(lanes(&chain), founded());
+    let capped = Op::Set {
+        name: "blobs".into(),
+        cap: Class::Member,
+        enabled: true,
+    };
+    pass(&chain, &capped);
+    let moved = Lane {
+        cap: Class::Member,
+        ..founded()[0].clone()
+    };
+    assert_eq!(lanes(&chain)[0], moved);
 }
 
 #[test]
@@ -265,6 +309,65 @@ fn an_op_halo_would_refuse_is_refused_at_the_first_vote() {
         .submit(Origin::Signed(key(1)), valset::PROGRAM, &garbage)
         .unwrap_err();
     assert_eq!(refused.code, code::INVALID_INPUT);
+}
+
+/// The halo motions valset lists as waiting for votes, in no order of theirs.
+fn waiting(chain: &MockChain) -> Vec<Op> {
+    let asked = valset::Query::Motions {
+        page: store::PageRequest::first(16),
+    };
+    let valset::Reply::Motions { page, .. } = chain.query(valset::PROGRAM, &asked).unwrap() else {
+        panic!("valset answers Motions with Motions");
+    };
+    page.items
+        .into_iter()
+        .map(|pending| match pending.motion {
+            Motion::Halo { op } => abi::decode(&op).unwrap(),
+            other => panic!("{other:?}"),
+        })
+        .collect()
+}
+
+/// `ops` in one order, so two lists compare as sets.
+fn sorted(mut ops: Vec<Op>) -> Vec<Op> {
+    ops.sort_by_key(abi::encode);
+    ops
+}
+
+#[test]
+fn a_motion_an_enacted_one_overtakes_is_cleared_with_it() {
+    let chain = chain();
+    let set = |name: &str, cap, enabled| Op::Set {
+        name: name.into(),
+        cap,
+        enabled,
+    };
+    let close = Op::Close {
+        name: "live".into(),
+    };
+    // another lane's change: no vote below overtakes it
+    let kept = set("blobs", Class::Member, true);
+    for op in [
+        open("chat", Class::Member),
+        set("live", Class::Member, true),
+        set("live", Class::Critical, false),
+        kept.clone(),
+    ] {
+        vote(&chain, 1, &op).unwrap();
+    }
+    pass(&chain, &open("chat", Class::Client));
+    // chat at Member can never pass now that chat is listed
+    assert_eq!(
+        sorted(waiting(&chain)),
+        sorted(vec![
+            set("live", Class::Member, true),
+            set("live", Class::Critical, false),
+            kept.clone()
+        ])
+    );
+    pass(&chain, &close);
+    // nor can a change to live once it is closed
+    assert_eq!(waiting(&chain), [kept]);
 }
 
 #[test]

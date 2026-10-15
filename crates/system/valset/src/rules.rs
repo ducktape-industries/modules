@@ -388,8 +388,42 @@ fn enact(ctx: &ExecCtx, motion: Motion) -> Result<(), Error> {
             Ok(())
         }
         Motion::Halo { op } => {
+            for overtaken in overtaken(&halo_op(&op)?) {
+                let motion = Motion::Halo {
+                    op: abi::encode(&overtaken),
+                };
+                VOTES.remove(ctx, &abi::encode(&motion));
+            }
             ctx.emit_raw(ctx.env().roles.halo.clone(), op, Reply::None);
             Ok(())
+        }
+    }
+}
+
+/// The halo ops no vote can pass once `op` is enacted, so their motions are cleared with it,
+/// as a removal clears the motions that name the member: after `Open` of a name, an `Open` of
+/// it at any class is `already_exists`; after `Close`, a `Set` or `Close` of it is
+/// `not_found`. A refused enactment writes nothing, so nothing is cleared for an op the halo
+/// role refused.
+fn overtaken(op: &halo::Op) -> Vec<halo::Op> {
+    match op {
+        halo::Op::Open { name, .. } => halo::Class::ALL
+            .map(|cap| halo::Op::Open {
+                name: name.clone(),
+                cap,
+            })
+            .into(),
+        halo::Op::Set { .. } => Vec::new(),
+        halo::Op::Close { name } => {
+            let sets = halo::Class::ALL.into_iter().flat_map(|cap| {
+                [true, false].map(|enabled| halo::Op::Set {
+                    name: name.clone(),
+                    cap,
+                    enabled,
+                })
+            });
+            let close = halo::Op::Close { name: name.clone() };
+            sets.chain([close]).collect()
         }
     }
 }

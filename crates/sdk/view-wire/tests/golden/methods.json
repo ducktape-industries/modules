@@ -1326,6 +1326,18 @@
       "mode": "Datagram",
       "priority": 128
     },
+    "reply": "Waiting"
+  },
+  {
+    "kind": "live.publish",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "presence/3"
+      },
+      "mode": "Datagram",
+      "priority": 128
+    },
     "reply": {
       "Subscribers": 2
     }
@@ -1354,7 +1366,18 @@
         "room": "lobby",
         "name": "doc"
       },
-      "latest": true
+      "from": "Latest"
+    },
+    "reply": "Waiting"
+  },
+  {
+    "kind": "live.subscribe",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "doc"
+      },
+      "from": "Latest"
     },
     "reply": {
       "Opened": {
@@ -1371,7 +1394,7 @@
         "room": "lobby",
         "name": "presence/3"
       },
-      "latest": false
+      "from": "Next"
     },
     "reply": {
       "Opened": {
@@ -1388,7 +1411,7 @@
         "room": "lobby",
         "name": "doc"
       },
-      "latest": true
+      "from": "Latest"
     },
     "reply": {
       "Object": {
@@ -1407,7 +1430,7 @@
         "room": "lobby",
         "name": "doc"
       },
-      "latest": true
+      "from": "Latest"
     },
     "reply": {
       "GroupEnd": {
@@ -1419,11 +1442,18 @@
   {
     "kind": "live.tracks",
     "request": "lobby",
+    "reply": "Waiting"
+  },
+  {
+    "kind": "live.tracks",
+    "request": "lobby",
     "reply": {
-      "name": "presence/3",
-      "by": 3,
-      "mode": "Datagram",
-      "up": true
+      "Announce": {
+        "name": "presence/3",
+        "by": 3,
+        "mode": "Datagram",
+        "up": true
+      }
     }
   }
 ]
