@@ -92,6 +92,7 @@ pub fn role_bound(roles: &Roles, program: &str) -> bool {
         &roles.validators,
         &roles.identity,
         &roles.blobs,
+        &roles.halo,
     ]
     .iter()
     .any(|role| role.as_str() == program)

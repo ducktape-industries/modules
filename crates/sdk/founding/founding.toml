@@ -10,6 +10,7 @@ validators = "valset"
 identity = "identity"
 blobs = "blobs"
 awaits = "awaits"
+halo = "halo"
 
 [[validators]]
 key = "KEY"                   # this node's key: `ducktape identity`
@@ -35,6 +36,11 @@ code = "blobs.wasm"
 [[programs]]
 id = "awaits"
 code = "awaits.wasm"
+
+[[programs]]
+id = "halo"
+code = "halo.wasm"
+params = "halo.params"
 
 [[programs]]
 id = "chat"

@@ -301,6 +301,7 @@ fn admissible(ctx: &QueryCtx, motion: &Motion) -> Result<(), Error> {
             let op = programs_motion(ctx, op)?;
             grantable(ctx, &op)
         }
+        Motion::Halo { op } => halo::admissible(ctx, &halo_op(op)?),
     }
 }
 
@@ -328,6 +329,12 @@ fn programs_op(op: &[u8]) -> Result<programs::Op, Error> {
             refusal.sentence
         ))
     })
+}
+
+/// A `Halo` motion's op, as the halo role reads it.
+fn halo_op(op: &[u8]) -> Result<halo::Op, Error> {
+    abi::decode(op)
+        .map_err(|refusal| invalid(format!("not an op of the halo role: {}", refusal.sentence)))
 }
 
 /// A `Programs` motion's `Schedule` or `Cancel` names a later block than
@@ -378,6 +385,10 @@ fn enact(ctx: &ExecCtx, motion: Motion) -> Result<(), Error> {
         }
         Motion::Programs { op } => {
             ctx.emit_raw(ctx.env().roles.programs.clone(), op, Reply::None);
+            Ok(())
+        }
+        Motion::Halo { op } => {
+            ctx.emit_raw(ctx.env().roles.halo.clone(), op, Reply::None);
             Ok(())
         }
     }

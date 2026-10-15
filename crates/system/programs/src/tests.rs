@@ -245,7 +245,7 @@ fn the_roster_is_answered_at_the_querys_own_height() {
 #[test]
 fn a_program_bound_to_a_role_is_never_removed() {
     let (store, code) = founded();
-    for role in ["programs", "valset", "identity"] {
+    for role in ["programs", "valset", "identity", "halo"] {
         let removed = schedule(&store, 5, Change::Remove(role.into())).unwrap_err();
         assert_eq!(removed.code, code::INVALID_INPUT, "{role}");
     }
@@ -460,6 +460,7 @@ fn the_roles_are_answered_as_the_kernel_binds_them() {
         identity: "identity-b".into(),
         blobs: "blobs-b".into(),
         awaits: "awaits-b".into(),
+        halo: "halo-b".into(),
     };
     let asked = Env {
         roles: roles.clone(),

@@ -52,6 +52,7 @@ members = [
     "crates/system/identity",
     "crates/system/blobs",
     "crates/system/awaits",
+    "crates/system/halo",
     "crates/app/chat",
     "crates/app/chat-view",
     "crates/app/forge-view",
@@ -92,6 +93,7 @@ valset = { path = "crates/system/valset" }
 identity = { path = "crates/system/identity" }
 blobs = { path = "crates/system/blobs" }
 awaits = { path = "crates/system/awaits" }
+halo = { path = "crates/system/halo" }
 chat = { path = "crates/app/chat" }
 forge = { path = "crates/app/forge" }
 attribution = { path = "crates/app/attribution" }
@@ -105,9 +107,9 @@ files = { path = "crates/app/files" }
 # the key schemes it signs with (dev-dependencies only); the probe fixture it seats is a prebuilt wasm binary, `make
 # probe-fixture`, not a Cargo dependency (its `Step` script type is mirrored
 # in the `programs` crate's test, next to the binary it scripts)
-host = { git = "https://github.com/ducktape-industries/ducktape", rev = "c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667" }
-blob = { git = "https://github.com/ducktape-industries/ducktape", rev = "c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667" }
-keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "c31ba3a6a5712d6b8faab8e6c7ca6bc3e543c667" }
+host = { git = "https://github.com/ducktape-industries/ducktape", rev = "08e64e3f7ec87ea2169fd1da9fd94d5c0d86a814" }
+blob = { git = "https://github.com/ducktape-industries/ducktape", rev = "08e64e3f7ec87ea2169fd1da9fd94d5c0d86a814" }
+keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "08e64e3f7ec87ea2169fd1da9fd94d5c0d86a814" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"
 

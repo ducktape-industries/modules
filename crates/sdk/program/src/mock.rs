@@ -117,6 +117,7 @@ impl MockHost {
             identity: "identity".into(),
             blobs: "blobs".into(),
             awaits: "awaits".into(),
+            halo: "halo".into(),
         }
     }
 

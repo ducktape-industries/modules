@@ -154,7 +154,12 @@ fn founding_more_validators_than_the_cap_is_refused() {
 
 #[test]
 fn founding_a_validator_at_a_halo_address_no_member_dials_is_refused() {
-    for unregistrable in ["0.0.0.0:9100", "127.0.0.1:9100", "[::1]:9100", "localhost:9100"] {
+    for unregistrable in [
+        "0.0.0.0:9100",
+        "127.0.0.1:9100",
+        "[::1]:9100",
+        "localhost:9100",
+    ] {
         let genesis = abi::encode(&Genesis {
             validators: vec![
                 member(1),
@@ -430,6 +435,32 @@ fn a_programs_motion_emits_its_op_to_the_programs_once_enacted() {
     let sent = store.take_emissions();
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].target, MockHost::roles().programs);
+    assert_eq!(sent[0].payload, op);
+    assert!(!sent[0].reply);
+}
+
+#[test]
+fn a_halo_motion_emits_its_op_to_the_halo_once_enacted() {
+    let store = founded();
+    let lanes = MockHost::default();
+    let founding = halo::Genesis { lanes: Vec::new() };
+    halo::Halo::init(
+        &lanes.exec(MockHost::env(halo::PROGRAM).root()),
+        &abi::encode(&founding),
+    )
+    .unwrap();
+    store.sibling::<halo::Halo>(MockHost::roles().halo, &lanes);
+    let op = abi::encode(&halo::Op::Open {
+        name: "chat".into(),
+        cap: halo::Class::Member,
+    });
+    let motion = Motion::Halo { op: op.clone() };
+    vote(&store, 1, motion.clone()).unwrap();
+    assert!(store.take_emissions().is_empty());
+    assert_eq!(vote(&store, 2, motion).unwrap(), Voted::Enacted);
+    let sent = store.take_emissions();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].target, MockHost::roles().halo);
     assert_eq!(sent[0].payload, op);
     assert!(!sent[0].reply);
 }
@@ -881,5 +912,23 @@ fn a_programs_vote_is_described_in_the_programss_words() {
     });
     let described = crate::describe(&garbage);
     assert_eq!(described.title, "Vote · programs");
+    assert_eq!(described.fields[0].label, "op");
+}
+
+#[test]
+fn a_halo_vote_is_described_in_the_halos_words() {
+    let op = halo::Op::Close {
+        name: "chat".into(),
+    };
+    let described = crate::describe(&Op::Vote(Motion::Halo {
+        op: abi::encode(&op),
+    }));
+    assert_eq!(described.title, "Vote · Close lane · chat");
+    assert_eq!(described.fields, halo::describe(&op).fields);
+    let garbage = Op::Vote(Motion::Halo {
+        op: b"not an op".to_vec(),
+    });
+    let described = crate::describe(&garbage);
+    assert_eq!(described.title, "Vote · halo");
     assert_eq!(described.fields[0].label, "op");
 }
