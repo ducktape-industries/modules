@@ -2,6 +2,8 @@
 //! a [`FakeHost`] that answers its requests by their shape, and holds every
 //! frame to the host's rules: its sanitizer, the accessibility audit, the
 //! per-frame request budget, and keys delivered only along the focus path.
+//! [`Relay`] links two or more of them as one node's live tracks, so what
+//! one view publishes the others hear.
 //!
 //! ```
 //! # use serde::{Deserialize, Serialize};
