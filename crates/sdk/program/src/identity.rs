@@ -10,9 +10,9 @@ impl QueryCtx {
     /// account suspended or revoked.
     pub fn require_person_or_agent(&self, number: AccountNumber) -> Result<(), Error> {
         let asked = Query::Profile(number);
-        let identity = &self.env().roles.identity;
-        let Reply::Profile(profile) = self.query::<Query, Reply>(identity, &asked)? else {
-            return Err(unexpected_reply(identity, "Profile", &"another reply"));
+        let identity = self.env().role(abi::role::IDENTITY)?.clone();
+        let Reply::Profile(profile) = self.query::<Query, Reply>(&identity, &asked)? else {
+            return Err(unexpected_reply(&identity, "Profile", &"another reply"));
         };
         let Some(profile) = profile else {
             return Err(invalid(format!("there is no account {number}")));

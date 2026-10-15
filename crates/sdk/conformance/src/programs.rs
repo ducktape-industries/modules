@@ -45,7 +45,7 @@ pub fn run(fixture: &impl Fixture) {
 }
 
 fn program() -> String {
-    MockHost::roles().programs
+    MockHost::role(abi::role::PROGRAMS)
 }
 
 fn entry(program: &str, code: BlobId) -> Entry {

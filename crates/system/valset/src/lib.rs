@@ -90,7 +90,7 @@ pub struct Pending {
 /// The ask another program makes of valset, at the program genesis bound to
 /// the validators role.
 pub fn role(ctx: &::program::QueryCtx, key: &[u8]) -> Result<Option<Role>, ::program::Error> {
-    let validators = &ctx.env().roles.validators;
+    let validators = &ctx.env().role(abi::role::VALIDATORS)?.clone();
     match ctx.query::<Query, Reply>(validators, &Query::Membership { key: key.to_vec() })? {
         Reply::Membership(membership) => Ok(membership.map(|membership| membership.role)),
         other => Err(::program::unexpected_reply(

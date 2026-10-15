@@ -20,8 +20,9 @@ it, and `crates/app/egress` fills it.
 | `egress` | `egress` | nothing: the node reads it. After each block a member node asks `Assigned { key }` with its own key, `Overdue` and `Node { key }`; it calls each request elected to it, through the services its `egress.toml` names, and signs `Answer { id, answer }`; it signs `Expire { id }` for each overdue one, and `Serve { services }` while the role's record of it differs from its config. A program asks `Serving { service }` for the member nodes that would be elected, and calls the role with `Request` |
 | `blobs` | `blobs` | when a program reads a blob (`blob_get`) that no program put, and when the programs role admits code, asks `Held { blob }`: the blob is served only once a bundle naming it is held, which it is from the receipt that brings two thirds of the current validators. The node watches the role's writes: it gathers every bundle put, and a validator's node receipts a bundle once it holds every blob |
 
-The founding file binds them (ducktape's `[roles]` table; qa's
-`founding.toml` is a working one):
+The founding file binds them in its `[roles]` table, one row per role: the
+role's name, then the program that fills it (qa's `founding.toml` is a working
+one):
 
 ```toml
 [roles]
@@ -33,11 +34,17 @@ awaits = "awaits"
 egress = "egress"
 ```
 
-The first five are required, egress is not. Founding refuses a role bound to a program the
-founding does not list, and a node refuses a network that records no roles.
-Every frame's `Env` carries the bindings (`env.roles`), so a program that asks
-a role asks `ctx.env().roles.identity`, not a name it assumes; chat's roster
-does this (`crates/app/chat/src/origin.rs`).
+The roles are a table, not a fixed set of fields: `abi::Roles` maps a role's
+name to its program, and the names are constants in `abi::role` (`PROGRAMS`,
+`VALIDATORS`, `IDENTITY`, `BLOBS`, `AWAITS`, `EGRESS`). A new role is a new
+row. The first five are required (`abi::role::REQUIRED`), egress is not.
+Founding refuses a table missing a required role, naming it, and a role bound
+to a program the founding does not list; a node refuses a network that records
+no roles. Every frame's `Env` carries the table (`env.roles`), so a program
+asks a role by its name, `ctx.env().role(abi::role::IDENTITY)?`, never by a
+program id it assumes; chat's roster does this
+(`crates/app/chat/src/origin.rs`). `Env::role` refuses a role the network does
+not bind as `unsupported`; `env.roles.get(name)` answers `None` for one.
 
 ## Who a frame acts as
 

@@ -108,12 +108,12 @@ fn programs_swapping(program: &str, at: u64) -> (program::MockHost, BlobId, Blob
     store
         .borrow_mut()
         .siblings
-        .insert(MockHost::roles().blobs, held);
+        .insert(MockHost::role(abi::role::BLOBS), held);
     let swap = programs::Op::Schedule(programs::Scheduled {
         height: at,
         change: programs::Change::Set(entry(scheduled)),
     });
-    let validators = Origin::Program(MockHost::roles().validators);
+    let validators = Origin::Program(MockHost::role(abi::role::VALIDATORS));
     Programs::execute(&store.exec(programs_env(1, validators)), swap).unwrap();
     (store, running, scheduled)
 }
@@ -205,14 +205,14 @@ fn a_change_reached_by_the_head_is_running_not_scheduled() {
                 items: Vec::new(),
                 next: None,
             }),
-            programs::Query::Roles => programs::Reply::Roles(abi::Roles {
-                programs: programs::PROGRAM.into(),
-                validators: valset::PROGRAM.into(),
-                identity: identity::PROGRAM.into(),
-                blobs: "blobs".into(),
-                awaits: "awaits".into(),
-                egress: Some("egress".into()),
-            }),
+            programs::Query::Roles => programs::Reply::Roles(abi::Roles::from_iter([
+                (abi::role::PROGRAMS, programs::PROGRAM),
+                (abi::role::VALIDATORS, valset::PROGRAM),
+                (abi::role::IDENTITY, identity::PROGRAM),
+                (abi::role::BLOBS, "blobs"),
+                (abi::role::AWAITS, "awaits"),
+                (abi::role::EGRESS, "egress"),
+            ])),
             other => panic!("unexpected query: {other:?}"),
         })
     });

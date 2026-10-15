@@ -27,14 +27,14 @@ impl Env {
     /// Refused unless the program bound to the validators role sent this:
     /// the validators' vote, enacted.
     pub fn authority(&self) -> Result<(), Error> {
-        let by_validators =
-            matches!(&self.origin, Origin::Program(sender) if *sender == self.roles.validators);
+        let validators = self.role(abi::role::VALIDATORS)?;
+        let by_validators = matches!(&self.origin, Origin::Program(sender) if sender == validators);
         if by_validators {
             return Ok(());
         }
         Err(unauthorized(format!(
-            "only the validators' vote ({}) may do this, not {:?}",
-            self.roles.validators, self.origin
+            "only the validators' vote ({validators}) may do this, not {:?}",
+            self.origin
         )))
     }
 
@@ -87,24 +87,25 @@ mod tests {
 
     #[test]
     fn authority_admits_only_the_program_bound_to_the_validators_role() {
-        let validators = MockHost::roles().validators;
+        let validators = MockHost::role(abi::role::VALIDATORS);
         assert!(env(Origin::Program(validators)).authority().is_ok());
         for origin in [
             Origin::Signed(vec![1; 32]),
             Origin::Program("gov".into()),
-            Origin::Program(MockHost::roles().programs),
+            Origin::Program(MockHost::role(abi::role::PROGRAMS)),
             Origin::Root,
         ] {
             let refused = env(origin).authority().unwrap_err();
             assert_eq!(refused.code, code::UNAUTHORIZED);
         }
-        let rebound = Env {
-            roles: crate::Roles {
-                validators: "gov".into(),
-                ..MockHost::roles()
-            },
-            ..env(Origin::Program("gov".into()))
-        };
+        let mut rebound = env(Origin::Program("gov".into()));
+        rebound.roles.bind(abi::role::VALIDATORS, "gov");
         assert!(rebound.authority().is_ok());
+        let mut unbound = env(Origin::Program("gov".into()));
+        unbound.roles = MockHost::roles()
+            .iter()
+            .filter(|(role, _)| *role != abi::role::VALIDATORS)
+            .collect();
+        assert_eq!(unbound.authority().unwrap_err().code, code::UNSUPPORTED);
     }
 }

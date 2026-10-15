@@ -44,7 +44,9 @@ founding out of what this repo builds. The forge smoke (real git against
 
 The kernel calls the boot programs by role, never by id: genesis binds
 `programs`, `validators`, `identity`, `blobs` and `awaits` to founding programs (the founding's
-`[roles]`), and every `Env` carries the bindings (`env.roles`). The host asks
+`[roles]` table, one row per role), and every `Env` carries that table
+(`env.roles`, a map from role name to program; the names are constants in
+`abi::role`, and a new role is a new row). The host asks
 the identity role once per frame which account the frame acts as, and hands
 it to the program as `ctx.sender()`. A role is an interface in `abi`, so
 another program that speaks it can fill the role at genesis.

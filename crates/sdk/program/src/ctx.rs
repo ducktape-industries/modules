@@ -444,11 +444,15 @@ impl ExecCtx {
         }
     }
 
-    pub fn resolve(&self, ticket: Ticket, answer: Result<Vec<u8>, Error>) -> MessageId {
+    pub fn resolve(
+        &self,
+        ticket: Ticket,
+        answer: Result<Vec<u8>, Error>,
+    ) -> Result<MessageId, Error> {
         let answer = answer.map_err(crate::kernel::refusal_from);
         let resolve = abi::role::awaits::Op::Resolve { ticket, answer };
-        let awaits = self.env().roles.awaits.clone();
-        self.emit(awaits, &resolve, Reply::None)
+        let awaits = self.env().role(abi::role::AWAITS)?.clone();
+        Ok(self.emit(awaits, &resolve, Reply::None))
     }
 
     pub fn resume(

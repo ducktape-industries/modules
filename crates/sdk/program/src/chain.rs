@@ -19,8 +19,8 @@ use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::rc::Rc;
 
-use abi::role::awaits;
 use abi::role::identity::{Kind, Profile, Query, Reply, Standing};
+use abi::role::{self, awaits};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::awaiting::{self, Answer, Awaiting, Step, Suspended};
@@ -230,6 +230,13 @@ impl Default for MockChain {
 
 impl MockChain {
     /// A chain whose genesis binds the roles to `roles`, nothing seated.
+    fn role(&self, role: &str) -> Result<ProgramId, Error> {
+        self.roles
+            .bound(role)
+            .cloned()
+            .map_err(crate::kernel::error_from)
+    }
+
     pub fn founded(roles: Roles) -> MockChain {
         MockChain {
             roles,
@@ -270,10 +277,12 @@ impl MockChain {
             query: Rc::new(|ctx, request| crate::query::<M>(&ctx, request)),
         };
         let roster = self.roster.clone();
-        host.borrow_mut().siblings.insert(
-            self.roles.identity.clone(),
-            Box::new(move |_, request| identity_role(&roster.borrow(), request)),
-        );
+        if let Some(identity) = self.roles.get(role::IDENTITY) {
+            host.borrow_mut().siblings.insert(
+                identity.clone(),
+                Box::new(move |_, request| identity_role(&roster.borrow(), request)),
+            );
+        }
         // a program may query itself, as the kernel answers it
         host.borrow_mut()
             .siblings
@@ -447,7 +456,7 @@ impl MockChain {
     /// kernel asks: the seated identity program with the chain's own env, or
     /// the roster. A reply that is not `Account` is refused.
     fn account(&self, asked: Query) -> Result<Option<Principal>, Error> {
-        let identity = self.roles.identity.clone();
+        let identity = self.role(role::IDENTITY)?;
         let account = if self.seats.contains_key(&identity) {
             let env = Env {
                 sender: None,
@@ -816,7 +825,7 @@ impl MockChain {
             Origin::Root | Origin::Signed(_) => Some(Principal::Root),
         };
         let env = Env {
-            program: self.roles.awaits.clone(),
+            program: self.role(role::AWAITS)?,
             origin,
             sender,
             cause: Cause::Direct,
