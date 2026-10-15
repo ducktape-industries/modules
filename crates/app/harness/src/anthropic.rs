@@ -141,6 +141,12 @@ pub(crate) struct Summary {
     pub tokens: u64,
 }
 
+pub(crate) enum Summarized {
+    Summary(Summary),
+    Overflow,
+    Failed(String),
+}
+
 fn stop(reason: Option<&str>) -> Stop {
     match reason {
         Some("tool_use") => Stop::ToolUse,
@@ -224,7 +230,17 @@ pub(crate) fn answered(response: &Response) -> Answered {
     }
 }
 
-pub(crate) fn summary(response: &Response) -> Result<Summary, String> {
+pub(crate) fn summarized(response: &Response) -> Summarized {
+    if overflowed(response) {
+        return Summarized::Overflow;
+    }
+    match summary(response) {
+        Ok(summary) => Summarized::Summary(summary),
+        Err(text) => Summarized::Failed(text),
+    }
+}
+
+fn summary(response: &Response) -> Result<Summary, String> {
     if response.status != 200 {
         return Err(failure(response.status, &response.body));
     }
