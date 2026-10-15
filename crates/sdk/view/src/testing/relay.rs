@@ -1,7 +1,7 @@
 //! [`Relay`]: the node's live tracks for two or more views under test, each
 //! in its own [`TestAppContext`], so what one publishes the others hear.
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use program::live::Grant;
@@ -22,7 +22,9 @@ use super::{FakeHost, TestAppContext};
 /// `live.tracks` of its room, an object one view sends reaches every view
 /// subscribed to the track, the latest group is replayed to a late
 /// subscriber, and a publisher hears its subscriber count. The n-th view
-/// linked acts as account n.
+/// linked acts as account n; the views opened in one [`TestAppContext`]
+/// are windows of that one app, so a track one of them publishes another
+/// is refused `duplicate_track`, as the app refuses it.
 ///
 /// Grants are rows, as the room's program writes them
 /// (`program::live::grant`), decided as the node decides them
@@ -56,8 +58,9 @@ struct State {
     tracks: BTreeMap<(String, String), Published>,
     /// Every `live.subscribe` open: the track it reads, by link and id.
     subscriptions: BTreeMap<(usize, u64), (String, String)>,
-    /// Every `live.tracks` open: its room, by link and id.
-    watches: BTreeMap<(usize, u64), String>,
+    /// Every `live.tracks` open, by link and id: its room, and the grant it
+    /// hears the room's tracks by (the row it was last aimed at).
+    watches: BTreeMap<(usize, u64), (String, Grant)>,
     /// The grant rows of each room a test changed, by who (`None` the `*`
     /// row). A room not here holds `*` = [`Grant::all`].
     rows: BTreeMap<String, BTreeMap<Option<u64>, Grant>>,
@@ -221,13 +224,15 @@ impl Relay {
     }
 
     /// The block that removes `who`'s row in `room` (`None`: the `*` row), as
-    /// `program::live::revoke`. Each room list the rows still let watch
-    /// hears the tracks they now add come up and the ones they drop go down,
-    /// as a fresh `live.tracks` would list them. Then what no row covers
-    /// ends with a final `not_granted`: a publication (its subscribers hear
-    /// `publisher_gone`, and the track goes down), a subscription (its
-    /// publisher hears the lower count) and a room list. An ask waiting for
-    /// `who` that the `*` row covers is answered.
+    /// `program::live::revoke`. What no row covers now ends with a final
+    /// `not_granted`, in the node's order: publications (their subscribers
+    /// hear `publisher_gone`, and each room list that heard the track hears
+    /// it go down), then subscriptions (each publisher hears the lower
+    /// count), then room lists. A room list the rows still let watch is
+    /// re-aimed instead: it hears the tracks still up that its new row adds
+    /// come up and the ones it drops go down, as a fresh `live.tracks` would
+    /// list them. An ask waiting for `who` that the `*` row covers is
+    /// answered.
     pub fn revoke(&self, room: &str, who: Option<u64>) {
         self.0.borrow_mut().block(room, |rows| {
             rows.remove(&who);
@@ -328,18 +333,23 @@ impl State {
             .is_some_and(|grant| ask.granted(&grant, account))
     }
 
-    /// Whether `link`'s room list of `room` hears the track `name`: its row
-    /// lets it subscribe to it.
-    fn hears(&self, link: usize, room: &str, name: &str) -> bool {
+    /// Whether `room`'s rows let `link` subscribe to the track `name`.
+    fn subscribes(&self, link: usize, room: &str, name: &str) -> bool {
         let account = Self::account(link);
         self.grant_of(room, account)
             .is_some_and(|grant| grant.subscribes(name, account))
     }
 
-    /// Whether `room`'s rows let `link` watch it.
-    fn may_watch(&self, link: usize, room: &str) -> bool {
-        self.grant_of(room, Self::account(link))
-            .is_some_and(|grant| grant.watches())
+    /// Whether `link` publishes `track` already, up or waiting.
+    fn publishes(&self, link: usize, track: &LiveTrack) -> bool {
+        let up = self
+            .tracks
+            .get(&(track.room.clone(), track.name.clone()))
+            .is_some_and(|held| held.link == link);
+        up || self.waiting.iter().any(|waiting| {
+            waiting.link == link
+                && matches!(&waiting.ask, Ask::Publish(publish, _) if publish.track == *track)
+        })
     }
 
     /// `room`'s rows, made explicit: a room a test never changed holds
@@ -350,43 +360,31 @@ impl State {
             .or_insert_with(|| BTreeMap::from([(None, Grant::all())]))
     }
 
+    /// Each room list of the track's room whose grant lets it hear the
+    /// track hears it come up or go down.
     fn announce(&self, (room, name): &(String, String), published: &Published, up: bool) {
-        for ((at, id), watched) in &self.watches {
-            if watched == room && self.hears(*at, room, name) {
+        for ((at, id), (watched, grant)) in &self.watches {
+            if watched == room && grant.subscribes(name, Self::account(*at)) {
                 self.tell(*at, published.announced(*id, name, up));
             }
         }
     }
 
-    /// The tracks of `room` each of its room lists hears under the rows as
-    /// they are, as (link, id, name).
-    fn heard(&self, room: &str) -> BTreeSet<(usize, u64, String)> {
-        self.watches
-            .iter()
-            .filter(|(_, watched)| *watched == room)
-            .flat_map(|(&(link, id), _)| {
-                self.tracks
-                    .keys()
-                    .filter(move |(at, name)| at == room && self.hears(link, at, name))
-                    .map(move |(_, name)| (link, id, name.clone()))
-            })
-            .collect()
-    }
-
-    /// Each room list of `room` the rows still let watch hears the tracks
-    /// they gained since `before` come up and the ones they lost go down,
-    /// so it holds what a fresh `live.tracks` would. One they no longer let
-    /// watch is left to `recheck`, which ends it.
-    fn rewatch(&self, room: &str, before: &BTreeSet<(usize, u64, String)>) {
-        let after = self.heard(room);
-        for (link, id, name) in before.symmetric_difference(&after) {
-            if !self.may_watch(*link, room) {
-                continue;
+    /// `link`'s room list `id`, aimed at `grant`: it hears the tracks up
+    /// that `grant` adds come up and the ones it drops go down, by name, so
+    /// it holds what a fresh `live.tracks` would.
+    fn rewatch(&mut self, link: usize, id: u64, grant: Grant) {
+        let Some((room, was)) = self.watches.get(&(link, id)).cloned() else {
+            return;
+        };
+        let account = Self::account(link);
+        for ((at, name), published) in &self.tracks {
+            let now = grant.subscribes(name, account);
+            if *at == room && was.subscribes(name, account) != now {
+                self.tell(link, published.announced(id, name, now));
             }
-            let published = &self.tracks[&(room.to_owned(), name.clone())];
-            let up = after.contains(&(*link, *id, name.clone()));
-            self.tell(*link, published.announced(*id, name, up));
         }
+        self.watches.insert((link, id), (room, grant));
     }
 
     /// The publisher hears its subscriber count, which just moved.
@@ -398,8 +396,20 @@ impl State {
         );
     }
 
-    /// An ask, kept waiting while no row of its room covers it.
+    /// An ask, kept waiting while no row of its room covers it. A second
+    /// publication of a track this app publishes, up or waiting, is refused
+    /// first, as the app refuses it before the node sees it.
     fn ask(&mut self, link: usize, id: u64, ask: Ask) {
+        if let Ask::Publish(publish, _) = &ask
+            && self.publishes(link, &publish.track)
+        {
+            let refusal = Error::new(
+                refusal::DUPLICATE_TRACK,
+                "another window of this app publishes this track",
+            );
+            self.tell(link, item::<LivePublishTrack>(id, Err(refusal), true));
+            return;
+        }
         if !self.covers(link, &ask) {
             self.tell(link, ask.waits(id));
             self.waiting.push(Waiting { link, id, ask });
@@ -421,15 +431,12 @@ impl State {
         }
     }
 
-    /// A block that `write`s `room`'s rows, as the node takes it: each room
-    /// list in the room is re-aimed at its new row, every open request its
-    /// rows no longer cover ends, then every ask waiting in it is asked
-    /// again, the publications first, so a waiting subscription to one of
-    /// them finds it up.
+    /// A block that `write`s `room`'s rows, as the node takes it: every
+    /// open request in the room is rechecked, then every ask waiting in it
+    /// is asked again, the publications first, so a waiting subscription to
+    /// one of them finds it up.
     fn block(&mut self, room: &str, write: impl FnOnce(&mut BTreeMap<Option<u64>, Grant>)) {
-        let heard = self.heard(room);
         write(self.rows_of(room));
-        self.rewatch(room, &heard);
         self.recheck(room);
         let (in_room, elsewhere): (Vec<_>, Vec<_>) = std::mem::take(&mut self.waiting)
             .into_iter()
@@ -449,9 +456,11 @@ impl State {
     }
 
     /// Every open request in `room` its rows no longer cover ends with a
-    /// final `not_granted`: publications first (their subscribers, whose
-    /// own grant this is not, hear `publisher_gone`, and the tracks go
-    /// down), then subscriptions, then room lists.
+    /// final `not_granted`, in the node's order: publications first (their
+    /// subscribers, whose own grant this is not, hear `publisher_gone`, and
+    /// the tracks go down in each room list under the grant it holds), then
+    /// subscriptions, then room lists; a room list the rows still let watch
+    /// is re-aimed at its new row over the tracks still up.
     fn recheck(&mut self, room: &str) {
         let unpublished: Vec<(String, String)> = self
             .tracks
@@ -476,22 +485,30 @@ impl State {
         let unsubscribed: Vec<(usize, u64)> = self
             .subscriptions
             .iter()
-            .filter(|((link, _), (at, name))| at == room && !self.hears(*link, at, name))
+            .filter(|((link, _), (at, name))| at == room && !self.subscribes(*link, at, name))
             .map(|(subscription, _)| *subscription)
             .collect();
         for (link, id) in unsubscribed {
             self.unsubscribe(link, id);
             self.tell(link, item::<LiveSubscribeTrack>(id, Err(revoked()), true));
         }
-        let unwatched: Vec<(usize, u64)> = self
+        let watching: Vec<(usize, u64)> = self
             .watches
             .iter()
-            .filter(|((link, _), watched)| *watched == room && !self.may_watch(*link, room))
+            .filter(|(_, (watched, _))| watched == room)
             .map(|(watch, _)| *watch)
             .collect();
-        for (link, id) in unwatched {
-            self.watches.remove(&(link, id));
-            self.tell(link, item::<LiveTracks>(id, Err(revoked()), true));
+        for (link, id) in watching {
+            match self
+                .grant_of(room, Self::account(link))
+                .filter(Grant::watches)
+            {
+                Some(grant) => self.rewatch(link, id, grant),
+                None => {
+                    self.watches.remove(&(link, id));
+                    self.tell(link, item::<LiveTracks>(id, Err(revoked()), true));
+                }
+            }
         }
     }
 
@@ -513,22 +530,11 @@ impl State {
 
     fn publish(&mut self, link: usize, id: u64, publish: LivePublish) {
         let track = (publish.track.room, publish.track.name);
-        if let Some(held) = self.tracks.get(&track)
-            && held.link != link
-        {
+        // this app's own second publication `ask` refused already
+        if self.tracks.contains_key(&track) {
             let refusal = Error::new(refusal::DUPLICATE_TRACK, "another account publishes it");
             self.tell(link, item::<LivePublishTrack>(id, Err(refusal), true));
             return;
-        }
-        // the same account publishing again supersedes its old publication,
-        // which ends as its subscriptions do
-        let again = "the same account published the track again";
-        if let Some(old) = self.end(&track, refusal::PUBLISHER_GONE, again) {
-            let refusal = Error::new(refusal::PUBLISHER_GONE, again);
-            self.tell(
-                old.link,
-                item::<LivePublishTrack>(old.request, Err(refusal), true),
-            );
         }
         let published = Published {
             link,
@@ -723,12 +729,16 @@ impl State {
     }
 
     fn watch(&mut self, link: usize, id: u64, room: String) {
+        let account = Self::account(link);
+        let grant = self
+            .grant_of(&room, account)
+            .expect("an admitted room list has a row");
         for ((at, name), published) in &self.tracks {
-            if *at == room && self.hears(link, at, name) {
+            if *at == room && grant.subscribes(name, account) {
                 self.tell(link, published.announced(id, name, true));
             }
         }
-        self.watches.insert((link, id), room);
+        self.watches.insert((link, id), (room, grant));
     }
 }
 
@@ -1463,50 +1473,110 @@ mod tests {
         assert!(refused.is_empty(), "{refused:?}");
     }
 
+    /// A publication that records its refusals, prefixed with `tag`.
+    fn tagged(
+        cx: &mut TestAppContext,
+        view: &crate::Entity<Echo>,
+        tag: &'static str,
+        name: &str,
+    ) -> Track<String> {
+        let request = stream(name);
+        cx.update(view, |_, _, cx| {
+            Track::publish(cx, request, move |echo: &mut Echo, item, cx| {
+                if let Err(refusal) = item {
+                    echo.refused.push(format!("{tag}:{}", refusal.code));
+                }
+                cx.notify();
+            })
+        })
+    }
+
     #[test]
-    fn a_track_published_again_ends_the_old_publication_publisher_gone() {
+    fn a_track_this_app_publishes_already_is_refused_and_the_first_goes_on() {
         let (mut a, mut b) = (TestAppContext::new(), TestAppContext::new());
         let relay = Relay::new();
         relay.link(&a).link(&b);
         let one = a.open::<Echo>();
-        let first = a.update(&one, |_, _, cx| {
-            Track::<String>::publish(cx, stream("echo/1"), |echo: &mut Echo, item, cx| {
-                if let Err(refusal) = item {
-                    echo.refused.push(refusal.code);
-                }
-                cx.notify();
-            })
-        });
+        let mut first = tagged(&mut a, &one, "first", "echo/1");
         a.run_until_parked();
-        let two = echo(&mut b, 2);
+        let _two = echo(&mut b, 2);
         a.run_until_parked();
-        // the same account publishes it again, as a second device would
-        let _again = a.update(&one, |_, _, cx| {
-            Track::<String>::publish(cx, stream("echo/1"), |_: &mut Echo, _, _| {})
+        // another window of the same app publishes the same track
+        let _second = tagged(&mut a, &one, "second", "echo/1");
+        a.run_until_parked();
+        assert_eq!(
+            a.update(&one, |echo, _, _| echo.refused.clone()),
+            ["second:duplicate_track"]
+        );
+        a.update(&one, |_, _, cx| {
+            first.send(&cx.host(), &"still mine".into())
         });
         a.run_until_parked();
         b.run_until_parked();
+        assert!(b.has_text("still mine"), "{:?}", b.texts());
+    }
+
+    #[test]
+    fn a_track_this_app_waits_to_publish_is_refused_a_second_time() {
+        let mut a = TestAppContext::new();
+        let relay = Relay::new();
+        relay.hold("lobby").link(&a);
+        let one = a.open::<Echo>();
+        let _first = tagged(&mut a, &one, "first", "echo/1");
+        let _second = tagged(&mut a, &one, "second", "echo/1");
+        a.run_until_parked();
         assert_eq!(
             a.update(&one, |echo, _, _| echo.refused.clone()),
-            [refusal::PUBLISHER_GONE]
+            ["second:duplicate_track"]
         );
-        let (refused, roster) = b.update(&two, |echo, _, _| {
-            (echo.refused.clone(), echo.roster.clone())
-        });
-        assert_eq!(refused, [refusal::PUBLISHER_GONE]);
-        let ones: Vec<_> = roster
-            .iter()
-            .filter(|(name, ..)| name == "echo/1")
-            .collect();
+    }
+
+    #[test]
+    fn a_block_that_widens_a_room_list_and_ends_the_track_tells_it_nothing() {
+        let (mut a, mut b) = (TestAppContext::new(), TestAppContext::new());
+        let relay = Relay::new();
+        relay.link(&a).link(&b);
+        let presence = Grant {
+            publish: vec!["*".into()],
+            subscribe: vec!["presence/*".into()],
+        };
+        relay.grant("lobby", None, presence);
+        let one = a.open::<Echo>();
+        let _doc = tagged(&mut a, &one, "doc", "doc");
+        a.run_until_parked();
+        let two = watcher(&mut b);
+        // one `*` row: publish presence only, subscribe to all. The node ends
+        // `doc` first, so the widened list never holds it
+        let widened = Grant {
+            publish: vec!["presence/*".into()],
+            subscribe: vec!["*".into()],
+        };
+        relay.grant("lobby", None, widened);
+        a.run_until_parked();
+        b.run_until_parked();
+        assert_eq!(b.update(&two, |echo, _, _| echo.roster.clone()), []);
         assert_eq!(
-            ones,
-            [
-                &("echo/1".into(), 1, true),
-                &("echo/1".into(), 1, false),
-                &("echo/1".into(), 1, true)
-            ]
+            a.update(&one, |echo, _, _| echo.refused.clone()),
+            ["doc:not_granted"]
         );
-        drop(first);
+    }
+
+    #[test]
+    fn a_block_that_ends_a_room_list_and_its_track_tells_the_track_down_first() {
+        let (mut a, mut b) = (TestAppContext::new(), TestAppContext::new());
+        let relay = Relay::new();
+        relay.link(&a).link(&b);
+        let one = a.open::<Echo>();
+        let _doc = tagged(&mut a, &one, "doc", "doc");
+        a.run_until_parked();
+        let two = watcher(&mut b);
+        relay.revoke("lobby", None);
+        b.run_until_parked();
+        let (roster, refused) = b.update(&two, |echo, _, _| {
+            (echo.roster.clone(), echo.refused.clone())
+        });
+        assert_eq!(roster, [("doc".into(), 1, true), ("doc".into(), 1, false)]);
+        assert_eq!(refused, [refusal::NOT_GRANTED]);
     }
 
     #[test]

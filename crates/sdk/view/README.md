@@ -447,10 +447,13 @@ would, the n-th view linked acting as account n. Its grants are the rows a
 program writes, decided as the node decides them: every room starts with
 `*` = `Grant::all()`, and `hold(room)`, `grant(room, who, grant)` and
 `revoke(room, who)` are the block that takes every row away (each ask hears
-`Waiting`), writes one or removes one: a room list hears the tracks its row
-adds and drops, what the rows no longer cover ends `not_granted` (the
-subscribers of a publication it ends hear `publisher_gone`), and what waited
-and is covered now is answered.
+`Waiting`), writes one or removes one, in the node's order: what the rows
+no longer cover ends `not_granted`, publications first (their subscribers
+hear `publisher_gone`), then subscriptions, then room lists; a room list
+they still let watch hears the tracks still up that its row adds and drops;
+then what waited and is covered now is answered. The views opened in one
+`TestAppContext` are windows of one app: a second publication of a track it
+publishes is refused `duplicate_track`, as the app refuses it.
 `testing::lower(build)` is the one path that is not: it lowers a single
 element with no host, sanitizer or audit, for a test of what that element
 carries (`testing::assert_accessible(&tree)` audits it when the test wants).
