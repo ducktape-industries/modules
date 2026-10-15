@@ -134,10 +134,6 @@ fn item<M: Method>(id: u64, reply: Result<M::Reply, Error>, done: bool) -> Event
     }
 }
 
-fn refused(code: &str, message: &str) -> Error {
-    Error::new(code, message)
-}
-
 impl Relay {
     pub fn new() -> Self {
         Self::default()
@@ -176,7 +172,8 @@ impl Relay {
 
     /// The view linked as `cx` goes away with its tracks up, as an app
     /// that quit: each one ends `publisher_gone` for its subscribers and
-    /// goes down in every `live.tracks`; its subscriptions are dropped.
+    /// goes down in every `live.tracks`; each of its subscriptions is
+    /// dropped, and the track's publisher hears the lower count.
     pub fn gone(&self, cx: &TestAppContext) {
         let host = cx.host();
         let mut state = self.0.borrow_mut();
@@ -192,7 +189,15 @@ impl Relay {
         for track in up {
             state.end(&track, refusal::PUBLISHER_GONE, "the publisher went away");
         }
-        state.subscriptions.retain(|(at, _), _| *at != link);
+        let subscribed: Vec<u64> = state
+            .subscriptions
+            .keys()
+            .filter(|(at, _)| *at == link)
+            .map(|(_, id)| *id)
+            .collect();
+        for id in subscribed {
+            state.unsubscribe(link, id);
+        }
         state.watches.retain(|(at, _), _| *at != link);
         state.waiting.retain(|waiting| waiting.link != link);
     }
@@ -256,6 +261,7 @@ impl State {
         }
     }
 
+    /// The publisher hears its subscriber count, which just moved.
     fn count(&self, published: &Published) {
         let count = Publishing::Subscribers(published.subscribers.len() as u32);
         self.tell(
@@ -322,7 +328,7 @@ impl State {
         if let Some(held) = self.tracks.get(&track)
             && held.link != link
         {
-            let refusal = refused(refusal::DUPLICATE_TRACK, "another account publishes it");
+            let refusal = Error::new(refusal::DUPLICATE_TRACK, "another account publishes it");
             self.tell(link, item::<LivePublishTrack>(id, Err(refusal), true));
             return;
         }
@@ -337,7 +343,7 @@ impl State {
             group: None,
             subscribers: Vec::new(),
         };
-        self.count(&published);
+        // no count yet: the publisher hears one when a subscriber moves it
         self.announce(&track, link, publish.mode, true);
         self.tracks.insert(track, published);
     }
@@ -350,7 +356,7 @@ impl State {
         };
         for subscriber in &published.subscribers {
             self.subscriptions.remove(&(subscriber.link, subscriber.id));
-            let refusal = refused(code, message);
+            let refusal = Error::new(code, message);
             let ended = item::<LiveSubscribeTrack>(subscriber.id, Err(refusal), true);
             self.tell(subscriber.link, ended);
         }
@@ -370,18 +376,25 @@ impl State {
                 "the publisher ended the track",
             );
         }
-        if let Some(track) = self.subscriptions.remove(&(link, id))
-            && let Some(published) = self.tracks.get_mut(&track)
-        {
-            published
-                .subscribers
-                .retain(|subscriber| (subscriber.link, subscriber.id) != (link, id));
-            let published = &self.tracks[&track];
-            self.count(published);
-        }
+        self.unsubscribe(link, id);
         self.watches.remove(&(link, id));
         self.waiting
             .retain(|waiting| (waiting.link, waiting.id) != (link, id));
+    }
+
+    /// `link`'s subscription `id`, if it has one, is dropped from its track,
+    /// and the track's publisher hears the lower count.
+    fn unsubscribe(&mut self, link: usize, id: u64) {
+        let Some(track) = self.subscriptions.remove(&(link, id)) else {
+            return;
+        };
+        let Some(published) = self.tracks.get_mut(&track) else {
+            return;
+        };
+        published
+            .subscribers
+            .retain(|subscriber| (subscriber.link, subscriber.id) != (link, id));
+        self.count(&self.tracks[&track]);
     }
 
     fn send(&mut self, link: usize, id: u64, send: LiveSend) {
@@ -391,7 +404,7 @@ impl State {
         }
         let track = (send.track.room, send.track.name);
         let Some(published) = self.tracks.get_mut(&track).filter(|held| held.link == link) else {
-            let refusal = refused(refusal::LIVE_NOT_PUBLISHED, "no such track is published");
+            let refusal = Error::new(refusal::LIVE_NOT_PUBLISHED, "no such track is published");
             self.tell(link, item::<LiveSendObject>(id, Err(refusal), true));
             return;
         };
@@ -460,21 +473,25 @@ impl State {
                 }
             }
         }
+        let mut told = Vec::new();
         for subscriber in &published.subscribers {
             for (group, live) in &items {
                 if !subscriber.hears(*group) {
                     continue;
                 }
                 let event = item::<LiveSubscribeTrack>(subscriber.id, Ok(live.clone()), false);
-                self.hosts[subscriber.link].owe(vec![event]);
+                told.push((subscriber.link, event));
             }
+        }
+        for (at, event) in told {
+            self.tell(at, event);
         }
     }
 
     fn subscribe(&mut self, link: usize, id: u64, subscribe: LiveSubscribe) {
         let track = (subscribe.track.room, subscribe.track.name);
         let Some(published) = self.tracks.get_mut(&track) else {
-            let refusal = refused(refusal::UNKNOWN_TRACK, "no one publishes this track");
+            let refusal = Error::new(refusal::UNKNOWN_TRACK, "no one publishes this track");
             self.tell(link, item::<LiveSubscribeTrack>(id, Err(refusal), true));
             return;
         };
@@ -502,11 +519,9 @@ impl State {
                 });
             }
         }
-        let events = items
-            .into_iter()
-            .map(|live| item::<LiveSubscribeTrack>(id, Ok(live), false))
-            .collect();
-        self.hosts[link].owe(events);
+        for live in items {
+            self.tell(link, item::<LiveSubscribeTrack>(id, Ok(live), false));
+        }
         self.subscriptions.insert((link, id), track.clone());
         self.count(&self.tracks[&track]);
     }
@@ -523,24 +538,13 @@ impl State {
                 up: true,
             })
             .collect();
-        let events = up
-            .into_iter()
-            .map(|announce| item::<LiveTracks>(id, Ok(Watching::Announce(announce)), false))
-            .collect();
-        self.hosts[link].owe(events);
+        for announce in up {
+            let announced = Watching::Announce(announce);
+            self.tell(link, item::<LiveTracks>(id, Ok(announced), false));
+        }
         self.watches.insert((link, id), room);
     }
 }
-
-/// The kinds the relay answers, so a test can hold its arms to
-/// [`crate::methods::ALL`].
-#[cfg(test)]
-const KINDS: [&str; 4] = [
-    LivePublishTrack::KIND,
-    LiveSendObject::KIND,
-    LiveSubscribeTrack::KIND,
-    LiveTracks::KIND,
-];
 
 #[cfg(test)]
 mod tests {
@@ -550,6 +554,14 @@ mod tests {
     use crate::prelude::*;
     use crate::{Task, View};
     use serde::{Deserialize, Serialize};
+
+    /// The kinds the relay answers, held to [`crate::methods::ALL`].
+    const KINDS: [&str; 4] = [
+        LivePublishTrack::KIND,
+        LiveSendObject::KIND,
+        LiveSubscribeTrack::KIND,
+        LiveTracks::KIND,
+    ];
 
     #[test]
     fn the_relay_answers_every_live_kind() {
@@ -698,6 +710,22 @@ mod tests {
         b.run_until_parked();
         a.run_until_parked();
         assert!(a.has_text("hi"), "{:?}", a.texts());
+    }
+
+    #[test]
+    fn a_publisher_hears_its_count_only_as_it_moves_and_a_subscriber_gone_lowers_it() {
+        let (mut a, mut b) = (TestAppContext::new(), TestAppContext::new());
+        let relay = Relay::new();
+        relay.link(&a).link(&b);
+        let one = echo(&mut a, 1);
+        // up, and no one listens: no count, as the node tells none
+        assert_eq!(a.update(&one, |echo, _, _| echo.subscribers), None);
+        let _two = echo(&mut b, 2);
+        a.run_until_parked();
+        assert_eq!(a.update(&one, |echo, _, _| echo.subscribers), Some(1));
+        relay.gone(&b);
+        a.run_until_parked();
+        assert_eq!(a.update(&one, |echo, _, _| echo.subscribers), Some(0));
     }
 
     #[test]
