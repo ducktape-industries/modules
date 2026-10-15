@@ -504,8 +504,8 @@ line fails the close whole.
 `crates/app/forge/tests/common/sandbox.rs` is a larger harness on the same
 chain (forge and chat, agents, heights).
 
-**`conformance`: a role.** A program bound to `programs`, `validators` or
-`identity` at genesis speaks that role's bytes: the role's `Op`, `Query`
+**`conformance`: a role.** A program bound to `programs`, `validators`,
+`identity`, `awaits` or `halo` at genesis speaks that role's bytes: the role's `Op`, `Query`
 and `Reply` variants are your enums' first, in order, with the same
 fields. Take `conformance` as a dev-dependency, implement the role's
 `Fixture` (the few things the role leaves to your own ops) and call

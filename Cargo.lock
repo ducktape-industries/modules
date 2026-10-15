@@ -1015,6 +1015,7 @@ dependencies = [
  "blob",
  "blobs",
  "borsh",
+ "halo",
  "identity",
  "program",
  "programs",
