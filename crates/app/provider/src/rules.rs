@@ -1,7 +1,6 @@
 //! What each op checks and writes: a member node serving, a program's call and the chain
 //! electing its provider, the next provider elected when one stops serving or leaves, the
-//! provider answering it, and an overdue call expiring.
-use ::program::kernel::error_from;
+//! provider answering it, and a request forgotten once the awaits role no longer waits on it.
 use ::program::{
     BlobId, Cause, Error, ExecCtx, QueryCtx, invalid, not_found, unauthorized, unexpected_reply,
     wrong_state,
@@ -9,8 +8,8 @@ use ::program::{
 use abi::role::{awaits, validators};
 use store::{PageRequest, PageResponse};
 
-use crate::state::{ASSIGNED, COUNT, DEADLINES, PROVIDERS, REQUESTS, SERVING, Stored, TURNS};
-use crate::{Answer, EXPIRY_BLOCKS, ProviderRow, Request, RequestRow};
+use crate::state::{ASSIGNED, COUNT, PROVIDERS, REQUESTS, SERVING, TURNS};
+use crate::{Answer, ProviderRow, Request, RequestRow};
 
 fn members(ctx: &QueryCtx) -> Result<Vec<Vec<u8>>, Error> {
     let validators = &ctx.env().roles.validators;
@@ -82,10 +81,10 @@ pub(crate) fn serve(ctx: &ExecCtx, mut services: Vec<String>) -> Result<(), Erro
 
 fn hand_on_dropped(ctx: &ExecCtx, key: &[u8], dropped: &[String]) -> Result<(), Error> {
     for (_, id) in ASSIGNED.scan(ctx, ASSIGNED.prefix_of(&key.to_vec()))? {
-        let stored = open(ctx, id)?;
-        let unserved = dropped.contains(&stored.row.service);
+        let row = open(ctx, id)?;
+        let unserved = dropped.contains(&row.service);
         if unserved {
-            reelect(ctx, stored)?;
+            move_on(ctx, row)?;
         }
     }
     Ok(())
@@ -159,7 +158,6 @@ pub(crate) fn request(ctx: &ExecCtx, request: Request) -> Result<(), Error> {
     take_turn(ctx, &request.service, next_turn);
     let ticket = ctx.defer()?;
     let id = COUNT.get(ctx)?.unwrap_or(0) + 1;
-    let made = ctx.env().height;
     let row = RequestRow {
         id,
         requester,
@@ -167,109 +165,136 @@ pub(crate) fn request(ctx: &ExecCtx, request: Request) -> Result<(), Error> {
         input: request.input,
         parts: request.parts,
         provider,
-        made,
-        deadline: made + EXPIRY_BLOCKS,
+        made: ctx.env().height,
+        ticket,
     };
     COUNT.put(ctx, &id);
     ASSIGNED.insert(ctx, &(row.provider.clone(), id));
-    DEADLINES.insert(ctx, &(row.deadline, id));
-    REQUESTS.put(ctx, &id, &Stored { row, ticket });
+    REQUESTS.put(ctx, &id, &row);
     Ok(())
 }
 
-fn open(ctx: &QueryCtx, id: u64) -> Result<Stored, Error> {
+fn open(ctx: &QueryCtx, id: u64) -> Result<RequestRow, Error> {
     REQUESTS
         .get(ctx, &id)?
         .ok_or_else(|| not_found(format!("no open request {id}")))
 }
 
-fn close(ctx: &ExecCtx, stored: Stored, answer: Result<Vec<u8>, Error>) {
-    let row = stored.row;
-    REQUESTS.remove(ctx, &row.id);
-    ASSIGNED.remove(ctx, &(row.provider.clone(), row.id));
-    DEADLINES.remove(ctx, &(row.deadline, row.id));
-    ctx.resolve(stored.ticket, answer);
+enum Standing {
+    Waiting,
+    Over,
 }
 
-fn reelect(ctx: &ExecCtx, stored: Stored) -> Result<(), Error> {
-    match election(ctx, &stored.row.service)? {
-        Election::Elected {
-            provider,
-            next_turn,
-        } => hand_on(ctx, stored, provider, next_turn),
-        Election::Unserved => fail_unserved(ctx, stored),
+fn standing(ctx: &QueryCtx, row: &RequestRow) -> Result<Standing, Error> {
+    let role = &ctx.env().roles.awaits;
+    let asked = awaits::Query::Ticket { ticket: row.ticket };
+    let held = match ctx.query::<awaits::Query, awaits::Reply>(role, &asked)? {
+        awaits::Reply::Ticket(held) => held,
+        other => return Err(unexpected_reply(role, "Ticket", &other)),
+    };
+    let Some(held) = held else {
+        return Ok(Standing::Over);
+    };
+    let late = ctx.env().height > held.deadline;
+    match late {
+        true => Ok(Standing::Over),
+        false => Ok(Standing::Waiting),
+    }
+}
+
+fn forget(ctx: &ExecCtx, row: &RequestRow) {
+    REQUESTS.remove(ctx, &row.id);
+    ASSIGNED.remove(ctx, &(row.provider.clone(), row.id));
+}
+
+fn close(ctx: &ExecCtx, row: RequestRow, answer: Result<Vec<u8>, Error>) {
+    forget(ctx, &row);
+    ctx.resolve(row.ticket, answer);
+}
+
+fn move_on(ctx: &ExecCtx, row: RequestRow) -> Result<(), Error> {
+    match standing(ctx, &row)? {
+        Standing::Waiting => reelect(ctx, row)?,
+        Standing::Over => forget(ctx, &row),
     }
     Ok(())
 }
 
-fn hand_on(ctx: &ExecCtx, mut stored: Stored, provider: Vec<u8>, next_turn: u64) {
-    take_turn(ctx, &stored.row.service, next_turn);
-    ASSIGNED.remove(ctx, &(stored.row.provider.clone(), stored.row.id));
-    ASSIGNED.insert(ctx, &(provider.clone(), stored.row.id));
-    stored.row.provider = provider;
-    REQUESTS.put(ctx, &stored.row.id, &stored);
+fn reelect(ctx: &ExecCtx, row: RequestRow) -> Result<(), Error> {
+    match election(ctx, &row.service)? {
+        Election::Elected {
+            provider,
+            next_turn,
+        } => hand_on(ctx, row, provider, next_turn),
+        Election::Unserved => fail_unserved(ctx, row),
+    }
+    Ok(())
 }
 
-fn fail_unserved(ctx: &ExecCtx, stored: Stored) {
-    let refusal = unserved(&stored.row.service);
-    close(ctx, stored, Err(refusal));
+fn hand_on(ctx: &ExecCtx, mut row: RequestRow, provider: Vec<u8>, next_turn: u64) {
+    take_turn(ctx, &row.service, next_turn);
+    ASSIGNED.remove(ctx, &(row.provider.clone(), row.id));
+    ASSIGNED.insert(ctx, &(provider.clone(), row.id));
+    row.provider = provider;
+    REQUESTS.put(ctx, &row.id, &row);
+}
+
+fn fail_unserved(ctx: &ExecCtx, row: RequestRow) {
+    let refusal = unserved(&row.service);
+    close(ctx, row, Err(refusal));
 }
 
 pub(crate) fn reassign(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
-    let stored = open(ctx, id)?;
-    let still_serving = serving(ctx, &stored.row.service)?.contains(&stored.row.provider);
+    let row = open(ctx, id)?;
+    match standing(ctx, &row)? {
+        Standing::Waiting => reassign_waiting(ctx, row)?,
+        Standing::Over => forget(ctx, &row),
+    }
+    Ok(())
+}
+
+fn reassign_waiting(ctx: &ExecCtx, row: RequestRow) -> Result<(), Error> {
+    let still_serving = serving(ctx, &row.service)?.contains(&row.provider);
     if still_serving {
         return Err(wrong_state(format!(
-            "request {id}'s provider is a member node that still serves {}: it answers, or the request expires",
-            stored.row.service
+            "request {}'s provider is a member node that still serves {}: it answers, or the awaits role expires the call",
+            row.id, row.service
         )));
     }
-    reelect(ctx, stored)
+    reelect(ctx, row)
 }
 
 pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error> {
     let key = ctx.env().signer()?;
-    let stored = open(ctx, id)?;
-    if stored.row.provider != key {
+    let row = open(ctx, id)?;
+    if row.provider != key {
         return Err(unauthorized(format!(
             "request {id} was elected to another provider"
         )));
     }
-    let same_block = ctx.env().height <= stored.row.made;
+    let same_block = ctx.env().height <= row.made;
     if same_block {
         return Err(wrong_state(format!(
             "request {id} is answered in a later block than the one that made it"
         )));
     }
-    if ctx.env().height > stored.row.deadline {
-        return Err(wrong_state(format!(
-            "request {id} expired at height {}",
-            stored.row.deadline
-        )));
+    match standing(ctx, &row)? {
+        Standing::Waiting => deliver(ctx, row, answer),
+        Standing::Over => forget(ctx, &row),
     }
+    Ok(())
+}
+
+fn deliver(ctx: &ExecCtx, row: RequestRow, answer: Answer) {
     let answered = match answer {
         Answer::Output(output) => Ok(output),
-        Answer::Failed(reason) => Err(failed(&stored.row.service, &reason)),
+        Answer::Failed(reason) => Err(failed(&row.service, &reason)),
     };
-    close(ctx, stored, answered);
-    Ok(())
+    close(ctx, row, answered);
 }
 
 fn failed(service: &str, reason: &str) -> Error {
     wrong_state(format!("the {service} provider failed: {reason}"))
-}
-
-pub(crate) fn expire(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
-    let stored = open(ctx, id)?;
-    if ctx.env().height <= stored.row.deadline {
-        return Err(wrong_state(format!(
-            "request {id} is open until height {}",
-            stored.row.deadline
-        )));
-    }
-    let expired = awaits::expired(stored.ticket, ctx.env().height);
-    close(ctx, stored, Err(error_from(expired)));
-    Ok(())
 }
 
 pub(crate) fn assigned(
@@ -279,30 +304,11 @@ pub(crate) fn assigned(
 ) -> Result<PageResponse<RequestRow>, Error> {
     ASSIGNED
         .range_of(ctx, &key, page)?
-        .try_map(|(_, id)| Ok(open(ctx, id)?.row))
+        .try_map(|(_, id)| open(ctx, id))
 }
 
 pub(crate) fn request_row(ctx: &QueryCtx, id: u64) -> Result<Option<RequestRow>, Error> {
-    Ok(REQUESTS.get(ctx, &id)?.map(|stored| stored.row))
-}
-
-pub(crate) fn overdue(
-    ctx: &QueryCtx,
-    page: &PageRequest,
-) -> Result<PageResponse<RequestRow>, Error> {
-    let height = ctx.env().height;
-    let mut due = DEADLINES.range(ctx, page)?;
-    let past: Vec<(u64, u64)> = due
-        .items
-        .iter()
-        .copied()
-        .take_while(|(deadline, _)| *deadline < height)
-        .collect();
-    if past.len() < due.items.len() {
-        due.next = None;
-    }
-    due.items = past;
-    due.try_map(|(_, id)| Ok(open(ctx, id)?.row))
+    REQUESTS.get(ctx, &id)
 }
 
 pub(crate) fn providers(

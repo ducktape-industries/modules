@@ -1,9 +1,7 @@
 //! The program: every op and every query, each handed to its rule.
 use ::program::{Error, ExecCtx, Program, QueryCtx};
 
-use crate::rules::{
-    answer, assigned, expire, overdue, providers, reassign, request, request_row, serve, serving,
-};
+use crate::rules::{answer, assigned, providers, reassign, request, request_row, serve, serving};
 use crate::{Op, PROGRAM, Query, Reply};
 
 pub struct Provider;
@@ -19,7 +17,6 @@ impl Program for Provider {
             Op::Serve { services } => serve(ctx, services),
             Op::Request(asked) => request(ctx, asked),
             Op::Answer { id, answer: given } => answer(ctx, id, given),
-            Op::Expire { id } => expire(ctx, id),
             Op::Reassign { id } => reassign(ctx, id),
         }
     }
@@ -28,7 +25,6 @@ impl Program for Provider {
         match query {
             Query::Assigned { key, page } => Ok(Reply::Requests(assigned(ctx, key, &page)?)),
             Query::Request { id } => Ok(Reply::Request(request_row(ctx, id)?)),
-            Query::Overdue { page } => Ok(Reply::Requests(overdue(ctx, &page)?)),
             Query::Providers { page } => Ok(Reply::Providers(providers(ctx, &page)?)),
             Query::Serving { service } => Ok(Reply::Serving(serving(ctx, &service)?)),
         }

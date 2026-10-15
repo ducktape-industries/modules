@@ -1,5 +1,6 @@
 //! provider on a `MockChain` beside valset, the awaits role and a program that calls it:
-//! serving, the election's turns, re-election, answers that resolve the call, refusals and expiry.
+//! serving, the election's turns, re-election, answers that resolve the call, refusals, and
+//! requests the awaits role no longer waits on.
 use ::program::{
     Awaiting, Blob, Ctx, Error, HashKind, MockChain, Origin, Program, QueryCtx, Reply as Wanted,
     blob_id, code,
@@ -146,6 +147,27 @@ fn reassign(chain: &MockChain, id: u64) -> Result<Vec<u8>, Error> {
     )
 }
 
+fn held(chain: &MockChain, ticket: Ticket) -> Option<awaits::TicketRow> {
+    let asked = awaits::Query::Ticket { ticket };
+    let awaits::Reply::Ticket(row) = chain.query(awaits::PROGRAM, &asked).unwrap() else {
+        panic!()
+    };
+    row
+}
+
+fn expire_call(chain: &MockChain, id: u64) {
+    let ticket = open_row(chain, id).unwrap().ticket;
+    let deadline = held(chain, ticket).unwrap().deadline;
+    chain.at(deadline, 0);
+    chain
+        .submit(
+            Origin::Signed(STRANGER.to_vec()),
+            awaits::PROGRAM,
+            &awaits::Op::Expire { ticket },
+        )
+        .unwrap();
+}
+
 #[test]
 fn the_election_takes_turns_and_only_the_elected_provider_answers() {
     let chain = chain();
@@ -160,8 +182,13 @@ fn the_election_takes_turns_and_only_the_elected_provider_answers() {
     assert_eq!((ada, bo), (vec![1, 3, 4], vec![2]));
     let row = &assigned(&chain, BO)[0];
     assert_eq!(
-        (row.requester.as_str(), row.input.as_slice(), row.deadline),
-        (ASKER, &b"ping"[..], 1 + EXPIRY_BLOCKS)
+        (row.requester.as_str(), row.input.as_slice()),
+        (ASKER, &b"ping"[..])
+    );
+    let call = held(&chain, row.ticket).unwrap();
+    assert_eq!(
+        (call.caller.as_str(), call.target.as_str()),
+        (ASKER, PROGRAM)
     );
 
     let same_block = answer(&chain, BO, 2, Answer::Output(Vec::new())).unwrap_err();
@@ -231,58 +258,61 @@ fn only_a_member_node_serves_and_only_a_program_calling_requests() {
 }
 
 #[test]
-fn an_unanswered_request_expires_after_its_window_and_answers_the_call() {
+fn the_awaits_role_expires_an_unanswered_call_and_the_late_answer_closes_the_request() {
     let chain = chain();
     serve(&chain, ADA, &[RELAY]).unwrap();
     ask(&chain, RELAY, b"");
-    let expire = Op::Expire { id: 1 };
-    let early = chain
-        .submit(Origin::Signed(STRANGER.to_vec()), PROGRAM, &expire)
-        .unwrap_err();
-    assert_eq!(early.code, code::WRONG_STATE);
-    chain.at(1 + EXPIRY_BLOCKS, 0);
-    let Reply::Requests(none) = chain
-        .query(
-            PROGRAM,
-            &Query::Overdue {
-                page: PageRequest::default(),
-            },
-        )
-        .unwrap()
-    else {
-        panic!()
-    };
-    assert!(none.items.is_empty());
-    chain.at(2 + EXPIRY_BLOCKS, 0);
-    let late = answer(&chain, ADA, 1, Answer::Output(Vec::new())).unwrap_err();
-    assert_eq!(late.code, code::WRONG_STATE);
-    let Reply::Requests(due) = chain
-        .query(
-            PROGRAM,
-            &Query::Overdue {
-                page: PageRequest::default(),
-            },
-        )
-        .unwrap()
-    else {
-        panic!()
-    };
-    assert_eq!(due.items.len(), 1);
+    expire_call(&chain, 1);
+    let [expired] = answers(&chain).try_into().unwrap();
+    assert_eq!(expired.unwrap_err().code, code::WRONG_STATE);
+    assert_eq!(ids(&chain, ADA), [1]);
+
+    answer(&chain, ADA, 1, Answer::Output(b"pong".to_vec())).unwrap();
+    assert_eq!(open_row(&chain, 1), None);
+    assert!(assigned(&chain, ADA).is_empty());
+    assert_eq!(answers(&chain).len(), 1);
+}
+
+#[test]
+fn an_answer_past_the_awaits_deadline_is_not_delivered() {
+    let chain = chain();
+    serve(&chain, ADA, &[RELAY]).unwrap();
+    ask(&chain, RELAY, b"");
+    let ticket = open_row(&chain, 1).unwrap().ticket;
+    let deadline = held(&chain, ticket).unwrap().deadline;
+    chain.at(deadline + 1, 0);
+    answer(&chain, ADA, 1, Answer::Output(b"pong".to_vec())).unwrap();
+    assert_eq!(open_row(&chain, 1), None);
+    assert!(answers(&chain).is_empty());
+
     chain
-        .submit(Origin::Signed(STRANGER.to_vec()), PROGRAM, &expire)
+        .submit(
+            Origin::Signed(STRANGER.to_vec()),
+            awaits::PROGRAM,
+            &awaits::Op::Expire { ticket },
+        )
         .unwrap();
     let [expired] = answers(&chain).try_into().unwrap();
-    let expired = expired.unwrap_err();
-    assert_eq!(expired.code, code::WRONG_STATE);
-    assert!(
-        expired
-            .message
-            .ends_with(&format!("expired at height {}", 2 + EXPIRY_BLOCKS))
-    );
-    let Reply::Request(gone) = chain.query(PROGRAM, &Query::Request { id: 1 }).unwrap() else {
-        panic!()
-    };
-    assert_eq!(gone, None);
+    assert_eq!(expired.unwrap_err().code, code::WRONG_STATE);
+}
+
+#[test]
+fn reassign_and_a_dropped_service_close_a_request_the_awaits_role_expired() {
+    let chain = chain();
+    serve(&chain, ADA, &[RELAY]).unwrap();
+    serve(&chain, BO, &[RELAY]).unwrap();
+    ask(&chain, RELAY, b"ping");
+    ask(&chain, RELAY, b"ping");
+    expire_call(&chain, 1);
+    expire_call(&chain, 2);
+    assert_eq!((ids(&chain, ADA), ids(&chain, BO)), (vec![1], vec![2]));
+
+    reassign(&chain, 1).unwrap();
+    assert_eq!(open_row(&chain, 1), None);
+    serve(&chain, BO, &[]).unwrap();
+    assert_eq!(open_row(&chain, 2), None);
+    assert!(assigned(&chain, ADA).is_empty());
+    assert_eq!(answers(&chain).len(), 2);
 }
 
 #[test]
@@ -372,12 +402,12 @@ fn a_node_that_drops_a_service_hands_its_requests_to_the_next_serving_node() {
     ask(&chain, RELAY, b"ping");
     ask(&chain, "anthropic", b"model");
     assert_eq!((ids(&chain, ADA), ids(&chain, BO)), (vec![1, 3], vec![2]));
-    let deadline = open_row(&chain, 1).unwrap().deadline;
+    let ticket = open_row(&chain, 1).unwrap().ticket;
 
     serve(&chain, ADA, &["anthropic"]).unwrap();
     assert_eq!((ids(&chain, ADA), ids(&chain, BO)), (vec![3], vec![1, 2]));
     let moved = open_row(&chain, 1).unwrap();
-    assert_eq!((moved.provider, moved.deadline), (BO.to_vec(), deadline));
+    assert_eq!((moved.provider, moved.ticket), (BO.to_vec(), ticket));
 
     chain.at(2, 0);
     let old = answer(&chain, ADA, 1, Answer::Output(Vec::new())).unwrap_err();
@@ -395,14 +425,14 @@ fn reassign_hands_on_the_request_of_a_node_that_left_the_member_set() {
     ask(&chain, RELAY, b"ping");
     ask(&chain, RELAY, b"ping");
     assert_eq!(ids(&chain, BO), [2]);
-    let deadline = open_row(&chain, 2).unwrap().deadline;
+    let ticket = open_row(&chain, 2).unwrap().ticket;
     chain
         .submit(Origin::Signed(BO.to_vec()), "valset", &valset::Op::Leave)
         .unwrap();
 
     reassign(&chain, 2).unwrap();
     assert_eq!((ids(&chain, ADA), ids(&chain, BO)), (vec![1, 2], vec![]));
-    assert_eq!(open_row(&chain, 2).unwrap().deadline, deadline);
+    assert_eq!(open_row(&chain, 2).unwrap().ticket, ticket);
     chain.at(2, 0);
     let old = answer(&chain, BO, 2, Answer::Output(Vec::new())).unwrap_err();
     assert_eq!(old.code, code::UNAUTHORIZED);

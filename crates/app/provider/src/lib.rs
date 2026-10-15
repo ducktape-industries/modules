@@ -8,7 +8,7 @@ mod tests;
 
 pub mod http;
 
-pub use ::program::{BlobId, ProgramId};
+pub use ::program::{BlobId, ProgramId, Ticket};
 pub use program::Provider;
 pub use store::{PageRequest, PageResponse};
 
@@ -18,14 +18,11 @@ pub const PROGRAM: &str = "provider";
 
 pub const RELAY: &str = "relay";
 
-pub const EXPIRY_BLOCKS: u64 = abi::role::awaits::EXPIRY_BLOCKS;
-
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {
     Serve { services: Vec<String> },
     Request(Request),
     Answer { id: u64, answer: Answer },
-    Expire { id: u64 },
     Reassign { id: u64 },
 }
 
@@ -51,7 +48,7 @@ pub struct RequestRow {
     pub parts: Vec<BlobId>,
     pub provider: Vec<u8>,
     pub made: u64,
-    pub deadline: u64,
+    pub ticket: Ticket,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -70,9 +67,6 @@ pub enum Query {
     #[ask(Reply::Request(Option<RequestRow>))]
     #[reads(state::REQUESTS)]
     Request { id: u64 },
-    #[ask(Reply::Requests(PageResponse<RequestRow>))]
-    #[reads(state::DEADLINES, state::REQUESTS)]
-    Overdue { page: PageRequest },
     #[ask(Reply::Providers(PageResponse<ProviderRow>))]
     #[reads(state::PROVIDERS)]
     Providers { page: PageRequest },
@@ -114,7 +108,6 @@ pub fn describe(op: &Op) -> describe::Description {
             };
             (format!("Answer request {id}"), vec![field])
         }
-        Op::Expire { id } => (format!("Expire request {id}"), Vec::new()),
         Op::Reassign { id } => (format!("Reassign request {id}"), Vec::new()),
     };
     describe::Description { title, fields }
@@ -126,6 +119,6 @@ describe::export!(Op, describe);
 fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
-        ["Serve", "Request", "Answer", "Expire", "Reassign"]
+        ["Serve", "Request", "Answer", "Reassign"]
     );
 }

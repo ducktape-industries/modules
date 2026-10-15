@@ -390,11 +390,16 @@ awaiting program with `chain.seat_awaiting`.
 
 provider is called this way: `ctx.call(provider::PROGRAM,
 &provider::Op::Request(request))` answers the elected node's output, in a
-later block, or a refusal when the node reports a failure, the request
-expires, or no member node serves the service any longer. A request whose
-node stops serving the service or leaves the member set moves to the next
-member node serving it, keeping its deadline: in the `Serve` op that drops
-the service, or in a `Reassign` anyone sends once the node has left.
+later block, or a refusal when the node reports a failure, the awaits role
+expires the call, or no member node serves the service any longer. A request
+whose node stops serving the service or leaves the member set moves to the
+next member node serving it, keeping its call's ticket: in the `Serve` op
+that drops the service, or in a `Reassign` anyone sends once the node has
+left. Provider keeps no deadline of its own. It reads the call's ticket from
+the awaits role when it acts on a request, and once awaits no longer holds
+the ticket or its deadline has passed, the next `Answer` or `Reassign` for
+the request, or a `Serve` that drops its service, removes provider's record
+without answering the call.
 
 ## 7. Describe
 
