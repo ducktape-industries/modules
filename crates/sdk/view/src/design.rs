@@ -284,18 +284,26 @@ pub const fn ladder(touch: bool) -> Ladder {
     if touch { TOUCH } else { POINTER }
 }
 
-/// A [`Sheet`](crate::Sheet) in the view's colours (the Expo kit's
-/// `Sheet`): its panel on the window's ground under a `border_strong`
-/// hairline, edge to edge, so a row's ground and a hairline reach both
-/// sides; what it holds pads itself ([`sheet_head`], [`sheet_row`]).
-/// `design::sheet("actions", "Message actions", theme).detents([0.6,
-/// 1.0]).on_dismiss(..).child(..)`; the host draws the scrim and the handle
-/// and docks or centres it by the body's width class.
-pub fn sheet(id: impl Into<ElementId>, label: impl Into<String>, theme: &Theme) -> crate::Sheet {
-    crate::sheet(id, label)
-        .bg(theme.background)
-        .border_t_1()
-        .border_color(theme.border_strong)
+/// A [`Sheet`](crate::Sheet) in the view's colours. Under a finger it is
+/// the Expo kit's `Sheet`: its panel on the window's ground under a
+/// `border_strong` hairline, edge to edge, so a row's ground and a hairline
+/// reach both sides; what it holds pads itself ([`sheet_head`],
+/// [`sheet_row`]). Under a pointer the panel pads its content by
+/// [`space::BLOCK`]. `design::sheet("actions", "Message actions", ladder,
+/// theme).detents([0.6, 1.0]).on_dismiss(..).child(..)`; the host draws the
+/// scrim and the handle and docks or centres it by the body's width class.
+pub fn sheet(
+    id: impl Into<ElementId>,
+    label: impl Into<String>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> crate::Sheet {
+    let sheet = crate::sheet(id, label).bg(theme.background);
+    if ladder.touch {
+        sheet.border_t_1().border_color(theme.border_strong)
+    } else {
+        sheet.p(space::BLOCK)
+    }
 }
 
 /// How far a sheet's head and rows sit in from its sides (the Expo kit's

@@ -69,7 +69,7 @@ impl Render for Phone {
                 }),
             ))
             .children(self.picking.then(|| {
-                design::sheet("picker", "Pick one", &theme)
+                design::sheet("picker", "Pick one", &ladder, &theme)
                     .on_dismiss(cx.listener(|view, _, _, cx| {
                         view.picking = false;
                         cx.notify();
