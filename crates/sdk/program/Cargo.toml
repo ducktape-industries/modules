@@ -18,7 +18,7 @@ borsh = { workspace = true }
 serde = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-sha1 = "0.10"
+sha1-checked = { version = "0.10", default-features = false }
 sha2 = { workspace = true }
 
 # A program written with `program` alone: `cargo build --target

@@ -4155,7 +4155,7 @@ dependencies = [
  "error",
  "program-derive",
  "serde",
- "sha1",
+ "sha1-checked",
  "sha2 0.10.9",
 ]
 

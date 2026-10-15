@@ -15,7 +15,7 @@ use abi::{
     Blob, BlobHeader, BlobId, CryptoOp, CryptoReply, Entry, HashKind, HostOp, HostReply, Message,
     Scheme,
 };
-use sha1::Digest as _;
+use sha2::Digest as _;
 
 use crate::{
     AccountNumber, Cause, Env, Error, ExecCtx, FrameId, Order, Origin, Principal, Program,
@@ -481,10 +481,26 @@ pub fn blob_id(hash: HashKind, kind: &str, body: &[u8]) -> Result<BlobId, Error>
     }
     let mut framed = format!("{kind} {}\0", body.len()).into_bytes();
     framed.extend_from_slice(body);
-    Ok(match hash {
-        HashKind::Sha256 => BlobId::Sha256(sha2::Sha256::digest(&framed).into()),
-        HashKind::Sha1 => BlobId::Sha1(sha1::Sha1::digest(&framed).into()),
-    })
+    match hash {
+        HashKind::Sha256 => Ok(BlobId::Sha256(sha2::Sha256::digest(&framed).into())),
+        HashKind::Sha1 => sha1_id(&framed),
+    }
+}
+
+fn sha1_id(framed: &[u8]) -> Result<BlobId, Error> {
+    let mut hasher = sha1_checked::Sha1::builder().safe_hash(false).build();
+    hasher.update(framed);
+    match hasher.try_finalize() {
+        sha1_checked::CollisionResult::Ok(digest) => Ok(BlobId::Sha1(digest.into())),
+        sha1_checked::CollisionResult::Collision(digest)
+        | sha1_checked::CollisionResult::Mitigated(digest) => Err(Error::new(
+            code::INVALID_INPUT,
+            format!(
+                "the bytes named {:?} carry a SHA-1 collision attack",
+                BlobId::Sha1(digest.into())
+            ),
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -532,5 +548,27 @@ mod tests {
         assert_eq!(answer, (Origin::Program("chat".into()), 5));
         let unknown = ctx.query_raw("nobody", Vec::new()).unwrap_err();
         assert_eq!(unknown.code, code::UNKNOWN_PROGRAM);
+    }
+    #[test]
+    fn a_sha1_blob_gets_git_s_id_and_a_shattered_half_is_refused() {
+        let hello = blob_id(HashKind::Sha1, "blob", b"hello\n").unwrap();
+        assert_eq!(
+            abi::hex(hello.digest()),
+            "ce013625030ba8dba906f756967f9e9ca394464a"
+        );
+        for half in [
+            include_bytes!("../fixtures/shattered-1.bin"),
+            include_bytes!("../fixtures/shattered-2.bin"),
+        ] {
+            let refused = sha1_id(half).unwrap_err();
+            assert_eq!(refused.code, code::INVALID_INPUT);
+            assert!(
+                refused
+                    .message
+                    .contains("f92d74e3874587aaf443d1db961d4e26dde13e9c"),
+                "{}",
+                refused.message
+            );
+        }
     }
 }
