@@ -515,6 +515,8 @@ pub fn refused(
                 .w(px(64.))
                 .min_h(ladder.hit)
                 .bg(theme.surface)
+                // the Expo kit's `Notice` action: medium
+                .when(ladder.touch, |retry| retry.font_weight(FontWeight::MEDIUM))
                 .hover(move |style| style.bg(theme.surface_raised))
                 .role(Role::Button)
                 .focusable()
@@ -1305,6 +1307,10 @@ fn segment(
         .border_l_1()
         .border_color(theme.border_strong)
         .text_type(ladder.label)
+        // the Expo kit's `Segmented`: the chosen one medium
+        .when(ladder.touch && selected, |segment| {
+            segment.font_weight(FontWeight::MEDIUM)
+        })
         .whitespace_nowrap()
         .map(|segment| match selected {
             true => segment
@@ -1748,6 +1754,61 @@ mod tests {
         let primary = style(Kind::Primary);
         assert_eq!(primary.size.height, Some(px(48.).into()));
         assert_eq!(primary.background, Some(theme.primary.into()));
+    }
+
+    /// What the Expo kit sets `weight="medium"` asks for 500 under a
+    /// finger (the app draws Instrument Sans Medium); a pointer's weights
+    /// are the desktop's.
+    #[test]
+    fn under_touch_the_kits_medium_roles_ask_for_500() {
+        let theme = Theme::light();
+        let weight = |(node, styles): (wire::Node, wire::Styles)| {
+            styles[node.style().expect("a styled node")]
+                .text
+                .font_weight
+        };
+        let medium = Some(FontWeight::MEDIUM);
+        let label = |kind: Kind| {
+            weight(lower_styled(
+                button("save", "Save", &TOUCH, &theme, |_, _, _| {}).kind(kind),
+            ))
+        };
+        assert_eq!(label(Kind::Plain), medium);
+        assert_eq!(label(Kind::Quiet), None);
+        let tag = |ladder: &Ladder| {
+            weight(lower_styled(badge(
+                "n",
+                "3",
+                ladder,
+                theme.foreground,
+                theme.surface,
+            )))
+        };
+        assert_eq!(tag(&TOUCH), medium);
+        let chosen = |ladder: &Ladder| {
+            let (node, styles) = lower_styled(segmented(
+                "mode",
+                "Mode",
+                ladder,
+                &theme,
+                Some(1),
+                [("a".into(), "A".into()), ("b".into(), "B".into())],
+                |_, _, _| {},
+            ));
+            let picked = node.children()[1].clone();
+            [
+                weight((node.children()[0].clone(), styles.clone())),
+                weight((picked, styles)),
+            ]
+        };
+        assert_eq!(chosen(&TOUCH), [None, medium]);
+        assert_eq!(chosen(&POINTER), [None, None]);
+        let retry = |ladder: &Ladder| {
+            let (node, styles) = lower_styled(refused("feed", "No.", ladder, &theme, |_, _, _| {}));
+            weight((node.children()[1].clone(), styles))
+        };
+        assert_eq!(retry(&TOUCH), medium);
+        assert_eq!(retry(&POINTER), None);
     }
 
     #[test]

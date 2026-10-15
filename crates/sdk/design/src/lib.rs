@@ -2,13 +2,18 @@
 //! palette both the native shell (through the kit's theme) and the WASM
 //! views (through `view::design`) paint with.
 
-/// Font identity. The native shell loads these files into GPUI's text system.
-/// View wire text names the same families. Replace an asset and its family
-/// constant together when changing the product face.
+/// Font identity: the family names a view writes on the wire. The app does
+/// not draw these two faces: its host (app `crates/host/src/fonts.rs`,
+/// `app_family`) draws [`FAMILY_UI`] as Instrument Sans and [`FAMILY_MONO`]
+/// as IBM Plex Mono, the Expo app's faces, and bundles Regular, Italic,
+/// Medium, Bold and Bold Italic of each. So a weight of 500
+/// (`FontWeight::MEDIUM`) draws Medium.
 pub mod fonts {
-    /// the UI face — every sans role (default, medium, display).
+    /// the UI face — every sans role (default, medium, display). The app
+    /// draws it as Instrument Sans.
     pub const FAMILY_UI: &str = "Inter";
-    /// the data face — hashes, seqs, diffs, code, the log ring.
+    /// the data face — hashes, seqs, diffs, code, the log ring. The app
+    /// draws it as IBM Plex Mono.
     pub const FAMILY_MONO: &str = "JetBrains Mono";
     /// The Hangul face behind [`FAMILY_UI`]: neither Latin family draws
     /// 한글, so every Korean run falls back, and the fallback is named
@@ -18,18 +23,17 @@ pub mod fonts {
     /// column grid, and [`FAMILY_UI_HANGUL`] is proportional — Korean in a
     /// terminal or a diff has to land on a monospaced Hangul face.
     pub const FAMILY_MONO_HANGUL: &str = "D2Coding";
-    /// Bundled files relative to this crate, each the vendor's own released
-    /// static face (see `assets/fonts/SOURCES`). The emoji face supplies
-    /// fallback glyphs; it is not a separate product type role.
+    /// This crate's own files for the two names above, each the vendor's
+    /// own released static face (see `assets/fonts/SOURCES`). The app
+    /// bundles its own set instead (`crates/host/src/fonts.rs`
+    /// `BUNDLED_FACES`); nothing it draws comes from here. The emoji face
+    /// supplies fallback glyphs; it is not a separate product type role.
     ///
     /// ONE FILE PER FACE, and no variable font: the shell's text system
     /// shapes with the matched face's own weight and rasterizes with no
     /// variation settings, so a family holding one variable face draws every
-    /// weight at 400 and slants for nothing. The set is the four RIBBI faces
-    /// — Regular, Bold, Italic, Bold Italic — and a heavier request lands on
-    /// the nearer of the two weights (see `app/src/shell.rs`'s
-    /// `BUNDLED_FACES`). Hangul has no italic in any open font: an italic run
-    /// slants its Latin and stays upright in 한글.
+    /// weight at 400 and slants for nothing. Hangul has no italic in any
+    /// open font: an italic run slants its Latin and stays upright in 한글.
     pub const ASSETS: [&str; 13] = [
         "assets/fonts/Inter-Regular.ttf",
         "assets/fonts/Inter-Bold.ttf",
