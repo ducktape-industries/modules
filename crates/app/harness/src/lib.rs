@@ -105,6 +105,34 @@ impl Body {
             Body::Notice { .. } | Body::Compaction { .. } => None,
         }
     }
+
+    pub fn text(&self) -> String {
+        match self {
+            Body::Post { text, .. } | Body::Result { text, .. } | Body::Notice { text } => {
+                text.clone()
+            }
+            Body::Refused { problem, .. } => problem.clone(),
+            Body::Turn { said, .. } => said
+                .iter()
+                .filter_map(Said::text)
+                .collect::<Vec<_>>()
+                .join("\n"),
+            Body::Compaction { block } => serde_json::from_str::<serde_json::Value>(block)
+                .ok()
+                .and_then(|value| value["content"].as_str().map(str::to_owned))
+                .unwrap_or_else(|| block.clone()),
+        }
+    }
+}
+
+impl Said {
+    fn text(&self) -> Option<String> {
+        match self {
+            Said::Text(text) | Said::Thinking { text, .. } => Some(text.clone()),
+            Said::ToolUse { name, input, .. } => Some(format!("{name} {input}")),
+            Said::RedactedThinking(_) => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
