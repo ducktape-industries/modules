@@ -325,10 +325,12 @@ pub struct InputOptions {
     pub text_input: TextInput,
 }
 
-/// gpui's `TextInputConfiguration`, field for field, plus the keyboard
-/// type it lacks ([`VirtualKeyboard`], the fork's name): what a software keyboard shows and does
-/// for the field. The defaults are gpui's: no assistance, no particular
-/// key. A desktop engine ignores what its OS has no use for.
+/// gpui's `TextInputConfiguration`, field for field but `secure`: what a
+/// software keyboard shows and does for the field. `secure` is not here:
+/// it is the field's masked flag ([`crate::Node::Field`]'s `secure`), which
+/// the host passes to [`TextInput::configuration`]. The defaults are
+/// gpui's: no assistance, no particular key. A desktop engine ignores what
+/// its OS has no use for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextInput {
     /// The platform may correct what is typed.
@@ -365,9 +367,8 @@ pub enum TextInputAction {
     Send,
 }
 
-/// The keyboard a software keyboard opens as: HTML's `inputmode` values,
-/// the one field past gpui's configuration (iOS `keyboardType`, Android
-/// `inputType`); the fork's `VirtualKeyboard`, variant for variant.
+/// gpui's `VirtualKeyboard`: the keyboard a software keyboard opens as,
+/// HTML's `inputmode` values (iOS `keyboardType`, Android `inputType`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VirtualKeyboard {
     #[default]
@@ -432,16 +433,47 @@ impl From<TextInputAction> for gpui::TextInputAction {
     }
 }
 
+impl From<gpui::VirtualKeyboard> for VirtualKeyboard {
+    fn from(value: gpui::VirtualKeyboard) -> Self {
+        match value {
+            gpui::VirtualKeyboard::Text => Self::Text,
+            gpui::VirtualKeyboard::Numeric => Self::Numeric,
+            gpui::VirtualKeyboard::Decimal => Self::Decimal,
+            gpui::VirtualKeyboard::Tel => Self::Tel,
+            gpui::VirtualKeyboard::Email => Self::Email,
+            gpui::VirtualKeyboard::Url => Self::Url,
+            gpui::VirtualKeyboard::Search => Self::Search,
+        }
+    }
+}
+
+impl From<VirtualKeyboard> for gpui::VirtualKeyboard {
+    fn from(value: VirtualKeyboard) -> Self {
+        match value {
+            VirtualKeyboard::Text => Self::Text,
+            VirtualKeyboard::Numeric => Self::Numeric,
+            VirtualKeyboard::Decimal => Self::Decimal,
+            VirtualKeyboard::Tel => Self::Tel,
+            VirtualKeyboard::Email => Self::Email,
+            VirtualKeyboard::Url => Self::Url,
+            VirtualKeyboard::Search => Self::Search,
+        }
+    }
+}
+
 impl TextInput {
-    /// The same field's configuration in gpui's type, for a host engine;
-    /// `virtual_keyboard` has no field in the pinned gpui and is the host's
-    /// to map.
-    pub fn configuration(self) -> gpui::TextInputConfiguration {
+    /// The same field's configuration in gpui's type, for a host engine.
+    /// `secure` is the field's masked flag ([`crate::Node::Field`]'s
+    /// `secure`): a secret field hides what is typed from third-party
+    /// keyboards and suggestion services.
+    pub fn configuration(self, secure: bool) -> gpui::TextInputConfiguration {
         gpui::TextInputConfiguration {
             autocorrect: self.autocorrect,
             autocapitalize: self.autocapitalize.into(),
             suggestions: self.suggestions,
             input_action: self.input_action.into(),
+            virtual_keyboard: self.virtual_keyboard.into(),
+            secure,
         }
     }
 }
