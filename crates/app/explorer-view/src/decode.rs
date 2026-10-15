@@ -25,6 +25,15 @@ pub fn sized(program: &str, size: u64) -> String {
     format!("{program} · {}", plural(size, "byte", "bytes"))
 }
 
+/// Bytes as a person reads a size: `12 bytes`, `450 KB`, `1.8 MB`.
+pub fn size(bytes: u64) -> String {
+    match bytes {
+        0..=1023 => plural(bytes, "byte", "bytes"),
+        1024..=1_048_575 => format!("{} KB", bytes / 1024),
+        _ => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
+    }
+}
+
 /// [`Value::Bytes`] as `abi::preview` reads bytes: all of a short run, the
 /// length and the ends of a long one.
 pub fn preview(len: u64, preview: &[u8]) -> String {

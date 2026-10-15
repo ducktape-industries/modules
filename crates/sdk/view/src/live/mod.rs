@@ -446,6 +446,7 @@ impl Network {
             "chain.block",
             "chain.tx",
             "blob.get",
+            "blob.manifest",
             "invite.create",
             "program.describe",
         ] {
@@ -588,20 +589,32 @@ impl Network {
                 Ok(methods::encode(&found))
             }
             "blob.get" => {
-                let id: String = methods::decode(payload).map_err(|error| malformed(&error))?;
-                let (kind, hex) = id
-                    .split_once(':')
-                    .ok_or_else(|| malformed("id is `sha256:<hex>` or `sha1:<hex>`"))?;
-                let digest = hex_decode(hex).map_err(|error| malformed(&error))?;
-                let id = match (kind, digest.len()) {
-                    ("sha256", 32) => abi::BlobId::Sha256(digest.try_into().unwrap()),
-                    ("sha1", 20) => abi::BlobId::Sha1(digest.try_into().unwrap()),
-                    _ => return Err(malformed("id is `sha256:<hex>` or `sha1:<hex>`")),
-                };
                 let body = self
-                    .blob(&id)
+                    .blob(&blob_id(payload)?)
                     .map(|framed| unframe(&framed).unwrap_or_default().to_vec());
                 Ok(methods::encode(&body))
+            }
+            // as the app answers it: the blob the chain names (`blob` serves
+            // the roster's code and what a seat holds, nothing else), the
+            // view in its `ducktape.view` section or the blob itself when it
+            // carries a manifest, and that manifest as the loader reads it
+            "blob.manifest" => {
+                use view_wire::manifest::{MANIFEST_SECTION, Manifest};
+                let blob = self.blob(&blob_id(payload)?).map(|framed| {
+                    let bytes = unframe(&framed).unwrap_or_default();
+                    let view = pack::section(bytes, "ducktape.view")
+                        .or_else(|| pack::section(bytes, MANIFEST_SECTION).map(|_| bytes))
+                        .map(|view| methods::CarriedView {
+                            size: view.len() as u64,
+                            manifest: pack::section(view, MANIFEST_SECTION)
+                                .and_then(|text| Manifest::parse(std::str::from_utf8(text).ok()?)),
+                        });
+                    methods::Manifested {
+                        size: bytes.len() as u64,
+                        view,
+                    }
+                });
+                Ok(methods::encode(&blob))
             }
             "invite.create" => {
                 let invite: methods::CreateInvite =
@@ -912,6 +925,21 @@ fn target_of(kind: &str, payload: &[u8]) -> Option<String> {
             .map(|call| call.target),
         _ => None,
     }
+}
+
+/// The blob id a `blob.*` ask spells, `sha256:<hex>` or `sha1:<hex>`.
+fn blob_id(payload: &[u8]) -> Result<abi::BlobId, Error> {
+    let malformed = |error: &str| crate::host::malformed(error.to_owned());
+    let id: String = methods::decode(payload).map_err(|error| malformed(&error))?;
+    let (kind, hex) = id
+        .split_once(':')
+        .ok_or_else(|| malformed("id is `sha256:<hex>` or `sha1:<hex>`"))?;
+    let digest = hex_decode(hex).map_err(|error| malformed(&error))?;
+    Ok(match (kind, digest.len()) {
+        ("sha256", 32) => abi::BlobId::Sha256(digest.try_into().unwrap()),
+        ("sha1", 20) => abi::BlobId::Sha1(digest.try_into().unwrap()),
+        _ => return Err(malformed("id is `sha256:<hex>` or `sha1:<hex>`")),
+    })
 }
 
 /// `kind len\0body` → body.

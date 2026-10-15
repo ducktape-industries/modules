@@ -1,9 +1,11 @@
 //! A node the explorer reads, played by the fake host: a short chain, three
 //! accounts, one validator and `programs`, each answered as the program
 //! would. Tests by what they cover: `access` (what a reader changes on the
-//! Programs page), `describe`, `window`, `pages`, `search`, `transactions`.
+//! Programs page), `describe`, `window`, `pages`, `detail` (one program's
+//! page), `search`, `transactions`.
 mod access;
 mod describe;
+mod detail;
 mod follow;
 mod pages;
 mod search;
@@ -21,10 +23,10 @@ pub(crate) use programs::Programs;
 pub(crate) use valset::Valset;
 pub(crate) use view::host::Error;
 pub(crate) use view::methods::{
-    Block, BlockAsk, BlockList, BlockPage, BlockRef, ChainBlock, ChainBlocks, ChainHeads,
-    ChainStatus, ChainTx, Changes, ClipboardWrite, Description, Head, HostRoute, HostSession,
-    Located, NodeStatus, Outcome, ProgramDescribe, Query, Receipt, Session, Tip, Tx, TxAsk, TxRef,
-    Value,
+    BlobManifest, Block, BlockAsk, BlockList, BlockPage, BlockRef, Capability, CarriedView,
+    ChainBlock, ChainBlocks, ChainHeads, ChainStatus, ChainTx, Changes, ClipboardWrite,
+    Description, Head, HostRoute, HostSession, Located, Manifested, NodeStatus, Outcome,
+    ProgramDescribe, Query, Receipt, Session, Tip, Tx, TxAsk, TxRef, Value,
 };
 pub(crate) use view::testing::TestAppContext;
 
@@ -360,7 +362,67 @@ pub(crate) fn node(cx: &mut TestAppContext, tip: Rc<RefCell<u64>>) {
     host.handle::<Query<Valset>>(|_| Ok(valset::Reply::Validators(vec![VALIDATOR.to_vec()])));
     respond(cx);
     describes(cx);
+    manifests(cx);
 }
+
+/// The host's `blob.manifest` over the suite's code: chat's code carries a
+/// view that declares six capabilities, identity's carries no view, the
+/// explorer's blob is a view itself; any other id is code the node does
+/// not hold.
+pub(crate) fn manifests(cx: &TestAppContext) {
+    cx.host().handle::<BlobManifest>(|id| {
+        let manifest = |name: &str, capabilities: Vec<Capability>| view::wire::manifest::Manifest {
+            wire_id: "0123abcd".into(),
+            name: name.into(),
+            description: format!("{name}, as the suite plays it."),
+            capabilities,
+            min_width: 480,
+            targets: vec!["chat".into()],
+            icon: "icons/chat.svg".into(),
+        };
+        Ok(match id.as_str() {
+            CHAT_CODE => Some(Manifested {
+                size: 2_400_000,
+                view: Some(CarriedView {
+                    size: 1_900_000,
+                    manifest: Some(manifest(
+                        "Chat",
+                        vec![
+                            Capability::Chain,
+                            Capability::Program,
+                            Capability::Op,
+                            Capability::Clipboard,
+                            Capability::Notify,
+                            Capability::Store,
+                        ],
+                    )),
+                }),
+            }),
+            IDENTITY_CODE => Some(Manifested {
+                size: 130_000,
+                view: None,
+            }),
+            EXPLORER_CODE => Some(Manifested {
+                size: 1_200_000,
+                view: Some(CarriedView {
+                    size: 1_200_000,
+                    manifest: Some(manifest(
+                        "Explorer",
+                        vec![Capability::Chain, Capability::Clock],
+                    )),
+                }),
+            }),
+            _ => None,
+        })
+    });
+}
+
+pub(crate) const CHAT_CODE: &str =
+    "sha256:abababababababababababababababababababababababababababababababab";
+pub(crate) const IDENTITY_CODE: &str =
+    "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
+pub(crate) const EXPLORER_CODE: &str =
+    "sha256:efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef";
 
 pub(crate) fn entry(program: &str, code: u8) -> programs::Entry {
     programs::Entry {
@@ -514,6 +576,7 @@ pub(crate) fn heavy(cx: &mut TestAppContext) {
     host.handle::<Query<Valset>>(|_| Ok(valset::Reply::Validators(vec![VALIDATOR.to_vec()])));
     respond(cx);
     describes(cx);
+    manifests(cx);
 }
 
 /// A restore that must read nothing: every ask left unanswered.
@@ -527,4 +590,5 @@ pub(crate) fn quiet_host(cx: &TestAppContext) {
     host.never::<Query<Programs>>();
     host.never::<Query<Activity>>();
     host.never::<ProgramDescribe>();
+    host.never::<BlobManifest>();
 }

@@ -47,6 +47,8 @@ impl View for Explorer {
         Capability::Program,
         // the programs role changed by grant, or by a motion to valset
         Capability::Op,
+        // what a program's code declares, on its page (`blob.manifest`)
+        Capability::Blob,
         Capability::Host,
         Capability::Clock,
         Capability::Clipboard,
@@ -71,6 +73,9 @@ impl Render for Explorer {
         // the pane's width, as the host lays the frame out: the Overview
         // lays its panels out to it in the frame that shows them
         self.width = window.viewport_size().width.into();
+        // a program page asks what its code declares once the roster
+        // names the code, whichever lands first
+        self.read_manifest(cx);
         ui::render(self, cx)
     }
 }

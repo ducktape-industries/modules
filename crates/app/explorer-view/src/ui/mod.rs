@@ -58,7 +58,7 @@ mod transactions;
 use accounts::{account, accounts};
 use blocks::{block, blocks};
 use overview::overview;
-use programs::programs;
+use programs::{program, programs};
 use transactions::{transactions, tx};
 
 pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
@@ -119,7 +119,7 @@ fn worded(note: &Note) -> String {
             }
         }
         Note::Unlinked(route) => format!("This link names nothing the Explorer shows: {route}"),
-        Note::Copied => "Copied the link.".into(),
+        Note::Copied(what) => format!("Copied {what}."),
         Note::Sent(words) | Note::Refused(words) => words.clone(),
     }
 }
@@ -207,7 +207,11 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
 }
 
 fn page(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
-    if view.chain.blocks.is_empty() && !matches!(view.route, Route::Programs | Route::Accounts) {
+    let without_chain = matches!(
+        view.route,
+        Route::Programs | Route::Program(_) | Route::Accounts
+    );
+    if view.chain.blocks.is_empty() && !without_chain {
         return match &view.chain.failed {
             Some(sentence) => failed(sentence, cx, theme),
             None => quiet("explorer-loading", "Reading the chain…", theme),
@@ -222,6 +226,7 @@ fn page(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         Route::Accounts => accounts(view, cx, theme),
         Route::Account(number) => account(view, number, cx, theme),
         Route::Programs => programs(view, cx, theme),
+        Route::Program(name) => program(view, &name, cx, theme),
     }
 }
 
@@ -772,7 +777,7 @@ fn press(
 fn copy_button(view: &Explorer, route: &Route, cx: Cx, theme: &Theme) -> Option<AnyElement> {
     let link = view.link(route)?;
     let copy = cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| {
-        view.copy_link(link.clone(), cx)
+        view.copy(link.clone(), "the link", cx)
     });
     Some(
         div()
