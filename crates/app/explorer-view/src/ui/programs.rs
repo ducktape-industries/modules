@@ -210,29 +210,13 @@ fn changers(view: &Explorer, network: &Network, name: &str, theme: &Theme) -> Ve
         .collect()
 }
 
-/// The role `name` fills for the kernel, in the kernel's word for it.
-fn role_of(roles: &abi::Roles, name: &str) -> Option<&'static str> {
-    // destructured, so a role the kernel gains is named here or fails the build
-    let abi::Roles {
-        programs,
-        validators,
-        identity,
-        blobs,
-        awaits,
-        egress,
-    } = roles;
-    [
-        (Some(programs), "programs"),
-        (Some(validators), "validators"),
-        (Some(identity), "identity"),
-        (Some(blobs), "blobs"),
-        (Some(awaits), "awaits"),
-        // a network may run without one
-        (egress.as_ref(), "egress"),
-    ]
-    .into_iter()
-    .find(|(program, _)| program.is_some_and(|program| program.as_str() == name))
-    .map(|(_, role)| role)
+/// The role `name` fills for the kernel, in the kernel's word for it: the
+/// roles are the chain's own table, so a role it gains is named here as is.
+fn role_of<'a>(roles: &'a abi::Roles, name: &str) -> Option<&'a str> {
+    roles
+        .iter()
+        .find(|(_, program)| program.as_str() == name)
+        .map(|(role, _)| role)
 }
 
 /// What a capability lets a view do, in a line a person reads: the phone's
