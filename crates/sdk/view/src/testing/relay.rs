@@ -21,7 +21,8 @@ use super::{FakeHost, TestAppContext};
 /// node would: a track a view publishes is announced to every
 /// `live.tracks` of its room, an object one view sends reaches every view
 /// subscribed to the track, the latest group is replayed to a late
-/// subscriber, and a publisher hears its subscriber count. The n-th view
+/// subscriber, and a publisher hears its subscriber count. Its queues never
+/// fill, so it never cuts a group (`Publishing::Cut`). The n-th view
 /// linked acts as account n; the views opened in one [`TestAppContext`]
 /// are windows of that one app, so a track one of them publishes another
 /// is refused `duplicate_track`, as the app refuses it.
@@ -826,6 +827,7 @@ mod tests {
                 match item {
                     Ok(Publishing::Waiting) => view.waits += 1,
                     Ok(Publishing::Subscribers(count)) => view.subscribers = Some(count),
+                    Ok(Publishing::Cut { .. }) => unreachable!("the relay's queue never fills"),
                     Err(refusal) => view.refused.push(refusal.code),
                 }
                 cx.notify();

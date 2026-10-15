@@ -296,6 +296,8 @@ self.mine = Some(Track::publish(cx, mine, |view, item, cx| match item {
     // the view's own: submits its program's op that writes the row
     Ok(Publishing::Waiting) => view.join(cx),
     Ok(Publishing::Subscribers(count)) => view.listening = count,
+    // the host's queue to the node was full: a full state in a new group
+    Ok(Publishing::Cut { .. }) => view.keyframe(cx),
     Err(refusal) => view.refused = Some(refusal),
 }));
 ```
