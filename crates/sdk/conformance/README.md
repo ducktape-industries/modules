@@ -118,5 +118,7 @@ next id, served, from the block that opened it, and refuses a listed name;
 `Set` changes the cap and whether the lane is served under the same id, a
 paused lane staying listed with `enabled: false`, and refuses an unlisted
 name; `Close` unlists a lane and its id is spent: the name opened again
-takes the next id. The fixture is only the host: the role leaves nothing to
-the program's own ops.
+takes the next id; a lane the genesis pins is never paused or closed (both
+refused `invalid_input`), while a `Set` that keeps it served moves its cap;
+`Open` lists a lane unpinned. The fixture is only the host: the role leaves
+nothing to the program's own ops.

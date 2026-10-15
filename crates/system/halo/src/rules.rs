@@ -1,40 +1,46 @@
 // The rules: a lane is listed under a valid name at the next id, changed or unlisted only by
 // name, and its id is never handed out again; the 256 ids a lane byte holds are all there are.
+// A lane the founding pins is served for the network's life: no vote pauses or closes it.
 
 use ::program::{
     Error, ExecCtx, QueryCtx, already_exists, capacity, invalid, not_found, unexpected_reply,
 };
 use store::{Item, Map};
 
-use crate::{Class, Genesis, Lane, LaneId, MAX_NAME, Op, Query, Reply};
+use crate::{Class, Founded, Genesis, Lane, LaneId, MAX_NAME, Op, Query, Reply};
 
 const LANES: Map<String, Lane> = Map::new("l/");
 /// The next id ever handed out; past `LaneId::MAX` every id is spent.
 const NEXT: Item<u16> = Item::new("next");
 
 pub(crate) fn init(ctx: &ExecCtx, genesis: Genesis) -> Result<(), Error> {
-    for (name, cap) in genesis.lanes {
-        list(ctx, name, cap, 0)?;
+    for Founded { name, cap, pinned } in genesis.lanes {
+        list(ctx, name, cap, pinned, 0)?;
     }
     Ok(())
 }
 
 pub(crate) fn open(ctx: &ExecCtx, name: String, cap: Class) -> Result<(), Error> {
-    list(ctx, name, cap, ctx.env().height)
+    list(ctx, name, cap, false, ctx.env().height)
 }
 
 pub(crate) fn set(ctx: &ExecCtx, name: String, cap: Class, enabled: bool) -> Result<(), Error> {
+    let held = listed(ctx, &name)?;
+    let pauses = !enabled;
+    if pauses {
+        unpinned(&held, "paused")?;
+    }
     let set = Lane {
         cap,
         enabled,
-        ..listed(ctx, &name)?
+        ..held
     };
     LANES.put(ctx, &name, &set);
     Ok(())
 }
 
 pub(crate) fn close(ctx: &ExecCtx, name: String) -> Result<(), Error> {
-    listed(ctx, &name)?;
+    unpinned(&listed(ctx, &name)?, "closed")?;
     LANES.remove(ctx, &name);
     Ok(())
 }
@@ -50,9 +56,9 @@ pub(crate) fn lane(ctx: &QueryCtx, name: &str) -> Result<Option<Lane>, Error> {
 }
 
 /// What `execute` refuses of `op` that a vote can know first: a bad name, a name already
-/// listed for `Open`, an unlisted one for `Set` and `Close`. The validators' program asks it
-/// at each vote, before counting, under its own ctx, so it reads the table through the halo
-/// role. Every id spent is `execute`'s alone to refuse.
+/// listed for `Open`, an unlisted one for `Set` and `Close`, a pause or a close of a pinned
+/// lane. The validators' program asks it at each vote, before counting, under its own ctx, so
+/// it reads the table through the halo role. Every id spent is `execute`'s alone to refuse.
 pub fn admissible(ctx: &QueryCtx, op: &Op) -> Result<(), Error> {
     match op {
         Op::Open { name, .. } => {
@@ -63,14 +69,22 @@ pub fn admissible(ctx: &QueryCtx, op: &Op) -> Result<(), Error> {
             }
             Ok(())
         }
-        Op::Set { name, .. } | Op::Close { name } => {
-            lane_by_role(ctx, name)?.ok_or_else(|| unlisted(name))?;
+        Op::Set { name, enabled, .. } => {
+            let held = lane_by_role(ctx, name)?.ok_or_else(|| unlisted(name))?;
+            let pauses = !enabled;
+            if pauses {
+                unpinned(&held, "paused")?;
+            }
             Ok(())
+        }
+        Op::Close { name } => {
+            let held = lane_by_role(ctx, name)?.ok_or_else(|| unlisted(name))?;
+            unpinned(&held, "closed")
         }
     }
 }
 
-fn list(ctx: &ExecCtx, name: String, cap: Class, since: u64) -> Result<(), Error> {
+fn list(ctx: &ExecCtx, name: String, cap: Class, pinned: bool, since: u64) -> Result<(), Error> {
     named(&name)?;
     if LANES.has(ctx, &name) {
         return Err(already_listed(&name));
@@ -84,6 +98,7 @@ fn list(ctx: &ExecCtx, name: String, cap: Class, since: u64) -> Result<(), Error
         id,
         cap,
         enabled: true,
+        pinned,
         since,
     };
     LANES.put(ctx, &lane.name, &lane);
@@ -102,6 +117,18 @@ fn named(name: &str) -> Result<(), Error> {
     if !(sized && printable) {
         return Err(invalid(format!(
             "a lane's name is 1 to {MAX_NAME} printable ASCII bytes, not {name:?}"
+        )));
+    }
+    Ok(())
+}
+
+/// A pinned lane is `done` by no vote: it is served for the network's life, so a node that
+/// needs it to apply blocks is never cut off from the block that would undo the vote.
+fn unpinned(lane: &Lane, done: &str) -> Result<(), Error> {
+    if lane.pinned {
+        return Err(invalid(format!(
+            "the lane {} is pinned at founding: it is never {done}",
+            lane.name
         )));
     }
     Ok(())
