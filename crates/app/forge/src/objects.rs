@@ -5,7 +5,7 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use ::program::{BlobHeader, BlobId, Error, HashKind};
-use ::program::{ExecCtx, QueryCtx, not_found};
+use ::program::{ExecCtx, QueryCtx, code, not_found};
 use gitcore::{Error as GitError, Hash, Kind, Object, Objects, Oid};
 
 /// A different serving node or object replication can satisfy this query.
@@ -107,9 +107,16 @@ impl<'a> ObjectWriter<'a> {
 
     /// Stores every object the admitted pack brought.
     pub fn flush(self) -> Result<(), Error> {
-        for (_, object) in self.pending {
-            self.sandbox
-                .blob_put(hash_kind_of(self.hash), object.kind.as_str(), object.body)?;
+        for (id, object) in self.pending {
+            let stored = self.sandbox.blob_put(
+                hash_kind_of(self.hash),
+                object.kind.as_str(),
+                object.body,
+            )?;
+            let named = blob_id_of(&id);
+            if stored != named {
+                return Err(misnamed(&id, &stored));
+            }
         }
         Ok(())
     }
@@ -139,6 +146,13 @@ impl Objects for ObjectWriter<'_> {
     }
 }
 
+fn misnamed(named: &Oid, stored: &BlobId) -> Error {
+    Error::new(
+        code::PROTOCOL,
+        format!("the pack names an object {named}, but the node stored its bytes as {stored:?}"),
+    )
+}
+
 pub fn hash_of(kind: HashKind) -> gitcore::Hash {
     match kind {
         HashKind::Sha1 => gitcore::Hash::Sha1,
@@ -159,3 +173,6 @@ pub fn blob_id_of(oid: &Oid) -> BlobId {
         Oid::Sha256(digest) => BlobId::Sha256(*digest),
     }
 }
+
+#[cfg(test)]
+mod tests;
