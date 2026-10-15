@@ -56,7 +56,19 @@ pub(crate) fn sanitize_tree(root: &mut Node, styles: &Styles) -> Result<Sanitize
 }
 
 fn sanitize_tree_with(root: &mut Node, walk: &mut Walk) -> Result<(), Refused> {
-    sanitize_node(root, 0, walk, &mut identity::Scopes::default(), None)
+    sanitize_node(root, 0, walk, &mut identity::Scopes::default(), None).map_err(|refused| {
+        // a refusing walk stops where it refused: `at` still names the node
+        let node = walk
+            .at
+            .iter()
+            .try_fold(&*root, |node, &child| node.children().get(child as usize));
+        Refused::At {
+            kind: node.map_or("?", Node::kind),
+            key: node.and_then(Node::key).map(str::to_owned),
+            at: std::mem::take(&mut walk.at),
+            refused: Box::new(refused),
+        }
+    })
 }
 
 /// Why the host refuses a frame or a patch: a bound or a shape it breaks,
@@ -65,6 +77,25 @@ fn sanitize_tree_with(root: &mut Node, walk: &mut Walk) -> Result<(), Refused> {
 pub enum Refused {
     Invalid(&'static str),
     Duplicate(identity::DuplicateIdentity),
+    /// What a tree's walk refused, at the node it refused: its kind, its
+    /// key, and its child indices from the top of the tree (`[]` is the
+    /// top itself, as a [`Patch`] path counts).
+    At {
+        kind: &'static str,
+        key: Option<String>,
+        at: Vec<u32>,
+        refused: Box<Refused>,
+    },
+}
+
+impl Refused {
+    /// The refusal itself, wherever it fell.
+    pub fn reason(&self) -> &Refused {
+        match self {
+            Self::At { refused, .. } => refused.reason(),
+            reason => reason,
+        }
+    }
 }
 
 impl From<&'static str> for Refused {
@@ -84,6 +115,15 @@ impl std::fmt::Display for Refused {
         match self {
             Self::Invalid(reason) => f.write_str(reason),
             Self::Duplicate(duplicate) => duplicate.fmt(f),
+            Self::At {
+                kind,
+                key: Some(key),
+                at,
+                refused,
+            } => write!(f, "{kind} `{key}` at {at:?}: {refused}"),
+            Self::At {
+                kind, at, refused, ..
+            } => write!(f, "{kind} at {at:?}: {refused}"),
         }
     }
 }
