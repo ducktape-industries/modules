@@ -331,7 +331,7 @@ fn value(view: &Explorer, shown: &Value, at: &str, cx: Cx, theme: &Theme) -> Any
             Some(_) => link(
                 format!("explorer-value-{at}"),
                 name.clone(),
-                Route::Transactions(Some(name.clone())),
+                Route::Program(name.clone()),
                 cx,
                 theme,
             )

@@ -178,6 +178,55 @@ fn unknown_code_and_an_unreadable_manifest_are_said_as_such() {
     assert!(cx.has_text(CHAT_CODE), "the rest of the page stands");
 }
 
+/// A view-only entry's two failures are told apart from a program's: a
+/// blob the host reads no view out of is a view this app cannot read (it
+/// is the view), never a program that draws nothing; and a manifest it
+/// cannot read is said as such.
+#[test]
+fn a_view_only_entrys_unread_view_is_never_a_program_that_draws_nothing() {
+    let answer = |view: Option<CarriedView>| {
+        move |id: String| {
+            Ok((id == EXPLORER_CODE).then(|| Manifested {
+                size: 1_200_000,
+                view: view.clone(),
+            }))
+        }
+    };
+    let (mut cx, _) = ready();
+    cx.host().handle::<BlobManifest>(answer(None));
+    cx.simulate_click("explorer-tab-programs");
+    cx.run_until_parked();
+    cx.simulate_click("explorer-view-explorer");
+    cx.run_until_parked();
+    let texts = cx.texts();
+    assert!(
+        cx.find("explorer-unread-view").is_some()
+            && cx.has_text("This app cannot read this view's manifest."),
+        "{texts:?}"
+    );
+    assert!(cx.find("explorer-no-view").is_none(), "{texts:?}");
+
+    let (mut cx, _) = ready();
+    cx.host().handle::<BlobManifest>(answer(Some(CarriedView {
+        size: 1_100_000,
+        manifest: None,
+    })));
+    cx.simulate_click("explorer-tab-programs");
+    cx.run_until_parked();
+    cx.simulate_click("explorer-view-explorer");
+    cx.run_until_parked();
+    let texts = cx.texts();
+    assert!(
+        cx.find("explorer-unread-view").is_some()
+            && cx.has_text("Its view carries a manifest this app cannot read: built for another wire, or asking a capability this app does not have."),
+        "{texts:?}"
+    );
+    assert!(
+        cx.has_text("1.1 MB"),
+        "the rest of the page stands: {texts:?}"
+    );
+}
+
 /// Enter on the active row of the Programs list opens its page, as a
 /// press does; ← and → on the tabs leave and come back to it.
 #[test]
@@ -233,9 +282,8 @@ fn copy_puts_the_code_id_on_the_clipboard() {
     assert!(cx.has_text("Copied the code id."), "{:?}", cx.texts());
 }
 
-/// A page opened by link before the roster landed asks for the manifest
-/// when the roster does; one restored from a snapshot asks again, since
-/// what a manifest says is not kept.
+/// A page opened by link before the roster landed says so, asks nothing
+/// yet, and asks for the manifest once, when the roster lands.
 #[test]
 fn a_page_opened_before_the_roster_asks_when_it_lands() {
     let mut cx = TestAppContext::new();

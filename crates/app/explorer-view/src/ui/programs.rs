@@ -212,12 +212,20 @@ fn changers(view: &Explorer, network: &Network, name: &str, theme: &Theme) -> Ve
 
 /// The role `name` fills for the kernel, in the kernel's word for it.
 fn role_of(roles: &abi::Roles, name: &str) -> Option<&'static str> {
+    // destructured, so a role the kernel gains is named here or fails the build
+    let abi::Roles {
+        programs,
+        validators,
+        identity,
+        blobs,
+        awaits,
+    } = roles;
     [
-        (&roles.programs, "programs"),
-        (&roles.validators, "validators"),
-        (&roles.identity, "identity"),
-        (&roles.blobs, "blobs"),
-        (&roles.awaits, "awaits"),
+        (programs, "programs"),
+        (validators, "validators"),
+        (identity, "identity"),
+        (blobs, "blobs"),
+        (awaits, "awaits"),
     ]
     .into_iter()
     .find(|(program, _)| program.as_str() == name)
@@ -263,10 +271,7 @@ pub(super) fn program(view: &Explorer, name: &str, cx: Cx, theme: &Theme) -> Any
         }
     };
     let entry = view.runs(name);
-    let Some(code) = entry
-        .map(|entry| entry.code)
-        .or_else(|| view.lists(name).map(|listed| listed.view))
-    else {
+    let Some(code) = view.code_of(name) else {
         return empty_state(
             "explorer-no-program",
             format!("Nothing called {name}"),
@@ -382,15 +387,20 @@ pub(super) fn program(view: &Explorer, name: &str, cx: Cx, theme: &Theme) -> Any
     let talks_to = manifest
         .filter(|manifest| !manifest.targets.is_empty())
         .map(|manifest| manifest.targets.join(", "));
-    let window = plural(view.chain.blocks.len() as u64, "block", "blocks");
+    let blocks = view.chain.blocks.len() as u64;
     let sent = view.chain.txs.iter().filter(|tx| tx.target == name).count() as u64;
+    // no window yet: the way to its transactions, without a count of nothing
     let transactions = (!listed).then(|| {
         line("explorer-program-transactions".into(), theme).child(link(
             "explorer-program-txs".into(),
-            format!(
-                "{} in the last {window} →",
-                plural(sent, "transaction", "transactions")
-            ),
+            match blocks {
+                0 => "Transactions →".to_owned(),
+                _ => format!(
+                    "{} in the last {} →",
+                    plural(sent, "transaction", "transactions"),
+                    plural(blocks, "block", "blocks")
+                ),
+            },
             Route::Transactions(Some(name.to_owned())),
             cx,
             theme,
