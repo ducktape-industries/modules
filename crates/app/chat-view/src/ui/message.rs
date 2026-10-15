@@ -273,12 +273,23 @@ fn avatar(
     let control = Control::Profile(account);
     let active = cells.push(control.clone());
     let open = acts(pane, message.seq, message.rev, control, cx);
+    // an agent's face opens its card in place; a person's opens the profile link
+    let (label, role) = match message.agent {
+        true => (
+            format!("Open {}’s card", message.author),
+            view::Role::Button,
+        ),
+        false => (
+            format!("Open {}’s profile", message.author),
+            view::Role::Link,
+        ),
+    };
     let face = face
         .cursor_pointer()
-        .aria_label(format!("Open {}’s profile", message.author))
+        .aria_label(label)
         .on_click(open)
         .consumes_click();
-    cell(&id, true, design::item(face, view::Role::Link, active))
+    cell(&id, true, design::item(face, role, active))
 }
 
 /// The strip over a row the pointer is on (or a chosen one): thread,

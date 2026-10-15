@@ -168,6 +168,14 @@ fn an_agents_message_opens_its_work_record() {
 #[test]
 fn an_agents_face_opens_its_card() {
     let (mut cx, view) = agents();
+    assert!(
+        cx.interactivity("chat-message-m3-avatar")
+            .aria
+            .label
+            .as_deref()
+            .is_some_and(|label| label.ends_with("’s card")),
+        "an agent's face says it opens a card"
+    );
     cx.simulate_click("chat-message-m3-avatar");
     cx.run_until_parked();
     view.read(|chat| {
