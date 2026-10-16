@@ -65,8 +65,16 @@ pub(crate) fn render(view: &Explorer, cx: Cx) -> AnyElement {
     };
     // Back undoes what is drawn: the sheet on screen, else the page over
     // the root; with neither, the host leaves the program
-    let back = (sheet.is_some() || view.pages().depth() > 0)
-        .then(|| cx.listener(|view: &mut Explorer, _: &BackEvent, _, cx| view.back(cx)));
+    let drawn = sheet.is_some();
+    let back = (drawn || view.pages().depth() > 0).then(|| {
+        cx.listener(move |view: &mut Explorer, _: &BackEvent, _, cx| {
+            if drawn {
+                view.close_sheet(cx)
+            } else {
+                view.leave_page(cx)
+            }
+        })
+    });
     div()
         .id("explorer")
         .size_full()
@@ -81,7 +89,7 @@ pub(crate) fn render(view: &Explorer, cx: Cx) -> AnyElement {
         .into_any_element()
 }
 
-/// Back on a page's title row.
+/// Back on a page's title row: the page goes.
 fn back(cx: Cx) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
-    cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.back(cx))
+    cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.leave_page(cx))
 }

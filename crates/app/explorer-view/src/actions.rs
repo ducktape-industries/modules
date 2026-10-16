@@ -3,7 +3,6 @@
 use view::prelude::*;
 
 use crate::Explorer;
-use crate::chain::rows;
 use crate::state::{Note, Route, hash_of};
 
 enum Found {
@@ -21,43 +20,25 @@ impl Explorer {
         self.arrive(route, cx);
     }
 
-    /// Back: a sheet over the page closes first, then the page goes and its
-    /// list shows.
-    pub(crate) fn back(&mut self, cx: &mut Context<Self>) {
-        if self.sheet.is_some() || self.acting.form.is_some() {
-            self.sheet = None;
-            self.acting.form = None;
-            return cx.notify();
-        }
-        if self.route != self.root {
-            self.arrive(self.root.clone(), cx);
-        }
+    /// Back over a drawn sheet: More, a program's sheet or a form closes.
+    pub(crate) fn close_sheet(&mut self, cx: &mut Context<Self>) {
+        self.sheet = None;
+        self.acting.form = None;
+        cx.notify();
+    }
+
+    /// Back with no sheet drawn: the page over the root goes and its list
+    /// shows. A sheet held but not drawn (its network still reading) goes
+    /// with the page, so it never opens over the list.
+    pub(crate) fn leave_page(&mut self, cx: &mut Context<Self>) {
+        self.acting.form = None;
+        self.arrive(self.root.clone(), cx);
     }
 
     fn arrive(&mut self, route: Route, cx: &mut Context<Self>) {
-        if let Route::Block(height) = route {
-            let held = self.chain.block(height).is_some();
-            let opened =
-                matches!(self.opened.ready(), Some(Some((row, _))) if row.height == height);
-            if !held && !opened {
-                let ask = cx.host().ask::<ChainBlock>(BlockAsk {
-                    by: BlockRef::Height(height),
-                    most: 0,
-                });
-                // another block: the one opened before is not shown under it
-                self.opened = Loadable::Idle;
-                cx.load(
-                    self,
-                    async move { ask.await.map(|block| block.map(rows)) },
-                    |view| &mut view.opened,
-                );
-            }
-        }
-        if let Route::Tx { height, position } = route {
-            self.locate(height, position, cx);
-        }
         self.left[route.tab()] = Some(route.clone());
         self.route = route;
+        self.read_page(cx);
         self.read_acted(cx);
         self.note = None;
         self.cursor = None;

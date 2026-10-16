@@ -18,6 +18,7 @@ impl Explorer {
         self.read_network(cx);
         self.read_frames(cx);
         self.read_used(cx);
+        self.read_page(cx);
         self.read_acted(cx);
         self.manifest_of = None;
         self.read_manifest(cx);
@@ -271,7 +272,36 @@ impl Explorer {
             .find(|tx| (tx.height, tx.index) == (height, position))
     }
 
-    pub(crate) fn locate(&mut self, height: u64, position: u32, cx: &mut Context<Self>) {
+    /// What the page on screen reads past the window: a block or a
+    /// transaction the window does not hold. On arriving, and on a retry.
+    pub(crate) fn read_page(&mut self, cx: &mut Context<Self>) {
+        match self.route {
+            Route::Block(height) => self.open_block(height, cx),
+            Route::Tx { height, position } => self.locate(height, position, cx),
+            _ => {}
+        }
+    }
+
+    fn open_block(&mut self, height: u64, cx: &mut Context<Self>) {
+        let held = self.chain.block(height).is_some();
+        let opened = matches!(self.opened.ready(), Some(Some((row, _))) if row.height == height);
+        if held || opened {
+            return;
+        }
+        let ask = cx.host().ask::<ChainBlock>(BlockAsk {
+            by: BlockRef::Height(height),
+            most: 0,
+        });
+        // another block: the one opened before is not shown under it
+        self.opened = Loadable::Idle;
+        cx.load(
+            self,
+            async move { ask.await.map(|block| block.map(chain::rows)) },
+            |view| &mut view.opened,
+        );
+    }
+
+    fn locate(&mut self, height: u64, position: u32, cx: &mut Context<Self>) {
         let held = self.tx_at(height, position).is_some();
         if held {
             return;
