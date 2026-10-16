@@ -428,7 +428,10 @@ fn a_day_opens_under_its_separator_and_the_chains_today_says_today() {
     // a row under its separator still says where it sits (AX-112)
     for (key, place) in [("chat-message-m1-row", 1), ("chat-message-m2-row", 2)] {
         let aria = &cx.interactivity(key).aria;
-        assert_eq!((aria.position_in_set, aria.size_of_set), (Some(place), Some(2)));
+        assert_eq!(
+            (aria.position_in_set, aria.size_of_set),
+            (Some(place), Some(2))
+        );
     }
     assert!(!cx.has_text("Today"));
     cx.update(&view, |chat, _, cx| {
