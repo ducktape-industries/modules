@@ -1,11 +1,11 @@
 //! The roster: every account of the network under People, Agents and
 //! Programs. Expo `app/(tabs)/members/index.tsx` (board 90).
 //!
-//! Reads the roster ([`Members::roster`], [`Members::shown`]), the chip,
-//! the filter and the session's network and reader. Writes the chip
-//! (`only`), the filter, whether the filter is open (`filtering`), the
-//! arrows' `cursor`, and the page stack: a row opens its member
-//! ([`Members::select`]).
+//! Reads the roster (`Members::roster`, `Members::shown`), the chip, the
+//! filter and the session's network and reader. Writes the chip (`only`),
+//! the filter, whether the filter is open (`filtering`), the arrows'
+//! `cursor`, and the page stack: a row opens its member
+//! (`Members::select`).
 use view::design::{self, CAPSULE_CLEARANCE, Ladder, space};
 use view::prelude::*;
 use view::{Div, Stateful};

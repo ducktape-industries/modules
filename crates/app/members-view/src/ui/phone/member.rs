@@ -3,10 +3,10 @@
 //! (board 91). Read-only, as the desk's detail is.
 //!
 //! Reads the roster, the account's valset standing, its recent activity
-//! ([`Members::activity`](crate::Members)), and the session's reader, chain
-//! and signing key. Writes the page stack only: Back, and a manager or an
-//! agent opened over this page ([`Members::open`](crate::Members)). Open
-//! DM and Explorer leave through the host's links.
+//! (`Members::activity`), and the session's reader, chain and signing key.
+//! Writes the page stack only: Back, and a manager or an agent opened over
+//! this page (`Members::open`). Open DM and Explorer leave through the
+//! host's links.
 use view::design::{self, Ladder, space};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
