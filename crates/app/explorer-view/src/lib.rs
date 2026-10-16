@@ -19,7 +19,9 @@
 //! are typed (`queries.rs`) and loaded in `load.rs`, re-read on the live
 //! heads `watch.rs` follows; where the reader goes lands in `actions.rs`;
 //! what the reader changes on the Programs page, by grant or by vote, in
-//! `acting.rs`; `ui/` draws.
+//! `acting.rs`; the sentences both designs show, once, in `words.rs`. `ui/`
+//! draws the desktop's pages and `ui/phone/` the phone's screens, picked
+//! once in [`Explorer`]'s render.
 mod acting;
 mod actions;
 mod chain;
@@ -29,6 +31,7 @@ mod queries;
 mod state;
 pub(crate) mod ui;
 mod watch;
+mod words;
 
 pub use chain::{BlockRow, Chain, TxRow};
 pub use state::{Accounts, Explorer, Network, Note, Route};
@@ -36,6 +39,9 @@ pub use state::{Accounts, Explorer, Network, Note, Route};
 use view::prelude::*;
 
 pub const WINDOW: usize = 1_000;
+
+/// What both designs draw in.
+pub(crate) type Cx<'a, 'b> = &'a mut Context<'b, Explorer>;
 
 impl View for Explorer {
     const NAME: &'static str = "Explorer";
@@ -78,10 +84,10 @@ impl Render for Explorer {
         self.read_manifest(cx);
         // two designs, picked once: under a finger the Expo app's screens
         // (`ui/phone`), under a pointer the desktop's pages
-        let touch = window.touch();
-        match touch {
-            true => ui::phone::render(self, cx),
-            false => ui::render(self, touch, cx),
+        if window.touch() {
+            ui::phone::render(self, cx)
+        } else {
+            ui::render(self, cx)
         }
     }
 }

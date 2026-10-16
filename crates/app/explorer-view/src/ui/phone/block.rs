@@ -29,9 +29,9 @@ fn missing(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> AnyElement {
             let unlisted = view.chain.unlisted_below().filter(|from| height < *from);
             let why = match unlisted {
                 Some(from) => unindexed(from),
-                None => "This node keeps no finalized block at this height.".into(),
+                None => words::NO_BLOCK_HERE.into(),
             };
-            let title = format!("No block {}", grouped(height));
+            let title = words::no_block(height);
             empty("explorer-no-block", "blocks", title, why, k)
         }
         Loadable::Failed(refusal) => refused(&refusal.message, cx, k),
@@ -39,7 +39,7 @@ fn missing(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> AnyElement {
         | Loadable::Loading(_)
         | Loadable::Ready(Some(_))
         | Loadable::Reloading(Some(_), _) => {
-            quiet("explorer-block-loading", "Reading the block…", k)
+            quiet("explorer-block-loading", words::READING_BLOCK, k)
         }
     }
 }
@@ -47,7 +47,7 @@ fn missing(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> AnyElement {
 fn found(view: &Explorer, block: &BlockRow, txs: &[&TxRow], cx: Cx, k: &Kit) -> AnyElement {
     let now = view.chain.now();
     let list = match txs.is_empty() {
-        true => quiet("explorer-block-empty", "No transactions in this block.", k),
+        true => quiet("explorer-block-empty", words::NO_BLOCK_TRANSACTIONS, k),
         false => column(
             "explorer-block-txs",
             txs.iter().map(|tx| tx_line(view, tx, cx, k)).collect(),
@@ -103,15 +103,11 @@ fn proposer(view: &Explorer, block: &BlockRow, k: &Kit) -> Option<Stateful<Div>>
         .validators
         .ready()
         .and_then(|keys| keys.iter().position(|seated| seated == key));
-    let name = match place {
-        Some(place) => format!("validator {}", place + 1),
-        None => "validator".into(),
-    };
     let value = div()
         .flex()
         .flex_wrap()
-        .child(data(format!("{name} ")))
-        .child(data(format!("ed25519 {}", short(key))).text_color(k.theme.faint));
+        .child(data(format!("{} ", words::validator(place))))
+        .child(data(words::validator_key(key)).text_color(k.theme.faint));
     Some(key_value("Proposer", value, k))
 }
 

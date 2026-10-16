@@ -310,12 +310,6 @@ impl Explorer {
         pages
     }
 
-    /// Back has somewhere to go: a page over the list, or a sheet over the
-    /// phone's page (More, a program's, a form).
-    pub(crate) fn backs(&self) -> bool {
-        self.pages().depth() > 0 || self.sheet.is_some() || self.acting.form.is_some()
-    }
-
     /// What the code of the program page on screen declares; `listed`, a
     /// view-only entry's.
     pub(crate) fn declared(&self, listed: bool) -> Declared<'_> {
@@ -353,6 +347,25 @@ impl Explorer {
         self.account_list()
             .iter()
             .find(|account| account.number == number)
+    }
+
+    /// An account's name, or `account 7` where identity lists no such
+    /// account.
+    pub(crate) fn name_of(&self, number: u64) -> String {
+        self.account(number).map_or_else(
+            || format!("account {number}"),
+            |account| account.card.name.clone(),
+        )
+    }
+
+    /// What `account` is, its manager named from the list: "User", "Agent ·
+    /// managed by Dev · suspended", "Program · forge" (identity's own wording,
+    /// [`identity::view::kind`], over `Kind::badge` and `Kind::note`).
+    pub(crate) fn kind_of(&self, account: &identity::Account) -> String {
+        identity::view::kind(&account.kind(), |manager| {
+            self.account(manager)
+                .map(|manager| manager.card.name.clone())
+        })
     }
 
     /// The account holding `key`, and which of its keys it is.

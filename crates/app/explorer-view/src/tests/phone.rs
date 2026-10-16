@@ -532,6 +532,23 @@ fn a_form_that_builds_nothing_says_why_and_sends_nothing() {
 }
 
 #[test]
+fn the_field_a_problem_is_about_tells_assistive_tech_it_is_wrong_and_why() {
+    let mut cx = grant_form();
+    click(&mut cx, "explorer-form-submit");
+    let options = |cx: &TestAppContext, id: &str| match cx.node(id) {
+        view::wire::Node::Field { options, .. } => options.clone(),
+        other => panic!("{id} is no field: {other:?}"),
+    };
+    let account = options(&cx, "explorer-form-account");
+    assert_eq!(account.invalid, Some(view::accesskit::Invalid::True));
+    assert_eq!(
+        account.description.as_deref(),
+        Some("An account is its number.")
+    );
+    assert_eq!(options(&cx, "explorer-form-name").invalid, None);
+}
+
+#[test]
 fn a_write_the_program_refuses_says_it_did_not_go_through() {
     let mut cx = reader(Some(3), ADA, false, grants(), waiting());
     cx.host().handle::<Submit<Programs>>(|_| {

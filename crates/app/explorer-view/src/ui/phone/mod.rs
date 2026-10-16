@@ -14,10 +14,11 @@ use view::design::{CAPSULE_CLEARANCE, Face, Ladder, space};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
-use super::{Cx, Line, lines, outcome, unindexed, verdict, worded};
+use crate::chain::{Line, lines};
 use crate::decode::{ago, date, grouped, plural};
 use crate::state::Sheet;
-use crate::{BlockRow, Explorer, Note, Route, TxRow};
+use crate::words::{self, unindexed};
+use crate::{BlockRow, Cx, Explorer, Note, Route, TxRow};
 use design::mono;
 
 mod account;
@@ -62,10 +63,9 @@ pub(crate) fn render(view: &Explorer, cx: Cx) -> AnyElement {
         Some(Sheet::Program(name)) => programs::program_sheet(view, name, cx, k),
         None => form::sheet(view, cx, k),
     };
-    // Back has somewhere to go while a page is over the root or a sheet is
-    // open; else the host leaves the program
-    let back = view
-        .backs()
+    // Back undoes what is drawn: the sheet on screen, else the page over
+    // the root; with neither, the host leaves the program
+    let back = (sheet.is_some() || view.pages().depth() > 0)
         .then(|| cx.listener(|view: &mut Explorer, _: &BackEvent, _, cx| view.back(cx)));
     div()
         .id("explorer")

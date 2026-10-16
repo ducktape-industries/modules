@@ -6,7 +6,7 @@
 //! programs role; asks its program to describe it (`open`); writes the
 //! route (a link).
 use super::*;
-use crate::decode::{amount, clip, preview, scheme, short};
+use crate::decode::{amount, clip, preview, short};
 
 /// An operation field's label column (Expo `tx/[hash].tsx:180`).
 const OP_KEY_W: Pixels = px(88.);
@@ -41,27 +41,22 @@ fn missing(view: &Explorer, height: u64, position: u32, cx: Cx, k: &Kit) -> AnyE
         Loadable::Ready(None) | Loadable::Reloading(None, _) => empty(
             "explorer-no-tx",
             "search-x",
-            "Transaction not found",
-            format!(
-                "This node keeps no transaction at position {position} of block {}.",
-                grouped(height)
-            ),
+            words::NO_TRANSACTION,
+            words::no_transaction_at(height, position),
             k,
         ),
         Loadable::Failed(refusal) => refused(&refusal.message, cx, k),
         Loadable::Idle
         | Loadable::Loading(_)
         | Loadable::Ready(Some(_))
-        | Loadable::Reloading(Some(_), _) => {
-            quiet("explorer-tx-loading", "Reading the transaction…", k)
-        }
+        | Loadable::Reloading(Some(_), _) => quiet("explorer-tx-loading", words::READING_TX, k),
     }
 }
 
 fn found(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> AnyElement {
     let block = linked(
         "explorer-tx-block",
-        format!("In block {}", grouped(tx.height)),
+        words::in_block(tx.height),
         Route::Block(tx.height),
         cx,
         k,
@@ -110,17 +105,17 @@ fn program(view: &Explorer, tx: &TxRow, k: &Kit) -> Div {
 /// A run's outcome as a badge and, where it was refused, the refusal's
 /// sentence and reason under it (Expo `Status`).
 fn status(run: &Receipt, id: &str, k: &Kit) -> Div {
-    let (word, color, soft) = outcome(run, &k.theme);
     let refusal = match &run.outcome {
         Outcome::Applied { .. } => None,
         Outcome::Rejected(refusal) => Some(refusal),
     };
+    let tone = Tone::of_run(refusal.is_none());
     let badge = design::badge(
         SharedString::from(format!("{id}-status")),
-        word,
+        activity::view::verdict(refusal.is_none()),
         &k.ladder,
-        color,
-        soft,
+        tone.ink(&k.theme),
+        tone.ground(&k.theme),
     );
     div()
         .flex()
@@ -185,17 +180,7 @@ fn from(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> Div {
     let Some((account, at)) = view.holder(&tx.signer) else {
         return data(abi::hex(&tx.signer));
     };
-    let key = &account.keys()[at];
-    let label = key
-        .label
-        .clone()
-        .unwrap_or_else(|| format!("device {}", at + 1));
-    let which = format!(
-        "#{} {label} · {} {}",
-        account.number,
-        scheme(key.scheme),
-        short(&tx.signer)
-    );
+    let which = words::key_line(account, at, &tx.signer);
     div()
         .flex()
         .items_center()

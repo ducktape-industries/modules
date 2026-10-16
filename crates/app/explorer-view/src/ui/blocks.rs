@@ -21,10 +21,7 @@ pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
             heading(
                 "explorer-blocks-heading",
                 "Blocks",
-                Some(caption(
-                    format!("the last {}", plural(held, "block", "blocks")),
-                    theme,
-                )),
+                Some(caption(words::last_blocks(held), theme)),
                 theme,
             )
             .mr(design::size::SCROLLBAR),
@@ -47,34 +44,25 @@ pub(super) fn block(
                 let unlisted = view.chain.unlisted_below().filter(|from| height < *from);
                 let why = match unlisted {
                     Some(from) => unindexed(from),
-                    None => "This node keeps no finalized block at this height.".into(),
+                    None => words::NO_BLOCK_HERE.into(),
                 };
-                empty_state(
-                    "explorer-no-block",
-                    format!("No block {}", grouped(height)),
-                    why,
-                    theme,
-                )
-                .into_any_element()
+                empty_state("explorer-no-block", words::no_block(height), why, theme)
+                    .into_any_element()
             }
             Loadable::Failed(refusal) => failed(&refusal.message, cx, theme, ladder),
             Loadable::Idle
             | Loadable::Loading(_)
             | Loadable::Ready(Some(_))
             | Loadable::Reloading(Some(_), _) => {
-                quiet("explorer-block-loading", "Reading the block…", theme)
+                quiet("explorer-block-loading", words::READING_BLOCK, theme)
             }
         };
     };
     let now = view.chain.now();
     let count = txs.len() as u64;
-    let empty = txs.is_empty().then(|| {
-        quiet(
-            "explorer-block-empty",
-            "No transactions in this block.",
-            theme,
-        )
-    });
+    let empty = txs
+        .is_empty()
+        .then(|| quiet("explorer-block-empty", words::NO_BLOCK_TRANSACTIONS, theme));
     let list = rows("explorer-block-txs", "Transactions", view);
     let rows = (!txs.is_empty()).then(|| {
         tx_rows(list, view, move |view| {
@@ -205,17 +193,13 @@ fn proposer(view: &Explorer, block: &BlockRow, theme: &Theme) -> Option<impl Int
         .validators
         .ready()
         .and_then(|keys| keys.iter().position(|seated| seated == key));
-    let name = match place {
-        Some(place) => format!("validator {}", place + 1),
-        None => "validator".into(),
-    };
     Some(field(
         "Proposer",
         div()
             .flex()
             .gap_2()
-            .child(mono(name))
-            .child(mono(format!("ed25519 {}", short(key))).text_color(theme.faint)),
+            .child(mono(words::validator(place)))
+            .child(mono(words::validator_key(key)).text_color(theme.faint)),
         theme,
     ))
 }

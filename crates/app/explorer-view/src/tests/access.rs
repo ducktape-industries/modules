@@ -440,7 +440,8 @@ fn a_form_builds_its_op_or_says_why_not() {
         ),
     ] {
         assert_eq!(
-            acting::built(&form(edit, code, height), &network, 12),
+            acting::built(&form(edit, code, height), &network, 12)
+                .map_err(|problem| problem.sentence),
             Err(why.to_owned())
         );
     }

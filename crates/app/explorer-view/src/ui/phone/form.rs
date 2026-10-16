@@ -6,22 +6,11 @@
 //! program or view choice (`add_view`), the send (`submit_form`) and Close
 //! (`close_form`).
 use super::*;
-use crate::acting::{Edit, Form};
+use crate::acting::{Asked, Edit, Form, FormField, Problem, Takes};
 
+// SDK gap: the sheet's inset, swap when feat/phone-kit lands
 /// The form's inset (Expo `programs.tsx:465`).
 const FORM_INSET: Pixels = px(20.);
-
-/// What a field takes, which sets the keyboard a phone shows for it (Expo's
-/// `Field` props).
-#[derive(Clone, Copy)]
-enum Typed {
-    /// an account or a height: the number pad
-    Number,
-    /// a name or a code id: no capitals, no corrections
-    Id,
-    /// params as hex: no capitals
-    Hex,
-}
 
 pub(super) fn sheet(view: &Explorer, cx: Cx, k: &Kit) -> Option<AnyElement> {
     let form = view.acting.form.as_ref()?;
@@ -41,7 +30,7 @@ pub(super) fn sheet(view: &Explorer, cx: Cx, k: &Kit) -> Option<AnyElement> {
             .id("explorer-form-problem")
             .text_type(k.ladder.secondary)
             .text_color(k.theme.danger)
-            .child(problem.clone())
+            .child(problem.sentence.clone())
     });
     let dismiss = cx.listener(|view: &mut Explorer, _: &(), _, cx| view.close_form(cx));
     let body = div()
@@ -83,99 +72,47 @@ fn account_note(view: &Explorer, form: &Form) -> Option<String> {
         return None;
     }
     Some(match form.account_number() {
-        None => "Type the account's number.".into(),
+        None => words::TYPE_ACCOUNT.into(),
         Some(number) => match view.account(number) {
             Some(account) => format!("#{number} · {}", account.card.name),
-            None => format!("No account {number} here."),
+            None => words::no_account_numbered(number),
         },
     })
 }
 
-/// The fields its edit reads, in the Expo form's order.
+/// What its edit asks for, in the Expo form's order.
 fn fields(form: &Form, cx: Cx, k: &Kit) -> Vec<AnyElement> {
-    let mut fields = Vec::new();
-    if form.edit == Edit::Add {
-        fields.push(field(
-            "explorer-form-name",
-            &form.name,
-            "Name",
-            "program id",
-            Typed::Id,
-            k,
-        ));
-        fields.push(program_or_view(form, cx, k));
-    }
-    if form.edit == Edit::Grant {
-        fields.push(field(
-            "explorer-form-account",
-            &form.account,
-            "Account",
-            "account number",
-            Typed::Number,
-            k,
-        ));
-        fields.push(field(
-            "explorer-form-name",
-            &form.name,
-            "Program",
-            "a program, or empty for every program",
-            Typed::Id,
-            k,
-        ));
-    }
-    if matches!(form.edit, Edit::Upgrade { .. } | Edit::Add) {
-        fields.push(field(
-            "explorer-form-code",
-            &form.code,
-            "Code id",
-            "sha256:… of the published code",
-            Typed::Id,
-            k,
-        ));
-    }
-    if form.edit == Edit::Add && !form.view {
-        fields.push(field(
-            "explorer-form-params",
-            &form.params,
-            "Params",
-            "params hex, or empty",
-            Typed::Hex,
-            k,
-        ));
-    }
-    if form.edit != Edit::Grant {
-        fields.push(field(
-            "explorer-form-height",
-            &form.height,
-            "At block",
-            "block height",
-            Typed::Number,
-            k,
-        ));
-    }
-    fields
+    form.asks()
+        .into_iter()
+        .map(|asked| match asked {
+            Asked::Field(field) => labelled(form, field, k),
+            Asked::Kind => program_or_view(form, cx, k),
+        })
+        .collect()
 }
 
+// SDK gap: a labelled field with its problem, swap when feat/phone-kit lands
 /// One labelled field (Expo `Field label` + `mono`): the label over a
-/// strong hairline box, the text in the data face.
-fn field(
-    id: &'static str,
-    text: &TextField,
-    label: &'static str,
-    hint: &'static str,
-    typed: Typed,
-    k: &Kit,
-) -> AnyElement {
-    let input = Input::new(id, text, label)
+/// strong hairline box, the text in the data face, the keys it takes; a
+/// problem that is the field's marks it invalid and says why to assistive
+/// tech.
+fn labelled(form: &Form, field: FormField, k: &Kit) -> AnyElement {
+    let input = Input::new(field.id(), form.text(field), field.label())
         .w_full()
         .font_family(design::fonts::FAMILY_MONO)
-        .placeholder(hint);
-    let input = match typed {
-        Typed::Number => input.virtual_keyboard(VirtualKeyboard::Numeric),
-        Typed::Id => input
+        .placeholder(field.hint());
+    let input = match field.takes() {
+        Takes::Number => input.virtual_keyboard(VirtualKeyboard::Numeric),
+        Takes::Id => input
             .autocapitalize(Autocapitalize::None)
             .autocorrect(false),
-        Typed::Hex => input.autocapitalize(Autocapitalize::None),
+        Takes::Hex => input.autocapitalize(Autocapitalize::None),
+    };
+    let input = match Problem::of(form.problem.as_ref(), field) {
+        Some(sentence) => input
+            .invalid(view::accesskit::Invalid::True)
+            .description(sentence.to_owned()),
+        None => input,
     };
     div()
         .flex()
@@ -185,7 +122,7 @@ fn field(
                 .mb(space::XS)
                 .text_type(k.ladder.caption)
                 .text_color(k.theme.muted)
-                .child(label),
+                .child(field.label()),
         )
         .child(design::field(input, &k.ladder, &k.theme).text_type(k.ladder.secondary))
         .into_any_element()
@@ -216,6 +153,7 @@ fn program_or_view(form: &Form, cx: Cx, k: &Kit) -> AnyElement {
     .into_any_element()
 }
 
+// SDK gap: the form sheet's Close + primary footer, swap when feat/phone-kit lands
 /// Close, quiet; and Schedule or Propose, the primary, off while a write is
 /// out.
 fn buttons(view: &Explorer, form: &Form, cx: Cx, k: &Kit) -> Div {

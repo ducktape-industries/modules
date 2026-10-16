@@ -129,11 +129,12 @@ fn searching(view: &Explorer, cx: Cx, k: &Kit) -> Stateful<Div> {
         .child(row)
 }
 
+// SDK gap: Field with a lead icon in the header's centre, swap when feat/phone-kit lands
 /// The search field (Expo `Field` with a magnifier lead): a height, a hash,
 /// `#3` or a name; no capitals, no corrections, Return searches.
 fn field(view: &Explorer, cx: Cx, k: &Kit) -> Div {
     let submit = cx.listener(|view: &mut Explorer, _: &(), _, cx| view.search(cx));
-    let input = Input::new("explorer-search", &view.search, "Search the chain")
+    let input = Input::new("explorer-search", &view.search, words::SEARCH)
         .autocorrect(false)
         .autocapitalize(Autocapitalize::None)
         .virtual_keyboard(VirtualKeyboard::Search)
@@ -141,7 +142,7 @@ fn field(view: &Explorer, cx: Cx, k: &Kit) -> Div {
         .flex_1()
         .min_w(px(0.))
         .text_type(k.ladder.body)
-        .placeholder("Search by height, hash, account or program")
+        .placeholder(words::SEARCH_HINT)
         .on_submit(submit);
     div()
         .min_h(k.ladder.control)
@@ -156,6 +157,7 @@ fn field(view: &Explorer, cx: Cx, k: &Kit) -> Div {
         .child(input)
 }
 
+// SDK gap: Strip, swap when feat/phone-kit lands
 /// The five pages on a strip that scrolls sideways (Expo `Strip`): one Tab
 /// stop, ← → move through the pages, a press opens a page's list.
 fn strip(view: &Explorer, cx: Cx, k: &Kit) -> Stateful<Div> {
@@ -191,6 +193,7 @@ fn strip(view: &Explorer, cx: Cx, k: &Kit) -> Stateful<Div> {
         .children(pages)
 }
 
+// SDK gap: Strip, swap when feat/phone-kit lands
 /// One page on the strip: its label in small, the chosen one foreground
 /// and medium over a 2 px underline, the rest muted.
 fn page_tab(

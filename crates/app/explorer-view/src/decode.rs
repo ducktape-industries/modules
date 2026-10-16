@@ -78,6 +78,11 @@ pub fn short(raw: &[u8]) -> String {
 
 pub use view::design::{ago, date, grouped, plural, short_hex};
 
+/// How long `blocks` take at the node's block time, in whole minutes.
+pub fn minutes(blocks: u64, block_time_ms: u64) -> u64 {
+    (blocks * block_time_ms).div_ceil(60_000)
+}
+
 /// A signing scheme by its short name: `ed25519`, `p256`.
 pub fn scheme(scheme: abi::Scheme) -> String {
     match scheme {

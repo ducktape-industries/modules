@@ -26,6 +26,25 @@ pub(crate) enum Path {
     Vote,
 }
 
+impl Path {
+    /// The press that cancels a scheduled change on this path.
+    pub(crate) fn cancel_word(self) -> &'static str {
+        match self {
+            Path::Grant => "Cancel",
+            Path::Vote => "Propose cancel",
+        }
+    }
+
+    /// The press that revokes a grant on this path: by its own grant, its
+    /// holder steps down.
+    pub(crate) fn revoke_word(self) -> &'static str {
+        match self {
+            Path::Grant => "Step down",
+            Path::Vote => "Propose revoke",
+        }
+    }
+}
+
 /// Who reads, and what they are changing.
 #[derive(Default)]
 pub(crate) struct Acting {
@@ -57,6 +76,18 @@ pub(crate) enum Edit {
     Grant,
 }
 
+impl Edit {
+    /// The press that opens this edit's form.
+    pub(crate) fn press_id(&self) -> String {
+        match self {
+            Edit::Upgrade { name, .. } => format!("explorer-upgrade-{name}"),
+            Edit::Remove { name, .. } => format!("explorer-remove-{name}"),
+            Edit::Add => "explorer-add".into(),
+            Edit::Grant => "explorer-propose-grant".into(),
+        }
+    }
+}
+
 /// One form open on the page; its fields are the ones its [`Edit`] reads.
 pub(crate) struct Form {
     pub(crate) edit: Edit,
@@ -72,10 +103,145 @@ pub(crate) struct Form {
     /// Add: a view, not a program
     pub(crate) view: bool,
     /// why the last press built no op, or the host's refusal
-    pub(crate) problem: Option<String>,
+    pub(crate) problem: Option<Problem>,
+}
+
+/// Why a form's press sent nothing: its sentence, and the field it is
+/// about where one field is wrong.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Problem {
+    pub(crate) sentence: String,
+    pub(crate) at: Option<FormField>,
+}
+
+impl Problem {
+    fn at(field: FormField, sentence: impl Into<String>) -> Problem {
+        Problem {
+            sentence: sentence.into(),
+            at: Some(field),
+        }
+    }
+
+    fn whole(sentence: impl Into<String>) -> Problem {
+        Problem {
+            sentence: sentence.into(),
+            at: None,
+        }
+    }
+
+    /// The problem when it is `field`'s.
+    pub(crate) fn of(problem: Option<&Problem>, field: FormField) -> Option<&str> {
+        problem
+            .filter(|problem| problem.at == Some(field))
+            .map(|problem| problem.sentence.as_str())
+    }
+}
+
+/// What a form asks for (Expo `FormSheet`), in [`Form::asks`]'s order: a
+/// typed field, or an Add's choice of a program or a view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Asked {
+    Field(FormField),
+    Kind,
+}
+
+/// A form's typed field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FormField {
+    /// an Add's new id
+    Name,
+    /// a grant's account
+    Account,
+    /// a grant's program, empty for every program
+    Program,
+    Code,
+    Params,
+    Height,
+}
+
+/// What a typed field takes, for the keys a phone offers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Takes {
+    Number,
+    /// an id or a code id: no capitals, no correction
+    Id,
+    Hex,
+}
+
+impl FormField {
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            FormField::Name | FormField::Program => "explorer-form-name",
+            FormField::Account => "explorer-form-account",
+            FormField::Code => "explorer-form-code",
+            FormField::Params => "explorer-form-params",
+            FormField::Height => "explorer-form-height",
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            FormField::Name => "Name",
+            FormField::Account => "Account",
+            FormField::Program => "Program",
+            FormField::Code => "Code id",
+            FormField::Params => "Params",
+            FormField::Height => "At block",
+        }
+    }
+
+    /// What the empty field says it takes.
+    pub(crate) fn hint(self) -> &'static str {
+        match self {
+            FormField::Name => "program id",
+            FormField::Account => "account number",
+            FormField::Program => "a program, or empty for every program",
+            FormField::Code => "sha256:… of the published code",
+            FormField::Params => "params hex, or empty",
+            FormField::Height => "block height",
+        }
+    }
+
+    pub(crate) fn takes(self) -> Takes {
+        match self {
+            FormField::Account | FormField::Height => Takes::Number,
+            FormField::Name | FormField::Program | FormField::Code => Takes::Id,
+            FormField::Params => Takes::Hex,
+        }
+    }
 }
 
 impl Form {
+    /// What this form asks for, in order: an Add its name, what it adds,
+    /// its code, a program's params and the height; a grant its account
+    /// and program; an upgrade its code and the height; a removal the
+    /// height.
+    pub(crate) fn asks(&self) -> Vec<Asked> {
+        let field = Asked::Field;
+        let mut asks = match self.edit {
+            Edit::Add => vec![field(FormField::Name), Asked::Kind, field(FormField::Code)],
+            Edit::Grant => return vec![field(FormField::Account), field(FormField::Program)],
+            Edit::Upgrade { .. } => vec![field(FormField::Code)],
+            Edit::Remove { .. } => Vec::new(),
+        };
+        if self.edit == Edit::Add && !self.view {
+            asks.push(field(FormField::Params));
+        }
+        asks.push(field(FormField::Height));
+        asks
+    }
+
+    /// The text a field holds.
+    pub(crate) fn text(&self, field: FormField) -> &TextField {
+        match field {
+            FormField::Name | FormField::Program => &self.name,
+            FormField::Account => &self.account,
+            FormField::Code => &self.code,
+            FormField::Params => &self.params,
+            FormField::Height => &self.height,
+        }
+    }
+
     /// The account a grant form names, as typed: a number, `#` allowed.
     pub(crate) fn account_number(&self) -> Option<u64> {
         self.account
@@ -387,7 +553,7 @@ impl Explorer {
             }
         };
         match &mut self.acting.form {
-            Some(form) => form.problem = Some(problem),
+            Some(form) => form.problem = Some(Problem::whole(problem)),
             None => self.note = Some(Note::Refused(problem)),
         }
         cx.notify();
@@ -399,6 +565,17 @@ impl Network {
     pub(crate) fn names(&self, name: &str) -> bool {
         self.programs.iter().any(|entry| entry.program == name)
             || self.views.iter().any(|view| view.name == name)
+    }
+
+    /// The role `name` fills for the kernel, in the kernel's word for it: the
+    /// roles are the chain's own table, so a role it gains is named here as
+    /// is.
+    pub(crate) fn role_of(&self, name: &str) -> Option<&str> {
+        self.roles
+            .as_ref()?
+            .iter()
+            .find(|(_, program)| program.as_str() == name)
+            .map(|(role, _)| role)
     }
 
     /// Who changes `name` by a grant: `None` for a role's program, which
@@ -459,7 +636,7 @@ pub(crate) fn earliest(tip: u64) -> u64 {
 }
 
 /// The op a form builds, or why it builds none.
-pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<programs::Op, String> {
+pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<programs::Op, Problem> {
     let at = |height: u64, change: Change| programs::Op::Schedule(Scheduled { height, change });
     Ok(match &form.edit {
         Edit::Upgrade { name, view: false } => {
@@ -467,39 +644,41 @@ pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<programs
                 .programs
                 .iter()
                 .find(|entry| &entry.program == name)
-                .ok_or_else(|| format!("{name} no longer runs here."))?;
+                .ok_or_else(|| Problem::whole(format!("{name} no longer runs here.")))?;
             let entry = programs::Entry {
-                code: code(&form.code.text())?,
+                code: code(form)?,
                 ..current.clone()
             };
-            at(height(&form.height.text(), tip)?, Change::Set(entry))
+            at(height(form, tip)?, Change::Set(entry))
         }
         Edit::Upgrade { name, view: true } => {
             let view = programs::View {
                 name: name.clone(),
-                view: code(&form.code.text())?,
+                view: code(form)?,
             };
-            at(height(&form.height.text(), tip)?, Change::SetView(view))
+            at(height(form, tip)?, Change::SetView(view))
         }
         Edit::Remove { name, view } => {
             let change = match view {
                 false => Change::Remove(name.clone()),
                 true => Change::RemoveView(name.clone()),
             };
-            at(height(&form.height.text(), tip)?, change)
+            at(height(form, tip)?, change)
         }
         Edit::Add => {
             let name = form.name.text().trim().to_owned();
             if name.is_empty() {
-                return Err("Name the program.".into());
+                return Err(Problem::at(FormField::Name, "Name the program."));
             }
-            let code = code(&form.code.text())?;
+            let code = code(form)?;
             let change = match form.view {
                 true => Change::SetView(programs::View { name, view: code }),
                 false => {
                     let params = form.params.text();
                     let params = params.trim().trim_start_matches("0x");
-                    let params = abi::unhex(params).ok_or("Params are hex digits, or nothing.")?;
+                    let params = abi::unhex(params).ok_or_else(|| {
+                        Problem::at(FormField::Params, "Params are hex digits, or nothing.")
+                    })?;
                     Change::Set(programs::Entry {
                         program: name,
                         code,
@@ -507,10 +686,12 @@ pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<programs
                     })
                 }
             };
-            at(height(&form.height.text(), tip)?, change)
+            at(height(form, tip)?, change)
         }
         Edit::Grant => {
-            let account = form.account_number().ok_or("An account is its number.")?;
+            let account = form
+                .account_number()
+                .ok_or_else(|| Problem::at(FormField::Account, "An account is its number."))?;
             let program = form.name.text().trim().to_owned();
             let scope = match program.is_empty() {
                 true => Scope::All,
@@ -521,27 +702,34 @@ pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<programs
     })
 }
 
-/// A held code's id as a release names it: `sha256:<64 hex>`, or the
+/// The form's code id as a release names it: `sha256:<64 hex>`, or the
 /// hex alone.
-fn code(text: &str) -> Result<abi::BlobId, String> {
+fn code(form: &Form) -> Result<abi::BlobId, Problem> {
+    let text = form.code.text();
     let text = text.trim();
     let digits = text.strip_prefix("sha256:").unwrap_or(text);
     let digest: Option<[u8; 32]> = abi::unhex(digits).and_then(|bytes| bytes.try_into().ok());
     digest
         .map(abi::BlobId::Sha256)
-        .ok_or_else(|| "A code id is sha256: and 64 hex digits.".into())
+        .ok_or_else(|| Problem::at(FormField::Code, "A code id is sha256: and 64 hex digits."))
 }
 
-fn height(text: &str, tip: u64) -> Result<u64, String> {
-    let height: u64 = text
+/// The form's height, past `tip`.
+fn height(form: &Form, tip: u64) -> Result<u64, Problem> {
+    let height: u64 = form
+        .height
+        .text()
         .trim()
         .replace(',', "")
         .parse()
-        .map_err(|_| "The height is a block number.".to_owned())?;
+        .map_err(|_| Problem::at(FormField::Height, "The height is a block number."))?;
     if height <= tip {
-        return Err(format!(
-            "Block {} has passed: pick a later one.",
-            design::grouped(height)
+        return Err(Problem::at(
+            FormField::Height,
+            format!(
+                "Block {} has passed: pick a later one.",
+                design::grouped(height)
+            ),
         ));
     }
     Ok(height)

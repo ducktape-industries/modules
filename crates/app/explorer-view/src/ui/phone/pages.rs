@@ -31,7 +31,7 @@ pub(super) fn body(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
 }
 
 /// A window page before the window's first page lands (Expo `ChainGate`):
-/// "Reading the chain…", or its refusal with Retry; `None` once it holds
+/// words::READING_CHAIN, or its refusal with Retry; `None` once it holds
 /// a block.
 pub(super) fn chain_gate(view: &Explorer, cx: Cx, k: &Kit) -> Option<AnyElement> {
     if !view.chain.blocks.is_empty() {
@@ -39,24 +39,20 @@ pub(super) fn chain_gate(view: &Explorer, cx: Cx, k: &Kit) -> Option<AnyElement>
     }
     Some(match &view.chain.failed {
         Some(sentence) => refused(sentence, cx, k),
-        None => quiet("explorer-loading", "Reading the chain…", k),
+        None => quiet("explorer-loading", words::READING_CHAIN, k),
     })
 }
 
-/// "the last 1,000 blocks": how far back the window reaches.
-fn last_blocks(view: &Explorer) -> String {
-    plural(view.chain.blocks.len() as u64, "block", "blocks")
+/// How many blocks the window holds.
+fn held(view: &Explorer) -> u64 {
+    view.chain.blocks.len() as u64
 }
 
 /// The figures, the latest blocks and the latest transactions (Expo
 /// `Overview`).
 fn overview(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
     let txs = match view.chain.txs.is_empty() {
-        true => quiet(
-            "explorer-no-txs",
-            format!("No transactions in the last {}.", last_blocks(view)),
-            k,
-        ),
+        true => quiet("explorer-no-txs", words::no_transactions_in(held(view)), k),
         false => column(
             "explorer-latest-txs-list",
             view.chain
@@ -68,10 +64,16 @@ fn overview(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
         )
         .into_any_element(),
     };
-    let all_blocks = more_link("explorer-all-blocks", "All blocks →", Route::Blocks, cx, k);
+    let all_blocks = more_link(
+        "explorer-all-blocks",
+        words::ALL_BLOCKS,
+        Route::Blocks,
+        cx,
+        k,
+    );
     let all_txs = more_link(
         "explorer-all-txs",
-        "All transactions →",
+        words::ALL_TRANSACTIONS,
         Route::Transactions(None),
         cx,
         k,
@@ -112,8 +114,7 @@ fn figures(view: &Explorer) -> Vec<Fact> {
             key: "height",
             label: "Height",
             value: status.map_or_else(dash, |status| grouped(status.height)),
-            caption: status
-                .map(|status| format!("Block every {:.1} s", status.block_time_ms as f64 / 1000.)),
+            caption: status.map(|status| words::block_every(status.block_time_ms)),
         },
         Fact {
             key: "epoch",
@@ -121,7 +122,7 @@ fn figures(view: &Explorer) -> Vec<Fact> {
             value: status
                 .filter(|_| left.is_some())
                 .map_or_else(dash, |status| grouped(status.epoch)),
-            caption: left.map(|left| format!("Next in {}", plural(left, "block", "blocks"))),
+            caption: left.map(words::next_in),
         },
         Fact {
             key: "validators",
@@ -157,7 +158,7 @@ fn blocks(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
         .child(section(
             "explorer-blocks-heading",
             "Blocks",
-            Some(aside(format!("the last {}", last_blocks(view)))),
+            Some(aside(words::last_blocks(held(view)))),
             k,
         ))
         .child(column(
@@ -178,20 +179,12 @@ pub(super) fn transactions(view: &Explorer, program: Option<&str>, cx: Cx, k: &K
         .filter(|tx| program.is_none_or(|program| tx.target == program))
         .collect();
     let title = match program {
-        Some(program) => format!("Transactions · {program}"),
+        Some(program) => words::transactions_to(program),
         None => "Transactions".to_owned(),
     };
-    let count = format!(
-        "{} in the last {}",
-        plural(matching.len() as u64, "transaction", "transactions"),
-        last_blocks(view)
-    );
+    let count = words::transactions_in(matching.len() as u64, held(view));
     let list = match matching.is_empty() {
-        true => quiet(
-            "explorer-no-txs",
-            format!("No transactions in the last {}.", last_blocks(view)),
-            k,
-        ),
+        true => quiet("explorer-no-txs", words::no_transactions_in(held(view)), k),
         false => column(
             "explorer-transactions-list",
             matching
@@ -221,7 +214,7 @@ fn accounts(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
         Loadable::Ready(listed) | Loadable::Reloading(listed, _) => listed,
         Loadable::Failed(refusal) => return refused(&refusal.message, cx, k),
         Loadable::Idle | Loadable::Loading(_) => {
-            return quiet("explorer-accounts-loading", "Reading accounts…", k);
+            return quiet("explorer-accounts-loading", words::READING_ACCOUNTS, k);
         }
     };
     let count = format!("{} · tx recorded", grouped(listed.list.len() as u64));
@@ -266,7 +259,7 @@ fn account_line(view: &Explorer, account: &identity::Account, cx: Cx, k: &Kit) -
         .map(|used| used.iter().map(|used| used.frames).sum::<u64>());
     let about = format!(
         "#{number} · {} · {}",
-        crate::ui::accounts::kind(view, account),
+        view.kind_of(account),
         plural(account.keys().len() as u64, "device", "devices")
     );
     let row = list_row(SharedString::from(format!("explorer-account-{number}")), k);

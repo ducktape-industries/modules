@@ -4,22 +4,12 @@ use crate::decode::scheme;
 use identity::Account;
 use view::design::Ladder;
 
-/// What `account` is, its manager named from the list: "User", "Agent ·
-/// managed by Dev · suspended", "Program · forge" (identity's own wording,
-/// [`identity::view::kind`], over `Kind::badge` and `Kind::note`).
-pub(super) fn kind(view: &Explorer, account: &Account) -> String {
-    identity::view::kind(&account.kind(), |manager| {
-        view.account(manager)
-            .map(|manager| manager.card.name.clone())
-    })
-}
-
 pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let listed = match &view.accounts {
         Loadable::Ready(listed) | Loadable::Reloading(listed, _) => listed,
         Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme, ladder),
         Loadable::Idle | Loadable::Loading(_) => {
-            return quiet("explorer-accounts-loading", "Reading accounts…", theme);
+            return quiet("explorer-accounts-loading", words::READING_ACCOUNTS, theme);
         }
     };
     let list = rows("explorer-accounts-list", "Accounts", view);
@@ -69,7 +59,7 @@ fn account_row(view: &Explorer, account: &Account, cx: Cx, theme: &Theme) -> Sta
     )
     .child(design::avatar(name, design::size::AVATAR, theme))
     .child(div().flex_1().truncate().child(name.clone()))
-    .child(div().text_color(theme.muted).child(kind(view, account)))
+    .child(div().text_color(theme.muted).child(view.kind_of(account)))
     .child(mono(format!("#{}", account.number)).text_color(theme.faint))
     .child(div().w(DEVICES_W).text_color(theme.muted).child(plural(
         account.keys().len() as u64,
@@ -93,11 +83,11 @@ fn acted(view: &Explorer, number: u64, cx: Cx, theme: &Theme, ladder: &Ladder) -
     let Some(acted) = view.acted(number) else {
         return match &view.acted {
             Loadable::Failed(refusal) => failed(&refusal.message, cx, theme, ladder),
-            _ => quiet("explorer-activity-loading", "Reading its activity…", theme),
+            _ => quiet("explorer-activity-loading", words::READING_ACTIVITY, theme),
         };
     };
     if acted.is_empty() {
-        return quiet("explorer-no-activity", "No activity recorded.", theme);
+        return quiet("explorer-no-activity", words::NO_ACTIVITY, theme);
     }
     let list = rows("explorer-activity-list", "Activity", view);
     frame_rows(list, view, move |view| {
@@ -120,14 +110,14 @@ pub(super) fn account(
         return match &view.accounts {
             Loadable::Ready(_) | Loadable::Reloading(_, _) => empty_state(
                 "explorer-no-account",
-                format!("No account #{number}"),
-                "Identity holds no account by this number.",
+                words::no_account(number),
+                words::NO_ACCOUNT_HERE,
                 theme,
             )
             .into_any_element(),
             Loadable::Failed(refusal) => failed(&refusal.message, cx, theme, ladder),
             Loadable::Idle | Loadable::Loading(_) => {
-                quiet("explorer-account-loading", "Reading the account…", theme)
+                quiet("explorer-account-loading", words::READING_ACCOUNT, theme)
             }
         };
     };
@@ -172,7 +162,7 @@ fn title(view: &Explorer, account: &Account, cx: Cx, theme: &Theme) -> impl Into
     let about = format!(
         "account {}   {}   {}",
         account.number,
-        kind(view, account),
+        view.kind_of(account),
         plural(account.keys().len() as u64, "device", "devices")
     );
     div()
@@ -215,10 +205,7 @@ fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
     let sent = view.acted(account.number).unwrap_or_default();
     let devices = account.keys().iter().enumerate().map(|(index, key)| {
         let last = sent.iter().find(|frame| frame.signer == key.key);
-        let label = key
-            .label
-            .clone()
-            .unwrap_or_else(|| format!("Device {}", index + 1));
+        let label = key.label.clone().unwrap_or_else(|| words::device(index));
         div()
             .flex()
             .items_center()
@@ -235,12 +222,9 @@ fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
                     .text_color(theme.faint),
             )
             .child(
-                mono(match last {
-                    Some(frame) => format!("last used {} ago", ago(now, frame.time)),
-                    None => "not used lately".into(),
-                })
-                .text_size(design::text::CAPTION)
-                .text_color(theme.muted),
+                mono(words::last_used(now, last.map(|frame| frame.time)))
+                    .text_size(design::text::CAPTION)
+                    .text_color(theme.muted),
             )
     });
     let mut used: Vec<(&str, u64)> = view

@@ -8,8 +8,8 @@
 use super::*;
 use crate::Network;
 use crate::acting::{self, Edit, Path};
+use crate::decode::minutes;
 use crate::state::{Sheet, blob_ref};
-use crate::ui::programs::{minutes, name_of};
 use ::programs::{Change, NOTICE, Pending, Scope};
 
 pub(super) fn programs(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
@@ -17,17 +17,13 @@ pub(super) fn programs(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
         Loadable::Ready(network) | Loadable::Reloading(network, _) => network,
         Loadable::Failed(refusal) => return refused(&refusal.message, cx, k),
         Loadable::Idle | Loadable::Loading(_) => {
-            return quiet("explorer-programs-loading", "Reading the programs role…", k);
+            return quiet("explorer-programs-loading", words::READING_ROLE, k);
         }
     };
     let empty =
         network.programs.is_empty() && network.views.is_empty() && network.changes.is_empty();
     let listed = match empty {
-        true => vec![quiet(
-            "explorer-empty",
-            "The programs role of this network runs nothing yet.",
-            k,
-        )],
+        true => vec![quiet("explorer-empty", words::RUNS_NOTHING, k)],
         false => [
             scheduled(view, network, cx, k),
             running(view, network, cx, k),
@@ -79,7 +75,7 @@ fn code_words(code: &abi::BlobId) -> String {
 /// An account by its name, the reader's marked "(you)" (Expo
 /// `holderName`).
 fn holder_name(view: &Explorer, number: u64) -> String {
-    let name = name_of(view, number);
+    let name = view.name_of(number);
     match view.acting.account == Some(number) {
         true => format!("{name} (you)"),
         false => name,
@@ -98,7 +94,7 @@ fn changed_by(view: &Explorer, network: &Network, name: &str) -> String {
         .map(|&number| holder_name(view, number))
         .collect();
     if maintainers.every {
-        named.push("every-program maintainers".into());
+        named.push(words::EVERY_PROGRAM.into());
     }
     match named.is_empty() {
         true => "Validators' vote".into(),
@@ -137,12 +133,12 @@ fn scheduled_words(pending: &Pending, network: &Network) -> String {
 /// maintainer's grant and the blocks the validators have left to look.
 fn by_words(view: &Explorer, pending: &Pending) -> String {
     let Some(by) = pending.by else {
-        return "by vote".into();
+        return words::BY_VOTE.into();
     };
     let tip = view.status.ready().map_or(0, |status| status.height);
     format!(
         "by {}'s grant · {} to look",
-        name_of(view, by),
+        view.name_of(by),
         plural(pending.height.saturating_sub(tip), "block", "blocks")
     )
 }
@@ -153,13 +149,10 @@ fn by_words(view: &Explorer, pending: &Pending) -> String {
 fn scheduled(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElement> {
     let count = (!network.changes.is_empty()).then(|| aside(network.changes.len().to_string()));
     let head = section("explorer-scheduled-header", "Scheduled", count, k);
-    let none = network.changes.is_empty().then(|| {
-        quiet(
-            "explorer-no-changes",
-            "Nothing is scheduled against the programs role.",
-            k,
-        )
-    });
+    let none = network
+        .changes
+        .is_empty()
+        .then(|| quiet("explorer-no-changes", words::NOTHING_SCHEDULED, k));
     let rows = network.changes.iter().enumerate().map(|(index, pending)| {
         scheduled_row(view, network, index, pending, k)
             .children(cancel(view, index, pending, cx, k))
@@ -203,10 +196,7 @@ fn cancel(
         Some(_) if view.maintains(pending.change.program()) => Path::Grant,
         _ => view.acting.votes().then_some(Path::Vote)?,
     };
-    let label = match path {
-        Path::Grant => "Cancel",
-        Path::Vote => "Propose cancel",
-    };
+    let label = path.cancel_word();
     let op = acting::cancel(pending);
     let press = (!view.acting.busy).then(|| -> Press {
         Box::new(
@@ -319,13 +309,10 @@ fn access(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElement
         minutes(NOTICE, block_time)
     );
     let head = section("explorer-access-header", "Access", Some(aside(wait)), k);
-    let none = network.grants.is_empty().then(|| {
-        quiet(
-            "explorer-no-grants",
-            "No account maintains a program: only the validators' vote changes the programs role.",
-            k,
-        )
-    });
+    let none = network
+        .grants
+        .is_empty()
+        .then(|| quiet("explorer-no-grants", words::NO_MAINTAINER, k));
     let rows = network
         .grants
         .iter()
@@ -359,7 +346,7 @@ fn grant_row(
     if unseated {
         about.push_str(&format!(
             " · runs nothing yet: {} may add it",
-            name_of(view, grant.account)
+            view.name_of(grant.account)
         ));
     }
     list_row(ElementId::named_usize("explorer-grant", index), k)
@@ -386,10 +373,7 @@ fn revoke(
         true => Path::Grant,
         false => view.acting.votes().then_some(Path::Vote)?,
     };
-    let label = match path {
-        Path::Grant => "Step down",
-        Path::Vote => "Propose revoke",
-    };
+    let label = path.revoke_word();
     let op = ::programs::Op::Revoke(grant.clone());
     let press = (!view.acting.busy).then(|| -> Press {
         Box::new(
@@ -404,6 +388,7 @@ fn revoke(
 
 // ---------- the sheets ----------
 
+// SDK gap: SheetRow hint, swap when feat/phone-kit lands
 /// A sheet row's hint at its right (Expo `SheetRow hint`).
 fn hint(text: impl Into<SharedString>, k: &Kit) -> Div {
     div()
@@ -444,7 +429,7 @@ pub(super) fn more_sheet(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
     let add = view.adds().then(|| {
         let press = opens_form(Edit::Add, Path::Grant, cx);
         design::sheet_row(
-            "explorer-add",
+            Edit::Add.press_id(),
             None,
             "Add a program",
             false,
@@ -457,7 +442,7 @@ pub(super) fn more_sheet(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
     let grant = view.acting.votes().then(|| {
         let press = opens_form(Edit::Grant, Path::Vote, cx);
         design::sheet_row(
-            "explorer-propose-grant",
+            Edit::Grant.press_id(),
             None,
             "Propose a grant",
             false,
@@ -465,7 +450,7 @@ pub(super) fn more_sheet(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
             &k.theme,
             press,
         )
-        .child(hint("by vote", k))
+        .child(hint(words::BY_VOTE, k))
     });
     design::sheet("explorer-more-sheet", "More", &k.ladder, &k.theme)
         .on_dismiss(closes(cx))
@@ -513,7 +498,7 @@ pub(super) fn program_sheet(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> Opt
     let edits: Vec<Stateful<Div>> = view
         .edits(network, name, listed)
         .into_iter()
-        .map(|(edit, path, label)| edit_row(name, edit, path, label, cx, k))
+        .map(|(edit, path, label)| edit_row(edit, path, label, cx, k))
         .collect();
     Some(
         design::sheet(
@@ -537,6 +522,7 @@ pub(super) fn program_sheet(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> Opt
     )
 }
 
+// SDK gap: the sheet head with a face, swap when feat/phone-kit lands
 /// What a program's sheet is about: its square face, its name in the data
 /// face, program or view only, and hook.
 fn sheet_head(name: &str, listed: bool, hook: bool, k: &Kit) -> Stateful<Div> {
@@ -571,26 +557,9 @@ fn sheet_head(name: &str, listed: bool, hook: bool, k: &Kit) -> Stateful<Div> {
 
 /// Upgrade or Remove on the reader's path, opening its form; Remove in the
 /// danger tone.
-fn edit_row(
-    name: &str,
-    edit: Edit,
-    path: Path,
-    label: &'static str,
-    cx: Cx,
-    k: &Kit,
-) -> Stateful<Div> {
-    let (id, danger) = match edit {
-        Edit::Remove { .. } => (format!("explorer-remove-{name}"), true),
-        _ => (format!("explorer-upgrade-{name}"), false),
-    };
+fn edit_row(edit: Edit, path: Path, label: &'static str, cx: Cx, k: &Kit) -> Stateful<Div> {
+    let id = SharedString::from(edit.press_id());
+    let danger = matches!(edit, Edit::Remove { .. });
     let press = opens_form(edit, path, cx);
-    design::sheet_row(
-        SharedString::from(id),
-        None,
-        label,
-        danger,
-        &k.ladder,
-        &k.theme,
-        press,
-    )
+    design::sheet_row(id, None, label, danger, &k.ladder, &k.theme, press)
 }

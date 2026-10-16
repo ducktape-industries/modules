@@ -9,7 +9,6 @@ use super::*;
 use crate::Network;
 use crate::decode::{preview, size};
 use crate::state::{Declared, blob_ref};
-use crate::ui::programs::{allows, name_of, role_of};
 use view::methods::Manifested;
 use view::wire::manifest::Manifest;
 
@@ -31,13 +30,13 @@ pub(super) fn program(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> AnyElemen
     let body = match (&view.network, code) {
         (Loadable::Failed(refusal), _) => refused(&refusal.message, cx, k),
         (Loadable::Idle | Loadable::Loading(_), _) => {
-            quiet("explorer-program-loading", "Reading the programs role…", k)
+            quiet("explorer-program-loading", words::READING_ROLE, k)
         }
         (Loadable::Ready(_) | Loadable::Reloading(..), None) => empty(
             "explorer-no-program",
             "search-x",
-            format!("Nothing called {name}"),
-            "The programs role runs and lists nothing by this name.",
+            words::nothing_called(name),
+            words::NO_PROGRAM_HERE,
             k,
         ),
         (Loadable::Ready(network) | Loadable::Reloading(network, _), Some(code)) => {
@@ -70,10 +69,7 @@ fn detail(
 /// The hook and the role it fills, as badges; neither, nothing.
 fn standing(network: &Network, name: &str, k: &Kit) -> Option<Div> {
     let hook = network.hooks.iter().any(|hook| hook == name);
-    let role = network
-        .roles
-        .as_ref()
-        .and_then(|roles| role_of(roles, name));
+    let role = network.role_of(name);
     if !hook && role.is_none() {
         return None;
     }
@@ -112,15 +108,19 @@ fn capabilities(view: &Explorer, listed: bool, cx: Cx, k: &Kit) -> Vec<AnyElemen
     });
     let head = section("explorer-capabilities-header", "Capabilities", count, k);
     let rows = match view.declared(listed) {
-        Declared::Reading => vec![quiet("explorer-manifest-loading", "Reading the code…", k)],
+        Declared::Reading => vec![quiet("explorer-manifest-loading", words::READING_CODE, k)],
         Declared::Refused(sentence) => vec![refused(sentence, cx, k)],
         Declared::Nothing(why) => vec![quiet("explorer-unlisted", why.sentence(), k)],
         Declared::Asks(manifest) => manifest
             .capabilities
             .iter()
             .map(|capability| {
-                key_value(capability.as_str(), div().child(allows(*capability)), k)
-                    .into_any_element()
+                key_value(
+                    capability.as_str(),
+                    div().child(words::allows(*capability)),
+                    k,
+                )
+                .into_any_element()
             })
             .collect(),
     };
@@ -182,7 +182,7 @@ fn code_and_copy(code: &abi::BlobId, cx: Cx, k: &Kit) -> Div {
         let id = id.clone();
         Box::new(
             cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| {
-                view.copy(id.clone(), "the code id", cx)
+                view.copy(id.clone(), words::CODE_ID, cx)
             }),
         )
     };
@@ -230,7 +230,7 @@ fn params(params: &[u8]) -> Div {
 /// every-program ones; else the vote alone.
 fn maintained_by(view: &Explorer, network: &Network, name: &str) -> String {
     let Some(maintainers) = network.maintainers(name) else {
-        return "validators' vote".into();
+        return words::VALIDATORS_VOTE.into();
     };
     let mut named: Vec<String> = maintainers
         .named
@@ -244,14 +244,14 @@ fn maintained_by(view: &Explorer, network: &Network, name: &str) -> String {
                 Some(identity::Kind::Program { .. }) => " · agent",
                 _ => "",
             };
-            format!("{}{you}{agent}", name_of(view, number))
+            format!("{}{you}{agent}", view.name_of(number))
         })
         .collect();
     if maintainers.every {
-        named.push("every-program maintainers".into());
+        named.push(words::EVERY_PROGRAM.into());
     }
     match named.is_empty() {
-        true => "no account: the validators' vote only".into(),
+        true => words::VOTE_ONLY.into(),
         false => named.join(", "),
     }
 }
@@ -272,7 +272,7 @@ fn scheduled(view: &Explorer, network: &Network, name: &str, k: &Kit) -> Vec<Any
     let none = rows.is_empty().then(|| {
         quiet(
             "explorer-program-no-changes",
-            "Nothing is scheduled for it.",
+            words::NOTHING_SCHEDULED_FOR_IT,
             k,
         )
     });
@@ -287,14 +287,7 @@ fn scheduled(view: &Explorer, network: &Network, name: &str, k: &Kit) -> Vec<Any
 fn transactions(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> Stateful<Div> {
     let blocks = view.chain.blocks.len() as u64;
     let sent = view.chain.txs.iter().filter(|tx| tx.target == name).count() as u64;
-    let title = match blocks {
-        0 => "Transactions →".to_owned(),
-        _ => format!(
-            "{} in the last {} →",
-            plural(sent, "transaction", "transactions"),
-            plural(blocks, "block", "blocks")
-        ),
-    };
+    let title = words::to_transactions(sent, blocks);
     let row = design::row("explorer-program-txs", &k.ladder, &k.theme);
     opens(
         row,

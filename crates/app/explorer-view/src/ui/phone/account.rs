@@ -18,7 +18,7 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> AnyEleme
             .child(missing(view, number, cx, k))
             .into_any_element();
     };
-    let kind = crate::ui::accounts::kind(view, account);
+    let kind = view.kind_of(account);
     let copy = copy_link(view, &Route::Account(number), cx, k);
     let page = over("explorer-account", account.card.name.clone(), view, cx, k)
         .caption(format!("account {number} · {kind}"));
@@ -44,13 +44,13 @@ fn missing(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> AnyElement {
         Loadable::Ready(_) | Loadable::Reloading(_, _) => empty(
             "explorer-no-account",
             "user-x",
-            format!("No account #{number}"),
-            "Identity holds no account by this number.",
+            words::no_account(number),
+            words::NO_ACCOUNT_HERE,
             k,
         ),
         Loadable::Failed(refusal) => refused(&refusal.message, cx, k),
         Loadable::Idle | Loadable::Loading(_) => {
-            quiet("explorer-account-loading", "Reading the account…", k)
+            quiet("explorer-account-loading", words::READING_ACCOUNT, k)
         }
     }
 }
@@ -130,14 +130,8 @@ fn devices(view: &Explorer, account: &identity::Account, k: &Kit) -> Vec<AnyElem
     );
     let rows = keys.iter().enumerate().map(|(index, key)| {
         let last = signed.iter().find(|frame| frame.signer == key.key);
-        let label = key
-            .label
-            .clone()
-            .unwrap_or_else(|| format!("Device {}", index + 1));
-        let used = match last {
-            Some(frame) => format!("last used {} ago", ago(now, frame.time)),
-            None => "not used lately".into(),
-        };
+        let label = key.label.clone().unwrap_or_else(|| words::device(index));
+        let used = words::last_used(now, last.map(|frame| frame.time));
         list_row(ElementId::named_usize("explorer-device", index), k)
             .child(design::lead(
                 design::icon("key-round", k.ladder.icon_row).text_color(k.theme.muted),
@@ -187,6 +181,7 @@ fn programs_used(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> Option<Div> {
     )
 }
 
+// SDK gap: Chips, swap when feat/phone-kit lands
 /// One program it used, and how many transactions it sent there; the
 /// press reaches past the chip to `ladder.hit`.
 fn chip(program: String, count: u64, cx: Cx, k: &Kit) -> Div {
@@ -239,7 +234,7 @@ fn activity(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> Vec<AnyElement> {
         k,
     );
     let list = match (view.acted(number), &view.acted) {
-        (Some([]), _) => quiet("explorer-no-activity", "No activity recorded.", k),
+        (Some([]), _) => quiet("explorer-no-activity", words::NO_ACTIVITY, k),
         (Some(acted), _) => column(
             "explorer-activity-list",
             acted
@@ -249,7 +244,7 @@ fn activity(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> Vec<AnyElement> {
         )
         .into_any_element(),
         (None, Loadable::Failed(refusal)) => refused(&refusal.message, cx, k),
-        (None, _) => quiet("explorer-activity-loading", "Reading its activity…", k),
+        (None, _) => quiet("explorer-activity-loading", words::READING_ACTIVITY, k),
     };
     vec![head.into_any_element(), list]
 }
