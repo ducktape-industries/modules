@@ -97,7 +97,8 @@ pub(super) fn band(
                 .child(draft.note.clone())
         }))
         .children(restore.map(|restore| {
-            let action = parts::notice_action(format!("{key}/restore"), "Restore", ladder, restore);
+            let action =
+                parts::notice_action(format!("{key}/restore"), words::RESTORE, ladder, restore);
             parts::notice(
                 format!("{key}/failed"),
                 NoticeKind::Danger,
@@ -193,9 +194,7 @@ fn mention_row(
                 .child(words::account(account))
         }));
     match pick {
-        Some(pick) => row
-            .active(|style| style.opacity(parts::PRESSED))
-            .on_click(pick),
+        Some(pick) => design::pressed(row, ladder).on_click(pick),
         None => row.aria_disabled(true),
     }
 }
@@ -282,7 +281,7 @@ fn field_row(
         .bg(theme.background);
     let (glyph, name) = match editing {
         true => ("check", "Save edit"),
-        false => ("send-horizontal", "Send"),
+        false => ("send-horizontal", words::SEND),
     };
     let sendable = send.is_some();
     let click: Click = send.unwrap_or_else(|| Box::new(|_, _, _| {}));

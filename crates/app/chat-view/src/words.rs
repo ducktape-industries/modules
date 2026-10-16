@@ -1,10 +1,28 @@
-//! What chat says, once: every sentence, status word, title and
-//! several-word label both designs show, and the model's own. The Expo app
-//! types these in its chat screens (it has no chat `words.ts`); here a
-//! tree that shows one reads it from this file.
+//! What chat says, once: every sentence, status word, title and label
+//! that more than one place shows, in either tree. The Expo app types
+//! these in its chat screens (it has no chat `words.ts`); here a tree that
+//! shows one reads it from this file. The model keeps the sentences only
+//! it says: a room's intro (`names.rs`), the composer's hint (`room.rs`),
+//! and the notices a write or a read leaves (`actions.rs`, `room.rs`,
+//! `search.rs`, `watch.rs`).
 use chat::ChannelRow;
 
 use crate::session::Gate;
+
+// ---------- labels both trees type ----------
+
+pub(crate) const SEND: &str = "Send";
+pub(crate) const CANCEL: &str = "Cancel";
+pub(crate) const DELETE: &str = "Delete";
+pub(crate) const DISMISS: &str = "Dismiss";
+/// Puts a refused send's words back in the composer.
+pub(crate) const RESTORE: &str = "Restore";
+/// Under a message changed since it was posted.
+pub(crate) const EDITED: &str = "edited";
+pub(crate) const NAME: &str = "Name";
+pub(crate) const RENAME: &str = "Rename";
+pub(crate) const PEOPLE: &str = "People";
+pub(crate) const NEW_CHANNEL: &str = "New channel";
 
 // ---------- the rooms ----------
 
@@ -43,6 +61,13 @@ pub(crate) const THREAD: &str = "Thread";
 pub(crate) const LOADING_MESSAGES: &str = "Loading messages…";
 pub(crate) const LOADING_OLDER: &str = "Loading older messages…";
 pub(crate) const NO_REPLIES: &str = "No replies yet";
+
+/// A read of the room refused: the desktop's notice, the phone's line at
+/// the list's end.
+pub(crate) fn unreadable_room(why: &str) -> String {
+    format!("Couldn’t read this room: {why}")
+}
+
 /// What a deleted message says in its place.
 pub(crate) const MESSAGE_DELETED: &str = "Message deleted";
 

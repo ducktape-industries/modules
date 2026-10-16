@@ -25,7 +25,7 @@ pub(super) fn screen(
     let page = design::page(
         "chat-room-page",
         chat.room_name(&room.id),
-        Some(back),
+        design::Nav::back(back),
         ladder,
         theme,
     )

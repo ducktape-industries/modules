@@ -12,14 +12,10 @@ use crate::words;
 use view::FontWeight;
 use view::design::Ladder;
 
-// SDK gap: the hairline token, swap when feat/phone-kit lands
+// SDK gap: the hairline token, kept local until the kit takes it (kit.md §2)
 /// A hairline (mobile `src/design/theme.ts:83`, `size.hairline`).
 pub(super) const HAIRLINE: Pixels = px(1.);
-// SDK gap: `Ladder::row_tall`, swap when feat/phone-kit lands
-/// A row with a caption under its title (mobile `src/design/theme.ts:73`,
-/// `size.rowTall`).
-pub(super) const ROW_TALL: Pixels = px(56.);
-// SDK gap: the kit Notice, swap when feat/phone-kit lands
+// SDK gap: the kit Notice, kept local until the kit takes it (kit.md §2)
 /// The kit `Notice`'s icon (mobile `src/kit/Notice.tsx:49`).
 const NOTICE_ICON: Pixels = px(18.);
 /// A notice action's drawn height: its secondary line and `gap.xs` over
@@ -31,12 +27,7 @@ const NOTICE_ACTION_HEIGHT: Pixels = px(30.);
 const SMALL_BUTTON: Pixels = px(36.);
 const SMALL_BUTTON_ICON: Pixels = px(16.);
 
-// SDK gap: the pressed opacity, swap when feat/phone-kit lands
-/// What a press does to a pressable the SDK's helpers do not draw: it dims
-/// while held (mobile `src/kit/platform.tsx:36`, `platform.pressed`).
-pub(super) const PRESSED: f32 = 0.6;
-
-// SDK gap: the agent avatar, swap when feat/phone-kit lands
+// SDK gap: the agent avatar, kept local until the kit takes it (kit.md §2)
 /// A person's round initial at `size` (the kit's `Avatar`), on the agent
 /// tint for an agent.
 pub(super) fn face(name: &str, agent: bool, size: design::Face, theme: &Theme) -> Div {
@@ -45,7 +36,7 @@ pub(super) fn face(name: &str, agent: bool, size: design::Face, theme: &Theme) -
     })
 }
 
-// SDK gap: quiet text at the ladder's sizes, swap when feat/phone-kit lands
+// SDK gap: quiet text at the ladder's sizes, kept local until the kit takes it (kit.md §2)
 /// The kit `Quiet`: one muted line of secondary text, 16 in all round.
 pub(super) fn quiet(
     id: impl Into<ElementId>,
@@ -61,7 +52,7 @@ pub(super) fn quiet(
         .child(text.into())
 }
 
-// SDK gap: the kit Notice, swap when feat/phone-kit lands
+// SDK gap: the kit Notice, kept local until the kit takes it (kit.md §2)
 /// What a kit `Notice` says by its ground and tone.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum NoticeKind {
@@ -71,7 +62,7 @@ pub(super) enum NoticeKind {
     Quiet,
 }
 
-// SDK gap: the kit Notice, swap when feat/phone-kit lands
+// SDK gap: the kit Notice, kept local until the kit takes it (kit.md §2)
 /// The kit `Notice` (mobile `src/kit/Notice.tsx`): secondary words on its
 /// kind's ground, 16 in and 10 over and under, an icon before them and
 /// its one action at the right. A danger notice is an alert.
@@ -113,7 +104,7 @@ pub(super) fn notice(
         .children(action)
 }
 
-// SDK gap: the kit Notice, swap when feat/phone-kit lands
+// SDK gap: the kit Notice, kept local until the kit takes it (kit.md §2)
 /// A notice's action: secondary medium in the notice's tone, its press
 /// reaching to `hit`.
 pub(super) fn notice_action(
@@ -131,7 +122,7 @@ pub(super) fn notice_action(
         .font_weight(FontWeight::MEDIUM)
         .child(label)
         .child(
-            design::hit(id, ladder.hit, NOTICE_ACTION_HEIGHT, ladder)
+            design::hit(id, ladder.hit, NOTICE_ACTION_HEIGHT, px(0.), ladder)
                 .role(Role::Button)
                 .aria_label(label)
                 .focusable()
@@ -194,7 +185,7 @@ pub(super) fn small_button(
         .children(icon.map(|icon| design::icon(icon, SMALL_BUTTON_ICON)))
         .child(label)
         .child(
-            design::hit(id, ladder.hit, SMALL_BUTTON, ladder)
+            design::hit(id, ladder.hit, SMALL_BUTTON, HAIRLINE, ladder)
                 .role(Role::Button)
                 .aria_label(label)
                 .focusable()
@@ -287,7 +278,7 @@ pub(super) fn room_notice(
         chat.notice.clear();
         cx.notify();
     });
-    let dismiss = notice_action("chat-room-notice-dismiss", "Dismiss", ladder, dismiss);
+    let dismiss = notice_action("chat-room-notice-dismiss", words::DISMISS, ladder, dismiss);
     let words = chat.notice.clone();
     Some(
         notice(

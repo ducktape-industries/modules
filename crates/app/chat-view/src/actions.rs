@@ -326,10 +326,14 @@ impl Chat {
     pub(crate) fn rename(&mut self, cx: &mut Context<Self>) {
         let Some(details) = &self.details else { return };
         let name = details.name_draft.text().trim().to_owned();
-        if name.is_empty() {
+        let channel_id = self.room_id();
+        // the name it has already is no rename (Expo `details.tsx`, `rename`)
+        let unchanged = self
+            .info(&channel_id)
+            .is_some_and(|info| info.channel.name == name);
+        if name.is_empty() || unchanged {
             return;
         }
-        let channel_id = self.room_id();
         self.submit(Op::RenameChannel { channel_id, name }, cx);
     }
 
@@ -347,13 +351,16 @@ impl Chat {
         );
     }
 
+    /// The member the details' field names, if what it holds is an
+    /// account number.
+    pub(crate) fn typed_member(&self) -> Option<Principal> {
+        let typed = self.details.as_ref()?.member_draft.text();
+        Principal::parse(&typed)
+    }
+
     /// The member typed in the details pane joins the room.
     pub(crate) fn add_member(&mut self, cx: &mut Context<Self>) {
-        let typed = self
-            .details
-            .as_ref()
-            .map(|details| details.member_draft.text());
-        let Some(principal) = typed.as_deref().and_then(Principal::parse) else {
+        let Some(principal) = self.typed_member() else {
             self.notice = "A member is an account number".into();
             return;
         };
@@ -480,6 +487,8 @@ impl Chat {
                 Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
                     chat.notice = format!("That didn’t go through: {}", refusal.message)
                 }
+                // SDK gap: `design::failure`'s words for the in-doubt case
+                // (kit.md §4), swap when #417 lands
                 Ok(Submitted::InDoubt { .. }) => {
                     chat.notice = "No answer came back: it may have gone through.".into()
                 }

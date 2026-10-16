@@ -7,7 +7,7 @@
 use view::prelude::*;
 use view::{Div, Stateful};
 
-use super::parts::{self, ROW_TALL, face, quiet};
+use super::parts::{self, face, quiet};
 use crate::words;
 use crate::{Chat, Details, DetailsSheet, Room};
 use chat::view::Names;
@@ -30,7 +30,7 @@ pub(super) fn screen(
     let page = design::page(
         "chat-details-page",
         words::CHANNEL_DETAILS,
-        Some(back),
+        design::Nav::back(back),
         ladder,
         theme,
     );
@@ -104,14 +104,9 @@ fn members(
     let roster = chat.roster();
     let count = (!roster.is_empty()).then_some(roster.len());
     let mut rows = vec![
-        design::section_head(
-            "chat-details-members-head",
-            words::MEMBERS,
-            count,
-            ladder,
-            theme,
-        )
-        .into_any_element(),
+        design::section_head("chat-details-members-head", words::MEMBERS, ladder, theme)
+            .children(count.map(|count| count.to_string()))
+            .into_any_element(),
     ];
     if room.members.ready().is_none() {
         rows.push(
@@ -189,7 +184,7 @@ fn member_row(
         crate::names::mention_token(&principal)
     );
     design::row(id.clone(), ladder, theme)
-        .when(!notes.is_empty(), |row| row.min_h(ROW_TALL))
+        .when(!notes.is_empty(), |row| row.min_h(ladder.row_tall))
         .child(design::lead(face(&name, agent, ladder.avatar, theme)))
         .child(
             div()
@@ -262,14 +257,8 @@ fn owner_actions(
         ),
     };
     vec![
-        design::section_head(
-            "chat-details-owner-head",
-            "Owner actions",
-            None,
-            ladder,
-            theme,
-        )
-        .into_any_element(),
+        design::section_head("chat-details-owner-head", "Owner actions", ladder, theme)
+            .into_any_element(),
         action_row("chat-details-rename", "pencil", theme, ladder)
             .on_click(rename)
             .child(
@@ -282,7 +271,7 @@ fn owner_actions(
             .child(design::icon("chevron-right", ladder.icon_row).text_color(theme.faint))
             .into_any_element(),
         action_row("chat-details-archive", icon, theme, ladder)
-            .min_h(ROW_TALL)
+            .min_h(ladder.row_tall)
             .on_click(archive)
             // SDK gap: the row's title over its caption, swap when
             // feat/phone-kit lands
@@ -386,7 +375,12 @@ fn add_body(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Vec<AnyElement> {
+    // a number that is no account leaves the sheet open and does nothing,
+    // as Expo's (`details.tsx`, `addTyped`)
     let add = cx.listener(|chat, _: &ClickEvent, _window, cx| {
+        if chat.typed_member().is_none() {
+            return;
+        }
         chat.close_details_sheet();
         cx.notify();
         chat.add_member(cx);
@@ -430,6 +424,8 @@ fn add_body(
                 chat.set_member(Principal::Account(account), true, cx);
             });
             let name = names.member(&Principal::Account(account));
+            // SDK gap: the sheet row's hint (`design::sheet_row(..).hint`,
+            // kit.md §1), swap when #417 lands
             design::sheet_row(
                 format!("chat-details-person-{account}"),
                 None,
@@ -464,7 +460,7 @@ fn rename_body(
         cx.notify();
         chat.rename(cx)
     });
-    let input = Input::new("chat-details-rename/name", &details.name_draft, "Name")
+    let input = Input::new("chat-details-rename/name", &details.name_draft, words::NAME)
         .autocorrect(false)
         .autocapitalize(Autocapitalize::None);
     let input = design::field(input, ladder, theme);
@@ -474,11 +470,11 @@ fn rename_body(
             .flex_col()
             .gap(design::space::LG)
             .p(design::space::BLOCK)
-            .child(parts::field("Name", input, None, theme, ladder))
+            .child(parts::field(words::NAME, input, None, theme, ladder))
             .child(
                 design::button(
                     "chat-details-rename/submit",
-                    "Rename",
+                    words::RENAME,
                     ladder,
                     theme,
                     rename,

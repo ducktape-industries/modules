@@ -20,7 +20,13 @@ pub(super) fn screen(
     theme: &Theme,
     ladder: &Ladder,
 ) -> AnyElement {
-    let page = design::page("chat-thread-page", words::THREAD, Some(back), ladder, theme);
+    let page = design::page(
+        "chat-thread-page",
+        words::THREAD,
+        design::Nav::back(back),
+        ladder,
+        theme,
+    );
     let page = match chat.info(&room.id) {
         Some(info) => page.caption(format!("#{}", info.channel.name)),
         None => page,

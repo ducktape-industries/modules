@@ -21,22 +21,28 @@ pub(super) fn screen(
     let Some(create) = &chat.create else {
         return div().into_any_element();
     };
-    design::page("chat-new-page", "New channel", Some(back), ladder, theme)
-        .trailing(create_button(create, cx, theme, ladder))
-        .child(
-            div()
-                .id("chat-new-form")
-                .flex_1()
-                .min_h(px(0.))
-                .overflow_y_scroll()
-                .flex()
-                .flex_col()
-                .gap(design::space::BLOCK)
-                .p(design::space::BLOCK)
-                .child(name_field(create, cx, theme, ladder))
-                .child(policy(create, cx, theme, ladder)),
-        )
-        .into_any_element()
+    design::page(
+        "chat-new-page",
+        words::NEW_CHANNEL,
+        design::Nav::back(back),
+        ladder,
+        theme,
+    )
+    .trailing(create_button(create, cx, theme, ladder))
+    .child(
+        div()
+            .id("chat-new-form")
+            .flex_1()
+            .min_h(px(0.))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .gap(design::space::BLOCK)
+            .p(design::space::BLOCK)
+            .child(name_field(create, cx, theme, ladder))
+            .child(policy(create, cx, theme, ladder)),
+    )
+    .into_any_element()
 }
 
 /// The title row's Create (the kit `HitText`, testID `create`): body
@@ -72,13 +78,12 @@ fn create_button(
         .aria_disabled(!enabled)
         .child(label);
     match enabled {
-        true => button
-            .focusable()
-            .active(|style| style.opacity(parts::PRESSED))
-            .on_click(cx.listener(|chat, _: &ClickEvent, _window, cx| {
+        true => design::pressed(button.focusable(), ladder).on_click(cx.listener(
+            |chat, _: &ClickEvent, _window, cx| {
                 cx.notify();
                 chat.create_channel(cx)
-            })),
+            },
+        )),
         false => button,
     }
 }
@@ -95,13 +100,13 @@ fn name_field(
         cx.notify();
         chat.create_channel(cx)
     });
-    let input = Input::new("chat-new-name", &create.name, "Name")
+    let input = Input::new("chat-new-name", &create.name, words::NAME)
         .autocorrect(false)
         .autocapitalize(Autocapitalize::None)
         .on_submit(submit);
     let input = design::field(input, ladder, theme);
     let problem = (!create.error.is_empty()).then_some(create.error.as_str());
-    parts::field("Name", input, problem, theme, ladder)
+    parts::field(words::NAME, input, problem, theme, ladder)
 }
 
 // SDK gap: the kit Segmented (segments share the width, 36 tall,

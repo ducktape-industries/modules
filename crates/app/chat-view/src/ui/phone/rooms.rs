@@ -44,7 +44,7 @@ pub(super) fn screen(
     let page = design::page(
         "chat-rooms-page",
         words::CHAT,
-        None::<fn(&ClickEvent, &mut Window, &mut App)>,
+        design::Nav::Root,
         ladder,
         theme,
     )
@@ -59,7 +59,7 @@ pub(super) fn screen(
     .trailing(design::icon_button(
         "chat-rooms-new-channel",
         design::icon("plus", ladder.icon),
-        "New channel",
+        words::NEW_CHANNEL,
         ladder,
         theme,
         create,
@@ -114,7 +114,7 @@ fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) ->
     let list = chat.room_list();
     let opened = list.opened();
     let (dms, people) = list.dms.split_at(opened);
-    let count = |rows: usize| (rows > 0).then_some(rows);
+    let count = |rows: usize| (rows > 0).then(|| rows.to_string());
     let loading = matches!(chat.channels, Loadable::Idle | Loadable::Loading(_));
     div()
         .id("chat-rooms")
@@ -123,13 +123,10 @@ fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) ->
         .overflow_y_scroll()
         .flex()
         .flex_col()
-        .child(design::section_head(
-            "chat-rooms-channels-head",
-            words::CHANNELS,
-            count(list.channels.len()),
-            ladder,
-            theme,
-        ))
+        .child(
+            design::section_head("chat-rooms-channels-head", words::CHANNELS, ladder, theme)
+                .children(count(list.channels.len())),
+        )
         .children(
             list.channels
                 .iter()
@@ -147,26 +144,20 @@ fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) ->
             rooms.child(no_rooms(chat, cx, theme, ladder))
         })
         .when(!dms.is_empty(), |rooms| {
-            rooms.child(design::section_head(
-                "chat-rooms-dms-head",
-                words::DIRECT_MESSAGES,
-                count(dms.len()),
-                ladder,
-                theme,
-            ))
+            rooms.child(
+                design::section_head("chat-rooms-dms-head", words::DIRECT_MESSAGES, ladder, theme)
+                    .children(count(dms.len())),
+            )
         })
         .children(
             dms.iter()
                 .map(|dm| person_row(chat, dm, "dm", cx, theme, ladder)),
         )
         .when(!people.is_empty(), |rooms| {
-            rooms.child(design::section_head(
-                "chat-rooms-people-head",
-                "People",
-                count(people.len()),
-                ladder,
-                theme,
-            ))
+            rooms.child(
+                design::section_head("chat-rooms-people-head", words::PEOPLE, ladder, theme)
+                    .children(count(people.len())),
+            )
         })
         .children(
             people
@@ -297,7 +288,7 @@ fn title(name: String, quiet: bool, theme: &Theme, ladder: &Ladder) -> Div {
         .child(name)
 }
 
-// SDK gap: the kit Dot, swap when feat/phone-kit lands
+// SDK gap: the kit Dot, kept local until the kit takes it (kit.md §2)
 /// The unread dot (the kit `Dot`): the accent, never a count.
 fn dot(row: &str, theme: &Theme) -> Stateful<Div> {
     div()
@@ -350,7 +341,7 @@ fn no_rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder)
             parts::small_button(
                 "chat-rooms-empty-new-channel",
                 None,
-                "New channel",
+                words::NEW_CHANNEL,
                 theme,
                 ladder,
                 create,

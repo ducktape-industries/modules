@@ -223,6 +223,10 @@ pub struct Room {
     pub(crate) has_older: bool,
     #[serde(skip)]
     pub(crate) older_loading: bool,
+    /// why the last read of older messages failed, until one lands: the
+    /// phone says it at the list's end (Expo's), the desktop as its notice
+    #[serde(skip)]
+    pub(crate) older_failed: Option<String>,
     #[serde(skip)]
     pub(crate) newer_loading: bool,
     /// opened around a landing seq: the window may not reach the head
@@ -257,7 +261,6 @@ pub struct Thread {
 pub struct Search {
     /// The phone's Search page is open (the desktop's field is always
     /// beside the rooms).
-    #[serde(default)]
     pub(crate) shown: bool,
     pub(crate) draft: TextField,
     /// the query the hits answer; "" while no search stands
@@ -289,7 +292,6 @@ pub struct Details {
     pub(crate) name_draft: TextField,
     pub(crate) member_draft: TextField,
     /// the sheet open over the phone's details page
-    #[serde(default)]
     pub(crate) sheet: Option<DetailsSheet>,
 }
 

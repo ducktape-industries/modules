@@ -5,6 +5,7 @@ use view::prelude::*;
 
 use crate::composer::Target;
 use crate::queries::{self, Side};
+use crate::words;
 use crate::{Chat, Drawn, PAGE, Pane, Room, SPAN, Thread, WINDOW};
 
 const EDGE_ROWS: usize = 4;
@@ -306,6 +307,7 @@ impl Chat {
             match result {
                 Ok((older, has_older)) => {
                     room.has_older = has_older;
+                    room.older_failed = None;
                     if let Some(rows) = room.messages.ready_mut() {
                         let mut all = older;
                         all.append(rows);
@@ -313,9 +315,7 @@ impl Chat {
                     }
                     room.settle();
                 }
-                Err(refusal) => {
-                    chat.notice = format!("Couldn’t read this room: {}", refusal.message)
-                }
+                Err(refusal) => room.older_failed = Some(refusal.message),
             }
         })
         .detach();
@@ -353,11 +353,18 @@ impl Chat {
             }
             let page = match result {
                 Ok(page) => page,
+                Err(refusal) if side == Side::Older => {
+                    room.older_failed = Some(refusal.message);
+                    return;
+                }
                 Err(refusal) => {
-                    chat.notice = format!("Couldn’t read this room: {}", refusal.message);
+                    chat.notice = words::unreadable_room(&refusal.message);
                     return;
                 }
             };
+            if side == Side::Older {
+                room.older_failed = None;
+            }
             let at_head = side == Side::Newer && page.is_empty();
             if at_head {
                 chat.reached_head(cx);

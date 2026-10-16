@@ -24,7 +24,7 @@ const ALL_REACTIONS_ICON: Pixels = px(20.);
 // SDK gap: the sheet inset, swap when feat/phone-kit lands
 /// The delete dialog's inset (mobile `src/kit/Dialog.tsx:32`).
 const DIALOG_INSET: Pixels = px(20.);
-// SDK gap: the scrim token, swap when feat/phone-kit lands
+// SDK gap: the scrim token, kept local until the kit takes it (kit.md §2)
 /// The scrim under a dialog, by appearance (mobile
 /// `src/design/theme.ts:12` and `:13`).
 const SCRIM_LIGHT: f32 = 0.4;
@@ -327,9 +327,9 @@ fn delete_dialog(cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> Stat
         .font_weight(FontWeight::MEDIUM)
         .role(Role::Button)
         .focusable()
-        .active(|style| style.opacity(super::parts::PRESSED))
         .on_click(delete)
-        .child("Delete");
+        .child(words::DELETE);
+    let delete = design::pressed(delete, ladder);
     div()
         .id("chat-delete-dialog")
         .w_full()
@@ -364,7 +364,7 @@ fn delete_dialog(cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> Stat
                 .gap(design::space::XXS)
                 .mt(design::space::BLOCK)
                 .child(
-                    design::button(CANCEL_DELETE, "Cancel", ladder, theme, cancel)
+                    design::button(CANCEL_DELETE, words::CANCEL, ladder, theme, cancel)
                         .kind(design::Kind::Quiet),
                 )
                 .child(delete),

@@ -48,11 +48,21 @@ fn notice(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Option<impl IntoElement> {
-    if chat.notice.is_empty() {
-        return None;
-    }
+    // a refused write, or why the room's older messages could not be read
+    let older_failed = chat
+        .room
+        .as_ref()
+        .and_then(|room| room.older_failed.as_deref());
+    let said = match (chat.notice.is_empty(), older_failed) {
+        (false, _) => chat.notice.clone(),
+        (true, Some(why)) => words::unreadable_room(why),
+        (true, None) => return None,
+    };
     let dismiss = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         chat.notice.clear();
+        if let Some(room) = &mut chat.room {
+            room.older_failed = None;
+        }
         cx.notify();
     });
     Some(
@@ -66,10 +76,10 @@ fn notice(
             .flex()
             .items_center()
             .gap_2()
-            .child(div().flex_1().child(chat.notice.clone()))
+            .child(div().flex_1().child(said))
             .child(button(
                 "chat-room-notice-dismiss",
-                "Dismiss",
+                words::DISMISS,
                 ladder,
                 theme,
                 dismiss,
@@ -110,7 +120,7 @@ fn confirmation(
             .child(design::icon_button(
                 "chat-room-confirmation-dismiss",
                 "✕",
-                "Dismiss",
+                words::DISMISS,
                 ladder,
                 theme,
                 dismiss,
@@ -488,7 +498,7 @@ pub fn composer(
         .expect("seated by `Chat::render` before the frame");
     let choices = chat.mention_choices();
     let (commit, cancel) = match target {
-        Target::Post { .. } => ("Send", None),
+        Target::Post { .. } => (words::SEND, None),
         // an edit's way out sits beside its Save, as Send's row lays out
         Target::Edit { .. } => (
             "Save",

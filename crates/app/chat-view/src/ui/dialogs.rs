@@ -60,7 +60,7 @@ pub fn channel_create(
                 .child(members_only(create, cx, theme, ladder))
                 .child(div().flex_1())
                 .child(
-                    design::button("chat-create-cancel", "Cancel", ladder, theme, cancel)
+                    design::button("chat-create-cancel", words::CANCEL, ladder, theme, cancel)
                         .enabled(!busy),
                 )
                 .child(

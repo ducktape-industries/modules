@@ -377,13 +377,13 @@ fn delete(_chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
                 .gap_2()
                 .child(Item::text(
                     CANCEL_DELETE,
-                    "Cancel",
+                    words::CANCEL,
                     Some(Box::new(cancel)),
                     *theme,
                 ))
                 .child(Item::toned(
                     CONFIRM_DELETE,
-                    "Delete",
+                    words::DELETE,
                     confirm,
                     *theme,
                     theme.danger,

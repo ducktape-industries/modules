@@ -458,7 +458,7 @@ fn edited_mark(message: &ChatMessage, theme: &Theme) -> Option<AnyElement> {
         div()
             .text_size(design::text::CAPTION)
             .text_color(theme.muted)
-            .child("edited")
+            .child(words::EDITED)
             .into_any_element()
     })
 }

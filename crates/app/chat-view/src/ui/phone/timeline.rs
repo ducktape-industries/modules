@@ -75,10 +75,26 @@ pub(super) fn list(
                 ladder,
             ))
         })
+        // a refused read of older messages, said where they would be
+        // (mobile `app/(tabs)/chat/[channel]/index.tsx:240`)
+        .when_some(
+            room.older_failed
+                .as_deref()
+                .filter(|_| timeline && !room.older_loading),
+            |frame, why| {
+                frame.child(quiet(
+                    "chat-older-failed",
+                    words::unreadable_room(why),
+                    theme,
+                    ladder,
+                ))
+            },
+        )
         .child(rows(chat, pane, cx, theme, ladder))
-        .when(timeline && (room.opened_at_message || !room.at_tail), |frame| {
-            frame.child(latest(room.id.clone(), cx, theme, ladder))
-        })
+        .when(
+            timeline && (room.opened_at_message || !room.at_tail),
+            |frame| frame.child(latest(room.id.clone(), cx, theme, ladder)),
+        )
         .into_any_element()
 }
 

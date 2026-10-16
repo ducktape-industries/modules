@@ -9,7 +9,7 @@ use view::prelude::*;
 use view::{Div, Stateful};
 use view::{FontWeight, HighlightStyle};
 
-use super::parts::{self, ROW_TALL, face, quiet};
+use super::parts::{self, face, quiet};
 use crate::words;
 use crate::{Chat, Hits};
 use chat::MsgRow;
@@ -162,9 +162,7 @@ fn list(
         .overflow_y_scroll()
         .flex()
         .flex_col()
-        .child(
-            design::section_head("chat-search-head", "Messages", None, ladder, theme).child(count),
-        )
+        .child(design::section_head("chat-search-head", "Messages", ladder, theme).child(count))
         .children(
             hits.rows
                 .iter()
@@ -227,7 +225,7 @@ fn hit(
         ladder,
         theme,
     )
-    .min_h(ROW_TALL)
+    .min_h(ladder.row_tall)
     .role(Role::Button)
     .aria_label(format!("{}: {}", message.author, message.body))
     .focusable()

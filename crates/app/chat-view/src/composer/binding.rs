@@ -341,7 +341,7 @@ pub fn view<V: 'static, F: Fn(&mut V, Event, &mut Window, &mut Context<V>) + 'st
                 .child(div().flex_1().child(words::UNSENT))
                 .child(ActionButton {
                     id: ElementId::Name(format!("{key}/restore").into()),
-                    label: "Restore".into(),
+                    label: words::RESTORE.into(),
                     primary: false,
                     on_click: press(editable, "restore".into(), &editor_id, &handle, cx),
                 })
@@ -379,7 +379,7 @@ pub fn view<V: 'static, F: Fn(&mut V, Event, &mut Window, &mut Context<V>) + 'st
     if let Some(cancel) = cancel {
         toolbar = toolbar.child(ActionButton {
             id: ElementId::Name(format!("{key}/cancel").into()),
-            label: "Cancel".into(),
+            label: words::CANCEL.into(),
             primary: false,
             on_click: Some(cancel),
         });

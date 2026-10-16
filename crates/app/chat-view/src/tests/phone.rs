@@ -251,6 +251,83 @@ fn search_asks_on_the_search_key_and_a_hit_opens_its_room_over_the_page() {
 }
 
 #[test]
+fn a_landed_room_keeps_latest_until_pressed_and_latest_reads_the_tail() {
+    let (mut cx, view) = phone();
+    cx.host().handle::<Ask<::chat::Chat>>(|query| {
+        Ok(match query {
+            Query::MessagesAround { .. } => {
+                Reply::Messages(vec![row(1, 7, "hello"), row(2, 8, "**hi** there")])
+            }
+            query => chat_reply(query),
+        })
+    });
+    cx.simulate_click("Search");
+    cx.simulate_input("search", "hello");
+    cx.simulate_submit("search");
+    cx.run_until_parked();
+    cx.simulate_click("chat-search-hit-general-1");
+    cx.run_until_parked();
+    assert!(cx.find("chat-jump-latest-button").is_some());
+    // the window reaching the head ends the landing, not the way back
+    cx.update(&view, |chat, _, cx| {
+        let room = chat.room.as_mut().expect("a room is open");
+        room.landed = false;
+        room.at_tail = true;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.find("chat-jump-latest-button").is_some(),
+        "Latest stays up"
+    );
+    cx.simulate_click("chat-jump-latest-button");
+    cx.run_until_parked();
+    assert!(cx.find("chat-jump-latest-button").is_none());
+    view.read(|chat| {
+        let room = chat.room.as_ref().expect("the room stays open");
+        assert!(!room.opened_at_message && room.messages.ready().is_some());
+    });
+}
+
+#[test]
+fn a_room_scrolled_up_offers_latest() {
+    let (mut cx, view) = in_general();
+    assert!(
+        cx.find("chat-jump-latest-button").is_none(),
+        "at the newest"
+    );
+    cx.update(&view, |chat, _, cx| {
+        chat.room.as_mut().expect("a room is open").at_tail = false;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(cx.find("chat-jump-latest-button").is_some());
+}
+
+#[test]
+fn a_refused_older_page_is_said_at_the_lists_end() {
+    let (mut cx, view) = phone();
+    cx.host().handle::<Ask<::chat::Chat>>(|query| match query {
+        Query::Roots {
+            page: ::chat::PageRequest { after: None, .. },
+            ..
+        } => Ok(Reply::Roots(::chat::PageResponse {
+            height: 1,
+            items: vec![row(2, 7, "hello")],
+            next: Some(vec![1]),
+        })),
+        Query::Roots { .. } => Err(view::host::Error::new("refused", "the node is busy")),
+        query => Ok(chat_reply(query)),
+    });
+    cx.simulate_click("chat-rooms-channel-general");
+    cx.run_until_parked();
+    cx.update(&view, |chat, _, cx| chat.load_older(cx));
+    cx.run_until_parked();
+    assert!(cx.has_text("Couldn’t read this room: the node is busy"));
+    assert!(cx.find("chat-room-notice").is_none(), "not as a notice");
+}
+
+#[test]
 fn a_search_field_is_one_box_with_its_magnifier_in_it() {
     let (mut cx, _view) = phone();
     cx.simulate_click("chat-rooms-search");
@@ -948,6 +1025,50 @@ fn the_owners_sheets_add_and_rename_and_back_closes_a_sheet_first() {
         submitted(&cx).pop(),
         Some(Op::RenameChannel { name, .. }) if name == "lobby"
     ));
+}
+
+#[test]
+fn a_number_that_is_no_account_leaves_the_add_sheet_open() {
+    let (mut cx, _) = in_general();
+    cx.simulate_click("Channel details");
+    cx.simulate_click("Add a member…");
+    cx.simulate_input("chat-details-add/account", "ada");
+    cx.simulate_click("chat-details-add/submit");
+    cx.run_until_parked();
+    assert!(
+        cx.find("chat-details-add/account").is_some(),
+        "the sheet stays"
+    );
+    assert!(submitted(&cx).is_empty() && cx.find("chat-room-notice").is_none());
+}
+
+#[test]
+fn a_rename_to_the_name_it_has_sends_nothing() {
+    let (mut cx, _) = in_general();
+    cx.simulate_click("Channel details");
+    cx.simulate_click("Rename channel");
+    cx.simulate_input("chat-details-rename/name", "General");
+    cx.simulate_click("chat-details-rename/submit");
+    cx.run_until_parked();
+    assert!(submitted(&cx).is_empty());
+}
+
+#[test]
+fn details_say_they_are_loading_until_the_channel_and_members_land() {
+    let (mut cx, view) = in_general();
+    cx.simulate_click("Channel details");
+    cx.update(&view, |chat, _, cx| {
+        chat.room.as_mut().expect("a room is open").members = Loadable::Idle;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(cx.has_text("Loading members…"));
+    cx.update(&view, |chat, _, cx| {
+        chat.channels = Loadable::Idle;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(cx.has_text("Loading the channel…"));
 }
 
 #[test]

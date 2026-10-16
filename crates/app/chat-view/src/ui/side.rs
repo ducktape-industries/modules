@@ -121,7 +121,7 @@ pub fn details(
         true => pane
             .child(details_header("Conversation details", cx, theme, ladder))
             .child(rule(theme))
-            .child(section("People", theme)),
+            .child(section(words::PEOPLE, theme)),
         false => pane
             .child(details_header(words::CHANNEL_DETAILS, cx, theme, ladder))
             .child(rule(theme))
@@ -187,11 +187,11 @@ fn name_section(
         false => words::ARCHIVE_CHANNEL,
     };
     vec![
-        section("Name", theme).into_any_element(),
+        section(words::NAME, theme).into_any_element(),
         field("chat-details-name-input", draft, "Channel name", theme).into_any_element(),
         button(
             "chat-details-rename-button",
-            "Rename",
+            words::RENAME,
             ladder,
             theme,
             rename,

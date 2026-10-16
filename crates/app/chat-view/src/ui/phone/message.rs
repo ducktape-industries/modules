@@ -214,7 +214,7 @@ fn body(
             div()
                 .text_type(ladder.caption)
                 .text_color(theme.muted)
-                .child("edited")
+                .child(words::EDITED)
         }))
 }
 
@@ -337,7 +337,7 @@ fn emoji_chip(
     ladder: &Ladder,
 ) -> AnyElement {
     let mine = reaction.reacted_by_me;
-    let hit = design::hit(id, CHIP_WIDTH, CHIP_HEIGHT, ladder)
+    let hit = design::hit(id, CHIP_WIDTH, CHIP_HEIGHT, HAIRLINE, ladder)
         .role(Role::Button)
         .aria_label(format!("{} {}", reaction.emoji, reaction.count))
         .aria_toggled(mine.into())
@@ -363,7 +363,7 @@ fn add_chip(
     theme: &Theme,
     ladder: &Ladder,
 ) -> AnyElement {
-    let hit = design::hit(id, CHIP_WIDTH, CHIP_HEIGHT, ladder)
+    let hit = design::hit(id, CHIP_WIDTH, CHIP_HEIGHT, HAIRLINE, ladder)
         .role(Role::Button)
         .aria_label(words::ADD_REACTION)
         .focusable()
@@ -393,6 +393,7 @@ fn thread_button(
         format!("chat-message-{}-replies", message.id),
         ladder.hit,
         THREAD_BUTTON,
+        px(0.),
         ladder,
     )
     .role(Role::Button)
