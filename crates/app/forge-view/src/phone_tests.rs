@@ -450,6 +450,7 @@ fn finish_review_opens_the_sheet_and_submit_sends_one_review() {
 fn an_empty_comment_review_says_say_something_or_discard() {
     let mut cx = change("default");
     press(&mut cx, "forge-start-review");
+    press(&mut cx, "forge-change-tab-conversation");
     press(&mut cx, "forge-finish-review");
     let before = submitted(&cx).len();
     press(&mut cx, "forge-verdict-comment");
