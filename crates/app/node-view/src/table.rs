@@ -38,6 +38,37 @@ const MONO_EM: f32 = 0.6;
 /// What a node without `chain.network` shows over the table.
 pub(crate) const NO_NETWORK: &str =
     "This node doesn't report its validators' votes. Update the node.";
+/// What a node that hears no votes shows over the members.
+const NOT_VOTING: &str = "This node isn't voting right now, so it can't see the validators' votes.";
+
+/// The votes, where this node hears them: only a node seated as a
+/// validator does, its own among them; without its own, it hears none (a
+/// resident, one not seated yet, one catching up after a restart).
+pub(crate) fn heard(view: &Nodes) -> Option<&NetworkStatus> {
+    let this = view.status.ready().map(|status| status.identity.as_slice());
+    view.network.ready().filter(|network| {
+        network
+            .members
+            .iter()
+            .any(|peer| this == Some(peer.key.as_slice()) && peer.signed.is_some())
+    })
+}
+
+/// Why the validators' cells are empty, by its id and words: this node
+/// hears no votes, or does not report them (before its first answer, no
+/// line).
+pub(crate) fn no_votes(
+    view: &Nodes,
+    heard: Option<&NetworkStatus>,
+) -> Option<(&'static str, &'static str)> {
+    match &view.network {
+        Loadable::Ready(_) | Loadable::Reloading(_, _) if heard.is_none() => {
+            Some(("nodes-no-votes", NOT_VOTING))
+        }
+        Loadable::Failed(_) => Some(("nodes-no-network", NO_NETWORK)),
+        _ => None,
+    }
+}
 
 /// The width beside the columns every width keeps, in the sheet's width
 /// less its inset and the scroller's gutter.
@@ -89,17 +120,8 @@ pub(crate) fn table(
     ladder: &Ladder,
 ) -> Stateful<Div> {
     let head = view.status.ready().map_or(0, |status| status.height);
-    let this = view.status.ready().map(|status| status.identity.as_slice());
     let validators = nodes.iter().filter(|node| node.validator).count() as u64;
-    // the votes, where this node hears them: only a node seated as a
-    // validator does, its own among them; without its own, it hears none (a
-    // resident, one not seated yet, one catching up after a restart)
-    let heard = view.network.ready().filter(|network| {
-        network
-            .members
-            .iter()
-            .any(|peer| this == Some(peer.key.as_slice()) && peer.signed.is_some())
-    });
+    let heard = heard(view);
     let answering = view.answering();
     let span = Recent::span(head);
     let label = format!(
@@ -119,13 +141,11 @@ pub(crate) fn table(
             .enumerate()
             .filter(move |(_, node)| node.validator == validator)
             .map(move |(index, node)| {
-                let this = this == Some(node.key.as_slice());
                 let cells = heard.map_or(row::BLANK, |network| row::synced(node, network));
                 let marks = strip(node, head, gap.unwrap_or(GAPS[0]), &view.recent, theme);
                 line(
                     index,
                     node,
-                    this,
                     cells,
                     place(marks, column),
                     view,
@@ -136,17 +156,7 @@ pub(crate) fn table(
             })
     };
     let residents = nodes.len() as u64 - validators;
-    // why the validators' cells are empty: this node hears no votes, or
-    // does not report them (before its first answer, no line)
-    let no_votes = match &view.network {
-        Loadable::Ready(_) | Loadable::Reloading(_, _) if heard.is_none() => Some((
-            "nodes-no-votes",
-            "This node isn't voting right now, so it can't see the validators' votes.",
-        )),
-        Loadable::Failed(_) => Some(("nodes-no-network", NO_NETWORK)),
-        _ => None,
-    }
-    .map(|(id, text)| note(id, text.into(), theme));
+    let no_votes = no_votes(view, heard).map(|(id, text)| note(id, text.into(), theme));
     // the rows are what the node last said: how long ago, once it is silent
     let silent = (!answering).then(|| {
         let age = design::ago((view.ticks - view.answered) * 1000, 0);
@@ -273,20 +283,20 @@ fn cell(width: Pixels, right: bool) -> Div {
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the ladder rides beside the theme into every sized helper; the phone rework of this view reshapes the row"
-)]
 fn line(
     index: usize,
     node: &Node,
-    this: bool,
     cells: Row,
     (beside, below): (Option<(Pixels, Div)>, Option<Div>),
     view: &Nodes,
     theme: &Theme,
     ladder: &Ladder,
 ) -> Stateful<Div> {
+    // this node's row says so
+    let this = view
+        .status
+        .ready()
+        .is_some_and(|status| status.identity == node.key);
     let muted = |text: String| div().text_color(theme.muted).child(text);
     let address = address_fits(view);
     // without the Address column, this node's mark goes under its key

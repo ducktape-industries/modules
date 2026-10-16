@@ -11,7 +11,7 @@ use abi::hex;
 use abi::role::halo;
 use programs::{Change, Entry, Pending};
 use valset::{Motion, Op, Valset, Voted};
-use view::methods::Submitted;
+use view::methods::{self, Submitted};
 use view::prelude::*;
 
 use crate::Nodes;
@@ -169,19 +169,7 @@ impl Nodes {
         let ask = cx.host().ask::<Submit<Valset>>(Op::Vote(motion));
         cx.land(ask, |view, answer, cx| {
             view.voting.busy = false;
-            view.voting.outcome = Some(match answer {
-                Ok(Submitted::Applied { output, .. }) => Ok(match abi::decode::<Voted>(&output) {
-                    Ok(Voted::Enacted) => "Enacted".to_owned(),
-                    Ok(Voted::Counted { votes, needed }) => {
-                        format!("Vote counted: {votes} of {needed}")
-                    }
-                    Err(_) => "Voted".to_owned(),
-                }),
-                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => Err(refusal.message),
-                Ok(Submitted::InDoubt { .. }) => {
-                    Err("No answer came back: it may have gone through.".into())
-                }
-            });
+            view.voting.outcome = Some(said(answer));
             view.read_voices(cx);
             cx.notify();
         })
@@ -191,6 +179,34 @@ impl Nodes {
     pub(crate) fn dismiss_outcome(&mut self, cx: &mut Context<Self>) {
         self.voting.outcome = None;
         cx.notify();
+    }
+}
+
+/// What a vote came to, in the Expo app's words (mobile
+/// `src/network/nodes.ts` `votedWords`, `src/write/words.ts` `failure`):
+/// what a landed one did; else why it stopped, told apart by whether it
+/// was refused, never sent (nothing reached the node, or no key signed
+/// it: safe to send again), or may have gone through.
+pub(crate) fn said(answer: Result<Submitted, Error>) -> Result<String, String> {
+    match answer {
+        Ok(Submitted::Applied { output, .. }) => Ok(match abi::decode::<Voted>(&output) {
+            Ok(Voted::Enacted) => "Enacted".to_owned(),
+            Ok(Voted::Counted { votes, needed }) => format!("Vote counted: {votes} of {needed}"),
+            Err(_) => "Voted".to_owned(),
+        }),
+        Ok(Submitted::InDoubt { .. }) => Err(
+            "This may have gone through: no answer came back. What you see is read again from the node."
+                .into(),
+        ),
+        Err(refusal) if refusal.code == methods::refusal::RPC_CLIENT => Err(
+            "Not sent: the node can’t be reached. Check the connection, then try again.".into(),
+        ),
+        Err(refusal) if refusal.code == methods::refusal::SESSION_LOCKED => {
+            Err(format!("Not sent: {}", refusal.message))
+        }
+        Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
+            Err(format!("That didn’t go through: {}", refusal.message))
+        }
     }
 }
 

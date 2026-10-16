@@ -16,6 +16,10 @@
 //! the vote (`voting.rs`, drawn by `motions.rs`): motions on each row and
 //! the door, the motions that wait, and the scheduled changes with who
 //! made each. A program is changed in Explorer's Programs.
+//!
+//! Under a finger the view is the Expo app's Nodes tab instead
+//! (`ui/phone/`): the list, a member's own page, the door and a press that
+//! enacts as sheets; the desktop's sheet is unchanged.
 use programs::Programs;
 use serde::{Deserialize, Serialize};
 use valset::Valset;
@@ -32,6 +36,7 @@ mod voting;
 
 use queries::Node;
 use recent::Recent;
+use view::design::Pages;
 use voting::Voting;
 
 #[derive(Serialize, Deserialize, Default)]
@@ -43,6 +48,11 @@ pub struct Nodes {
     /// it; `Failed` only where it does not serve `chain.network`
     pub(crate) network: Loadable<NetworkStatus>,
     pub(crate) recent: Recent,
+    /// the member whose page is open over the list on the phone
+    pub(crate) open: Option<Vec<u8>>,
+    /// the door's sheet is up (the phone's `⋯`)
+    #[serde(skip)]
+    pub(crate) door: bool,
     /// clock ticks since the view opened, and the tick the node last
     /// answered its status on and the one its height last moved on
     #[serde(skip)]
@@ -60,6 +70,13 @@ pub struct Nodes {
     /// the vote, read again on every open
     #[serde(skip)]
     pub(crate) voting: Voting,
+}
+
+/// A page of the view's [`Pages`]: the list, or one member's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Page {
+    Nodes,
+    Node(Vec<u8>),
 }
 
 #[derive(Default)]
@@ -87,8 +104,8 @@ impl View for Nodes {
     ];
     const TARGETS: &'static [&'static str] =
         &[valset::PROGRAM, programs::PROGRAM, identity::PROGRAM];
-    // the set's table fits from 480 up
-    const MIN_WINDOW_WIDTH: u32 = 480;
+    // the phone's screens fit 360; the desktop's table pans below 480
+    const MIN_WINDOW_WIDTH: u32 = 360;
 
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         cx.follow::<Changes<Valset>>((), |view, head, cx| match head {
@@ -132,7 +149,12 @@ impl Render for Nodes {
         // the pane's width, as the host lays the frame out: the table fits
         // to it in the frame that shows it
         self.width = window.viewport_size().width.into();
-        ui::render(self, window.touch(), cx)
+        // the one pick between the two designs: a finger gets the phone's
+        // screens (the Expo app's), a pointer the desktop's sheet
+        match window.touch() {
+            true => ui::phone::render(self, cx).into_any_element(),
+            false => ui::render(self, cx).into_any_element(),
+        }
     }
 }
 
@@ -233,6 +255,32 @@ impl Nodes {
             cx.notify();
         })
         .detach();
+    }
+
+    /// Where the reader is: the list, and the member whose page is open
+    /// over it; read off `open`, so the stack and the data cannot disagree.
+    /// The phone draws the top page alone; the desktop has every member in
+    /// its table and draws no page.
+    pub(crate) fn pages(&self) -> Pages<Page> {
+        let mut pages = Pages::root(Page::Nodes);
+        if let Some(key) = &self.open {
+            pages.push(Page::Node(key.clone()));
+        }
+        pages
+    }
+
+    /// A sheet the reader is in (the phone's): the door, or a press that
+    /// waits for its yes.
+    pub(crate) fn sheet_open(&self) -> bool {
+        self.door || self.voting.confirming.is_some()
+    }
+
+    /// The phone's Back: a sheet closes first, then the member's page.
+    pub(crate) fn back(&mut self, cx: &mut Context<Self>) {
+        if self.voting.confirming.take().is_none() && !std::mem::take(&mut self.door) {
+            self.open = None;
+        }
+        cx.notify();
     }
 
     /// Whether the node answered its status within [`SILENT_TICKS`].

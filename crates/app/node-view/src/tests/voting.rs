@@ -41,7 +41,7 @@ fn set_valset(height: u64) -> Motion {
 /// The sheet for a reader whose seated key is `signer`: valset answering
 /// the set, the reader's voices (THIS votes for itself), and the motions
 /// that wait; the programs role its roster and `scheduled`; a vote counted.
-fn sheet(
+pub(super) fn sheet(
     signer: &[u8],
     needed: u64,
     pending: Vec<Pending>,
@@ -114,7 +114,7 @@ fn sheet_over(
     cx
 }
 
-fn submitted(cx: &TestAppContext) -> Vec<Op> {
+pub(super) fn submitted(cx: &TestAppContext) -> Vec<Op> {
     cx.host().requests::<Submit<Valset>>()
 }
 

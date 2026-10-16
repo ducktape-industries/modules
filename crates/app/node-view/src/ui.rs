@@ -2,6 +2,7 @@
 //! (height, last block, block time, the epoch), then the members table
 //! (`table.rs`) in one of its four states, and for a reader who votes the
 //! vote (`motions.rs`). `render` reads the state and changes nothing.
+//! Under a finger the root draws the phone's screens (`phone/`) instead.
 use abi::hex;
 use view::prelude::*;
 use view::{Div, FontWeight};
@@ -10,9 +11,11 @@ use crate::{Nodes, motions, table};
 use valset::Motion;
 use view::design::Ladder;
 
-pub(crate) fn render(view: &Nodes, touch: bool, cx: &mut Context<Nodes>) -> impl IntoElement {
+pub(crate) mod phone;
+
+pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
-    let ladder = &design::ladder(touch);
+    let ladder = &design::POINTER;
     div()
         .id("nodes")
         .flex()

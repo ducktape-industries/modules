@@ -2,11 +2,13 @@
 //! enact asks first, what the last vote did, the motions that wait, and
 //! the scheduled changes and who made each. `render` reads the state and
 //! changes nothing; presses land in `voting.rs`.
+use valset::Pending;
 use view::design::Kind;
 use view::prelude::*;
 use view::{Div, Stateful};
 
-use crate::voting;
+use crate::queries::Schedule;
+use crate::voting::{self, Voting};
 use crate::{Nodes, ui};
 use view::design::Ladder;
 
@@ -151,13 +153,7 @@ fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
             .iter()
             .enumerate()
             .map(|(index, pending)| {
-                let cast = voting.voices.len() - voting.uncast(&pending.motion);
-                let caption = format!(
-                    "{} of {} · {}",
-                    pending.voters.len(),
-                    motions.needed,
-                    yours(cast, voting.voices.len())
-                );
+                let caption = pending_caption(voting, pending, motions.needed);
                 let words = voting.words(&pending.motion);
                 let row = line(
                     ElementId::Name(format!("nodes-motion-{index}").into()),
@@ -202,6 +198,17 @@ fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
         .children(lines)
 }
 
+/// A waiting motion's votes of the quorum, and which of the reader's
+/// validators voted: `1 of 2 · yours has not voted`.
+pub(crate) fn pending_caption(voting: &Voting, pending: &Pending, needed: u64) -> String {
+    let cast = voting.voices.len() - voting.uncast(&pending.motion);
+    format!(
+        "{} of {needed} · {}",
+        pending.voters.len(),
+        yours(cast, voting.voices.len())
+    )
+}
+
 /// Which of the reader's validators voted: "yours voted", "1 of 2 of yours".
 fn yours(cast: usize, voices: usize) -> String {
     match (cast, voices) {
@@ -239,22 +246,7 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladd
                     .enumerate()
                     .map(|(index, change)| {
                         let motion = voting::cancel(change);
-                        let blocks = change.height - tip;
-                        let by = match change.by {
-                            Some(account) => voting::named(&schedule.names, account),
-                            None => "vote".into(),
-                        };
-                        let caption = match (change.by, status) {
-                            (_, None) => format!("by {by}"),
-                            (Some(_), Some(status)) => format!(
-                                "by {by} · validators can cancel for {} min",
-                                (blocks * status.block_time_ms).div_ceil(60_000)
-                            ),
-                            (None, Some(_)) => format!(
-                                "by {by} · in {}",
-                                design::plural(blocks, "block", "blocks")
-                            ),
-                        };
+                        let caption = scheduled_caption(change, schedule, status);
                         let row = line(
                             ElementId::Name(format!("nodes-scheduled-{index}").into()),
                             voting::scheduled_words(change.height, &change.change, entries),
@@ -300,6 +292,31 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladd
             theme,
         ))
         .children(lines)
+}
+
+/// Who scheduled a change, and how long the vote has to cancel it: `by
+/// vote · in 300 blocks`, `by Dev · validators can cancel for 5 min`; who
+/// alone until the node's status is read.
+pub(crate) fn scheduled_caption(
+    change: &programs::Pending,
+    schedule: &Schedule,
+    status: Option<&NodeStatus>,
+) -> String {
+    let by = match change.by {
+        Some(account) => voting::named(&schedule.names, account),
+        None => "vote".into(),
+    };
+    let Some(status) = status else {
+        return format!("by {by}");
+    };
+    let blocks = change.height.saturating_sub(status.height);
+    match change.by {
+        Some(_) => format!(
+            "by {by} · validators can cancel for {} min",
+            (blocks * status.block_time_ms).div_ceil(60_000)
+        ),
+        None => format!("by {by} · in {}", design::plural(blocks, "block", "blocks")),
+    }
 }
 
 fn quiet(id: &'static str, text: impl Into<SharedString>, theme: &Theme) -> AnyElement {
