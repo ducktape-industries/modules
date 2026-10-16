@@ -1,17 +1,30 @@
-//! Members: every account the `identity` program holds, as a list beside
-//! one account read in full. The list groups people, then agents, then
-//! programs; the account chosen from it shows its bio, its devices, the
-//! agents it manages and what its keys signed lately.
+//! Members: every account the `identity` program holds, grouped people,
+//! then agents, then programs, and one account read in full: its bio, its
+//! devices, the agents it manages and what its keys signed lately.
+//!
+//! Two trees draw it over this one model, and the root picks one per frame
+//! by the device's pointer (`window.touch()`, in `Render::render`), never
+//! by width:
+//!
+//! - under a pointer, the desk (`ui`): the list, and the chosen account
+//!   docked beside it or floating over it when the window is narrow;
+//! - under a finger, the phone (`ui::phone`): the Expo app's two screens,
+//!   the roster and one member, a page at a time with Back.
+//!
+//! The model holds what both trees read (the roster's state, the page
+//! stack, the links, the badges and the face's look), and `words` every
+//! sentence they show; neither tree imports from the other.
 //!
 //! The screen is read-only: suspending, revoking, renaming and keys live in
 //! Settings. Nothing here asks a program anything the list does not: one
 //! `identity` list gives every account whole, `valset` the seats of the
 //! keys, and the recent activity is the `activity` program's index of
-//! what the account did ([`activity`]).
+//! what the account did (`activity`).
 //!
 //! The contracts are borsh and this view's state is a serde snapshot, so a
-//! reply is folded to [`Row`]s as it lands: nothing the programs speak is
-//! kept across a snapshot, only what the screen shows.
+//! reply is folded to `Row`s as it lands: only what the screen shows is
+//! kept across a snapshot, an account's kind and its valset seat as their
+//! borsh bytes (`view::borsh_bytes`).
 mod activity;
 mod ui;
 mod words;

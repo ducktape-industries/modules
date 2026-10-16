@@ -1,7 +1,12 @@
-//! The screen: the list on the left, the chosen account on the right.
-//! Colour is kept for what it says: the agent tint on an agent's avatar, and
-//! the badges of a standing. Everything else is the window, grey captions
-//! and hairlines.
+//! The desk's members, drawn under a pointer (the root picks this tree when
+//! `window.touch()` is false; the phone's is `phone`): the list on the
+//! left, the chosen account docked on the right, or floating over the list
+//! when the window is too narrow for both. Colour is kept for what it says:
+//! the agent tint on an agent's avatar, and the badges of a standing.
+//! Everything else is the window, grey captions and hairlines.
+//!
+//! Reads the model (`Members`) and `words`; writes the choice, the filter,
+//! the chip and the list's dragged width.
 use view::design::{size, space, text};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
