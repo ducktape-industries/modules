@@ -65,6 +65,7 @@ members = [
     "crates/app/forge",
     "crates/app/activity",
     "crates/app/files",
+    "crates/app/files-view",
     "crates/app/egress",
     "crates/app/attribution",
     "crates/app/harness",
@@ -170,6 +171,8 @@ opt-level = 3
 [profile.release.package.explorer-view]
 opt-level = 3
 [profile.release.package.settings-view]
+opt-level = 3
+[profile.release.package.files-view]
 opt-level = 3
 [profile.release.package.view]
 opt-level = 3
