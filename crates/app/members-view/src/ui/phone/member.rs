@@ -11,16 +11,12 @@ use view::design::{self, Ladder, Nav, space};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
-use super::parts::{caption, chevron, face, name_line, quiet, refused, title_and_caption};
+use super::parts::{face, name_line, quiet};
 use crate::activity::Signed;
 use crate::{
     Device, Group, Members, Row, explorer_account, explorer_block, name_or_number, opens,
     standing_badge, valset_badge, words,
 };
-
-/// A small button is this tall (`theme.ts:76`, `size.small`).
-// SDK gap: the kit's small outline `Button` (`Button::small()`), swap when feat/phone-kit lands
-const SMALL: Pixels = px(36.);
 
 /// The member's page: Back, the name over `account N`, Explorer; then the
 /// head, the bio, Open DM and Explorer, Devices, Manages, Recent activity
@@ -93,7 +89,7 @@ fn missing(
     theme: &Theme,
 ) -> AnyElement {
     let body = match &view.rows {
-        Loadable::Failed(refusal) => refused(refusal, cx, ladder, theme),
+        Loadable::Failed(refusal) => crate::refused(refusal, cx, ladder, theme).into_any_element(),
         // Expo's `UserX` (`app/(tabs)/members/[number].tsx:33`)
         Loadable::Ready(_) | Loadable::Reloading(..) => design::empty_state(
             "members-no-account",
@@ -282,13 +278,12 @@ fn device_row(
         .child(design::lead(
             design::icon(glyph, ladder.icon_row).text_color(theme.muted),
         ))
-        .child(title_and_caption(
-            div().truncate().child(label),
-            Some(
-                caption(design::short_hex(&hex), ladder, theme)
+        .child(
+            design::row_words(div().truncate().child(label)).child(
+                design::row_caption(design::short_hex(&hex), ladder, theme)
                     .font_family(design::fonts::FAMILY_MONO),
             ),
-        ))
+        )
         .child(added)
         .into_any_element()
 }
@@ -334,17 +329,17 @@ fn managed_row(
     .focusable()
     .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.open(number, cx)))
     .child(design::lead(face(agent, ladder.avatar, theme)))
-    .child(title_and_caption(
-        div().truncate().child(agent.name.clone()),
-        Some(caption(about, ladder, theme)),
-    ))
+    .child(
+        design::row_words(div().truncate().child(agent.name.clone()))
+            .child(design::row_caption(about, ladder, theme)),
+    )
     .children(standing_badge(
         "members-manages-standing",
         agent,
         ladder,
         theme,
     ))
-    .child(chevron(ladder, theme));
+    .child(design::chevron(ladder, theme));
     row.into_any_element()
 }
 
@@ -418,46 +413,21 @@ fn signed_row(
         .child(format!(" · {}", design::ago(now, signed.time)));
     design::row(format!("members-signed-{index}"), ladder, theme)
         .min_h(ladder.row_tall)
-        .child(title_and_caption(
-            div().truncate().child(signed.title().to_owned()),
-            Some(when),
-        ))
+        .child(design::row_words(div().truncate().child(signed.title().to_owned())).child(when))
         .into_any_element()
 }
 
-/// The kit's small outline button (36 tall, 12 in, secondary medium),
-/// opening `link` through the host; its press reaches 44 up and down.
-// SDK gap: the kit's small outline `Button` (`Button::small()`), swap when feat/phone-kit lands
+/// The kit's small outline button, opening `link` through the host.
 fn small_button(
     id: &'static str,
     label: &'static str,
     link: String,
     ladder: &Ladder,
     theme: &Theme,
-) -> Div {
-    // the press reaches 4 past the 36 button, its hairline included (44);
-    // both buttons are wider than 44, so it reaches no further sideways
-    div()
-        .relative()
-        .flex_none()
-        .h(SMALL)
-        .flex()
-        .items_center()
-        .justify_center()
-        .px(space::LG)
-        .border_1()
-        .border_color(theme.border_strong)
-        .text_type(ladder.secondary)
-        .font_weight(FontWeight::MEDIUM)
-        .whitespace_nowrap()
-        .child(label)
-        .child(
-            design::hit(id, ladder.hit, SMALL, px(1.), ladder)
-                .role(Role::Button)
-                .aria_label(label)
-                .focusable()
-                .on_click(opens(link)),
-        )
+) -> impl IntoElement {
+    design::button(id, label, ladder, theme, opens(link))
+        .kind(design::Kind::Outline)
+        .small()
 }
 
 /// A link inside a line of text (the explorer kit's `Linked`): small, in
