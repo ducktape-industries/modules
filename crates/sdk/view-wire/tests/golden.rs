@@ -31,8 +31,8 @@ use view_wire::{
     GroupRefinement, HasPopup, ImageData, ImageObjectFit, ImageStyle, Interactivity, Invalid,
     KeyClaim, ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node,
     Patch, Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, Style, StyleId, SvgSource,
-    SvgTransformation, TextChange, TextNode, TextRange, TextToken, Tooltip, TooltipResponse,
-    WebCommand, WebState, WidgetCommand, click, interactivity, keyboard, mouse,
+    SvgTransformation, TextChange, TextNode, TextRange, TextToken, TextTransform, Tooltip,
+    TooltipResponse, WebCommand, WebState, WidgetCommand, click, interactivity, keyboard, mouse,
 };
 
 const MESSAGE: &str =
@@ -90,6 +90,7 @@ fn text(content: &str) -> Node {
         id: Some(id(content)),
         style: style(),
         content: content.into(),
+        transform: None,
     })
 }
 

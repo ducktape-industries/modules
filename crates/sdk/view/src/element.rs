@@ -716,7 +716,32 @@ impl Element for SharedString {
             id: None,
             style: lowering.no_style(),
             content: self.to_string(),
+            transform: None,
         })
+    }
+}
+
+/// Words the host draws in capitals and names as written (CSS
+/// `text-transform: uppercase`). Built by [`crate::design::eyebrow`], the
+/// one role set in capitals.
+pub(crate) struct Capitals(pub(crate) SharedString);
+
+impl Element for Capitals {
+    fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
+        wire::Node::Text(crate::wire::TextNode {
+            id: None,
+            style: lowering.no_style(),
+            content: self.0.to_string(),
+            transform: Some(crate::wire::TextTransform::Uppercase),
+        })
+    }
+}
+
+impl IntoElement for Capitals {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
     }
 }
 

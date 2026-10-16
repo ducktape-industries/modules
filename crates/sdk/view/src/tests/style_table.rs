@@ -49,6 +49,7 @@ impl Element for Rogue {
             id: None,
             style: wire::StyleId(9_999),
             content: "rogue".into(),
+            transform: None,
         })
     }
 }

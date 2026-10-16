@@ -16,6 +16,7 @@ fn container(style: StyleId) -> Node {
             id: None,
             style: PLAIN,
             content: "stable child".into(),
+            transform: None,
         })],
     })
 }
@@ -106,6 +107,7 @@ fn actual_gpui_styled_payloads_roundtrip_and_patch_without_replacing_children() 
                 id: None,
                 style: StyleId(1),
                 content: "retained child".into(),
+                transform: None,
             })],
         })
     };

@@ -15,6 +15,7 @@ fn text(style: StyleId) -> Node {
         id: None,
         style,
         content: "row".into(),
+        transform: None,
     })
 }
 

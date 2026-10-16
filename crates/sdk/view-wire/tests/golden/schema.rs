@@ -235,6 +235,7 @@ const TREE: &[Trace] = &[
     trace::<view_wire::Autocapitalize>,
     trace::<view_wire::VirtualKeyboard>,
     trace::<view_wire::TextInputAction>,
+    trace::<view_wire::TextTransform>,
     trace::<view_wire::CanvasCommand>,
     trace::<view_wire::CanvasLineCap>,
     trace::<view_wire::CanvasLineJoin>,

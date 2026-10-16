@@ -17,6 +17,7 @@ pub(crate) use format::set_utc_offset;
 pub use format::{ago, clock, date, day, grouped, initial, local, plural};
 pub use pages::{CAPSULE_CLEARANCE, Page, Pages, page};
 
+use crate::element::Capitals;
 use crate::prelude::*;
 use crate::{AnyElement, Div, FontWeight, Hsla, Pixels, Stateful, StyleRefinement};
 pub use gpui::Orientation;
@@ -238,10 +239,8 @@ pub struct Ladder {
     pub caption: Type,
     /// a badge, a count
     pub tiny: Type,
-    /// a fact's key, a code box's label, in the data face. Expo sets this
-    /// role in capitals (`textTransform: 'uppercase'`); gpui draws the
-    /// words it is given, so the caller gives them in capitals:
-    /// `.child(label.to_uppercase())`.
+    /// a fact's key, a code box's label: drawn by [`eyebrow`], which adds
+    /// the data face, the muted colour and the capitals
     pub eyebrow: Type,
     /// code, in the data face
     pub code: Type,
@@ -628,6 +627,20 @@ pub fn mono(text: impl Into<SharedString>) -> Div {
         .text_size(text::MONO)
         .whitespace_nowrap()
         .child(text.into())
+}
+
+/// A fact's key, a code box's label (the Expo kit's `<Text role="eyebrow"
+/// mono tone="muted">`): `words` at [`Ladder::eyebrow`], in the data face,
+/// muted, drawn in capitals. Pass the words as written: the host draws
+/// them in capitals (Expo's `textTransform: 'uppercase'`) and a screen
+/// reader hears them as written, not spelled out. Add
+/// `.font_weight(FontWeight::MEDIUM)` where Expo sets it (`Facts.tsx:28`).
+pub fn eyebrow(words: impl Into<SharedString>, ladder: &Ladder, theme: &Theme) -> Div {
+    div()
+        .text_type(ladder.eyebrow)
+        .font_family(fonts::FAMILY_MONO)
+        .text_color(theme.muted)
+        .child(Capitals(words.into()))
 }
 
 /// The focus ring: `color`, 2 px, just inside the edge, on a control the
@@ -1698,6 +1711,26 @@ mod tests {
             (style.min_size.width, style.min_size.height),
             (floor, floor)
         );
+    }
+
+    /// An eyebrow crosses as the words were written, marked for the host to
+    /// draw in capitals: a screen reader hears the words a text holds, so
+    /// it reads the label, not letter after letter. The role's size and
+    /// spacing, the data face and the muted colour are on its box.
+    #[test]
+    fn an_eyebrow_is_drawn_in_capitals_and_named_as_written() {
+        let theme = Theme::light();
+        let (node, styles) = lower_styled(eyebrow("This phone's code", &TOUCH, &theme));
+        let [wire::Node::Text(words)] = node.children() else {
+            panic!("one text: {node:?}");
+        };
+        assert_eq!(words.content, "This phone's code");
+        assert_eq!(words.transform, Some(wire::TextTransform::Uppercase));
+        let text = &styles[node.style().expect("a styled box")].text;
+        assert_eq!(text.font_size, Some(TOUCH.eyebrow.size.into()));
+        assert_eq!(text.letter_spacing, TOUCH.eyebrow.tracking);
+        assert_eq!(text.font_family.as_deref(), Some(fonts::FAMILY_MONO));
+        assert_eq!(text.color, Some(theme.muted));
     }
 
     /// The finger's ladder is the Expo app's theme (`theme.ts` `type`,

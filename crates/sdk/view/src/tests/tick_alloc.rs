@@ -31,6 +31,7 @@ fn text(content: &str) -> wire::Node {
         id: None,
         style: wire::StyleId(0),
         content: content.into(),
+        transform: None,
     })
 }
 
