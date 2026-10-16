@@ -183,8 +183,7 @@ fn span(view: &Nodes) -> Option<RangeInclusive<u64>> {
 /// `Proposed`, and at its right which blocks the strip spans.
 fn proposed_head(view: &Nodes, theme: &Theme) -> impl IntoElement {
     let range = span(view).map(|span| words::span(&span));
-    design::section_head("nodes-node-proposed", words::PROPOSED, None, &LADDER, theme)
-        .children(range)
+    design::section_head("nodes-node-proposed", words::PROPOSED, &LADDER, theme).children(range)
 }
 
 /// What the member proposed: a validator's strip once the tip is known; a

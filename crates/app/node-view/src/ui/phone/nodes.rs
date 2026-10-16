@@ -273,21 +273,15 @@ fn roster(view: &Nodes, nodes: &[Node], cx: &Context<Nodes>, theme: &Theme) -> S
         .id("nodes-members")
         .children(unheard.map(|why| quiet("nodes-unheard", why, theme)))
         .children(last_answer(view, "nodes-last-answer", theme))
-        .child(design::section_head(
-            "nodes-validators",
-            words::VALIDATORS,
-            Some(seats.len()),
-            &LADDER,
-            theme,
-        ))
+        .child(
+            design::section_head("nodes-validators", words::VALIDATORS, &LADDER, theme)
+                .child(seats.len().to_string()),
+        )
         .children(seats)
-        .child(design::section_head(
-            "nodes-residents",
-            words::RESIDENTS,
-            Some(residents.len()),
-            &LADDER,
-            theme,
-        ))
+        .child(
+            design::section_head("nodes-residents", words::RESIDENTS, &LADDER, theme)
+                .child(residents.len().to_string()),
+        )
         .children(residents)
         .children(footnote.map(|footnote| quiet("nodes-footnote", footnote, theme)))
 }
@@ -390,9 +384,8 @@ fn vote(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Option<Div> {
     if !view.voting.votes() {
         return None;
     }
-    let motions_head = design::section_head("nodes-motions", words::MOTIONS, None, &LADDER, theme);
-    let scheduled_head =
-        design::section_head("nodes-scheduled", words::SCHEDULED, None, &LADDER, theme);
+    let motions_head = design::section_head("nodes-motions", words::MOTIONS, &LADDER, theme);
+    let scheduled_head = design::section_head("nodes-scheduled", words::SCHEDULED, &LADDER, theme);
     let elsewhere = quiet("nodes-change-elsewhere", words::CHANGE_ELSEWHERE, theme);
     Some(
         div()
