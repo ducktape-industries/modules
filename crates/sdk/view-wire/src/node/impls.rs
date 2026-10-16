@@ -1,4 +1,5 @@
 use super::*;
+use crate::methods::Capability;
 
 impl Node {
     /// The node an empty view renders as.
@@ -25,7 +26,9 @@ impl Node {
             | Self::Sensor { id, .. }
             | Self::Overlay { id, .. }
             | Self::Sheet { id, .. }
-            | Self::Web { id, .. } => Some(id),
+            | Self::Web { id, .. }
+            | Self::Camera { id, .. }
+            | Self::Microphone { id, .. } => Some(id),
             Self::Space | Self::Anchored { .. } | Self::Deferred { .. } | Self::Canvas { .. } => {
                 None
             }
@@ -63,7 +66,9 @@ impl Node {
             | Self::Overlay { style, .. }
             | Self::Sheet { style, .. }
             | Self::Canvas { style, .. }
-            | Self::Web { style, .. } => Some(*style),
+            | Self::Web { style, .. }
+            | Self::Camera { style, .. }
+            | Self::Microphone { style, .. } => Some(*style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => None,
         }
     }
@@ -86,7 +91,9 @@ impl Node {
             | Self::Overlay { style, .. }
             | Self::Sheet { style, .. }
             | Self::Canvas { style, .. }
-            | Self::Web { style, .. } => visit(style),
+            | Self::Web { style, .. }
+            | Self::Camera { style, .. }
+            | Self::Microphone { style, .. } => visit(style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => {}
         }
         if let Self::Container(crate::ContainerNode {
@@ -128,10 +135,40 @@ impl Node {
         }
     }
 
+    /// The capability a view's manifest declares to place this node: a
+    /// web page's, a camera's, a microphone's; `None` for every other node.
+    /// A host refuses the frame of a view that places one it did not
+    /// declare ([`crate::Frame::undeclared`]). One arm per variant, so a
+    /// new one says whether a capability gates it.
+    pub fn capability(&self) -> Option<Capability> {
+        match self {
+            Self::Web { .. } => Some(Capability::Web),
+            Self::Camera { .. } => Some(Capability::Camera),
+            Self::Microphone { .. } => Some(Capability::Microphone),
+            Self::RichText { .. }
+            | Self::Anchored { .. }
+            | Self::UniformList { .. }
+            | Self::List { .. }
+            | Self::Container(_)
+            | Self::ResizeHandle { .. }
+            | Self::Deferred { .. }
+            | Self::Sensor { .. }
+            | Self::Text(_)
+            | Self::Image { .. }
+            | Self::Svg { .. }
+            | Self::Field { .. }
+            | Self::Space
+            | Self::Overlay { .. }
+            | Self::Sheet { .. }
+            | Self::Canvas { .. } => None,
+        }
+    }
+
     /// The node's children in order. One arm per variant, here and in
     /// [`Node::children_mut`] and [`Node::child_list_mut`]: everything that
     /// walks, diffs or patches a tree goes through these three, so a new
-    /// variant is a new arm in each and nothing else.
+    /// variant is a new arm in each, one in [`Node::capability`], and
+    /// nothing else.
     pub fn children(&self) -> &[Node] {
         match self {
             Self::Container(crate::ContainerNode { children, .. })
@@ -153,7 +190,9 @@ impl Node {
             | Self::Field { .. }
             | Self::Space
             | Self::Canvas { .. }
-            | Self::Web { .. } => &[],
+            | Self::Web { .. }
+            | Self::Camera { .. }
+            | Self::Microphone { .. } => &[],
         }
     }
 
@@ -186,7 +225,9 @@ impl Node {
             | Self::Space
             | Self::Svg { .. }
             | Self::Canvas { .. }
-            | Self::Web { .. } => &mut [],
+            | Self::Web { .. }
+            | Self::Camera { .. }
+            | Self::Microphone { .. } => &mut [],
         }
     }
 
@@ -214,7 +255,9 @@ impl Node {
             | Self::Space
             | Self::Svg { .. }
             | Self::Canvas { .. }
-            | Self::Web { .. } => None,
+            | Self::Web { .. }
+            | Self::Camera { .. }
+            | Self::Microphone { .. } => None,
         }
     }
 

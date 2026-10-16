@@ -460,6 +460,43 @@ pub struct Session {
     pub account: Option<u64>,
     pub endpoint: String,
 }
+/// `host.float`'s request: this view's pane in a window of its own, the
+/// view laid out `width` by `height` (the window's body, under its title
+/// bar) and never under `min_width` by `min_height`, kept above other
+/// windows when `on_top`. Sizes are logical pixels, the ones the view lays
+/// out in. The person resizes the window down to the minimum, never under
+/// it; a minimum of zero or over its side, or a side past the largest
+/// window the host makes, is refused `malformed_request`.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct Float {
+    pub width: u32,
+    pub height: u32,
+    pub min_width: u32,
+    pub min_height: u32,
+    pub on_top: bool,
+}
+/// Where this view's pane is: `floating` in a window `host.float` made for
+/// it, and whether that window is kept above other windows.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct Placement {
+    pub floating: bool,
+    pub on_top: bool,
+}
 /// A place of the host's own that a view asks it to bring up
 /// ([`HostShow`]). What a place looks like is the host's to decide on its
 /// platform: a sheet, a menu, a page. A place this host does not know does
@@ -477,6 +514,14 @@ pub enum Place {
     /// Expo app's account sheet, mobile `app/you.tsx`), asked for from the
     /// reader's avatar on a view's first page.
     Account,
+    /// The system's page that allows this app the camera: macOS's privacy
+    /// pane for it, the app's own settings on iOS and Android. Asked for
+    /// where a refused camera piece's [`crate::MediaState::opens_settings`]
+    /// says the host shows it; refused `unknown_request` where it has none.
+    CameraSettings,
+    /// The system's page that allows this app the microphone, as
+    /// [`Place::CameraSettings`] is the camera's.
+    MicrophoneSettings,
 }
 /// `host.widget`: a command on the mounted tree. The one method on the TREE
 /// side of the codec rule — a [`WidgetCommand`] names typed element ids the
@@ -538,6 +583,77 @@ pub enum Delivery {
     Logged,
     /// The person blocked this view's notices: dropped, not logged.
     Blocked,
+}
+
+/// One camera, as `camera.devices` lists it: `id` is what a camera
+/// piece's `device` names it by, `name` what a picker shows, `default`
+/// whether the system picks it when a piece names none, `facing` which way
+/// it looks. An id is the host's, good while the camera stays plugged in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct CameraDevice {
+    pub id: String,
+    pub name: String,
+    pub default: bool,
+    pub facing: Facing,
+}
+/// Which way a camera looks, as the system says.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum Facing {
+    /// At the person in front of the screen: a laptop's built-in camera, a
+    /// phone's selfie camera.
+    Front,
+    /// Away from the person: a phone's or tablet's main camera.
+    Back,
+    /// Not part of the machine: a USB or network camera, which looks
+    /// wherever it is put. Also a camera the system says nothing of.
+    External,
+}
+/// One microphone or speaker, as `microphone.devices` lists it: `id` is
+/// what a microphone piece's `device` (an input) or `output` (an output)
+/// names it by, `name` what a picker shows, `default` whether the system
+/// picks it when a piece names none, `kind` what it is. An id is the
+/// host's, good while the device stays plugged in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct AudioDevice {
+    pub id: String,
+    pub name: String,
+    pub default: bool,
+    pub kind: AudioKind,
+}
+/// What an audio device is, as the system says: where an output plays, or
+/// which set an input belongs to. A microphone piece's `monitor` howls
+/// through a `Speaker`, and not through `Headphones`.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum AudioKind {
+    /// A loudspeaker: the computer's own, a phone's at its foot, a set of
+    /// speakers plugged in. The microphone hears what it plays.
+    Speaker,
+    /// A phone's earpiece, held to the ear.
+    Earpiece,
+    /// Headphones or a headset, wired or Bluetooth; for an input, the
+    /// headset's microphone.
+    Headphones,
+    /// Anything else, or a device the system says nothing of: a line in or
+    /// out, a built-in or USB microphone.
+    Other,
+}
+/// `microphone.devices`: the microphones (`inputs`) and the speakers
+/// (`outputs`) the host can open.
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct AudioDevices {
+    pub inputs: Vec<AudioDevice>,
+    pub outputs: Vec<AudioDevice>,
 }
 
 // ---------- live: tracks through the connected node, off consensus ----------
@@ -749,6 +865,27 @@ methods! {
     HostSession, "host.session", (), Session;
     /// `host.visible`: whether the view is on screen, an item per change.
     HostVisible, "host.visible", (), bool;
+    /// `host.float`: this view's pane in a window of its own, laid out at
+    /// the request's size and never under its minimum, kept above other
+    /// windows where the platform can. Floating already: only `on_top` is
+    /// applied. Honoured at a press or key in the view, as `link.open` is,
+    /// else refused [`refusal::NEEDS_GESTURE`]. The reply says what the
+    /// host could do: `on_top` is false where it keeps no window on top
+    /// (Wayland, always). A host that cannot float a pane (a phone) answers
+    /// none of `host.float`, `host.unfloat` and `host.placement`:
+    /// [`refusal::UNKNOWN_REQUEST`].
+    HostFloat, "host.float", Float, Placement;
+    /// `host.unfloat`: the pane back onto the desk it left (the main
+    /// window's when that one is gone). Nothing while not floating.
+    HostUnfloat, "host.unfloat", (), ();
+    /// `host.placement`: a subscription, an item per change of where this
+    /// view's pane is ([`Placement`]); the first item is the state at
+    /// subscribe. `host.float` itself, the host's own controls (keeping a
+    /// window on top, putting a pane back) and the floated window's close
+    /// each move it. Refused [`refusal::UNKNOWN_REQUEST`] at subscribe by a
+    /// host that cannot float: a view that hears that hides its float
+    /// control.
+    HostPlacement, "host.placement", (), Placement;
     /// `host.badge`: the count of things unread in the view, shown on its
     /// tab (the app words it "N unread").
     HostBadge, "host.badge", i64, ();
@@ -852,12 +989,28 @@ methods! {
     /// refusal (`not_granted`: the grant taken back; `malformed_request`,
     /// `bad_proof`, `live_unavailable`).
     LiveTracks, "live.tracks", String, Watching;
+    /// `camera.devices`: the cameras the host can open, as listed now
+    /// (ask again after a piece reports one `Gone`). A host that captures
+    /// nothing does not answer it: [`refusal::UNKNOWN_REQUEST`].
+    CameraDevices, "camera.devices", (), Vec<CameraDevice>;
+    /// `microphone.devices`: the microphones and speakers the host can
+    /// open, as listed now. A host that captures nothing does not answer
+    /// it: [`refusal::UNKNOWN_REQUEST`].
+    MicrophoneDevices, "microphone.devices", (), AudioDevices;
+    /// `microphone.chime`: the host's test chime (0.6 s, two notes) on a
+    /// speaker, by an output id `microphone.devices` listed (`None`: the
+    /// system's), answered once it has sounded. Apart from any microphone
+    /// piece: the speaker test works muted. Refused
+    /// [`refusal::HOST_FAULT`] when the speaker does not play; a host that
+    /// plays nothing does not answer it: [`refusal::UNKNOWN_REQUEST`].
+    MicrophoneChime, "microphone.chime", Option<String>, ();
 }
 
 /// The `<capability>` half of every kind in [`ALL`]: what a view's manifest
 /// declares, and the only names it may. A method is reached only through the
 /// capability its kind starts with. One capability gates a node, not a
-/// method: [`Capability::Web`].
+/// method: [`Capability::Web`]; two gate a node and their methods:
+/// [`Capability::Camera`], [`Capability::Microphone`].
 #[derive(
     Clone,
     Copy,
@@ -894,10 +1047,19 @@ pub enum Capability {
     /// node lets an account publish or subscribe in a room only as the
     /// view's program granted it.
     Live,
+    /// The view places camera pieces ([`crate::Node::Camera`]) and lists
+    /// the cameras (`camera.devices`). Apart from `microphone`, as the
+    /// system asks for each apart: a voice-only view never gets a camera.
+    Camera,
+    /// The view places microphone pieces ([`crate::Node::Microphone`]),
+    /// which also play on a speaker, lists the microphones and speakers
+    /// (`microphone.devices`) and plays the test chime on a speaker
+    /// (`microphone.chime`).
+    Microphone,
 }
 
 impl Capability {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 15] = [
         Self::Chain,
         Self::Program,
         Self::Op,
@@ -911,6 +1073,8 @@ impl Capability {
         Self::Store,
         Self::Web,
         Self::Live,
+        Self::Camera,
+        Self::Microphone,
     ];
 
     /// The name a manifest and a kind spell it with.
@@ -929,6 +1093,8 @@ impl Capability {
             Self::Store => "store",
             Self::Web => "web",
             Self::Live => "live",
+            Self::Camera => "camera",
+            Self::Microphone => "microphone",
         }
     }
 
@@ -1127,7 +1293,7 @@ mod tests {
         let account = HostShow::encode_request(&Place::Account);
         assert_eq!(account, [0]);
         assert_eq!(HostShow::decode_request(&account), Ok(Place::Account));
-        for hostile in [&[1][..], &[u8::MAX], &[], &[0, 0]] {
+        for hostile in [&[3][..], &[u8::MAX], &[], &[0, 0]] {
             assert!(HostShow::decode_request(hostile).is_err(), "{hostile:?}");
         }
     }
