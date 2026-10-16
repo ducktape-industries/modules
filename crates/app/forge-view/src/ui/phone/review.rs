@@ -126,7 +126,7 @@ fn verdicts(
                 let row = Row::titled(id(format!("forge-verdict-{slug}")), label, ladder)
                     .caption(parts::caption(said, ladder, theme))
                     .tail(parts::radio_mark(on, theme))
-                    .draw(ladder, theme)
+                    .press(ladder, theme)
                     .aria_toggled(on.into())
                     .on_click(pick);
                 design::item(row, Role::RadioButton, index == at)

@@ -10,12 +10,12 @@
 //! the clipboard, the page's wrap and source toggles, and the folder a
 //! crumb goes back to.
 use view::Div;
-use view::design::{Kind, Ladder};
+use view::design::{Kind, Ladder, Nav};
 use view::prelude::*;
 
 use super::document;
 use super::lines::{self, Shown};
-use super::parts::{self, Back};
+use super::parts;
 use super::tabs;
 use crate::Forge;
 use crate::highlight;
@@ -25,7 +25,7 @@ use forge::{BlobView, Content, Query, Reply};
 
 pub(super) fn render(
     forge: &Forge,
-    back: Back,
+    back: Nav,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
@@ -69,7 +69,7 @@ pub(super) fn render(
 /// folder's rows.
 pub(super) fn folder(
     forge: &Forge,
-    back: Back,
+    back: Nav,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,

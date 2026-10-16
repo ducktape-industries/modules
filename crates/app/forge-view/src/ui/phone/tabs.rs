@@ -340,7 +340,7 @@ fn tree_row(
         )),
     };
     let inset = design::space::BLOCK + design::space::LG * row.depth as f32;
-    let line = line.draw(ladder, theme).pl(inset).on_click(
+    let line = line.press(ladder, theme).pl(inset).on_click(
         move |_: &ClickEvent, window: &mut Window, app: &mut App| press(index, window, app),
     );
     parts::option(line, active).into_any_element()
@@ -470,7 +470,7 @@ fn log_rows(
                         let open = open.clone();
                         let oid = commit.oid.clone();
                         let row = parts::commit_row(commit, &ladder, &theme)
-                            .draw(&ladder, &theme)
+                            .press(&ladder, &theme)
                             .on_click(move |_: &ClickEvent, window: &mut Window, app: &mut App| {
                                 open(oid.clone(), window, app)
                             });
@@ -864,7 +864,7 @@ fn ref_row(
         );
     }
     let (browse, name) = (routes.browse.clone(), line.name.clone());
-    let row = row.draw(ladder, theme).on_click(
+    let row = row.press(ladder, theme).on_click(
         move |_: &ClickEvent, window: &mut Window, app: &mut App| browse(name.clone(), window, app),
     );
     parts::option(row, active).into_any_element()
@@ -914,7 +914,7 @@ fn settings(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &The
     };
     let owner = forge.owns_repo();
     let section = |key: &str, label: &str| {
-        design::section_head(id(key.to_owned()), label.to_owned(), None, ladder, theme)
+        design::section_head(id(key.to_owned()), label.to_owned(), ladder, theme)
     };
     page.child(section("forge-settings-refs", "Refs"))
         .child(default_head(
@@ -966,7 +966,7 @@ fn default_head(
     }
     let row = row.draw(ladder, theme);
     match owner && forge.pending_in("settings").is_empty() {
-        true => row
+        true => design::pressed(row, ladder)
             .role(Role::Button)
             .focusable()
             .on_click(cx.listener(|forge, event: &ClickEvent, window, cx| {
@@ -1087,7 +1087,7 @@ fn writer_rows(
             .draw(ladder, theme)
             .role(Role::Button)
             .focusable()
-            .when(!busy, |row| row.on_click(grant));
+            .when(!busy, |row| design::pressed(row, ladder).on_click(grant));
         rows.push(row.into_any_element());
     }
     rows

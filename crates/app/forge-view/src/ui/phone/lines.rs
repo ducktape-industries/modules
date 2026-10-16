@@ -567,6 +567,7 @@ fn gutter(index: usize, line: &Line, height: Pixels, look: &Look, cx: &mut Conte
             id(format!("{}-gutter-{index}", look.key)),
             GUTTER,
             height,
+            px(0.),
             &look.ladder,
         )
         .role(Role::Button)

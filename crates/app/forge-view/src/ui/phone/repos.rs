@@ -5,7 +5,7 @@
 //!
 //! Reads `Query::Repos`, `Query::Judgment` (for me) and the filter box;
 //! writes a new repository (`create_repo`).
-use view::design::{Kind, Ladder, TextType};
+use view::design::{Kind, Ladder, Nav, TextType};
 use view::prelude::*;
 use view::wire;
 use view::{Div, Stateful};
@@ -18,9 +18,6 @@ use crate::words;
 use crate::{Forge, Stage};
 use forge::{Judgment, Query, Reply, RepoInfo};
 
-/// The root page has no Back.
-type NoBack = fn(&ClickEvent, &mut Window, &mut App);
-
 pub(super) fn render(
     forge: &Forge,
     cx: &mut Context<Forge>,
@@ -28,7 +25,7 @@ pub(super) fn render(
     theme: &Theme,
 ) -> AnyElement {
     let new = cx.listener(|forge, _: &ClickEvent, window, cx| forge.start_repo(window, cx));
-    let page = design::page("forge-page-repos", "Forge", None::<NoBack>, ladder, theme)
+    let page = design::page("forge-page-repos", "Forge", Nav::Root, ladder, theme)
         .caption(place(forge))
         .trailing(design::icon_button(
             id("forge-new-repo"),
@@ -111,10 +108,10 @@ fn judgment(
     let head = design::section_head(
         id("forge-judgment-head"),
         "Needs my judgment",
-        Some(items.len()),
         ladder,
         theme,
-    );
+    )
+    .child(items.len().to_string());
     vec![
         head.into_any_element(),
         judgment_list(items, forge, cx, ladder, theme).into_any_element(),
@@ -207,14 +204,9 @@ fn repositories(
 
 /// "Repositories" and how many show (no count at none).
 fn section(count: usize, ladder: &Ladder, theme: &Theme) -> AnyElement {
-    design::section_head(
-        id("forge-repos-head"),
-        "Repositories",
-        (count > 0).then_some(count),
-        ladder,
-        theme,
-    )
-    .into_any_element()
+    design::section_head(id("forge-repos-head"), "Repositories", ladder, theme)
+        .children((count > 0).then(|| count.to_string()))
+        .into_any_element()
 }
 
 fn repo_list(

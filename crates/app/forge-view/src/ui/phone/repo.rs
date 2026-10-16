@@ -6,11 +6,11 @@
 //!
 //! Reads `Query::Repo`, `Query::Refs` and the open changes' count; writes
 //! the clipboard (Copy) and the browsed ref (through the ref sheet).
-use view::design::Ladder;
+use view::design::{Ladder, Nav};
 use view::prelude::*;
 use view::{Div, Stateful};
 
-use super::parts::{self, Back};
+use super::parts;
 use super::tabs;
 use crate::Forge;
 use crate::id;
@@ -19,7 +19,7 @@ use crate::words::{self, ref_label};
 
 pub(super) fn render(
     forge: &Forge,
-    back: Back,
+    back: Nav,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,

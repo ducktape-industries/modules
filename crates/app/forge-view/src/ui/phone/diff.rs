@@ -8,11 +8,11 @@
 //! writes the review: Start, a comment at a pressed line number, Discard,
 //! and Finish (the sheet [`super::review`]).
 use view::Div;
-use view::design::{Kind, Ladder};
+use view::design::{Kind, Ladder, Nav};
 use view::prelude::*;
 
 use super::lines::{self, Notes, Published, Shown};
-use super::parts::{self, Back};
+use super::parts;
 use crate::id;
 use crate::select::path_of;
 use crate::state::change_key;
@@ -22,7 +22,7 @@ use forge::{FileDiff, Reply, Side};
 
 pub(super) fn render(
     forge: &Forge,
-    back: Back,
+    back: Nav,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,

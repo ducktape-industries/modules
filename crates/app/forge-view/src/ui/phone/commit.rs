@@ -8,12 +8,12 @@
 //! diff; writes the clipboard.
 use std::rc::Rc;
 
-use view::design::Ladder;
+use view::design::{Ladder, Nav};
 use view::prelude::*;
 use view::{Div, Stateful};
 
 use super::lines::{self, Item, Notes, Shown};
-use super::parts::{self, Back, Row};
+use super::parts::{self, Row};
 use crate::Forge;
 use crate::id;
 use crate::select::path_of;
@@ -23,7 +23,7 @@ use view::design::short_hex;
 
 pub(super) fn render(
     forge: &Forge,
-    back: Back,
+    back: Nav,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
@@ -219,10 +219,9 @@ fn file_rows(
     }
     let added: u64 = files.iter().map(|file| file.additions).sum();
     let deleted: u64 = files.iter().map(|file| file.deletions).sum();
-    let head =
-        design::section_head(id("forge-commit-files-head"), "Files", None, ladder, theme).child(
-            parts::delta(&format!("{} · ", files.len()), added, deleted, theme),
-        );
+    let head = design::section_head(id("forge-commit-files-head"), "Files", ladder, theme).child(
+        parts::delta(&format!("{} · ", files.len()), added, deleted, theme),
+    );
     let mut at = 1;
     let rows = files.iter().map(|file| {
         let row = file_row(file, at, cx, ladder, theme).into_any_element();
@@ -261,7 +260,7 @@ fn file_row(
     Row::data(id(format!("forge-commit-file-{path}")), path, ladder)
         .lead(parts::lead_icon("file-text", ladder, theme))
         .tail(delta)
-        .draw(ladder, theme)
+        .press(ladder, theme)
         .role(Role::Button)
         .focusable()
         .on_click(jump)

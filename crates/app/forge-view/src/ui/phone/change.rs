@@ -8,12 +8,12 @@
 //! Reads `Query::Change`, its comparison, its log (Commits), its diff
 //! (Files) and its channel's rows; writes Merge, Close (asked twice), a
 //! reply (`post_reply`), the files ticked as read, and starts a review.
-use view::design::{Kind, Ladder};
+use view::design::{Kind, Ladder, Nav};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
 use super::document;
-use super::parts::{self, Back, Row, Tint, Tone};
+use super::parts::{self, Row, Tint, Tone};
 use super::tabs;
 use crate::Forge;
 use crate::actions::MergeBlock;
@@ -26,7 +26,7 @@ use view::design::short_hex;
 
 pub(super) fn render(
     forge: &Forge,
-    back: Back,
+    back: Nav,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
@@ -340,7 +340,7 @@ fn section_aside(
     ladder: &Ladder,
     theme: &Theme,
 ) -> Stateful<Div> {
-    design::section_head(id(key.to_owned()), label.to_owned(), None, ladder, theme).child(aside)
+    design::section_head(id(key.to_owned()), label.to_owned(), ladder, theme).child(aside)
 }
 
 /// forge's own line in the change's room: written by the account the
@@ -951,7 +951,6 @@ fn details(
         .child(design::section_head(
             id("forge-details-merge"),
             words::MERGE_STATUS,
-            None,
             ladder,
             theme,
         ))
@@ -960,7 +959,6 @@ fn details(
         .child(design::section_head(
             id("forge-details-channel"),
             "Channel",
-            None,
             ladder,
             theme,
         ))
@@ -1103,10 +1101,10 @@ fn line_comments(
     let head = design::section_head(
         id("forge-details-comments"),
         words::LINE_COMMENTS,
-        (!all.is_empty()).then_some(all.len()),
         ladder,
         theme,
     )
+    .children((!all.is_empty()).then(|| all.len().to_string()))
     .into_any_element();
     if all.is_empty() {
         let none = parts::quiet(
@@ -1122,7 +1120,7 @@ fn line_comments(
             forge.open_file_comment(path.clone(), cx)
         });
         Row::data(id(format!("forge-details-comment-{at}")), line, ladder)
-            .draw(ladder, theme)
+            .press(ladder, theme)
             .role(Role::Button)
             .focusable()
             .on_click(open)
@@ -1151,7 +1149,7 @@ fn channel_row(
         ladder,
     )
     .chevron()
-    .draw(ladder, theme)
+    .press(ladder, theme)
     .role(Role::Link)
     .focusable()
     .on_click(open)

@@ -3,11 +3,10 @@
 //! sheet, the outbox's rows of a scope), the pieces of
 //! `src/forge/repo.tsx` its screens share (`FileBar`, `sizeOf`, `Stage`),
 //! and the kit pieces of `src/kit/*.tsx` the SDK does not ship yet (the
-//! small button, chips, the strip, the notice, key/value, the empty
-//! state). Each kit piece is marked `SDK gap`: every view needs it, so it
-//! lands once in the SDK (`feat/phone-kit`) and this copy goes. Each part
-//! reads the model and draws; none writes but through the press it is
-//! handed.
+//! small button, chips, the notice, key/value, the empty state). Each
+//! kit piece is marked `SDK gap`: every view needs it, so it lands once in
+//! the SDK (`feat/phone-kit`) and this copy goes. Each part reads the
+//! model and draws; none writes but through the press it is handed.
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -27,8 +26,6 @@ use forge::{ChangeState, ChangeSummary, CommitInfo, Judgment, Query, Reply, Revi
 pub(crate) type Press = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 /// A press that carries what was pressed: a row's index, a ref's name.
 pub(crate) type Route<T> = Rc<dyn Fn(T, &mut Window, &mut App)>;
-/// A page's Back, when it has one.
-pub(crate) type Back = Option<Press>;
 
 /// The kit's small button (`theme.ts` `size.small`).
 pub(crate) const SMALL: Pixels = px(36.);
@@ -46,8 +43,6 @@ const EMPTY_X: Pixels = px(32.);
 const EMPTY_MEASURE: Pixels = px(280.);
 /// A change row's state dot (`parts.tsx` `StateDot`).
 const DOT: Pixels = px(8.);
-/// The underline under the chosen tab of a strip (`Choice.tsx` `Strip`).
-const UNDERLINE: Pixels = px(2.);
 /// The gap between a row's title and its caption (`Row.tsx`).
 const ROW_LINES_GAP: Pixels = px(1.);
 /// A checkbox's or a radio's box, its edge, and what it draws when on
@@ -232,8 +227,13 @@ impl Row {
         self
     }
 
+    /// [`Row::draw`] as a press: it dims while a finger holds it
+    /// (`design::pressed`). The caller adds its role and its click.
+    pub(crate) fn press(self, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
+        design::pressed(self.draw(ladder, theme), ladder)
+    }
+
     pub(crate) fn draw(self, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
-        let tall = px(design::height::touch::ROW_TALL as f32);
         let captioned = self.caption.is_some();
         let lines = div()
             .flex_1()
@@ -244,7 +244,7 @@ impl Row {
             .child(self.title)
             .children(self.caption);
         design::row(self.id, ladder, theme)
-            .when(captioned, |row| row.min_h(tall))
+            .when(captioned, |row| row.min_h(ladder.row_tall))
             .when(self.chosen, |row| row.bg(theme.accent_soft))
             .children(self.lead.map(design::lead))
             .child(lines)
@@ -280,7 +280,7 @@ pub(crate) fn rows_list(
     let at = at.min(rows.len().saturating_sub(1));
     let mut list = list::list(list_id, label, rows.len(), None, forge, cx, open).flex_none();
     for (index, (row, press)) in rows.into_iter().enumerate() {
-        let row = row.draw(ladder, theme).on_click(press);
+        let row = row.press(ladder, theme).on_click(press);
         list = list.child(option(row, walked && index == at));
     }
     list
@@ -573,7 +573,7 @@ pub(crate) fn notice_action(
         .text_color(words)
         .child(label)
         .child(
-            design::hit(id, ladder.hit, height, ladder)
+            design::hit(id, ladder.hit, height, px(0.), ladder)
                 .role(Role::Button)
                 .aria_label(label)
                 .focusable()
@@ -786,7 +786,7 @@ impl IntoElement for SmallButton {
     fn into_element(self) -> Div {
         let (edge, words) = self.colours();
         let ink = self.kind == Kind::Primary && self.enabled;
-        let press = design::hit(self.id, self.ladder.hit, SMALL, &self.ladder)
+        let press = design::hit(self.id, self.ladder.hit, SMALL, px(1.), &self.ladder)
             .role(Role::Button)
             .aria_label(self.label.clone());
         let press = match self.enabled {
@@ -883,7 +883,7 @@ pub(crate) fn checkbox(
     } else {
         theme.border_strong
     };
-    let press = design::hit(id, TICK_BOX, TICK_BOX, ladder)
+    let press = design::hit(id, TICK_BOX, TICK_BOX, TICK_EDGE, ladder)
         .role(Role::CheckBox)
         .aria_label(label.into())
         .aria_toggled(on.into())
@@ -1007,7 +1007,7 @@ fn chip_box(
                 .child(count_.to_string())
         }))
         .child(
-            design::hit(chip.id, ladder.hit, CHIP, ladder)
+            design::hit(chip.id, ladder.hit, CHIP, px(1.), ladder)
                 .role(Role::Button)
                 .aria_label(chip.label)
                 .aria_toggled(chosen.into())
@@ -1017,24 +1017,21 @@ fn chip_box(
 }
 
 /// A page's tabs (`Choice.tsx` `Strip`) on `bar`, a `TabList` composite:
-/// a control tall, a hairline under it, 8 in, scrolling sideways.
-// SDK gap: the strip, swap when feat/phone-kit lands
+/// [`Ladder::strip`] tall, its hairline included, 8 in, scrolling
+/// sideways.
 pub(crate) fn strip(bar: Stateful<Div>, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
     bar.flex()
         .flex_none()
-        .items_center()
-        .h(ladder.control)
+        .h(ladder.strip)
         .px(design::space::SM)
         .border_b_1()
         .border_color(theme.border)
         .overflow_x_scroll()
 }
 
-/// One tab of a [`strip`]: 10 in, the label `small`, the chosen one
-/// medium in the foreground over a 2 px underline as wide as its label;
-/// its count after it in the data face, faint. `(chosen, active)`: it is
-/// the open one, and the arrows are on it.
-// SDK gap: the strip's tab, swap when feat/phone-kit lands
+/// One tab of a [`strip`] (`design::tab`), its count after its label in
+/// the data face, faint. `(chosen, active)`: it is the open one, and the
+/// arrows are on it.
 pub(crate) fn strip_tab(
     element_id: ElementId,
     label: &str,
@@ -1044,18 +1041,8 @@ pub(crate) fn strip_tab(
     theme: &Theme,
     click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
-    let words = div()
-        .flex()
-        .items_baseline()
-        .text_type(ladder.small)
-        .text_color(if chosen {
-            theme.foreground
-        } else {
-            theme.muted
-        })
-        .when(chosen, |words| words.font_weight(FontWeight::MEDIUM))
-        .child(label.to_owned())
-        .children(count.map(|count| {
+    let tab = design::tab(element_id, label.to_owned(), chosen, ladder, theme, click).children(
+        count.map(|count| {
             div()
                 .ml(design::space::XXS)
                 .font_family(design::fonts::FAMILY_MONO)
@@ -1063,29 +1050,8 @@ pub(crate) fn strip_tab(
                 .font_weight(FontWeight::NORMAL)
                 .text_color(theme.faint)
                 .child(count.to_string())
-        }));
-    let underline = div()
-        .absolute()
-        .left(design::space::MD)
-        .right(design::space::MD)
-        .bottom_0()
-        .h(UNDERLINE)
-        .bg(theme.foreground);
-    let tab = div()
-        .id(element_id)
-        .relative()
-        .h_full()
-        .flex_none()
-        .flex()
-        .items_center()
-        .px(design::space::MD)
-        .whitespace_nowrap()
-        .active(|style| style.opacity(0.6))
-        .role(Role::Tab)
-        .aria_selected(chosen)
-        .on_click(click)
-        .child(words)
-        .when(chosen, |tab| tab.child(underline));
+        }),
+    );
     design::item(tab, Role::Tab, active).into_any_element()
 }
 
@@ -1452,7 +1418,7 @@ fn ref_rows(
                         .tail(design::icon("check", ladder.icon_row).text_color(theme.foreground));
                 }
                 let (pick, name) = (pick.clone(), name.clone());
-                let row = row.draw(&ladder, &theme).on_click(
+                let row = row.press(&ladder, &theme).on_click(
                     move |_: &ClickEvent, window: &mut Window, app: &mut App| {
                         pick(name.clone(), window, app)
                     },
@@ -1565,7 +1531,7 @@ fn people_rows(
         Row::titled(id(format!("{}-{number}", ask.key)), name.clone(), ladder)
             .lead(design::avatar(&name, ladder.avatar, theme))
             .caption(caption(format!("account {number}"), ladder, theme))
-            .draw(ladder, theme)
+            .press(ladder, theme)
             .role(Role::Button)
             .focusable()
             .on_click(press)

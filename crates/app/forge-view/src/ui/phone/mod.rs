@@ -27,14 +27,13 @@ mod repos;
 mod review;
 mod tabs;
 
-use view::design::Ladder;
+use view::design::{Ladder, Nav};
 use view::prelude::*;
 
 use crate::Forge;
 use crate::id;
 use crate::state::{Menu, Overlay, Page, Sheet};
 use crate::words;
-use parts::Back;
 
 pub(crate) use lines::Block;
 
@@ -71,10 +70,10 @@ fn page(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
     if let Some(form) = forge.change_form() {
         return new_change::render(forge, form, cx, ladder, theme);
     }
-    let back: Back = (forge.nav().depth() > 0).then(|| {
-        Box::new(cx.listener(|forge, _: &ClickEvent, window, cx| forge.back(window, cx)))
-            as parts::Press
-    });
+    let back = match forge.nav().depth() {
+        0 => Nav::Root,
+        _ => Nav::back(cx.listener(|forge, _: &ClickEvent, window, cx| forge.back(window, cx))),
+    };
     match forge.nav().pages().last().copied().unwrap_or(Page::Repos) {
         Page::Repos => repos::render(forge, cx, ladder, theme),
         Page::Repo => repo::render(forge, back, cx, ladder, theme),

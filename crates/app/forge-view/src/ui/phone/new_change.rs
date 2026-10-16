@@ -6,7 +6,7 @@
 //!
 //! Reads the change form and the comparison of its endpoints; writes the
 //! form, and opens or saves the change (`submit_change`).
-use view::design::Ladder;
+use view::design::{Ladder, Nav};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful, wire};
 
@@ -45,13 +45,19 @@ pub(super) fn render(
         .child(title_field(form, cx, ladder, theme))
         .child(body_field(form, ladder, theme))
         .child(reviewers(forge, form, cx, ladder, theme));
-    design::page("forge-page-change-form", title, Some(back), ladder, theme)
-        .caption(form.repo.clone())
-        .trailing(send(verb, ready(forge, form), cx, ladder, theme))
-        .children(parts::notices(forge, ladder, theme))
-        .children(parts::pending(forge, &scope, ladder, theme))
-        .child(body)
-        .into_any_element()
+    design::page(
+        "forge-page-change-form",
+        title,
+        Nav::back(back),
+        ladder,
+        theme,
+    )
+    .caption(form.repo.clone())
+    .trailing(send(verb, ready(forge, form), cx, ladder, theme))
+    .children(parts::notices(forge, ladder, theme))
+    .children(parts::pending(forge, &scope, ladder, theme))
+    .child(body)
+    .into_any_element()
 }
 
 /// Open or Save is pressable: no write of this change is on its way, and
@@ -82,10 +88,7 @@ fn send(
         .role(Role::Button)
         .child(verb);
     match ready {
-        true => words
-            .active(|style| style.opacity(0.6))
-            .focusable()
-            .on_click(submit),
+        true => design::pressed(words, ladder).focusable().on_click(submit),
         false => words.aria_disabled(true),
     }
 }
@@ -230,6 +233,7 @@ fn removable_chip(
                 id(format!("forge-reviewer-{name}")),
                 parts::CHIP,
                 parts::CHIP,
+                px(1.),
                 ladder,
             )
             .left_0()
