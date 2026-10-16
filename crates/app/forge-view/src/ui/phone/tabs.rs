@@ -339,16 +339,18 @@ fn commits(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
     if let Some(state) = unresolved(forge, ladder, theme) {
         return body("forge-commits").child(state).into_any_element();
     }
-    log(forge, &forge.log_query(), "forge-log", cx, ladder, theme)
+    let ids = ("forge-log", "forge-log-list");
+    log(forge, &forge.log_query(), ids, cx, ladder, theme)
 }
 
-/// A history as a list (`Log`): the commits read so far and, while it
-/// goes on, the quiet line, which asks for the next page as it comes into
-/// view; a commit opens on its own page.
+/// A history as a list (`Log`) drawn as `element_id`, its list `list_id`:
+/// the commits read so far and, while it goes on, the quiet line, which
+/// asks for the next page as it comes into view; a commit opens on its
+/// own page.
 pub(super) fn log(
     forge: &Forge,
     query: &Query,
-    element_id: &str,
+    (element_id, list_id): (&str, &'static str),
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
@@ -369,10 +371,6 @@ pub(super) fn log(
         )
         .into_any_element();
     }
-    let list_id: &'static str = match element_id {
-        "forge-change-log" => "forge-change-log-list",
-        _ => "forge-log-list",
-    };
     let pressed = log.clone();
     let list = list::list(
         list_id,

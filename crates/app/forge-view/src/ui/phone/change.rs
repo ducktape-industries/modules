@@ -731,7 +731,10 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &The
 /// target reaches).
 fn commits(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> AnyElement {
     match forge.shown_log() {
-        Some(query) => tabs::log(forge, &query, "forge-change-log", cx, ladder, theme),
+        Some(query) => {
+            let ids = ("forge-change-log", "forge-change-log-list");
+            tabs::log(forge, &query, ids, cx, ladder, theme)
+        }
         None => div().into_any_element(),
     }
 }
