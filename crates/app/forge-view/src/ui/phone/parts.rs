@@ -16,7 +16,7 @@ use view::{Div, FontWeight, HighlightStyle, Stateful, StyledText};
 
 use crate::id;
 use crate::list;
-use crate::select::revision_name;
+use crate::select::{revision_name, summary_of};
 use crate::state::{Menu, Progress};
 use crate::words::{self, ref_label};
 use crate::{Forge, Stage};
@@ -125,7 +125,7 @@ pub(crate) fn size_of(bytes: u64) -> String {
 /// `<source> → <target>` of a change, short names (`parts.tsx`
 /// `endpoints`).
 pub(crate) fn endpoints(from: &Revision, into: &[u8]) -> String {
-    format!("{} → {}", ref_label(&revision_name(from)), ref_label(into))
+    words::endpoints(&revision_name(from), into)
 }
 
 // ------------------------------------------------------------------ rows
@@ -460,12 +460,51 @@ pub(crate) fn stage<'a>(
     }
 }
 
-/// The writes of `scope` still on their way (`parts.tsx` `PendingRows`):
-/// each a quiet strip saying where it is, or a danger strip with why it
-/// was refused.
+/// How tall a notice's action is: its `secondary` line and 6 over and
+/// under (`Notice.tsx`), and how far its press reaches past it on every
+/// side (its `hitSlop`).
+const NOTICE_ACTION: Pixels = px(30.);
+const NOTICE_SLOP: Pixels = px(8.);
+
+/// A notice's one action at its right (`Notice.tsx` `action`): medium, in
+/// the notice's tone, 8 in from its left; its press reaches 8 past it on
+/// every side, padded by the reach and handed back by a negative margin,
+/// so the word sits where Expo's does.
+// SDK gap: the kit's `Notice` action (`design::refused` has its Retry
+// alone); the SDK builds it later
+fn notice_action(
+    id: impl Into<ElementId>,
+    label: &'static str,
+    tone: Tone,
+    (ladder, theme): (&Ladder, &Theme),
+    press: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex_none()
+        .h(NOTICE_ACTION + NOTICE_SLOP * 2.)
+        .flex()
+        .items_center()
+        .pl(design::space::SM + NOTICE_SLOP)
+        .pr(NOTICE_SLOP)
+        .m(-NOTICE_SLOP)
+        .text_type(ladder.secondary)
+        .text_color(tone.colours(theme).1)
+        .font_weight(FontWeight::MEDIUM)
+        .role(Role::Button)
+        .aria_label(label)
+        .focusable()
+        .on_click(press)
+        .child(label)
+}
+
+/// The writes of `scope` (`parts.tsx` `PendingRows`): each a quiet strip
+/// saying where it is, or, once it did not land, a danger strip saying
+/// why in every view's words (`design::failure`), with Dismiss.
 pub(crate) fn pending(
     forge: &Forge,
     scope: &str,
+    cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
 ) -> Vec<AnyElement> {
@@ -473,18 +512,35 @@ pub(crate) fn pending(
         .pending_in(scope)
         .into_iter()
         .map(|op| {
-            let (tone, said) = match &op.progress {
-                Progress::Submitting => (Tone::Quiet, words::SUBMITTING.to_owned()),
-                Progress::Accepted => (Tone::Quiet, words::WAITING_FOR_BLOCK.to_owned()),
-                Progress::Refused(sentence) => (Tone::Danger, sentence.clone()),
+            let strip = |said: &str, tone| {
+                notice(
+                    id(format!("forge-pending-{}", op.id)),
+                    format!("{} · {said}", op.label),
+                    tone,
+                    ladder,
+                    theme,
+                )
             };
-            notice(
-                id(format!("forge-pending-{}", op.id)),
-                format!("{} · {said}", op.label),
-                tone,
-                ladder,
-                theme,
-            )
+            match &op.progress {
+                Progress::Submitting => strip(words::SUBMITTING, Tone::Quiet),
+                Progress::Accepted => strip(words::WAITING_FOR_BLOCK, Tone::Quiet),
+                Progress::Refused(answer) => {
+                    let at = op.id;
+                    let dismiss =
+                        cx.listener(move |forge, _: &ClickEvent, _, cx| forge.dismiss(at, cx));
+                    let said = design::failure(answer).unwrap_or_default();
+                    strip(&said, Tone::Danger)
+                        .role(Role::Alert)
+                        .aria_live(view::accesskit::Live::Assertive)
+                        .child(notice_action(
+                            id(format!("forge-pending-{}-dismiss", op.id)),
+                            "Dismiss",
+                            Tone::Danger,
+                            (ladder, theme),
+                            dismiss,
+                        ))
+                }
+            }
             .into_any_element()
         })
         .collect()
@@ -493,16 +549,11 @@ pub(crate) fn pending(
 /// Whether a write of the open change (a review among them) is on its
 /// way: a second built from what is on screen could land twice.
 pub(crate) fn sending(forge: &Forge) -> bool {
-    forge.review_key().is_some_and(|key| {
-        forge
-            .pending_in(&key)
-            .iter()
-            .any(|op| !matches!(op.progress, Progress::Refused(_)))
-    })
+    forge.review_key().is_some_and(|key| forge.busy(&key))
 }
 
-/// What every screen says over its body: the last refusal, and why the
-/// write controls are off while the key holds no account.
+/// What every screen says over its body: the last refusal of a read the
+/// view made on its own (the session, a followed link).
 pub(crate) fn notices(forge: &Forge, ladder: &Ladder, theme: &Theme) -> Vec<AnyElement> {
     let refusal = (!forge.notice.is_empty()).then(|| {
         notice(
@@ -516,22 +567,42 @@ pub(crate) fn notices(forge: &Forge, ladder: &Ladder, theme: &Theme) -> Vec<AnyE
         .aria_live(view::accesskit::Live::Assertive)
         .into_any_element()
     });
-    let seated = forge.session.connected && forge.me_principal().is_none();
-    let no_account = seated.then(|| {
-        notice(
-            id("forge-no-account"),
-            "To create repositories, push, open changes or review, create or join an account in \
-             Account. You can read every repository without an account.",
-            Tone::Warning,
-            ladder,
-            theme,
-        )
-        .into_any_element()
-    });
-    refusal.into_iter().chain(no_account).collect()
+    refusal.into_iter().collect()
 }
 
 // ------------------------------------------------------------------ controls
+
+/// A copy control: `text` to the clipboard, its glyph turning to a check
+/// once it is there (the Expo app says so in a toast the view has none
+/// of); off while there is nothing to copy (a link with no chain known).
+pub(crate) fn copy_button(
+    key: &'static str,
+    (glyph, name): (&'static str, &'static str),
+    text: Option<String>,
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    (ladder, theme): (&Ladder, &Theme),
+) -> impl IntoElement {
+    let copied = text.is_some() && forge.copied == text;
+    let glyph = if copied { "check" } else { glyph };
+    let enabled = text.is_some();
+    let press = cx.listener(move |forge, _: &ClickEvent, _, cx| {
+        let Some(text) = text.clone() else { return };
+        cx.host()
+            .notify::<view::methods::ClipboardWrite>(text.clone());
+        forge.copied = Some(text);
+        cx.notify();
+    });
+    design::icon_button(
+        id(key),
+        design::icon(glyph, ladder.icon),
+        name,
+        ladder,
+        theme,
+        press,
+    )
+    .enabled(enabled)
+}
 
 /// The kit's small outline button with its glyph (`Button.tsx` `small`
 /// with `icon`): `design::button(..).small()`'s face, 36 tall, 12 in, the
@@ -862,6 +933,15 @@ pub(crate) enum Tint {
     Agent,
 }
 
+/// A name's initial at the list's size (`Avatar.tsx`), in the agent tint
+/// for an agent.
+// SDK gap: the kit's `Avatar` `agent`; the SDK builds it later
+pub(crate) fn avatar(name: &str, agent: bool, ladder: &Ladder, theme: &Theme) -> Div {
+    design::avatar(name, ladder.avatar, theme).when(agent, |face| {
+        face.bg(theme.agent_soft).text_color(theme.agent)
+    })
+}
+
 /// A state word on the kit's 20 tall tag (`Badge.tsx`), in its tint.
 // SDK gap: the kit's `Badge` tints; the SDK builds them later
 pub(crate) fn badge(
@@ -913,18 +993,30 @@ fn state_dot(state: ChangeState, theme: &Theme) -> Div {
     div().size(DOT).rounded_full().bg(colour)
 }
 
+/// Where a change row is listed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Listed {
+    /// the root's, across every repository: a branch leads, its
+    /// repository is named first, in the reading face
+    Root,
+    /// its repository's Changes tab: its state dot leads, its comments
+    /// are counted, in the data face
+    Repo,
+}
+
 /// One change (`parts.tsx` `ChangeRow`): `<title> #n`, the caption
 /// `<source> → <target> · <author> · N comments`; listed by judgment,
-/// what it asks of me. On the root (`across`) it leads with a branch and
-/// names its repository first, not in the data face.
+/// what it asks of me. Where it is listed ([`Listed`]) sets its lead and
+/// its caption.
 pub(crate) fn change_row(
     summary: &ChangeSummary,
     judgment: Option<&Judgment>,
-    across: bool,
+    listed: Listed,
     forge: &Forge,
     ladder: &Ladder,
     theme: &Theme,
 ) -> Row {
+    let across = listed == Listed::Root;
     let author = forge.principal_name(&summary.author);
     let asks = judgment.into_iter().flat_map(|judgment| {
         let requested = judgment
@@ -951,9 +1043,9 @@ pub(crate) fn change_row(
         &format!(" #{}", summary.n),
         theme,
     ));
-    let lead = match across {
-        true => lead_icon("git-branch", ladder, theme),
-        false => state_dot(summary.state, theme).into_any_element(),
+    let lead = match listed {
+        Listed::Root => lead_icon("git-branch", ladder, theme),
+        Listed::Repo => state_dot(summary.state, theme).into_any_element(),
     };
     Row::new(
         id(format!("forge-change-{}-{}", summary.repo, summary.n)),
@@ -962,15 +1054,6 @@ pub(crate) fn change_row(
     .lead(lead)
     .caption(caption_line)
     .chevron()
-}
-
-/// A commit's first line (`parts.tsx` `summaryOf`).
-pub(crate) fn summary_of(commit: &CommitInfo) -> String {
-    String::from_utf8_lossy(&commit.message)
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .to_owned()
 }
 
 /// A git time as `3 Oct 2026, 4:00 AM` (`parts.tsx` `when`).
@@ -1051,7 +1134,7 @@ fn ref_sheet_controls(
         forge.menu_tags = index == 1;
         forge.menu_step(0, cx);
     });
-    let kinds = (menu != Menu::Head).then(|| {
+    let kinds = forge.menu_offers_tags(menu).then(|| {
         design::segmented(
             id(format!("{key}-kind")),
             words::BRANCHES_OR_TAGS,
@@ -1089,12 +1172,8 @@ fn ref_sheet_list(
     let names = Rc::new(forge.menu_list(menu));
     let count = names.len();
     let active = forge.menu_cursor.min(count.saturating_sub(1));
-    // the default head is saved as it is picked (`SettingsTab`)
     let pick = Rc::new(cx.processor(move |forge, name: Vec<u8>, window, cx| {
-        forge.menu_pick(menu, name, window, cx);
-        if menu == Menu::Head {
-            forge.configure(cx);
-        }
+        forge.menu_pick(menu, name, window, cx)
     }));
     let paint = ref_rows(
         menu,
@@ -1266,7 +1345,7 @@ fn people_rows(
             pick(forge, chosen.clone(), cx);
         });
         Row::titled(id(format!("{}-{number}", ask.key)), name.clone())
-            .lead(design::avatar(&name, ladder.avatar, theme))
+            .lead(avatar(&name, forge.is_agent(&person), ladder, theme))
             .caption(caption(format!("account {number}"), ladder, theme))
             .press(ladder, theme)
             .role(Role::Button)

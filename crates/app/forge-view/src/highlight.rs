@@ -125,21 +125,33 @@ fn lang(name: &str) -> Option<&'static Lang> {
 }
 
 /// The language a file's name says it is written in, as the phone's file
-/// bar names it (the Expo app's `highlight.ts` `languageOf`): the tables
-/// [`lang`] picks, by the same extensions; `None` for plain text.
+/// bar names it (the Expo app's `highlight.ts` `languageOf`): markdown,
+/// else named from the table [`lang`] picks; `None` for plain text.
 pub(crate) fn language_of(name: &str) -> Option<&'static str> {
     let lower = name.to_ascii_lowercase();
-    let ext = lower.rsplit('.').next().unwrap_or("");
-    Some(match ext {
-        "md" | "markdown" => "markdown",
-        "rs" | "rust" => "rust",
-        "ts" | "tsx" => "typescript",
-        "js" | "mjs" | "cjs" | "jsx" | "javascript" | "typescript" => "javascript",
-        "sh" | "bash" | "zsh" | "shell" => "shell",
-        "toml" => "toml",
-        "yaml" | "yml" => "yaml",
-        "json" => "json",
-        _ => return None,
+    if lower.ends_with(".md") || lower.ends_with(".markdown") {
+        return Some("markdown");
+    }
+    let table = lang(name)?;
+    let is = |other: &Lang| std::ptr::eq(table, other);
+    Some(if is(&RUST) {
+        "rust"
+    } else if is(&JS) {
+        if lower.ends_with(".ts") || lower.ends_with(".tsx") {
+            "typescript"
+        } else {
+            "javascript"
+        }
+    } else if is(&SHELL) {
+        "shell"
+    } else if is(&CONFIG) {
+        if lower.ends_with(".toml") {
+            "toml"
+        } else {
+            "yaml"
+        }
+    } else {
+        "json"
     })
 }
 

@@ -3,9 +3,16 @@
 //! app's forge, whose screens say the same words) read them from here, so
 //! the two never word one thing two ways. A word only one design says
 //! stays in that design's file; a one-word label (a tab, a field, a verb on
-//! a button) stays where it is drawn.
-use forge::{ChangeState, Comparison, Content, FileDiff, FileStatus, Mergeability, Verdict};
+//! a button) stays where it is drawn. A form's problem (a bad repository
+//! name, a change with no title) is the model's: it lives in `actions.rs`,
+//! where the form is checked, and both designs show it as it is.
+use forge::{
+    ChangeState, Comparison, Content, DiffHunk, FileDiff, FileStatus, Mergeability, Verdict,
+};
 use view::design;
+
+use crate::select::path_of;
+use crate::state::ReviewRefusal;
 
 // ---------------------------------------------------------------- names
 
@@ -33,6 +40,24 @@ pub(crate) fn bytes(size: u64) -> String {
     format!("{size} bytes")
 }
 
+/// A change's source and target by their short names: `feature → main`.
+pub(crate) fn endpoints(from: &[u8], into: &[u8]) -> String {
+    format!("{} → {}", ref_label(from), ref_label(into))
+}
+
+/// `# forge:project:1`: a chat room by its id.
+pub(crate) fn channel(id: &str) -> String {
+    format!("# {id}")
+}
+
+/// What object format a repository hashes with: `sha1`, `sha256`.
+pub(crate) fn hash_kind(hash: abi::HashKind) -> &'static str {
+    match hash {
+        abi::HashKind::Sha1 => "sha1",
+        abi::HashKind::Sha256 => "sha256",
+    }
+}
+
 // ---------------------------------------------------------------- reading
 
 pub(crate) const READING: &str = "Reading…";
@@ -54,9 +79,27 @@ pub(crate) const COMPARING_ENDPOINTS: &str = "Comparing the endpoints…";
 pub(crate) const COMPARING: &str = "comparing…";
 
 /// What a write on its way says (Expo `src/write/words.ts` `PROGRESS`);
-/// a refused one says the program's sentence, which each design frames.
+/// one that did not land is the host's answer, which each design words.
 pub(crate) const SUBMITTING: &str = "Submitting…";
 pub(crate) const WAITING_FOR_BLOCK: &str = "Waiting for the next block…";
+/// A reply in a change's room, while it is on its way (Expo
+/// `write/optimistic.ts` `reply`).
+pub(crate) const REPLYING: &str = "Replying…";
+
+/// A write that did not land, as the desktop says it after "Refused:":
+/// the program's or the host's sentence, or, in doubt, that it may have
+/// gone through.
+pub(crate) fn refused(answer: &crate::state::Answer) -> String {
+    match answer {
+        Ok(view::methods::Submitted::InDoubt { .. }) => {
+            "No answer came back: it may have gone through.".into()
+        }
+        Ok(view::methods::Submitted::Refused { refusal, .. }) | Err(refusal) => {
+            refusal.message.clone()
+        }
+        Ok(view::methods::Submitted::Applied { .. }) => String::new(),
+    }
+}
 
 // ---------------------------------------------------------------- repositories
 
@@ -66,6 +109,15 @@ pub(crate) const NOTHING_MATCHES: &str = "Nothing matches";
 pub(crate) const NO_REPOSITORY_MATCHES: &str = "No repository here reads like that.";
 pub(crate) const FILTER_BY_NAME: &str = "Filter by name";
 pub(crate) const NEW_REPOSITORY: &str = "New repository";
+
+/// What a repository is, under its name on the phone's root and its page:
+/// `owner Ada · 3 refs · active block 1024`, the height as it is.
+pub(crate) fn repo_facts(owner: &str, refs: u64, active: u64) -> String {
+    format!(
+        "owner {owner} · {} · active block {active}",
+        design::plural(refs, "ref", "refs")
+    )
+}
 pub(crate) const REPOSITORY_NAME: &str = "Repository name";
 /// What a repository's name may hold, under its field.
 pub(crate) const NAME_RULE: &str = "letters, digits, dot, dash, underscore";
@@ -96,6 +148,12 @@ pub(crate) const NO_FILE_KEPT: &str = "This tree holds no file the filter keeps.
 pub(crate) const BINARY_FILE: &str = "Binary file";
 pub(crate) const TOO_LARGE_TO_SHOW: &str = "Too large to show";
 pub(crate) const SUBMODULE_POINTS_AWAY: &str = "This entry points at another repository.";
+
+/// A path a link named that the browsed ref does not hold.
+pub(crate) fn no_path(path: &[u8]) -> String {
+    format!("No {} on this ref.", path_text(path))
+}
+pub(crate) const NOT_ON_THIS_REF: &str = "The Code tab has this ref's files.";
 
 /// A binary blob's body: its size, and that it is not text.
 pub(crate) fn not_text(size: u64) -> String {
@@ -190,9 +248,13 @@ pub(crate) fn change_state(state: ChangeState) -> &'static str {
 // The change form
 pub(crate) const NEW_CHANGE: &str = "New change";
 
-/// A comment review with no body and no line comment, refused before it
-/// is sent (the phone says Expo's own words for it).
-pub(crate) const EMPTY_COMMENT_REVIEW: &str = "A comment review needs a body or a line comment";
+/// Why a review was refused before it was sent, as the desktop says it
+/// (the phone says Expo's own words, `ui::phone::review`).
+pub(crate) fn review_refusal(refusal: ReviewRefusal) -> &'static str {
+    match refusal {
+        ReviewRefusal::EmptyComment => "A comment review needs a body or a line comment",
+    }
+}
 pub(crate) const TITLE_PROMPT: &str = "What this change does";
 pub(crate) const BODY_PROMPT: &str = "Why it changes";
 
@@ -258,6 +320,11 @@ pub(crate) fn pending_at(path: &[u8], line: u64) -> String {
     format!("{}:{line} · pending", path_text(path))
 }
 
+/// A line comment quoted under its review: `src/lib.rs:3 — trim first`.
+pub(crate) fn line_comment(path: &[u8], line: u64, body: &str) -> String {
+    format!("{}:{line} — {body}", path_text(path))
+}
+
 // Files and the diff
 pub(crate) const ALL_FILES: &str = "All files";
 pub(crate) const TICK_A_FILE: &str = "Tick a file once you have read it.";
@@ -269,6 +336,23 @@ pub(crate) fn files_changed(files: u64, added: u64, deleted: u64) -> String {
     format!(
         "{} · +{added} −{deleted}",
         design::plural(files, "file", "files")
+    )
+}
+
+/// A diff file's path, `old → new` once renamed (Expo `diff.ts` `paint`'s
+/// `header`).
+pub(crate) fn file_path(file: &FileDiff) -> String {
+    match (&file.old_path, &file.new_path) {
+        (Some(old), Some(new)) if old != new => format!("{} → {}", path_text(old), path_text(new)),
+        _ => path_text(&path_of(file).unwrap_or_default()),
+    }
+}
+
+/// A hunk's head: `@@ -1,4 +1,3 @@`.
+pub(crate) fn hunk(hunk: &DiffHunk) -> String {
+    format!(
+        "@@ -{},{} +{},{} @@",
+        hunk.old.start, hunk.old.count, hunk.new.start, hunk.new.count
     )
 }
 

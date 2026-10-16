@@ -192,11 +192,20 @@ pub(crate) struct Nav {
     /// a file a link named, opened once its folder's tree lands
     #[serde(skip)]
     pub goto: Option<Vec<u8>>,
+    /// a path a link named that the browsed ref does not hold: the
+    /// phone's Code tab says so on a page of its own (Expo
+    /// `code/[...path].tsx`), the desktop in its notice
+    #[serde(skip)]
+    pub missing: Option<Vec<u8>>,
     pub commit: Option<String>,
     pub change: Option<u64>,
     pub change_tab: ChangeTab,
     /// single-file mode in the change's diff
     pub diff_path: Option<Vec<u8>>,
+    /// the phone's All files page: every file of the change's diff on
+    /// one page (Expo `diff.tsx` without a path); the desktop's Files tab
+    /// shows them all in place
+    pub all_files: bool,
     pub dock: Option<Dock>,
 }
 
@@ -220,7 +229,9 @@ impl Nav {
         if self.change.is_some() {
             pages.push(Page::Change);
             match self.change_tab {
-                ChangeTab::Files if self.diff_path.is_some() => pages.push(Page::File),
+                ChangeTab::Files if self.diff_path.is_some() || self.all_files => {
+                    pages.push(Page::File)
+                }
                 ChangeTab::Commits if self.commit.is_some() => pages.push(Page::Commit),
                 _ => {}
             }
@@ -233,6 +244,8 @@ impl Nav {
                 }
                 if self.blob.is_some() {
                     pages.push(Page::Blob);
+                } else if self.missing.is_some() {
+                    pages.push(Page::Missing);
                 }
             }
             RepoTab::Commits if self.commit.is_some() => pages.push(Page::Commit),
@@ -254,7 +267,8 @@ pub(crate) enum Page {
     Repos,
     Repo,
     Change,
-    /// one file of a change's diff, shown alone
+    /// one file of a change's diff, shown alone, or all of them (the
+    /// phone's All files)
     File,
     /// one commit of a repository's or a change's log
     Commit,
@@ -262,6 +276,8 @@ pub(crate) enum Page {
     Folder,
     /// one file of the Code tab
     Blob,
+    /// a path a link named that the ref does not hold
+    Missing,
 }
 
 /// What lies over the phone's page, read from the model each frame
@@ -273,8 +289,6 @@ pub(crate) enum Overlay {
     Menu(Menu),
     /// a sheet a page opened (`sheet`)
     Sheet(Sheet),
-    /// a repository's About (its dock)
-    About,
     /// the New repository form
     NewRepository,
     /// Finish your review
@@ -284,6 +298,8 @@ pub(crate) enum Overlay {
 /// A sheet a phone page opens over itself; Back closes it first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Sheet {
+    /// a repository's About (the desktop docks it, `Nav::dock`)
+    About,
     /// what an open change offers its author and writers: Edit, Close
     ChangeActions,
     /// a member to grant write access to (the Settings tab)
@@ -457,7 +473,16 @@ pub(crate) struct ReviewSession {
     #[serde(skip)]
     pub verdict: Option<Verdict>,
     pub finishing: bool,
-    pub error: String,
+    /// why finishing it was refused before it was sent; each design words
+    /// it
+    pub refused: Option<ReviewRefusal>,
+}
+
+/// Why a review was refused before it was sent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum ReviewRefusal {
+    /// a comment review with no body and no line comment
+    EmptyComment,
 }
 
 impl ReviewSession {
@@ -580,9 +605,14 @@ pub(crate) enum Progress {
     Submitting,
     /// accepted by the node, waiting for the block that carries it
     Accepted,
-    /// refused, with the program's sentence
-    Refused(String),
+    /// it did not land: the host's answer (refused, in doubt, or never
+    /// sent), which each design words (`ui::pending`, the phone's
+    /// `design::failure`)
+    Refused(Answer),
 }
+
+/// What the host answered a write.
+pub(crate) type Answer = Result<view::methods::Submitted, view::host::Error>;
 
 #[derive(Serialize, Deserialize)]
 #[serde(default)]

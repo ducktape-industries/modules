@@ -163,7 +163,6 @@ fn no_account(theme: &Theme) -> AnyElement {
 /// then the ref picker and the tabs on one bar.
 fn repo(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let name = forge.repo_name();
-    let head = forge.head_name();
     let mut tabs = div()
         .id(id("forge-tabs"))
         .h(TAB_BAR_H)
@@ -225,7 +224,7 @@ fn repo(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) 
         RepoTab::Code => code::render(forge, cx, theme, ladder),
         RepoTab::Commits => commits::render(forge, cx, theme, ladder),
         RepoTab::Changes => changes::render(forge, cx, theme, ladder),
-        RepoTab::Refs => refs::render(forge, cx, theme, ladder, &head),
+        RepoTab::Refs => refs::render(forge, cx, theme, ladder),
         RepoTab::Settings => settings::render(forge, cx, theme, ladder),
     };
     div()
@@ -459,14 +458,7 @@ fn about(forge: &Forge, theme: &Theme) -> AnyElement {
             components::ref_label(&info.repo.settings.head),
             theme,
         ))
-        .child(fact(
-            "Hash",
-            match info.repo.hash {
-                abi::HashKind::Sha1 => "sha1",
-                abi::HashKind::Sha256 => "sha256",
-            },
-            theme,
-        ))
+        .child(fact("Hash", words::hash_kind(info.repo.hash), theme))
         .child(fact("Owner", forge.principal_name(&info.repo.owner), theme))
         .child(fact(words::PAGE_SIZE, bounds.page_size.to_string(), theme))
         .child(fact(
@@ -516,7 +508,10 @@ pub(crate) fn pending(forge: &Forge, scope: &str, theme: &Theme) -> AnyElement {
         let (tone, status) = match &op.progress {
             Progress::Submitting => (theme.surface_raised, words::SUBMITTING.to_owned()),
             Progress::Accepted => (theme.surface_raised, words::WAITING_FOR_BLOCK.to_owned()),
-            Progress::Refused(sentence) => (theme.danger_soft, format!("Refused: {sentence}")),
+            Progress::Refused(answer) => (
+                theme.danger_soft,
+                format!("Refused: {}", words::refused(answer)),
+            ),
         };
         column = column.child(
             div()

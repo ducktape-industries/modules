@@ -82,6 +82,7 @@ fn page(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
         Page::Commit => commit::render(forge, nav, cx, ladder, theme),
         Page::Folder => code::folder(forge, nav, cx, ladder, theme),
         Page::Blob => code::render(forge, nav, cx, ladder, theme),
+        Page::Missing => code::missing(forge, nav, cx, ladder, theme),
     }
 }
 
@@ -114,45 +115,13 @@ fn sheet(
             };
             parts::ref_sheet(menu, title, forge, cx, ladder, theme)
         }
+        Overlay::Sheet(Sheet::About) => repo::about_sheet(forge, cx, ladder, theme),
         Overlay::Sheet(Sheet::ChangeActions) => change::actions_sheet(forge, cx, ladder, theme),
-        Overlay::Sheet(Sheet::Grant) => grant_sheet(forge, cx, ladder, theme),
+        Overlay::Sheet(Sheet::Grant) => tabs::grant_sheet(forge, cx, ladder, theme),
         Overlay::Sheet(Sheet::Reviewers) => new_change::reviewers_sheet(forge, cx, ladder, theme),
-        Overlay::About => repo::about_sheet(forge, cx, ladder, theme),
         Overlay::NewRepository => {
             repos::new_repository(forge.new_repo.as_ref()?, cx, ladder, theme)
         }
         Overlay::FinishReview => review::render(forge, forge.review()?, cx, ladder, theme),
     })
-}
-
-/// A member to grant write access to (`SettingsTab`'s `PeopleSheet`):
-/// everyone but the owner and those who already write.
-fn grant_sheet(
-    forge: &Forge,
-    cx: &mut Context<Forge>,
-    ladder: &Ladder,
-    theme: &Theme,
-) -> AnyElement {
-    let skip: Vec<forge::Principal> = forge
-        .repo()
-        .map(|(info, _, writers)| {
-            std::iter::once(info.repo.owner.clone())
-                .chain(writers.items.iter().cloned())
-                .collect()
-        })
-        .unwrap_or_default();
-    let ask = parts::PeopleAsk {
-        key: "forge-grant-sheet",
-        title: words::GRANT_WRITE_ACCESS,
-        caption: Some(words::PICK_A_WRITER),
-        skip: &skip,
-    };
-    let grant = |forge: &mut Forge, person: forge::Principal, cx: &mut Context<Forge>| {
-        if let Some(form) = &mut forge.repo_settings {
-            form.grant
-                .reset(person.account().unwrap_or_default().to_string());
-        }
-        forge.grant(cx);
-    };
-    parts::people_sheet(ask, grant, forge, cx, ladder, theme)
 }

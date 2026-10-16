@@ -13,7 +13,7 @@ use view::{Div, Stateful};
 use super::parts::{self, Row};
 use crate::id;
 use crate::queries::PAGE;
-use crate::state::NewRepo;
+use crate::state::{Filter, NewRepo};
 use crate::words;
 use crate::{Forge, Stage};
 use forge::{Judgment, Query, Reply, RepoInfo};
@@ -44,7 +44,7 @@ pub(super) fn render(
         .flex()
         .flex_col()
         .child(filter(forge, ladder, theme))
-        .children(parts::pending(forge, "repos", ladder, theme))
+        .children(parts::pending(forge, "repos", cx, ladder, theme))
         .children(judgment(forge, cx, ladder, theme))
         .children(repositories(forge, cx, ladder, theme));
     page.children(parts::notices(forge, ladder, theme))
@@ -108,7 +108,7 @@ fn judgment(
     }
     let head = design::section_head(
         id("forge-judgment-head"),
-        "Needs my judgment",
+        Filter::Judgment.label(),
         ladder,
         theme,
     )
@@ -134,7 +134,14 @@ fn judgment_list(
         .iter()
         .zip(&routes)
         .map(|(item, route)| {
-            let row = parts::change_row(&item.change, Some(item), true, forge, ladder, theme);
+            let row = parts::change_row(
+                &item.change,
+                Some(item),
+                parts::Listed::Root,
+                forge,
+                ladder,
+                theme,
+            );
             let route = route.clone();
             let open: parts::Press = Box::new(
                 cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_route(&route, cx)),
@@ -144,7 +151,7 @@ fn judgment_list(
         .collect();
     parts::rows_list(
         "forge-judgment-list",
-        "Needs my judgment",
+        Filter::Judgment.label(),
         rows,
         move |forge, index, _, cx| forge.open_route(&routes[index], cx),
         forge,
@@ -243,11 +250,10 @@ fn repo_list(
 /// A repository (`RepoRow`): its name, `owner <name> · N refs · active
 /// block <height>`, the height as it is, not grouped.
 fn repo_row(info: &RepoInfo, forge: &Forge, ladder: &Ladder, theme: &Theme) -> Row {
-    let owner = forge.principal_name(&info.repo.owner);
-    let facts = format!(
-        "owner {owner} · {} · active block {}",
-        design::plural(info.repo.refs_count, "ref", "refs"),
-        info.repo.last_activity
+    let facts = words::repo_facts(
+        &forge.principal_name(&info.repo.owner),
+        info.repo.refs_count,
+        info.repo.last_activity,
     );
     Row::titled(id(format!("forge-repo-{}", info.name)), info.name.clone())
         .lead(parts::lead_icon("folder", ladder, theme))

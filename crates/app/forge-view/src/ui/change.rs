@@ -11,7 +11,7 @@ use crate::Forge;
 use crate::select::{path_of, revision_name};
 use crate::state::{ChangeTab, verdict_label};
 use crate::ui::changes::state_chip;
-use crate::ui::components::{badge, button, heading, id, path_text, quiet, ref_label, short_hex};
+use crate::ui::components::{badge, button, heading, id, path_text, quiet, short_hex};
 use crate::ui::{PAGE_X, TAB_BAR_H, commits, diff, dock, pending, staged};
 use crate::words;
 use forge::{Change, ChangeState, FileDiff, Query, Reply, Verdict};
@@ -108,9 +108,8 @@ fn header(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder
     let back = cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_change(None, cx));
     let author = forge.principal_name(&change.author);
     let mut meta = format!(
-        "{author} wants {} → {}",
-        ref_label(&revision_name(&change.from)),
-        ref_label(&change.into)
+        "{author} wants {}",
+        words::endpoints(&revision_name(&change.from), &change.into)
     );
     if let Some(head) = source {
         meta = format!("{meta} · head {}", short_hex(head));
@@ -287,7 +286,7 @@ fn tabs(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) 
         bar = bar.child(crate::ui::components::tab(
             id(format!("forge-change-tab-{}", tab.slug())),
             tab.label(),
-            tab_count(forge, tab),
+            forge.change_tab_count(tab),
             forge.nav().change_tab == tab,
             active == tab,
             theme,
@@ -296,27 +295,6 @@ fn tabs(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) 
         ));
     }
     bar
-}
-
-/// What a change tab holds, where the view has read it: the lines of the
-/// conversation, the commits the target lacks, the files the diff touches.
-fn tab_count(forge: &Forge, tab: ChangeTab) -> Option<u64> {
-    match tab {
-        ChangeTab::Conversation => {
-            let (change, _, _, _) = forge.change()?;
-            match forge.messages.get(&change.channel)? {
-                view::Loadable::Ready(rows) | view::Loadable::Reloading(rows, _) => {
-                    Some(rows.len() as u64)
-                }
-                _ => None,
-            }
-        }
-        ChangeTab::Commits => forge.compare().map(|comparison| comparison.ahead),
-        ChangeTab::Files => match forge.ready(&forge.diff_query()?)? {
-            Reply::Diff { total_files, .. } => Some(*total_files),
-            _ => None,
-        },
-    }
 }
 
 // ------------------------------------------------------------------ files
@@ -391,9 +369,7 @@ fn file_tree(
     else {
         return column.into_any_element();
     };
-    let (added, deleted) = page.items.iter().fold((0, 0), |(a, d), file| {
-        (a + file.additions, d + file.deletions)
-    });
+    let (added, deleted) = crate::select::totals(&page.items);
     let all = cx.listener(|forge, _: &ClickEvent, _, cx| forge.single_file(None, cx));
     let header = div()
         .id(id("forge-file-tree-header"))
@@ -778,7 +754,7 @@ fn review_bar(
         )
         .child(finish);
     let mut column = div().flex().flex_col().child(bar);
-    if !review.error.is_empty() {
+    if let Some(refused) = review.refused {
         column = column.child(
             div()
                 .id(id("forge-review-error"))
@@ -786,7 +762,7 @@ fn review_bar(
                 .py(design::space::XS)
                 .text_size(design::text::SECONDARY)
                 .text_color(theme.danger)
-                .child(review.error.clone()),
+                .child(words::review_refusal(refused)),
         );
     }
     column.into_any_element()

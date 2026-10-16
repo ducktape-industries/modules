@@ -5,6 +5,7 @@ use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
 use crate::Forge;
+use crate::select::Standings;
 use crate::ui::components::{badge, id, path_text, quiet, short_hex};
 use crate::words;
 use forge::{Mergeability, Verdict};
@@ -43,7 +44,7 @@ pub(crate) fn sidebar(
             section("forge-channel", "Channel", None, theme).child(
                 div()
                     .id(id("forge-channel-name"))
-                    .child(format!("# {}", change.channel)),
+                    .child(words::channel(&change.channel)),
             ),
         )
 }
@@ -93,21 +94,13 @@ fn reviews(forge: &Forge, theme: &Theme, ladder: &Ladder) -> Stateful<Div> {
         Some(words::ADVISORY.into()),
         theme,
     );
-    let Some((change, _, _, reviews)) = forge.change() else {
+    let Some(Standings {
+        answered: latest,
+        asked: waiting,
+    }) = forge.standings()
+    else {
         return section;
     };
-    let mut latest: Vec<(&forge::Principal, Verdict)> = Vec::new();
-    for review in &reviews.items {
-        match latest.iter_mut().find(|(who, _)| **who == review.author) {
-            Some(held) => held.1 = review.draft.verdict,
-            None => latest.push((&review.author, review.draft.verdict)),
-        }
-    }
-    let waiting: Vec<&forge::Principal> = change
-        .reviewers
-        .iter()
-        .filter(|asked| !latest.iter().any(|(who, _)| who == asked))
-        .collect();
     if latest.is_empty() && waiting.is_empty() {
         return section.child(quiet(words::NOBODY_REVIEWED, theme));
     }

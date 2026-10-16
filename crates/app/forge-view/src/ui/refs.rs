@@ -11,7 +11,7 @@ use crate::ui::components::{
 use crate::ui::diff::Route;
 use crate::ui::{pending, staged};
 use crate::words;
-use forge::{Query, RefInfo, Reply, Revision};
+use forge::{RefInfo, Reply};
 use view::design::Ladder;
 
 pub(crate) fn render(
@@ -19,7 +19,6 @@ pub(crate) fn render(
     cx: &mut Context<Forge>,
     theme: &Theme,
     ladder: &Ladder,
-    head: &[u8],
 ) -> AnyElement {
     let ladder = *ladder;
     let mut column = div()
@@ -79,7 +78,7 @@ pub(crate) fn render(
         may_write: forge.may_write(),
         walked: crate::ui::components::walked(forge, "forge-refs-list"),
         active: (at, cell),
-        standings: standings(forge, &names, head),
+        standings: names.iter().map(|name| forge.standing(name)).collect(),
     };
     let list = crate::ui::components::grid(
         "forge-refs-list",
@@ -102,7 +101,7 @@ pub(crate) fn render(
         forge.start_change(name.clone(), window, cx)
     }));
     // what the settings forbid closes the list, after its last ref
-    let forbidden = forbidden(forge);
+    let forbidden = forge.forbids();
     let theme = *theme;
     let rows = crate::ui::components::rows(
         "forge-refs-rows",
@@ -218,42 +217,4 @@ fn ref_row(
         .pb_1()
         .child(line)
         .into_any_element()
-}
-
-/// What this repository's settings forbid, if anything.
-fn forbidden(forge: &Forge) -> Option<String> {
-    let allow = forge
-        .repo()
-        .map(|(info, _, _)| {
-            (
-                info.repo.settings.allow_force,
-                info.repo.settings.allow_delete,
-            )
-        })
-        .unwrap_or((false, false));
-    words::forbids(allow.0, allow.1)
-}
-
-fn standings(forge: &Forge, names: &[Vec<u8>], head: &[u8]) -> Vec<Option<String>> {
-    names
-        .iter()
-        .map(|name| {
-            if name == head {
-                return Some(words::BROWSING.to_owned());
-            }
-            let branch = name.starts_with(b"refs/heads/");
-            if !branch {
-                return None;
-            }
-            let query = Query::Compare {
-                repo: forge.repo_name(),
-                from: Revision::Ref(name.clone()),
-                into: Revision::Ref(head.to_vec()),
-            };
-            Some(match forge.ready(&query) {
-                Some(Reply::Compare { comparison, .. }) => words::compared(comparison),
-                _ => words::COMPARING.to_owned(),
-            })
-        })
-        .collect()
 }

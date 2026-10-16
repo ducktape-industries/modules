@@ -71,7 +71,8 @@ impl Forge {
             self.block = self.block.max(change.height);
         }
         let pending = self.pending.len();
-        self.pending.retain(|op| op.progress != Progress::Accepted);
+        self.pending
+            .retain(|op| !matches!(op.progress, Progress::Accepted));
         if self.pending.len() != pending {
             cx.notify();
         }
@@ -273,8 +274,10 @@ impl Forge {
         wanted.push(Query::Activity { repo: repo.clone() });
         // the tab bar says how many changes are open, whichever tab shows
         wanted.extend(self.open_changes_query());
-        // a new change's form says how its endpoints compare
-        wanted.extend(self.form_compare_query());
+        // the phone's new change form says how its endpoints compare
+        if self.touch {
+            wanted.extend(self.form_compare_query());
+        }
         match self.nav.change {
             Some(n) => wanted.extend(self.change_reads(&repo, n)),
             None => wanted.extend(self.tab_reads(repo)),

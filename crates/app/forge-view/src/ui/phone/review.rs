@@ -13,7 +13,7 @@ use view::{Div, Stateful};
 use super::parts::{self, Row};
 use crate::Forge;
 use crate::id;
-use crate::state::{ReviewSession, verdict_label};
+use crate::state::{ReviewRefusal, ReviewSession, verdict_label};
 use crate::words::{self, VERDICTS};
 use forge::Verdict;
 use view::design::short_hex;
@@ -63,13 +63,12 @@ pub(super) fn render(
     .into_any_element()
 }
 
-/// Why finishing the review was refused, in Expo's words: its one
-/// refusal, an empty comment review, says "Say something, or discard."
-/// (`review.tsx:46`); any other as the model says it.
-pub(super) fn refusal(review: &ReviewSession) -> &str {
-    match review.error.as_str() {
-        words::EMPTY_COMMENT_REVIEW => "Say something, or discard.",
-        said => said,
+/// Why finishing the review was refused, in Expo's words
+/// (`review.tsx:46`); empty while it was not.
+pub(super) fn refusal(review: &ReviewSession) -> &'static str {
+    match review.refused {
+        Some(ReviewRefusal::EmptyComment) => "Say something, or discard.",
+        None => "",
     }
 }
 

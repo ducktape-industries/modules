@@ -53,21 +53,22 @@ pub(super) fn render(
         theme,
     )
     .caption(form.repo.clone())
-    .trailing(send(verb, ready(forge, form), cx, ladder, theme))
+    .trailing(send(verb, ready(forge, form, &scope), cx, ladder, theme))
     .children(parts::notices(forge, ladder, theme))
-    .children(parts::pending(forge, &scope, ladder, theme))
+    .children(parts::pending(forge, &scope, cx, ladder, theme))
     .child(body)
     .into_any_element()
 }
 
-/// Open or Save is pressable: no write of this change is on its way, and
+/// Open or Save is pressable: no write of this form's is on its way, and
 /// a new change has its source.
-fn ready(forge: &Forge, form: &ChangeForm) -> bool {
-    !parts::sending(forge) && (form.edit.is_some() || !form.from.is_empty())
+fn ready(forge: &Forge, form: &ChangeForm, scope: &str) -> bool {
+    !forge.busy(scope) && (form.edit.is_some() || !form.from.is_empty())
 }
 
 /// Open or Save in the title row (`HitText`): medium, a finger's height,
 /// faint while it is not `ready`.
+// SDK gap: the kit's `HitText`; the SDK builds it later
 fn send(
     verb: &'static str,
     ready: bool,

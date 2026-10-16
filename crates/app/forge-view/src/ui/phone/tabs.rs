@@ -21,7 +21,7 @@ use crate::list;
 use crate::state::{Filter, Menu, RepoTab, Sheet};
 use crate::tree::{self, Slot};
 use crate::words::{self, ref_label};
-use forge::{BlobView, ChangeSummary, CommitInfo, Content, Judgment, Query, Reply, Revision};
+use forge::{BlobView, ChangeSummary, CommitInfo, Content, Judgment, Query, Reply};
 
 /// The open tab's body.
 pub(super) fn render(
@@ -472,7 +472,7 @@ fn log_rows(
                         parts::option(row, walked && index == at).into_any_element()
                     }
                     None => parts::quiet(id(more.clone()), words::READING_HISTORY, &ladder, &theme)
-                        .min_h(px(design::height::touch::ROW_TALL as f32))
+                        .min_h(ladder.row_tall)
                         .into_any_element(),
                 })
                 .collect()
@@ -533,7 +533,7 @@ fn changes(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
                 )
                 .child(new_change),
         )
-        .children(parts::pending(forge, "changes", ladder, theme));
+        .children(parts::pending(forge, "changes", cx, ladder, theme));
     let repo = forge.repo_name();
     // a filter about "me" asks nothing while the reader holds no account
     let Some(query) = forge.changes_query(&repo) else {
@@ -644,7 +644,14 @@ fn change_list(
                 cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_change(Some(n), cx)),
             );
             (
-                parts::change_row(summary, *judgment, false, forge, ladder, theme),
+                parts::change_row(
+                    summary,
+                    *judgment,
+                    parts::Listed::Repo,
+                    forge,
+                    ladder,
+                    theme,
+                ),
                 open,
             )
         })
@@ -699,8 +706,8 @@ fn refs(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
             theme,
             pick,
         ))
-        .children(parts::pending(forge, "changes", ladder, theme))
-        .children(forbidden(forge).map(|said| {
+        .children(parts::pending(forge, "changes", cx, ladder, theme))
+        .children(forge.forbids().map(|said| {
             parts::quiet(id("forge-refs-forbidden"), said, ladder, theme).into_any_element()
         }));
     if let Err(state) = parts::stage(
@@ -737,13 +744,6 @@ fn refs(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
         .collect();
     page.child(ref_list(forge, names, cx, ladder, theme))
         .into_any_element()
-}
-
-/// What this repository's settings forbid, if anything.
-fn forbidden(forge: &Forge) -> Option<String> {
-    let (info, _, _) = forge.repo()?;
-    let settings = &info.repo.settings;
-    words::forbids(settings.allow_force, settings.allow_delete)
 }
 
 fn ref_list(
@@ -797,7 +797,7 @@ impl RefLine {
             .map(|info| design::short_hex(&info.target));
         let facts = target
             .into_iter()
-            .chain(standing(forge, name))
+            .chain(forge.standing(name))
             .collect::<Vec<_>>()
             .join(" · ");
         RefLine {
@@ -866,27 +866,6 @@ fn ref_row(
     parts::option(row, active).into_any_element()
 }
 
-/// How a branch stands against the browsed ref: `browsing` for that ref
-/// itself, else `N ahead · M behind · <word>` once compared.
-fn standing(forge: &Forge, name: &[u8]) -> Option<String> {
-    let head = forge.head_name();
-    if name == head {
-        return Some(words::BROWSING.to_owned());
-    }
-    if !name.starts_with(b"refs/heads/") {
-        return None;
-    }
-    let query = Query::Compare {
-        repo: forge.repo_name(),
-        from: Revision::Ref(name.to_vec()),
-        into: Revision::Ref(head),
-    };
-    Some(match forge.ready(&query) {
-        Some(Reply::Compare { comparison, .. }) => words::compared(comparison),
-        _ => words::COMPARING.to_owned(),
-    })
-}
-
 // ------------------------------------------------------------------ Settings
 
 /// The repository's settings and writers (`SettingsTab`): what a switch
@@ -894,7 +873,7 @@ fn standing(forge: &Forge, name: &[u8]) -> Option<String> {
 fn settings(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> AnyElement {
     let page = body("forge-settings")
         .overflow_y_scroll()
-        .children(parts::pending(forge, "settings", ladder, theme));
+        .children(parts::pending(forge, "settings", cx, ladder, theme));
     let reply = parts::stage(
         forge,
         &forge.repo_query(),
@@ -961,7 +940,7 @@ fn default_head(
         row = row.chevron();
     }
     let row = row.draw(ladder, theme);
-    match owner && forge.pending_in("settings").is_empty() {
+    match owner && !forge.busy("settings") {
         true => design::pressed(row, ladder)
             .role(Role::Button)
             .focusable()
@@ -973,7 +952,8 @@ fn default_head(
     }
 }
 
-/// The force and delete switches: a flip saves at once.
+/// The force and delete switches: a flip saves at once, the settings on
+/// screen with the one flipped.
 fn switches(
     forge: &Forge,
     settings: &forge::Settings,
@@ -982,18 +962,13 @@ fn switches(
     ladder: &Ladder,
     theme: &Theme,
 ) -> [AnyElement; 2] {
-    let may = owner && forge.pending_in("settings").is_empty();
-    let force = cx.listener(|forge, _: &ClickEvent, _, cx| {
-        if let Some(form) = &mut forge.repo_settings {
-            form.allow_force = !form.allow_force;
-        }
-        forge.configure(cx);
+    let may = owner && !forge.busy("settings");
+    let (force, delete) = (!settings.allow_force, !settings.allow_delete);
+    let force = cx.listener(move |forge, _: &ClickEvent, _, cx| {
+        forge.configure_with(|settings| settings.allow_force = force, cx)
     });
-    let delete = cx.listener(|forge, _: &ClickEvent, _, cx| {
-        if let Some(form) = &mut forge.repo_settings {
-            form.allow_delete = !form.allow_delete;
-        }
-        forge.configure(cx);
+    let delete = cx.listener(move |forge, _: &ClickEvent, _, cx| {
+        forge.configure_with(|settings| settings.allow_delete = delete, cx)
     });
     let flag =
         |key: &str, title: &'static str, said: &'static str, on: bool, flip: parts::Press| {
@@ -1039,7 +1014,7 @@ fn writer_rows(
     ladder: &Ladder,
     theme: &Theme,
 ) -> Vec<AnyElement> {
-    let busy = !forge.pending_in("settings").is_empty();
+    let busy = forge.busy("settings");
     let mut rows: Vec<AnyElement> = writers
         .iter()
         .map(|writer| {
@@ -1088,4 +1063,29 @@ fn writer_rows(
         rows.push(row.into_any_element());
     }
     rows
+}
+
+/// A member to grant write access to (`SettingsTab`'s `PeopleSheet`):
+/// everyone but the owner and those who already write.
+pub(super) fn grant_sheet(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> AnyElement {
+    let skip: Vec<forge::Principal> = forge
+        .repo()
+        .map(|(info, _, writers)| {
+            std::iter::once(info.repo.owner.clone())
+                .chain(writers.items.iter().cloned())
+                .collect()
+        })
+        .unwrap_or_default();
+    let ask = parts::PeopleAsk {
+        key: "forge-grant-sheet",
+        title: words::GRANT_WRITE_ACCESS,
+        caption: Some(words::PICK_A_WRITER),
+        skip: &skip,
+    };
+    parts::people_sheet(ask, Forge::grant_to, forge, cx, ladder, theme)
 }

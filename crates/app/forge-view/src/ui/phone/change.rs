@@ -19,6 +19,7 @@ use crate::Forge;
 use crate::actions::MergeBlock;
 use crate::id;
 use crate::markdown;
+use crate::select::{ChangeEvent, Standings};
 use crate::state::{ChangeTab, Sheet, change_key, verdict_label};
 use crate::words::{self, path_text};
 use forge::{Change, ChangeState, Content, FileDiff, Principal, Reply, Review, Verdict};
@@ -75,7 +76,13 @@ pub(super) fn render(
         theme,
     ))
     .child(strip(forge, cx, ladder, theme))
-    .children(parts::pending(forge, &change_key(&repo, n), ladder, theme))
+    .children(parts::pending(
+        forge,
+        &change_key(&repo, n),
+        cx,
+        ladder,
+        theme,
+    ))
     .child(body(forge, change, cx, ladder, theme))
     .into_any_element()
 }
@@ -159,18 +166,11 @@ impl Tab {
         }
     }
 
-    /// What the tab holds, where the view has read it: the conversation's
-    /// lines, the commits the target lacks, the files the diff touches.
+    /// What the tab holds, where the view has read it
+    /// ([`Forge::change_tab_count`]); Details counts nothing.
     fn count(self, forge: &Forge) -> Option<u64> {
         match self {
-            Tab::Of(ChangeTab::Conversation) => {
-                conversation_rows(forge).map(|rows| rows.len() as u64)
-            }
-            Tab::Of(ChangeTab::Commits) => forge.compare().map(|comparison| comparison.ahead),
-            Tab::Of(ChangeTab::Files) => match forge.ready(&forge.diff_query()?)? {
-                Reply::Diff { total_files, .. } => Some(*total_files),
-                _ => None,
-            },
+            Tab::Of(tab) => forge.change_tab_count(tab),
             Tab::Details => None,
         }
     }
@@ -233,15 +233,6 @@ fn body(
 }
 
 // ------------------------------------------------------------------ Conversation
-
-/// The change's channel rows, once read.
-fn conversation_rows(forge: &Forge) -> Option<&Vec<chat::MsgRow>> {
-    let (change, ..) = forge.change()?;
-    match forge.messages.get(&change.channel)? {
-        Loadable::Ready(rows) | Loadable::Reloading(rows, _) => Some(rows),
-        _ => None,
-    }
-}
 
 /// The body, the change's own events, its reviews (advisory), the
 /// replies in its channel; under them, while it is open, why Merge is off
@@ -313,7 +304,7 @@ fn timeline(
         .flex_col()
         .pb(design::space::BLOCK)
         .children(body)
-        .children(events(forge, change, reviews, ladder, theme))
+        .children(events(forge, change, ladder, theme))
         .child(section_aside(
             "forge-reviews-head",
             "Reviews",
@@ -325,7 +316,7 @@ fn timeline(
         .child(section_aside(
             "forge-replies-head",
             "Replies",
-            format!("# {}", change.channel),
+            words::channel(&change.channel),
             ladder,
             theme,
         ))
@@ -343,72 +334,30 @@ fn section_aside(
     design::section_head(id(key.to_owned()), label.to_owned(), ladder, theme).child(aside)
 }
 
-/// forge's own line in the change's room: written by the account the
-/// roster names forge's ([`chat::program_author`]).
-fn is_forge(forge: &Forge, row: &chat::MsgRow) -> bool {
-    let program = forge
-        .names
-        .ready()
-        .and_then(|names| names.program(&row.author));
-    chat::program_author(row, program) == Some(forge::PROGRAM)
-}
-
-/// Whether the roster names `who` an agent.
-fn is_agent(forge: &Forge, who: &Principal) -> bool {
-    forge.names.ready().is_some_and(|names| {
-        matches!(
-            names.kind(who),
-            Some(chat::Kind::Program {
-                category: chat::Category::Agent,
-                ..
-            })
-        )
-    })
-}
-
 /// The change's own events from forge's lines that are no review's
-/// (`eventsOf`): the first opened it, a later one is how it ended.
-fn events(
-    forge: &Forge,
-    change: &Change,
-    reviews: &[Review],
-    ladder: &Ladder,
-    theme: &Theme,
-) -> Vec<AnyElement> {
+/// (`eventsOf`, as [`Forge::change_event`] reads them): the first opened
+/// it, a later one is how it ended.
+fn events(forge: &Forge, change: &Change, ladder: &Ladder, theme: &Theme) -> Vec<AnyElement> {
     if forge.names.ready().is_none() {
         return Vec::new();
     }
-    let Some(rows) = conversation_rows(forge) else {
+    let Some(rows) = forge.conversation() else {
         return Vec::new();
     };
-    let name = |who: &Option<Principal>| {
-        who.as_ref()
-            .map(|who| forge.principal_name(who))
-            .unwrap_or_default()
-    };
-    let lines = rows.iter().filter(|row| is_forge(forge, row));
-    let first = rows
-        .iter()
-        .find(|row| is_forge(forge, row))
-        .map(|row| row.seq);
-    lines
-        .filter(|row| {
-            !reviews
-                .iter()
-                .any(|review| review.message_id == row.message_id)
-        })
+    let name =
+        |who: Option<&Principal>| who.map(|who| forge.principal_name(who)).unwrap_or_default();
+    rows.iter()
         .filter_map(|row| {
-            let (who, what) = match (change.state, &change.merge_oid) {
-                _ if Some(row.seq) == first => (
+            let (who, what) = match forge.change_event(row)? {
+                ChangeEvent::Opened => (
                     forge.principal_name(&change.author),
                     words::OPENED_IT.to_owned(),
                 ),
-                (ChangeState::Merged, Some(oid)) => (
-                    name(&change.merged_by),
-                    words::merged_into(&change.into, oid),
-                ),
-                (ChangeState::Closed, _) => (name(&change.closed_by), words::CLOSED_IT.to_owned()),
-                _ => return None,
+                ChangeEvent::Merged { by, oid } => {
+                    (name(by), words::merged_into(&change.into, oid))
+                }
+                ChangeEvent::Closed { by } => (name(by), words::CLOSED_IT.to_owned()),
+                ChangeEvent::Reply | ChangeEvent::Review(_) => return None,
             };
             let said = div().text_color(theme.muted).child(what).into_any_element();
             let line = TimelineLine {
@@ -434,9 +383,7 @@ struct TimelineLine {
 
 impl TimelineLine {
     fn draw(self, said: Vec<AnyElement>, ladder: &Ladder, theme: &Theme) -> AnyElement {
-        let face = design::avatar(&self.name, ladder.avatar, theme).when(self.agent, |face| {
-            face.bg(theme.agent_soft).text_color(theme.agent)
-        });
+        let face = parts::avatar(&self.name, self.agent, ladder, theme);
         let head = div()
             .flex()
             .items_center()
@@ -524,11 +471,10 @@ fn review_line(forge: &Forge, review: &Review, ladder: &Ladder, theme: &Theme) -
             .font_family(design::fonts::FAMILY_MONO)
             .text_type(ladder.caption)
             .text_color(theme.muted)
-            .child(format!(
-                "{}:{} — {}",
-                path_text(&comment.path),
+            .child(words::line_comment(
+                &comment.path,
                 comment.line,
-                comment.body
+                &comment.body,
             ))
             .into_any_element()
     });
@@ -539,7 +485,7 @@ fn review_line(forge: &Forge, review: &Review, ladder: &Ladder, theme: &Theme) -
     let line = TimelineLine {
         key: format!("forge-review-{}", review.id),
         name: forge.principal_name(&review.author),
-        agent: is_agent(forge, &review.author),
+        agent: forge.is_agent(&review.author),
         meta: words::block(review.height),
     };
     line.draw(said, ladder, theme)
@@ -568,7 +514,7 @@ fn replies(
             .into_any_element(),
         ];
     }
-    let (Some(rows), Some(_)) = (conversation_rows(forge), forge.names.ready()) else {
+    let (Some(rows), Some(_)) = (forge.conversation(), forge.names.ready()) else {
         return vec![
             parts::quiet(
                 id("forge-conversation-loading"),
@@ -581,7 +527,7 @@ fn replies(
     };
     let said: Vec<AnyElement> = rows
         .iter()
-        .filter(|row| !is_forge(forge, row))
+        .filter(|row| !forge.is_forge_line(row))
         .map(|row| reply_line(forge, row, ladder, theme))
         .collect();
     match said.is_empty() {
@@ -610,7 +556,7 @@ fn reply_line(forge: &Forge, row: &chat::MsgRow, ladder: &Ladder, theme: &Theme)
     let line = TimelineLine {
         key: format!("forge-message-{}", row.message_id),
         name: forge.principal_name(&row.author),
-        agent: is_agent(forge, &row.author),
+        agent: forge.is_agent(&row.author),
         meta,
     };
     line.draw(vec![div().child(said).into_any_element()], ladder, theme)
@@ -667,7 +613,7 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &T
                 start,
             )
             .kind(Kind::Outline)
-            .enabled(me && reviewable(forge))
+            .enabled(me && forge.reviewable())
             .into_any_element()
         }
     };
@@ -688,27 +634,22 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &T
         .child(parts::share(1., review))
 }
 
-/// Whether a review can be pinned: the source head and the comparison
-/// are on screen (`reviewStart`).
-fn reviewable(forge: &Forge) -> bool {
-    forge.change().is_some_and(|(_, head, ..)| head.is_some()) && forge.compare().is_some()
-}
-
-/// "Reply in this change" (`Composer`): the kit's field, many lines,
-/// beside Send, ink once there is something to send; 16 in, 12 over and
-/// under.
+/// "Reply in this change" (`Composer`): a reply on its way (or one that
+/// did not land) over the kit's field, many lines, beside Send, ink once
+/// there is something to send and off while a reply is out; 16 in, 12
+/// over and under.
 fn composer(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> Div {
     let send = cx.listener(|forge, _: &ClickEvent, window, cx| forge.post_reply(window, cx));
     let me = forge.me_principal().is_some();
-    let sendable = me && !forge.reply.is_blank();
+    let scope = forge.reply_scope().unwrap_or_default();
+    let blank = forge.reply.is_blank();
     let field = Textarea::new(id("forge-reply"), &forge.reply, words::REPLY_IN_CHANGE)
         .autocorrect(true)
         .autocapitalize(Autocapitalize::Sentences)
         .read_only(!me)
         .placeholder(words::REPLY_IN_CHANGE);
-    div()
+    let row = div()
         .flex()
-        .flex_none()
         .items_end()
         .gap(design::space::SM)
         .px(design::space::BLOCK)
@@ -728,9 +669,15 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &The
                 theme,
                 send,
             )
-            .filled(sendable)
-            .enabled(sendable),
-        )
+            .filled(!blank)
+            .enabled(me && !blank && !forge.busy(&scope)),
+        );
+    div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .children(parts::pending(forge, &scope, cx, ladder, theme))
+        .child(row)
 }
 
 // ------------------------------------------------------------------ Commits
@@ -808,8 +755,8 @@ fn files(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme)
         .into_any_element()
 }
 
-/// `N files · +a −d` in the data face, and All files (the first file's
-/// page, walked from there with ‹ ›).
+/// `N files · +a −d` in the data face, and All files (every file on one
+/// page).
 fn files_head(
     files: &[FileDiff],
     total: u64,
@@ -817,10 +764,8 @@ fn files_head(
     ladder: &Ladder,
     theme: &Theme,
 ) -> Div {
-    let added: u64 = files.iter().map(|file| file.additions).sum();
-    let deleted: u64 = files.iter().map(|file| file.deletions).sum();
-    let first = files.first().and_then(crate::select::path_of);
-    let all = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.single_file(first.clone(), cx));
+    let (added, deleted) = crate::select::totals(files);
+    let all = cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_all_files(cx));
     let said = words::files_changed(total, added, deleted);
     div()
         .flex()
@@ -949,7 +894,7 @@ fn details(
             ladder,
             theme,
         ))
-        .children(reviewers(forge, change, ladder, theme))
+        .children(reviewers(forge, ladder, theme))
         .child(design::section_head(
             id("forge-details-merge"),
             words::MERGE_STATUS,
@@ -968,30 +913,23 @@ fn details(
         .into_any_element()
 }
 
-/// Each reviewer's latest verdict, then each asked who has not answered.
-fn reviewers(forge: &Forge, change: &Change, ladder: &Ladder, theme: &Theme) -> Vec<AnyElement> {
-    let reviews = forge
-        .change()
-        .map(|(.., reviews)| reviews.items.as_slice())
-        .unwrap_or_default();
-    let mut latest: Vec<(&Principal, Verdict)> = Vec::new();
-    for review in reviews {
-        latest.retain(|(who, _)| **who != review.author);
-        latest.push((&review.author, review.draft.verdict));
-    }
-    let asked = change
-        .reviewers
-        .iter()
-        .filter(|who| !latest.iter().any(|(answered, _)| answered == who));
-    let answered = latest.iter().map(|(who, verdict)| {
+/// Each reviewer's latest verdict, then each asked who has not answered
+/// ([`Forge::standings`]).
+fn reviewers(forge: &Forge, ladder: &Ladder, theme: &Theme) -> Vec<AnyElement> {
+    let Some(Standings { answered, asked }) = forge.standings() else {
+        return Vec::new();
+    };
+    let answered = answered.into_iter().map(|(who, verdict)| {
         let tint = match verdict {
             Verdict::Approve => Tint::Ok,
             Verdict::RequestChanges => Tint::Danger,
             Verdict::Comment => Tint::Plain,
         };
-        person_row(forge, who, words::standing(*verdict), tint, ladder, theme)
+        person_row(forge, who, words::standing(verdict), tint, ladder, theme)
     });
-    let waiting = asked.map(|who| person_row(forge, who, words::ASKED, Tint::Plain, ladder, theme));
+    let waiting = asked
+        .into_iter()
+        .map(|who| person_row(forge, who, words::ASKED, Tint::Plain, ladder, theme));
     let rows: Vec<AnyElement> = answered.chain(waiting).collect();
     match rows.is_empty() {
         true => vec![
@@ -1081,23 +1019,11 @@ fn line_comments(
             )
         })
     });
-    let reviews = forge
-        .change()
-        .map(|(.., reviews)| reviews.items.as_slice())
-        .unwrap_or_default();
-    let published = reviews.iter().flat_map(|review| {
-        let author = forge.principal_name(&review.author);
-        review.draft.comments.iter().map(move |comment| {
-            let first = comment.body.lines().next().unwrap_or_default();
-            (
-                comment.path.clone(),
-                format!(
-                    "{}:{} · {author} · {first}",
-                    path_text(&comment.path),
-                    comment.line
-                ),
-            )
-        })
+    let published = forge.published_comments().into_iter().map(|comment| {
+        let (path, _, line) = comment.anchor;
+        let first = comment.body.lines().next().unwrap_or_default();
+        let said = format!("{}:{line} · {} · {first}", path_text(&path), comment.author);
+        (path, said)
     });
     let all: Vec<(Vec<u8>, String)> = pending.chain(published).collect();
     let head = design::section_head(
@@ -1139,7 +1065,7 @@ fn channel_row(
     ladder: &Ladder,
     theme: &Theme,
 ) -> AnyElement {
-    let link = ducklink::mint(&forge.session.chain_id, chat::PROGRAM, &[&change.channel]);
+    let link = forge.link(chat::PROGRAM, &[&change.channel]);
     let open = cx.listener(move |_, _: &ClickEvent, _, cx| {
         if let Some(link) = &link {
             cx.host().open_link(link);
@@ -1147,7 +1073,7 @@ fn channel_row(
     });
     Row::data(
         id("forge-details-channel-row"),
-        format!("# {}", change.channel),
+        words::channel(&change.channel),
     )
     .chevron()
     .press(ladder, theme)
@@ -1168,10 +1094,7 @@ pub(super) fn actions_sheet(
     ladder: &Ladder,
     theme: &Theme,
 ) -> AnyElement {
-    let dismiss = cx.listener(|forge, _: &(), _, cx| {
-        forge.closing = None;
-        forge.close_sheet(cx);
-    });
+    let dismiss = cx.listener(|forge, _: &(), _, cx| forge.close_sheet(cx));
     let asking = forge.closing.is_some() && forge.review_key() == forge.closing;
     let body = match asking {
         true => close_for_good(cx, ladder, theme),
@@ -1194,18 +1117,24 @@ fn actions(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
         forge.start_edit(window, cx);
     });
     let close = cx.listener(|forge, _: &ClickEvent, _, cx| forge.close_change(cx));
-    let link = ducklink::mint(
-        &forge.session.chain_id,
-        forge::PROGRAM,
-        &[&forge.repo_name(), &change.n.to_string()],
-    );
-    let copy = cx.listener(move |forge, _: &ClickEvent, _, cx| {
-        if let Some(link) = &link {
-            cx.host()
-                .notify::<view::methods::ClipboardWrite>(link.clone());
-        }
-        forge.close_sheet(cx);
-    });
+    // nothing to copy while no chain is known: the row waits for one
+    let copy = forge
+        .link(forge::PROGRAM, &[&forge.repo_name(), &change.n.to_string()])
+        .map(|link| {
+            let copy = cx.listener(move |forge, _: &ClickEvent, _, cx| {
+                cx.host()
+                    .notify::<view::methods::ClipboardWrite>(link.clone());
+                forge.close_sheet(cx);
+            });
+            design::sheet_row(
+                id("forge-change-copy-link"),
+                "Copy link",
+                ladder,
+                theme,
+                copy,
+            )
+            .icon("link")
+        });
     div()
         .flex()
         .flex_col()
@@ -1217,16 +1146,7 @@ fn actions(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
                 .icon("x")
                 .danger()
         }))
-        .child(
-            design::sheet_row(
-                id("forge-change-copy-link"),
-                "Copy link",
-                ladder,
-                theme,
-                copy,
-            )
-            .icon("link"),
-        )
+        .children(copy)
 }
 
 /// Close asked again (`Dialog`): closing is final; Close for good, or

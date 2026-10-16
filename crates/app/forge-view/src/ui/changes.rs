@@ -8,7 +8,7 @@ use view::{Div, wire};
 
 use crate::Forge;
 use crate::state::{ChangeForm, Filter};
-use crate::ui::components::{badge, button, empty_state, heading, id, quiet, ref_label};
+use crate::ui::components::{badge, button, empty_state, heading, id, quiet};
 use crate::ui::diff::Route;
 use crate::ui::{pending, staged};
 use crate::words;
@@ -259,9 +259,11 @@ fn change_row(
                 )
                 .child(
                     design::mono(format!(
-                        "{} → {} · {author}",
-                        ref_label(&crate::select::revision_name(&summary.from)),
-                        ref_label(&summary.into)
+                        "{} · {author}",
+                        words::endpoints(
+                            &crate::select::revision_name(&summary.from),
+                            &summary.into
+                        )
                     ))
                     .text_size(design::text::CAPTION)
                     .text_color(theme.muted),
@@ -425,10 +427,7 @@ pub(crate) fn form(
             2,
             theme,
         ))
-        .child(quiet(
-            format!("{} → {}", ref_label(&form.from), ref_label(&form.into)),
-            theme,
-        ))
+        .child(quiet(words::endpoints(&form.from, &form.into), theme))
         .child(form_fields(form, forge, cx, theme))
         .child(reviewers(form, forge, cx, theme, ladder));
     if !form.error.is_empty() {

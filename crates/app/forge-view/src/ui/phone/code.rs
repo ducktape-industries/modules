@@ -33,25 +33,69 @@ pub(super) fn render(
     let (path, oid) = forge.nav().blob.clone().unwrap_or_default();
     let path = path_text(&path);
     let (dir, name) = path.rsplit_once('/').unwrap_or(("", &path));
+    file_page("forge-page-blob", &path, forge, nav, cx, (ladder, theme))
+        .child(body(forge, (&oid, dir, name), cx, ladder, theme))
+        .into_any_element()
+}
+
+/// A path a link named that the browsed ref does not hold: its page, as
+/// a file's, says so (`code/[...path].tsx`'s empty state).
+pub(super) fn missing(
+    forge: &Forge,
+    nav: Nav,
+    cx: &mut Context<Forge>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> AnyElement {
+    let path = forge.nav().missing.clone().unwrap_or_default();
+    file_page(
+        "forge-page-missing",
+        &path_text(&path),
+        forge,
+        nav,
+        cx,
+        (ladder, theme),
+    )
+    .child(design::empty_state(
+        id("forge-missing-empty"),
+        "file-question",
+        words::no_path(&path),
+        words::NOT_ON_THIS_REF,
+        ladder,
+        theme,
+    ))
+    .into_any_element()
+}
+
+/// A file's page head: its name over its folder (the repository at the
+/// top) and the ref; Copy the path and Copy link.
+fn file_page(
+    key: &'static str,
+    path: &str,
+    forge: &Forge,
+    nav: Nav,
+    cx: &mut Context<Forge>,
+    (ladder, theme): (&Ladder, &Theme),
+) -> design::Page {
+    let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
     let repo = forge.repo_name();
     let folder = if dir.is_empty() { repo.as_str() } else { dir };
     let caption = format!("{folder} · {}", ref_label(&forge.head_name()));
     let segments: Vec<&str> = std::iter::once(repo.as_str())
         .chain(path.split('/'))
         .collect();
-    let link =
-        ducklink::mint(&forge.session.chain_id, forge::PROGRAM, &segments).unwrap_or_default();
-    design::page("forge-page-blob", name.to_owned(), nav, ladder, theme)
+    let link = forge.link(forge::PROGRAM, &segments);
+    design::page(key, name.to_owned(), nav, ladder, theme)
         .caption(caption)
-        .trailing(copy(
+        .trailing(parts::copy_button(
             "forge-blob-copy-path",
             ("copy", "Copy the path"),
-            path.clone(),
+            Some(path.to_owned()),
             forge,
             cx,
             (ladder, theme),
         ))
-        .trailing(copy(
+        .trailing(parts::copy_button(
             "forge-blob-copy-link",
             ("link", "Copy link"),
             link,
@@ -60,8 +104,6 @@ pub(super) fn render(
             (ladder, theme),
         ))
         .children(parts::notices(forge, ladder, theme))
-        .child(body(forge, (&oid, dir, name), cx, ladder, theme))
-        .into_any_element()
 }
 
 /// A folder on its own page (board 62): `name/` over its parent (the
@@ -128,38 +170,6 @@ fn crumbs(repo: &str, path: &str, cx: &mut Context<Forge>, ladder: &Ladder, them
         );
     }
     line
-}
-
-/// A copy control: `text` to the clipboard; its glyph turns to a check
-/// once it is there (the Expo app says so in a toast the view has none
-/// of).
-fn copy(
-    key: &'static str,
-    (glyph, name): (&'static str, &'static str),
-    text: String,
-    forge: &Forge,
-    cx: &mut Context<Forge>,
-    (ladder, theme): (&Ladder, &Theme),
-) -> impl IntoElement {
-    let glyph = if forge.copied.as_deref() == Some(text.as_str()) {
-        "check"
-    } else {
-        glyph
-    };
-    let press = cx.listener(move |forge, _: &ClickEvent, _, cx| {
-        cx.host()
-            .notify::<view::methods::ClipboardWrite>(text.clone());
-        forge.copied = Some(text.clone());
-        cx.notify();
-    });
-    design::icon_button(
-        id(key),
-        design::icon(glyph, ladder.icon),
-        name,
-        ladder,
-        theme,
-        press,
-    )
 }
 
 /// The file once read (`FileBody`), else the read in its place.

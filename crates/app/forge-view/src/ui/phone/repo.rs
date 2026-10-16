@@ -14,7 +14,7 @@ use super::parts;
 use super::tabs;
 use crate::Forge;
 use crate::id;
-use crate::state::{Dock, Menu, RepoTab};
+use crate::state::{Menu, RepoTab, Sheet};
 use crate::words::{self, ref_label};
 
 pub(super) fn render(
@@ -29,11 +29,10 @@ pub(super) fn render(
         .trailing(copy_button(forge, &name, cx, ladder, theme))
         .trailing(about_button(cx, ladder, theme));
     if let Some((info, _, _)) = forge.repo() {
-        let owner = forge.principal_name(&info.repo.owner);
-        page = page.caption(format!(
-            "owner {owner} · {} · active block {}",
-            design::plural(info.repo.refs_count, "ref", "refs"),
-            info.repo.last_activity
+        page = page.caption(words::repo_facts(
+            &forge.principal_name(&info.repo.owner),
+            info.repo.refs_count,
+            info.repo.last_activity,
         ));
     }
     page.children(parts::notices(forge, ladder, theme))
@@ -43,9 +42,7 @@ pub(super) fn render(
         .into_any_element()
 }
 
-/// Copy the address: the glyph turns to a check that says so once it is
-/// on the clipboard (the Expo app says it in a toast the view has none
-/// of).
+/// Copy the address: its check says so once it is on the clipboard.
 fn copy_button(
     forge: &Forge,
     name: &str,
@@ -54,32 +51,22 @@ fn copy_button(
     theme: &Theme,
 ) -> impl IntoElement {
     let url = forge.repo_link(name);
-    let copied = forge.copied.as_deref() == Some(name);
-    let copy = cx.listener({
-        let name = name.to_owned();
-        move |forge, _: &ClickEvent, _, cx| {
-            cx.host()
-                .notify::<view::methods::ClipboardWrite>(url.clone());
-            forge.copied = Some(name.clone());
-            cx.notify();
-        }
-    });
-    let (glyph, said) = match copied {
-        true => ("check", "Address copied"),
-        false => ("copy", "Copy the address"),
+    let said = match forge.copied.as_deref() == Some(url.as_str()) {
+        true => "Address copied",
+        false => "Copy the address",
     };
-    design::icon_button(
-        id("forge-repo-copy"),
-        design::icon(glyph, ladder.icon),
-        said,
-        ladder,
-        theme,
-        copy,
+    parts::copy_button(
+        "forge-repo-copy",
+        ("copy", said),
+        Some(url),
+        forge,
+        cx,
+        (ladder, theme),
     )
 }
 
 fn about_button(cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> impl IntoElement {
-    let about = cx.listener(|forge, _: &ClickEvent, _, cx| forge.toggle_dock(Dock::About, cx));
+    let about = cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_sheet(Sheet::About, cx));
     design::icon_button(
         id("forge-dock-about"),
         design::icon("info", ladder.icon),
@@ -180,7 +167,7 @@ pub(super) fn about_sheet(
     ladder: &Ladder,
     theme: &Theme,
 ) -> AnyElement {
-    let close = cx.listener(|forge, _: &(), _, cx| forge.toggle_dock(Dock::About, cx));
+    let close = cx.listener(|forge, _: &(), _, cx| forge.close_sheet(cx));
     let body = div()
         .id(id("forge-about-sheet-body"))
         .size_full()
@@ -220,10 +207,7 @@ fn about(forge: &Forge, ladder: &Ladder, theme: &Theme) -> AnyElement {
             .collect::<Vec<_>>()
             .join(", "),
     };
-    let hash = match info.repo.hash {
-        abi::HashKind::Sha1 => "sha1",
-        abi::HashKind::Sha256 => "sha256",
-    };
+    let hash = words::hash_kind(info.repo.hash);
     let fact = |label: &str, value: Div| parts::key_value(label, value, ladder, theme);
     div()
         .id(id("forge-about"))

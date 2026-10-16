@@ -7,6 +7,7 @@ use crate::markdown::Target;
 use crate::state::{
     ChangeTab, Dock, Filter, Forge, Menu, Overlay, Page, RepoTab, SettingsForm, Sheet, change_key,
 };
+use crate::words;
 use forge::Reply;
 
 impl Forge {
@@ -31,19 +32,15 @@ impl Forge {
     }
 
     /// What lies over the phone's page, the one sheet at a time: a ref
-    /// picker, a sheet a page opened, a repository's About (not over a
-    /// change, which has its own details), New repository, or Finish your
-    /// review. The phone draws this and its Back closes this, so the two
-    /// never disagree (rule 13).
+    /// picker, a sheet a page opened (About among them), New repository,
+    /// or Finish your review. The phone draws this and its Back closes
+    /// this, so the two never disagree (rule 13).
     pub(crate) fn overlay(&self) -> Option<Overlay> {
         if let Some(menu) = self.menu {
             return Some(Overlay::Menu(menu));
         }
         if let Some(sheet) = self.sheet {
             return Some(Overlay::Sheet(sheet));
-        }
-        if self.nav.dock == Some(Dock::About) && self.nav.change.is_none() {
-            return Some(Overlay::About);
         }
         if self.new_repo.is_some() {
             return Some(Overlay::NewRepository);
@@ -59,7 +56,6 @@ impl Forge {
         match self.overlay() {
             Some(Overlay::Menu(menu)) => return self.close_dropdown(menu, window, cx),
             Some(Overlay::Sheet(_)) => return self.close_sheet(cx),
-            Some(Overlay::About) => return self.toggle_dock(Dock::About, cx),
             Some(Overlay::NewRepository) => return self.cancel_repo(cx),
             Some(Overlay::FinishReview) => return self.finishing(false, cx),
             None => {}
@@ -81,7 +77,7 @@ impl Forge {
                 });
                 self.open_folder(up, cx);
             }
-            Page::Blob => self.nav_close_blob(cx),
+            Page::Blob | Page::Missing => self.nav_close_blob(cx),
         }
     }
 
@@ -90,8 +86,11 @@ impl Forge {
         cx.notify();
     }
 
+    /// The sheet closes, and a Close it was asking about again with it:
+    /// the next More opens on its actions.
     pub(crate) fn close_sheet(&mut self, cx: &mut Context<Self>) {
         self.sheet = None;
+        self.closing = None;
         cx.notify();
     }
 
@@ -128,7 +127,9 @@ impl Forge {
         self.nav.folder = kept.folder;
         self.nav.goto = kept.goto;
         self.nav.tab = tab;
-        if tab == RepoTab::Settings {
+        // the desktop stages its settings in a form saved by Save; the
+        // phone saves each flip from what is on screen (`configure_with`)
+        if tab == RepoTab::Settings && !self.touch {
             let head = self.default_head();
             let (allow_force, allow_delete) = self
                 .repo()
@@ -171,7 +172,7 @@ impl Forge {
         self.menu_at = (at.x.into(), at.y.into());
         self.menu_search.reset("");
         let picked = self.menu_picked(menu);
-        self.menu_tags = menu != Menu::Head && picked.starts_with(b"refs/tags/");
+        self.menu_tags = self.menu_offers_tags(menu) && picked.starts_with(b"refs/tags/");
         let index = self.menu_list(menu).iter().position(|name| *name == picked);
         self.menu_cursor = index.unwrap_or(0);
         // centred, so the pick shows with its neighbours; arrows keep Nearest
@@ -193,9 +194,10 @@ impl Forge {
         cx.notify();
     }
 
-    /// `name` picked in `menu`: the ref every tab reads, the settings
-    /// form's default head, or the change form's source or target. The
-    /// menu closes and gives the keys back.
+    /// `name` picked in `menu`: the ref every tab reads, the default head
+    /// (the desktop's settings form; on the phone saved at once), or the
+    /// change form's source or target. The menu closes and gives the keys
+    /// back.
     pub(crate) fn menu_pick(
         &mut self,
         menu: Menu,
@@ -205,6 +207,7 @@ impl Forge {
     ) {
         match menu {
             Menu::Ref => self.pick_ref(name, cx),
+            Menu::Head if self.touch => self.configure_with(|settings| settings.head = name, cx),
             Menu::Head => {
                 if let Some(form) = &mut self.repo_settings {
                     form.head = name;
@@ -243,6 +246,7 @@ impl Forge {
         self.nav.cursor = None;
         self.nav.blob = None;
         self.nav.folder = None;
+        self.nav.missing = None;
         self.nav.commit = None;
         self.moved(cx);
     }
@@ -253,6 +257,7 @@ impl Forge {
         self.tree_search.reset("");
         self.nav.folder = path;
         self.nav.blob = None;
+        self.nav.missing = None;
         self.moved(cx);
     }
 
@@ -276,22 +281,35 @@ impl Forge {
         }
     }
 
-    /// Opens a file by its path alone: its folders unfold, and the file
-    /// opens once the tree that holds it names its blob.
+    /// Opens a file or folder by its path alone, once the tree that holds
+    /// it says which it is: on the desktop its folders unfold in the tree;
+    /// on the phone it opens on its own page over its folder's (Expo
+    /// `code/[...path].tsx`).
     pub(crate) fn open_path(&mut self, path: Vec<u8>, cx: &mut Context<Self>) {
         if self.readme().is_some_and(|(name, _)| name == path) {
             return self.open_tab(RepoTab::Readme, cx);
         }
-        let mut dir = &path[..];
-        while let Some(at) = dir.iter().rposition(|b| *b == b'/') {
-            dir = &dir[..at];
-            self.nav.expanded.insert(dir.to_vec());
+        if self.touch {
+            self.nav.folder = path
+                .iter()
+                .rposition(|b| *b == b'/')
+                .map(|at| path[..at].to_vec());
+            self.nav.blob = None;
+        } else {
+            let mut dir = &path[..];
+            while let Some(at) = dir.iter().rposition(|b| *b == b'/') {
+                dir = &dir[..at];
+                self.nav.expanded.insert(dir.to_vec());
+            }
         }
         self.nav.goto = Some(path);
         self.open_tab(RepoTab::Code, cx);
     }
 
-    /// Lands a pending [`Self::open_path`] once its folder's tree is read.
+    /// Lands a pending [`Self::open_path`] once its folder's tree is read:
+    /// a folder opens (the phone's page, the desktop's tree row), a file
+    /// opens, and a path the ref does not hold says so (the phone's page,
+    /// the desktop's notice).
     pub(crate) fn land_goto(&mut self) {
         let Some(path) = self.nav.goto.clone() else {
             return;
@@ -317,16 +335,19 @@ impl Forge {
         self.nav.goto = None;
         self.nav.cursor = Some(path.clone());
         match entry {
+            Some((forge::EntryKind::Directory, _)) if self.touch => self.nav.folder = Some(path),
             Some((forge::EntryKind::Directory, _)) => {
                 self.nav.expanded.insert(path);
             }
             Some((_, oid)) => self.nav.blob = Some((path, oid)),
-            None => self.notice = format!("No {} on this ref.", String::from_utf8_lossy(&path)),
+            None if self.touch => self.nav.missing = Some(path),
+            None => self.notice = words::no_path(&path),
         }
     }
 
     pub(crate) fn nav_close_blob(&mut self, cx: &mut Context<Self>) {
         self.nav.blob = None;
+        self.nav.missing = None;
         self.moved(cx);
     }
 
@@ -342,6 +363,7 @@ impl Forge {
         self.nav.change = n;
         self.nav.change_tab = ChangeTab::default();
         self.nav.diff_path = None;
+        self.nav.all_files = false;
         self.nav.dock = None;
         self.layout.dock_open = false;
         self.closing = None;
@@ -353,6 +375,7 @@ impl Forge {
         self.change_tab_cursor = None;
         self.nav.change_tab = tab;
         self.nav.diff_path = None;
+        self.nav.all_files = false;
         self.nav.commit = None;
         self.moved(cx);
     }
@@ -383,9 +406,20 @@ impl Forge {
         if path.is_none() && matches!(self.list_cursor, Some((on, ..)) if lists.contains(&on)) {
             self.list_cursor = None;
         }
+        if path.is_none() {
+            self.nav.all_files = false;
+        }
         self.reveal = path.clone();
         self.land_reveal();
         self.nav.diff_path = path;
+        cx.notify();
+    }
+
+    /// The phone's All files: every file of the change's diff on a page
+    /// of its own (Expo `diff.tsx` without a path).
+    pub(crate) fn open_all_files(&mut self, cx: &mut Context<Self>) {
+        self.nav.diff_path = None;
+        self.nav.all_files = true;
         cx.notify();
     }
 

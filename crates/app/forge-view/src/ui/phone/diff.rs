@@ -1,8 +1,9 @@
-//! One file of a change's diff (Expo
+//! One file of a change's diff, or All files (Expo
 //! `app/(tabs)/forge/[repo]/changes/[n]/diff.tsx`, board 70): the file's
 //! name over the change and where the file stands among its files, ‹ ›
-//! to walk them; its lines with what readers wrote on them
-//! ([`super::lines`]); the review bar at the foot.
+//! to walk them (All files: every file in one list, `N files`); the lines
+//! with what readers wrote on them ([`super::lines`]); the review bar at
+//! the foot.
 //!
 //! Reads the change's diff, its reviews and the review being written;
 //! writes the review: Start, a comment at a pressed line number, Discard,
@@ -11,14 +12,14 @@ use view::Div;
 use view::design::{Kind, Ladder, Nav};
 use view::prelude::*;
 
-use super::lines::{self, Notes, Published, Shown};
+use super::lines::{self, Notes, Shown};
 use super::parts;
 use crate::id;
 use crate::select::path_of;
 use crate::state::change_key;
 use crate::words::{self, path_text};
 use crate::{Forge, Stage};
-use forge::{FileDiff, Reply, Side};
+use forge::{FileDiff, Reply};
 
 pub(super) fn render(
     forge: &Forge,
@@ -27,46 +28,53 @@ pub(super) fn render(
     ladder: &Ladder,
     theme: &Theme,
 ) -> AnyElement {
-    let path = forge.nav().diff_path.clone().unwrap_or_default();
+    let path = forge.nav().diff_path.clone();
     let files = diff_files(forge);
-    let at = files
-        .iter()
-        .position(|file| path_of(file).as_deref() == Some(&path));
     let n = forge.nav().change.unwrap_or_default();
     let title = match forge.change() {
         Some((change, ..)) => format!("{} · #{n}", change.title),
         None => format!("#{n}"),
     };
-    let caption = match at {
-        Some(at) => format!("{title} · {} of {}", at + 1, files.len()),
-        None => title,
-    };
-    let name = path_text(&path);
-    let name = name.rsplit('/').next().unwrap_or_default().to_owned();
     let key = change_key(&forge.repo_name(), n);
-    design::page("forge-page-file", name, nav, ladder, theme)
-        .caption(caption)
-        .trailing(walk(
-            "forge-file-previous",
-            ("chevron-left", "Previous file"),
-            at.and_then(|at| at.checked_sub(1)),
-            &files,
-            cx,
-            ladder,
-            theme,
-        ))
-        .trailing(walk(
-            "forge-file-next",
-            ("chevron-right", "Next file"),
-            at.map(|at| at + 1),
-            &files,
-            cx,
-            ladder,
-            theme,
-        ))
-        .children(parts::notices(forge, ladder, theme))
-        .children(parts::pending(forge, &key, ladder, theme))
-        .child(body(forge, &path, cx, ladder, theme))
+    let page = match &path {
+        // All files: every file in one list, nothing to walk
+        None => design::page("forge-page-file", words::ALL_FILES, nav, ladder, theme)
+            .caption(format!("{title} · {} files", files.len())),
+        Some(path) => {
+            let at = files
+                .iter()
+                .position(|file| path_of(file).as_ref() == Some(path));
+            let caption = match at {
+                Some(at) => format!("{title} · {} of {}", at + 1, files.len()),
+                None => title,
+            };
+            let name = path_text(path);
+            let name = name.rsplit('/').next().unwrap_or_default().to_owned();
+            design::page("forge-page-file", name, nav, ladder, theme)
+                .caption(caption)
+                .trailing(walk(
+                    "forge-file-previous",
+                    ("chevron-left", "Previous file"),
+                    at.and_then(|at| at.checked_sub(1)),
+                    &files,
+                    cx,
+                    ladder,
+                    theme,
+                ))
+                .trailing(walk(
+                    "forge-file-next",
+                    ("chevron-right", "Next file"),
+                    at.map(|at| at + 1),
+                    &files,
+                    cx,
+                    ladder,
+                    theme,
+                ))
+        }
+    };
+    page.children(parts::notices(forge, ladder, theme))
+        .children(parts::pending(forge, &key, cx, ladder, theme))
+        .child(body(forge, (&key, path.as_deref()), cx, ladder, theme))
         .child(review_bar(forge, cx, ladder, theme))
         .into_any_element()
 }
@@ -109,10 +117,12 @@ fn walk(
     .enabled(enabled)
 }
 
-/// The file's lines once the diff is read; until then why not.
+/// The file's lines (every file's on All files) once the diff is read;
+/// until then why not. The list keeps its place across re-reads of the
+/// same change's file.
 fn body(
     forge: &Forge,
-    path: &[u8],
+    (key, path): (&str, Option<&[u8]>),
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
@@ -147,12 +157,12 @@ fn body(
     let files: Vec<&FileDiff> = page
         .items
         .iter()
-        .filter(|file| path_of(file).as_deref() == Some(path))
+        .filter(|file| path.is_none() || path_of(file).as_deref() == path)
         .collect();
     let notes = notes(forge);
     let shown = Shown {
         key: "forge-diff",
-        page: lines::page_of((std::ptr::from_ref(reply) as usize, path)),
+        page: lines::page_of((key, path)),
         rows: lines::diff_rows(&files, &notes),
         head: None,
         wrapped: false,
@@ -165,28 +175,7 @@ fn body(
 /// gutter a comment button while I hold an account and nothing of mine
 /// is on its way.
 fn notes(forge: &Forge) -> Notes {
-    let reviews = forge
-        .change()
-        .map(|(.., reviews)| reviews.items.as_slice())
-        .unwrap_or_default();
-    let published = reviews
-        .iter()
-        .flat_map(|review| {
-            let author = forge.principal_name(&review.author);
-            let outdated = forge.outdated(&review.draft.commit_oid);
-            review.draft.comments.iter().map(move |comment| Published {
-                anchor: (
-                    comment.path.clone(),
-                    comment.side == Side::New,
-                    comment.line,
-                ),
-                author: author.clone(),
-                body: comment.body.clone(),
-                height: review.height,
-                outdated,
-            })
-        })
-        .collect();
+    let published = forge.published_comments();
     let review = forge.review();
     let staged = review
         .map(|review| {
@@ -236,9 +225,7 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &T
     };
     let Some(review) = forge.review() else {
         let start = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_review(cx));
-        let startable = forge.me_principal().is_some()
-            && forge.change().is_some_and(|(_, head, ..)| head.is_some())
-            && forge.compare().is_some();
+        let startable = forge.me_principal().is_some() && forge.reviewable();
         return bar
             .child(said(
                 "Comment on any line by pressing its number.".to_owned(),

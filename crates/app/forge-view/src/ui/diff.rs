@@ -20,7 +20,7 @@ use crate::state::Anchor;
 use crate::ui::components::{PRESS_TARGET, badge, empty_state, id, path_text, quiet};
 use crate::ui::staged;
 use crate::words::{self, file_status, why_no_lines};
-use forge::{Content, FileDiff, LineKind, Query, Reply, Side};
+use forge::{Content, FileDiff, LineKind, Query, Reply};
 use view::design::Ladder;
 
 /// A route an event of a virtual row takes back into the view.
@@ -191,11 +191,7 @@ impl Rows {
         };
         let hunk = &file.hunks[hunk - 1];
         let Some(line) = (index - first).checked_sub(1) else {
-            let text = format!(
-                "@@ -{},{} +{},{} @@",
-                hunk.old.start, hunk.old.count, hunk.new.start, hunk.new.count
-            );
-            return Painted::banner(Kind::Hunk, text, path);
+            return Painted::banner(Kind::Hunk, words::hunk(hunk), path);
         };
         let Some(line) = hunk.lines.get(line) else {
             return Painted::banner(Kind::Hunk, String::new(), Vec::new());
@@ -309,14 +305,13 @@ impl Notes {
                 zones.entry(row).or_default().extend(rows_of_box);
             }
         };
-        for (n, (path, new_side, line, author, body, outdated)) in
-            published_comments(forge).into_iter().enumerate()
-        {
-            let text = wrap(&body).into_iter().map(NoteKind::Text);
+        for (n, comment) in forge.published_comments().into_iter().enumerate() {
+            let text = wrap(&comment.body).into_iter().map(NoteKind::Text);
             let rows_of_box = boxed(
                 &format!("forge-diff-comment-{n}"),
-                std::iter::once(NoteKind::Head(author, outdated)).chain(text),
+                std::iter::once(NoteKind::Head(comment.author, comment.outdated)).chain(text),
             );
+            let (path, new_side, line) = comment.anchor;
             place(&path, new_side, line, rows_of_box);
         }
         let review = forge.review();
@@ -558,10 +553,13 @@ pub(crate) fn render(
     }));
     let composer = forge
         .review()
-        .and_then(|review| Some((review.open.as_ref()?, &review.error)))
-        .map(|(open, error)| Composer {
+        .and_then(|review| Some((review.open.as_ref()?, review.refused)))
+        .map(|(open, refused)| Composer {
             body: open.body.clone(),
-            error: error.clone(),
+            error: refused
+                .map(words::review_refusal)
+                .unwrap_or_default()
+                .into(),
             stage: Rc::new(cx.listener(|forge, _: &(), _, cx| forge.stage_comment(cx))),
             cancel: Rc::new(cx.listener(|forge, _: &(), _, cx| forge.discard_comment(cx))),
         });
@@ -785,12 +783,7 @@ impl Painted {
 
 /// A file's header row: its path (old → new when renamed), status, counts.
 fn file_header(file: &FileDiff) -> String {
-    let header = match (&file.old_path, &file.new_path) {
-        (Some(old), Some(new)) if old != new => {
-            format!("{} → {}", path_text(old), path_text(new))
-        }
-        _ => path_text(&path_of(file).unwrap_or_default()),
-    };
+    let header = words::file_path(file);
     let status = file_status(file.status);
     match counts(file) {
         Some(counts) => format!("{header} · {status} · {counts}"),
@@ -802,31 +795,6 @@ fn file_header(file: &FileDiff) -> String {
 /// an oversize file or a submodule has none to count, not zero.
 fn counts(file: &FileDiff) -> Option<String> {
     (file.content == Content::Text).then(|| format!("+{} −{}", file.additions, file.deletions))
-}
-
-type Anchored = (Vec<u8>, bool, u64, String, String, bool);
-
-/// Every published line comment of the open change, by anchor.
-fn published_comments(forge: &Forge) -> Vec<Anchored> {
-    let Some((_, _, _, reviews)) = forge.change() else {
-        return Vec::new();
-    };
-    let mut all = Vec::new();
-    for review in &reviews.items {
-        let author = forge.principal_name(&review.author);
-        let outdated = forge.outdated(&review.draft.commit_oid);
-        for comment in &review.draft.comments {
-            all.push((
-                comment.path.clone(),
-                comment.side == Side::New,
-                comment.line,
-                author.clone(),
-                comment.body.clone(),
-                outdated,
-            ));
-        }
-    }
-    all
 }
 
 /// One of the diff's own rows. Each is one line high, as the list draws

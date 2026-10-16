@@ -16,7 +16,7 @@ use super::lines::{self, Item, Notes, Shown};
 use super::parts::{self, Row};
 use crate::Forge;
 use crate::id;
-use crate::select::path_of;
+use crate::select::{path_of, summary_of, totals};
 use crate::words::{self, path_text, ref_label};
 use forge::{CommitInfo, FileDiff, Reply};
 use view::design::short_hex;
@@ -32,44 +32,23 @@ pub(super) fn render(
     let commit = forge.commit(&oid);
     let title = commit
         .as_ref()
-        .map(parts::summary_of)
+        .map(summary_of)
         .filter(|summary| !summary.is_empty())
         .unwrap_or_else(|| short_hex(&oid));
     let caption = format!("{} · {}", forge.repo_name(), ref_label(&forge.head_name()));
     design::page("forge-page-commit", title, nav, ladder, theme)
         .caption(caption)
-        .trailing(copy_button(forge, &oid, cx, ladder, theme))
+        .trailing(parts::copy_button(
+            "forge-commit-copy",
+            ("copy", "Copy the commit id"),
+            Some(oid.clone()),
+            forge,
+            cx,
+            (ladder, theme),
+        ))
         .children(parts::notices(forge, ladder, theme))
         .child(body(forge, &oid, cx, ladder, theme))
         .into_any_element()
-}
-
-/// Copy the commit id: the glyph turns to a check once it is on the
-/// clipboard (the Expo app says so in a toast the view has none of).
-fn copy_button(
-    forge: &Forge,
-    oid: &str,
-    cx: &mut Context<Forge>,
-    ladder: &Ladder,
-    theme: &Theme,
-) -> impl IntoElement {
-    let copied = forge.copied.as_deref() == Some(oid);
-    let held = oid.to_owned();
-    let copy = cx.listener(move |forge, _: &ClickEvent, _, cx| {
-        cx.host()
-            .notify::<view::methods::ClipboardWrite>(held.clone());
-        forge.copied = Some(held.clone());
-        cx.notify();
-    });
-    let glyph = if copied { "check" } else { "copy" };
-    design::icon_button(
-        id("forge-commit-copy"),
-        design::icon(glyph, ladder.icon),
-        "Copy the commit id",
-        ladder,
-        theme,
-        copy,
-    )
 }
 
 /// The facts and the files as the block's head, the diff's rows under
@@ -91,11 +70,19 @@ fn body(
     let rows: Vec<Item> = std::iter::once(Item::Head)
         .chain(lines::diff_rows(&files, &Notes::default()))
         .collect();
+    // where each file's head sits in the rows, for its row to scroll to
+    let heads: Rc<Vec<usize>> = Rc::new(
+        rows.iter()
+            .enumerate()
+            .filter(|(_, row)| matches!(row, Item::File { .. }))
+            .map(|(at, _)| at)
+            .collect(),
+    );
     let held = oid.to_owned();
-    let head: lines::Head = Rc::new(move |forge, cx| head(forge, &held, cx));
+    let head: lines::Head = Rc::new(move |forge, cx| head(forge, &held, &heads, cx));
     let shown = Shown {
         key: "forge-commit-diff",
-        page: lines::page_of((oid, reply.as_ref().map(|reply| Rc::as_ptr(reply) as usize))),
+        page: lines::page_of(oid),
         rows,
         head: Some(head),
         wrapped: false,
@@ -103,17 +90,34 @@ fn body(
     lines::block(shown, forge, cx, ladder, theme)
 }
 
-/// The block's head: the commit's facts (or the read in their place),
-/// then its files (or the diff's read).
-fn head(forge: &Forge, oid: &str, cx: &mut Context<Forge>) -> AnyElement {
+/// The block's head: the commit's facts (or the read in their place: the
+/// quiet line, or the refusal and Retry), then its files (or the diff's
+/// read), each scrolling to its head among the rows, `heads`.
+fn head(forge: &Forge, oid: &str, heads: &[usize], cx: &mut Context<Forge>) -> AnyElement {
     let theme = *cx.global::<Theme>();
     let ladder = &design::TOUCH;
     let Some(commit) = forge.commit(oid) else {
-        return parts::quiet(
-            id("forge-commit-loading"),
-            "Reading the commit…",
+        let query = forge.commit_query(oid);
+        let refusal = forge
+            .logs
+            .get(&query)
+            .and_then(|(log, _)| log.read(|log| log.failed().cloned()));
+        let Some(refusal) = refusal else {
+            return parts::quiet(
+                id("forge-commit-loading"),
+                "Reading the commit…",
+                ladder,
+                &theme,
+            )
+            .into_any_element();
+        };
+        let retry = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.retry(query.clone(), cx));
+        return design::refused(
+            "forge-commit",
+            design::sentence(&refusal),
             ladder,
             &theme,
+            retry,
         )
         .into_any_element();
     };
@@ -126,7 +130,7 @@ fn head(forge: &Forge, oid: &str, cx: &mut Context<Forge>) -> AnyElement {
             cx,
             (ladder, &theme),
         ) {
-            Ok(Reply::Diff { page, .. }) => file_rows(&page.items, cx, ladder, &theme),
+            Ok(Reply::Diff { page, .. }) => file_rows(&page.items, heads, cx, ladder, &theme),
             Ok(_) => Vec::new(),
             Err(state) => vec![state],
         },
@@ -160,7 +164,7 @@ fn facts(commit: &CommitInfo, ladder: &Ladder, theme: &Theme) -> Div {
         parts::when(commit.author.time)
     );
     let message = String::from_utf8_lossy(&commit.message).trim().to_owned();
-    let more = (message != parts::summary_of(commit)).then(|| {
+    let more = (message != summary_of(commit)).then(|| {
         div()
             .p(design::space::BLOCK)
             .text_type(ladder.secondary)
@@ -202,6 +206,7 @@ fn facts(commit: &CommitInfo, ladder: &Ladder, theme: &Theme) -> Div {
 /// nothing.
 fn file_rows(
     files: &[FileDiff],
+    heads: &[usize],
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
@@ -217,29 +222,17 @@ fn file_rows(
         );
         return vec![none.into_any_element()];
     }
-    let added: u64 = files.iter().map(|file| file.additions).sum();
-    let deleted: u64 = files.iter().map(|file| file.deletions).sum();
+    let (added, deleted) = totals(files);
     let head = design::section_head(id("forge-commit-files-head"), "Files", ladder, theme).child(
         parts::delta(&format!("{} · ", files.len()), added, deleted, theme),
     );
-    let mut at = 1;
-    let rows = files.iter().map(|file| {
-        let row = file_row(file, at, cx, ladder, theme).into_any_element();
-        at += 1 + rows_of(file);
-        row
-    });
+    let rows = files
+        .iter()
+        .zip(heads)
+        .map(|(file, at)| file_row(file, *at, cx, ladder, theme).into_any_element());
     std::iter::once(head.into_any_element())
         .chain(rows)
         .collect()
-}
-
-/// How many rows a file's diff takes after its head (`paint`): its
-/// hunks' heads and lines, or the one saying why it has none.
-fn rows_of(file: &FileDiff) -> usize {
-    match file.hunks.is_empty() {
-        true => 1,
-        false => file.hunks.iter().map(|hunk| 1 + hunk.lines.len()).sum(),
-    }
 }
 
 /// A file: its icon, its path in the data face, its delta; a press

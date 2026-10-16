@@ -1,5 +1,5 @@
 //! A markdown document on the phone (Expo `src/forge/Document.tsx`): the
-//! blocks `ui::markdown` parses, as the kit's text at the phone's scale.
+//! blocks `crate::markdown` parses, as the kit's text at the phone's scale.
 //! Blocks 10 apart in body text; headings medium on the heading and title
 //! roles; lists with mono markers; quotes muted behind a rule; code on
 //! `surface_raised`, highlighted, scrolling sideways; bold is medium.

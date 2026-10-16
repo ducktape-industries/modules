@@ -26,7 +26,7 @@ use super::review;
 use crate::Forge;
 use crate::highlight::{self, Token};
 use crate::id;
-use crate::select::path_of;
+use crate::select::{Published, path_of};
 use crate::state::Anchor;
 use crate::words::path_text;
 use crate::words::{self, file_status, why_no_lines};
@@ -67,17 +67,6 @@ pub(super) struct Line {
     pub(super) text: String,
     pub(super) tokens: Vec<(Range<usize>, Token)>,
     pub(super) ground: Ground,
-}
-
-/// A published line comment, under its line.
-#[derive(Clone)]
-pub(super) struct Published {
-    pub(super) anchor: Anchor,
-    pub(super) author: String,
-    pub(super) body: String,
-    pub(super) height: u64,
-    /// its review is pinned at a head the change has moved on from
-    pub(super) outdated: bool,
 }
 
 /// One row of a block.
@@ -162,7 +151,7 @@ pub(super) fn diff_rows(files: &[&FileDiff], notes: &Notes) -> Vec<Item> {
 fn file_rows(file: &FileDiff, notes: &Notes, rows: &mut Vec<Item>) {
     let path = path_of(file).unwrap_or_default();
     rows.push(Item::File {
-        path: file_header(file),
+        path: words::file_path(file),
         status: file_status(file.status),
         additions: file.additions,
         deletions: file.deletions,
@@ -185,10 +174,7 @@ fn file_rows(file: &FileDiff, notes: &Notes, rows: &mut Vec<Item>) {
     let mut tokens = highlight::tokens(&path_text(&path), &refs).into_iter();
     let mut texts = texts.into_iter();
     for hunk in &file.hunks {
-        rows.push(Item::Hunk(format!(
-            "@@ -{},{} +{},{} @@",
-            hunk.old.start, hunk.old.count, hunk.new.start, hunk.new.count
-        )));
+        rows.push(Item::Hunk(words::hunk(hunk)));
         for line in &hunk.lines {
             // anchored on the new side when the line has one
             let number = line.new_line.or(line.old_line);
@@ -211,14 +197,6 @@ fn file_rows(file: &FileDiff, notes: &Notes, rows: &mut Vec<Item>) {
             }));
             notes.under(&anchor, rows);
         }
-    }
-}
-
-/// A file's path, `old → new` once renamed (`paint`'s `header`).
-fn file_header(file: &FileDiff) -> String {
-    match (&file.old_path, &file.new_path) {
-        (Some(old), Some(new)) if old != new => format!("{} → {}", path_text(old), path_text(new)),
-        _ => path_text(&path_of(file).unwrap_or_default()),
     }
 }
 

@@ -6,6 +6,7 @@ use view::{Div, Paged, Stateful};
 
 use crate::Forge;
 use crate::queries::PAGE;
+use crate::select::summary_of;
 use crate::ui::components::{badge, button, empty_state, heading, id, quiet, short_hex};
 use crate::ui::{diff, fact, refused};
 use crate::words;
@@ -184,7 +185,7 @@ fn row(
                 .text_color(theme.muted)
                 .child(short_hex(&oid)),
         )
-        .cell(div().flex_1().truncate().child(summary(commit)))
+        .cell(div().flex_1().truncate().child(summary_of(commit)))
         .cell(quiet(
             String::from_utf8_lossy(&commit.author.name).into_owned(),
             theme,
@@ -249,14 +250,6 @@ fn authored(commit: &CommitInfo) -> String {
 /// The short commit id column.
 const OID_W: Pixels = px(100.);
 
-fn summary(commit: &CommitInfo) -> String {
-    String::from_utf8_lossy(&commit.message)
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .to_owned()
-}
-
 /// One commit's page: its facts over its diff against its first parent,
 /// with a Back to the log it was opened from.
 pub(crate) fn detail(
@@ -287,7 +280,7 @@ pub(crate) fn detail(
                 .border_color(theme.border)
                 .child(heading(
                     id("forge-commit-title"),
-                    commit.as_ref().map_or_else(|| short_hex(oid), summary),
+                    commit.as_ref().map_or_else(|| short_hex(oid), summary_of),
                     2,
                     theme,
                 ))
