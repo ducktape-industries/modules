@@ -4,10 +4,10 @@
 //! on screen with a promotion and a change of valset's code waiting.
 use programs::{Change, Entry, Scheduled};
 use valset::{Motion, Op};
-use view::live;
+use view::rig;
 
 fn main() {
-    live::run(valset::PROGRAM, |net| {
+    rig::run(valset::PROGRAM, |net| {
         let me = net.me();
         net.submit(me, valset::PROGRAM, &Op::Vote(Motion::Door { open: true }))?;
         let enroll = |host: &str| Op::Enroll {
@@ -37,7 +37,8 @@ fn main() {
                 params: Vec::new(),
             }),
         });
-        let programs = Motion::Programs {
+        let programs = Motion::Role {
+            role: abi::role::PROGRAMS.into(),
             op: abi::encode(&change),
         };
         net.submit(me, valset::PROGRAM, &Op::Vote(programs))
