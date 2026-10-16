@@ -619,11 +619,16 @@ fn a_refused_choice_has_its_own_line() {
     );
 }
 
-/// Whom it answers opens tall, its body scrolling (Expo opens it at 85%).
+/// Whom it answers opens tall, its body scrolling (Expo opens it at 85%);
+/// the agent's other sheets are as tall as what they hold.
 #[test]
 fn whom_it_answers_opens_tall_and_scrolls() {
     let mut cx = agents();
     cx.simulate_click("settings/agents/12");
+    let Some(wire::Node::Sheet { detents, .. }) = cx.find("settings/agents/12/sheet") else {
+        panic!("the agent's sheet")
+    };
+    assert!(detents.is_empty(), "the actions sheet fits: {detents:?}");
     cx.simulate_click("settings/agents/12/answers/open");
     let wire::Node::Sheet { detents, .. } = cx.node("settings/agents/12/sheet") else {
         panic!("the agent's sheet")

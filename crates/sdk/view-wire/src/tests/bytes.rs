@@ -179,3 +179,57 @@ fn bytes_after_the_value_are_refused() {
         "trailing MessagePack bytes"
     );
 }
+
+/// A text drawn in another case still crosses with its words as written. A
+/// text from a build before the field reads as drawn as written, and a
+/// transform this build does not know does not decode.
+#[test]
+fn a_text_transform_reads_absent_from_an_older_text_and_refused_unknown() {
+    #[derive(serde::Serialize)]
+    struct Before {
+        id: Option<ElementIdWire>,
+        style: StyleId,
+        content: String,
+    }
+    #[derive(serde::Serialize)]
+    enum Later {
+        Uppercase,
+        Sideways,
+    }
+    #[derive(serde::Serialize)]
+    struct After {
+        id: Option<ElementIdWire>,
+        style: StyleId,
+        content: String,
+        transform: Option<Later>,
+    }
+    let words = "Confirm a change";
+    let plain = TextNode {
+        id: None,
+        style: StyleId(0),
+        content: words.into(),
+        transform: None,
+    };
+    let before = Before {
+        id: None,
+        style: StyleId(0),
+        content: words.into(),
+    };
+    assert_eq!(decode::<TextNode>(&encode(&before)), Ok(plain.clone()));
+    let drawn = TextNode {
+        transform: Some(TextTransform::Uppercase),
+        ..plain
+    };
+    assert_eq!(decode::<TextNode>(&encode(&drawn)), Ok(drawn.clone()));
+    let later = |transform| After {
+        id: None,
+        style: StyleId(0),
+        content: words.into(),
+        transform: Some(transform),
+    };
+    assert_eq!(
+        decode::<TextNode>(&encode(&later(Later::Uppercase))),
+        Ok(drawn)
+    );
+    assert!(decode::<TextNode>(&encode(&later(Later::Sideways))).is_err());
+}

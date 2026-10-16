@@ -49,8 +49,10 @@ pub(super) fn screen(
             quiet("settings/invite/unsupported", NO_INVITES, ladder, theme).into_any_element()
         }
     };
-    // the view's first page: no Back of its own, the shell's capsule closes it
-    let page = design::page(PAGE, "Account", Nav::Root, ladder, theme);
+    // Expo's Account screen is a page with Back (`app/account/index.tsx:38`);
+    // here the shell's capsule closes it, so it is a child page with no Back
+    // of its own. It is the account place itself: it draws no avatar.
+    let page = design::page(PAGE, "Account", Nav::Child, ladder, theme);
     // SDK gap: the network caption, swap when the SDK builds it (kit.md §2)
     let page = match words::network(&view.session) {
         Some(network) => page.caption(network.to_owned()),

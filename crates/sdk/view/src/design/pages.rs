@@ -72,16 +72,34 @@ impl<P> Pages<P> {
 /// Back).
 pub const CAPSULE_CLEARANCE: Pixels = px(96.);
 
+/// The key of one part of page `id`: `{id}-{part}`.
+fn named(id: &ElementId, part: &str) -> ElementId {
+    ElementId::Name(format!("{id}-{part}").into())
+}
+
 /// Where a [`page`] sits in its view's stack, said at every [`page`]
 /// call, so a first page cannot be drawn as a child page by leaving
 /// something out. Chosen from the stack's depth:
-/// `match pages.depth() { 0 => Nav::Root, _ => Nav::back(pop) }`.
+/// `match pages.depth() { 0 => Nav::root(reader), _ => Nav::back(pop) }`.
 pub enum Nav {
-    /// The view's first page (the Expo kit's `Header` `root`,
-    /// `Header.tsx:19-23`): under a finger its title is
-    /// [`Ladder::big_title`] and its hairline clear (`Header.tsx:41`,
-    /// `:59`). A pointer draws it as a [`Nav::Child`].
-    Root,
+    /// The view's first page and the reader on it (the Expo kit's
+    /// `Header` `root={{ name }}`, `Header.tsx:19-23`). Under a finger its
+    /// title is [`Ladder::big_title`], its hairline clear (`Header.tsx:41`,
+    /// `:59`), and the reader's avatar leads the row (`{id}-account`,
+    /// [`Ladder::avatar`] in a [`Ladder::hit`] box, named "Account", no
+    /// dim on a press, as Expo's `Pressable` at `Header.tsx:46-54` sets
+    /// none). A press asks the host to bring up the reader's account
+    /// (`host.show` [`Place::Account`], so the view declares
+    /// `Capability::Host`) as a `notify`: a refusal (no account to show, a
+    /// host older than `host.show`) is silent and the press does nothing.
+    /// No other page draws the avatar. A pointer draws the first page as
+    /// a [`Nav::Child`], with no avatar.
+    ///
+    /// The name is the reader's account name, read as the view reads any
+    /// account's name (the session names only the account number). While
+    /// it is still being read it is empty, and the avatar draws `•`
+    /// ([`initial`](super::initial)).
+    Root(SharedString),
     /// A page under another, and the way back to it: a control
     /// (`{id}-back`, [`Ladder::hit`] each way, named "Back") that runs the
     /// listener. Under a finger it is the Expo kit's header `Hit` with the
@@ -96,6 +114,10 @@ pub enum Nav {
 }
 
 impl Nav {
+    /// [`Nav::Root`] with the reader's account name.
+    pub fn root(reader: impl Into<SharedString>) -> Self {
+        Self::Root(reader.into())
+    }
     /// [`Nav::Back`] running `back`.
     pub fn back(back: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         Self::Back(Box::new(back))
@@ -103,11 +125,11 @@ impl Nav {
 }
 
 /// One page's frame: a title row (`{id}-title`, [`Ladder::header`] tall)
-/// with the heading (`{id}-heading`, truncating), its Back by `nav`, what
-/// the page adds beside it ([`Page::leading`], [`Page::caption`],
-/// [`Page::trailing`]), over the children, which fill the rest:
-/// `design::page("rooms", top, match pages.depth() { 0 => Nav::Root, _ =>
-/// Nav::back(pop) }, &ladder, &theme)`.
+/// with the heading (`{id}-heading`, truncating), its Back or the reader's
+/// avatar by `nav`, what the page adds beside it ([`Page::leading`],
+/// [`Page::caption`], [`Page::trailing`]), over the children, which fill
+/// the rest: `design::page("rooms", top, match pages.depth() { 0 =>
+/// Nav::root(reader), _ => Nav::back(pop) }, &ladder, &theme)`.
 ///
 /// Under a finger the row is the Expo kit's `Header` (`Header.tsx:28-73`):
 /// 56 tall, 8 in, 4 between its parts, a hairline under it, the title in
@@ -120,8 +142,11 @@ pub fn page(
     theme: &Theme,
 ) -> Page {
     let id = id.into();
-    let (root, back) = match nav {
-        Nav::Root => (true, None),
+    let (root, nav) = match nav {
+        Nav::Root(reader) => (
+            true,
+            ladder.touch.then(|| account(&id, &reader, ladder, theme)),
+        ),
         Nav::Back(back) => (false, Some(back_control(&id, back, ladder, theme))),
         Nav::Child => (false, None),
     };
@@ -130,13 +155,33 @@ pub fn page(
         root,
         title: title.into(),
         caption: None,
-        back,
+        nav,
         leading: Vec::new(),
         trailing: Vec::new(),
         ladder: *ladder,
         theme: *theme,
         body: Vec::new(),
     }
+}
+
+/// The reader's avatar on a first page under a finger ([`Nav::Root`]).
+fn account(id: &ElementId, reader: &str, ladder: &Ladder, theme: &Theme) -> AnyElement {
+    let show = |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+        cx.host().notify::<HostShow>(Place::Account);
+    };
+    div()
+        .id(named(id, "account"))
+        .size(ladder.hit)
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .role(Role::Button)
+        .aria_label("Account")
+        .focusable()
+        .on_click(show)
+        .child(super::avatar(reader, ladder.avatar, theme))
+        .into_any_element()
 }
 
 /// A page's Back control ([`Nav::Back`]).
@@ -147,7 +192,7 @@ fn back_control(
     theme: &Theme,
 ) -> AnyElement {
     let theme = *theme;
-    let id = ElementId::Name(format!("{id}-back").into());
+    let id = named(id, "back");
     match ladder.touch {
         true => super::icon_button(
             id,
@@ -181,7 +226,8 @@ fn back_control(
 /// A [`page`] being filled: its children go under the title row, in a
 /// column that takes the rest of the page's height. The title row is
 /// built when the page is drawn, so its slots can land after [`page`]:
-/// its Back and [`leading`](Self::leading) first, the words
+/// its Back or the reader's avatar and [`leading`](Self::leading) first,
+/// the words
 /// (the heading over a [`caption`](Self::caption)) taking the slack and
 /// truncating, then [`trailing`](Self::trailing), before what the row
 /// keeps clear for the capsule under touch.
@@ -191,7 +237,8 @@ pub struct Page {
     root: bool,
     title: SharedString,
     caption: Option<SharedString>,
-    back: Option<AnyElement>,
+    /// Back, or the reader's avatar on a first page under a finger
+    nav: Option<AnyElement>,
     leading: Vec<AnyElement>,
     trailing: Vec<AnyElement>,
     ladder: Ladder,
@@ -206,7 +253,8 @@ impl Page {
         self.caption = Some(caption.into());
         self
     }
-    /// An element before the heading, after Back: a person's avatar.
+    /// An element before the heading, after Back: another person's avatar
+    /// (a DM room's peer).
     pub fn leading(mut self, element: impl IntoElement) -> Self {
         self.leading.push(element.into_any_element());
         self
@@ -231,7 +279,6 @@ impl IntoElement for Page {
     type Element = Stateful<Div>;
     fn into_element(self) -> Self::Element {
         let (ladder, theme, id, root) = (self.ladder, self.theme, self.id, self.root);
-        let named = |suffix: &str| ElementId::Name(format!("{id}-{suffix}").into());
         let title = match (ladder.touch, root) {
             (true, true) => ladder.big_title,
             _ => ladder.title,
@@ -242,21 +289,21 @@ impl IntoElement for Page {
             .flex()
             .flex_col()
             .child(
-                heading(named("heading"), self.title, 1, &theme)
+                heading(named(&id, "heading"), self.title, 1, &theme)
                     .truncate()
                     .text_type(title)
                     .when(ladder.touch, |title| title.font_weight(FontWeight::MEDIUM)),
             )
             .children(self.caption.map(|caption| {
                 div()
-                    .id(named("caption"))
+                    .id(named(&id, "caption"))
                     .text_type(ladder.caption)
                     .text_color(theme.muted)
                     .truncate()
                     .child(caption)
             }));
         let title_row = div()
-            .id(named("title"))
+            .id(named(&id, "title"))
             .flex_none()
             .min_h(ladder.header)
             .flex()
@@ -278,7 +325,7 @@ impl IntoElement for Page {
                     }),
                 false => row.gap(space::SM).px(space::LG),
             })
-            .children(self.back)
+            .children(self.nav)
             .map(|row| match ladder.touch {
                 // the kit's title block (`Header.tsx:57`): 8 in, an avatar 8
                 // from the words

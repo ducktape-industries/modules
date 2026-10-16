@@ -462,8 +462,8 @@ impl Input {
     }
     /// The keyboard that opens: numbers for a member number, a URL
     /// keyboard for an address.
-    pub fn virtual_keyboard(mut self, keyboard: wire::VirtualKeyboard) -> Self {
-        self.options.text_input.virtual_keyboard = keyboard;
+    pub fn virtual_keyboard(mut self, keyboard: gpui::VirtualKeyboard) -> Self {
+        self.options.text_input.virtual_keyboard = keyboard.into();
         self
     }
 
@@ -620,7 +620,7 @@ impl Textarea {
         Self(self.0.input_action(action))
     }
     /// See [`Input::virtual_keyboard`].
-    pub fn virtual_keyboard(self, keyboard: wire::VirtualKeyboard) -> Self {
+    pub fn virtual_keyboard(self, keyboard: gpui::VirtualKeyboard) -> Self {
         Self(self.0.virtual_keyboard(keyboard))
     }
 
@@ -716,7 +716,32 @@ impl Element for SharedString {
             id: None,
             style: lowering.no_style(),
             content: self.to_string(),
+            transform: None,
         })
+    }
+}
+
+/// Words the host draws in capitals and names as written (CSS
+/// `text-transform: uppercase`). Built by [`crate::design::eyebrow`], the
+/// one role set in capitals.
+pub(crate) struct Capitals(pub(crate) SharedString);
+
+impl Element for Capitals {
+    fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
+        wire::Node::Text(crate::wire::TextNode {
+            id: None,
+            style: lowering.no_style(),
+            content: self.0.to_string(),
+            transform: Some(crate::wire::TextTransform::Uppercase),
+        })
+    }
+}
+
+impl IntoElement for Capitals {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
     }
 }
 

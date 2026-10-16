@@ -52,7 +52,13 @@ pub(super) fn page(
         window.focus(FILTER_ID);
         cx.notify();
     });
-    let page = design::page("members-roster", words::MEMBERS, Nav::Root, ladder, theme);
+    let page = design::page(
+        "members-roster",
+        words::MEMBERS,
+        Nav::root(reader(view)),
+        ladder,
+        theme,
+    );
     // SDK gap: the network caption; the SDK builds it later
     let page = match view.network() {
         "" => page,
@@ -68,6 +74,16 @@ pub(super) fn page(
     ))
     .child(body)
     .into_any_element()
+}
+
+/// The reader's name for the first page's avatar, as the roster names
+/// their account (Expo `members/index.tsx:84` `me.name`); empty until the
+/// session and the roster both say who the reader is.
+fn reader(view: &Members) -> String {
+    let rows = view.rows.ready().map(Vec::as_slice).unwrap_or_default();
+    view.me
+        .and_then(|me| rows.iter().find(|row| row.number == me))
+        .map_or_else(String::new, |row| row.name.clone())
 }
 
 /// The title row while the filter is open (the kit's `Header` with its
