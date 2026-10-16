@@ -33,12 +33,11 @@ impl Render for Phone {
             view.pages.pop();
             cx.notify();
         };
-        let page = design::page("rooms", self.pages.top().clone(), &ladder, &theme);
-        let page = match depth {
-            0 => page.root(),
-            _ => page.back(cx.listener(move |view, _: &ClickEvent, _, cx| pop(view, cx))),
-        };
-        let page = page
+        let page = design::page("rooms", self.pages.top().clone(), &ladder, &theme)
+            .map(|page| match depth {
+                0 => page.root(),
+                _ => page.back(cx.listener(move |view, _: &ClickEvent, _, cx| pop(view, cx))),
+            })
             .caption(format!("{} deep", depth))
             .leading(div().id("avatar").size(ladder.avatar.side).rounded_full())
             .trailing(design::button(
@@ -180,6 +179,23 @@ fn page_draws_back_by_the_ladder_and_clears_the_capsule_under_touch() {
     assert_eq!(height(&cx), Some(design::TOUCH.header.into()));
 }
 
+/// A pointer draws a root page as any other: `.root()` changes nothing
+/// on the desktop's title row.
+#[test]
+fn under_a_pointer_a_root_page_is_drawn_as_any_page() {
+    let mut cx = TestAppContext::new();
+    cx.open::<Phone>();
+    let row = |cx: &TestAppContext| {
+        let row = cx.style("rooms-title");
+        let heading = cx.style("rooms-heading").text.clone();
+        (row.border_widths.bottom, row.min_size.height, heading)
+    };
+    let root = row(&cx);
+    cx.simulate_click("Open");
+    assert!(cx.find("rooms-back").is_some(), "a page under the root");
+    assert_eq!(row(&cx), root);
+}
+
 /// Under a finger the title row is the Expo kit's `Header`: a first page's
 /// title is the big one over a clear hairline; a page with Back has the
 /// 17 medium title, the hairline in `border`, and the Lucide arrow in a 44
@@ -198,7 +214,7 @@ fn under_touch_a_page_is_the_expo_header() {
         let row = cx.style("rooms-title");
         (row.border_widths.bottom, row.border_color)
     };
-    let clear = crate::hsla(0., 0., 0., 0.);
+    let clear = crate::Hsla::transparent_black();
     assert_eq!(hairline(&cx), (Some(px(1.).into()), Some(clear)));
     cx.simulate_click("Open");
     let detail = text(&cx, "rooms-heading");
@@ -342,25 +358,15 @@ fn loose_chip(row: f32) -> Stateful<Div> {
     )
 }
 
+/// [`loose_chip`] in a row `ROW` tall.
 #[derive(Default, Serialize, Deserialize)]
-struct LooseChipInATallRow;
-impl View for LooseChipInATallRow {
-    const NAME: &'static str = "LooseChipInATallRow";
+struct LooseChip<const ROW: u16>;
+impl<const ROW: u16> View for LooseChip<ROW> {
+    const NAME: &'static str = "LooseChip";
 }
-impl Render for LooseChipInATallRow {
+impl<const ROW: u16> Render for LooseChip<ROW> {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        loose_chip(48.)
-    }
-}
-
-#[derive(Default, Serialize, Deserialize)]
-struct LooseChipInAShortRow;
-impl View for LooseChipInAShortRow {
-    const NAME: &'static str = "LooseChipInAShortRow";
-}
-impl Render for LooseChipInAShortRow {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        loose_chip(30.)
+        loose_chip(f32::from(ROW))
     }
 }
 
@@ -368,7 +374,7 @@ impl Render for LooseChipInAShortRow {
 #[should_panic(expected = "a press box reaches past a parent that declares no height")]
 fn a_hit_in_a_chip_of_no_declared_height_does_not_fit_in_a_tall_row() {
     let mut cx = TestAppContext::new();
-    cx.open::<LooseChipInATallRow>();
+    cx.open::<LooseChip<48>>();
     testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
 }
 
@@ -376,7 +382,7 @@ fn a_hit_in_a_chip_of_no_declared_height_does_not_fit_in_a_tall_row() {
 #[should_panic(expected = "a press box reaches past a parent that declares no height")]
 fn a_hit_in_a_chip_of_no_declared_height_does_not_fit_in_a_short_row() {
     let mut cx = TestAppContext::new();
-    cx.open::<LooseChipInAShortRow>();
+    cx.open::<LooseChip<30>>();
     testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
 }
 

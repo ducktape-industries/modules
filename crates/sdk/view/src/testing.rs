@@ -246,6 +246,13 @@ pub fn sweep(cx: &mut TestAppContext, mut drive: impl FnMut(&mut TestAppContext)
     cx.fits = None;
 }
 
+/// How tall a press is, as [`assert_fits`] reads its declared sizes.
+enum Press {
+    Declared(f32),
+    Undeclared,
+    ReachesPastAnUndeclaredParent,
+}
+
 /// Panics listing each node that does not fit a body `width` wide under
 /// `ladder`: a fixed or minimum width past `width`; a pressable node (a
 /// click route, a field) whose height is under `ladder.hit`, or that is
@@ -293,6 +300,31 @@ pub fn assert_fits(
         }
         Some(px_of(&style.inset.top)? + px_of(&style.inset.bottom)?)
     };
+    // how tall the last node of `chain` presses: its own declared height;
+    // for a box reaching past its parent (`design::hit`), the parent's and
+    // the reach; else the nearest declared row above it, less what it is
+    // pinned in by
+    let press_height = |chain: &[&Node]| {
+        let node = *chain.last().expect("a chain ends at its node");
+        if let Some(own) = height_of(node) {
+            return Press::Declared(own);
+        }
+        let reach = pinned(node).filter(|insets| *insets < 0.).map(f32::abs);
+        let parent = chain.iter().rev().nth(1).copied();
+        let height = match reach {
+            Some(reach) => match parent.and_then(&height_of) {
+                Some(parent) => Some(parent + reach),
+                None => return Press::ReachesPastAnUndeclaredParent,
+            },
+            None => chain
+                .iter()
+                .rev()
+                .skip(1)
+                .find_map(|node| height_of(node))
+                .map(|above| above - pinned(node).unwrap_or(0.)),
+        };
+        height.map_or(Press::Undeclared, Press::Declared)
+    };
     chain(tree, &mut |chain| {
         let node = *chain.last().unwrap();
         let path = || {
@@ -322,28 +354,16 @@ pub fn assert_fits(
             if invisible {
                 faults.push(format!("a pressable node is invisible at {}", path()));
             }
-            let parent = chain.len().checked_sub(2).map(|at| chain[at]);
-            let reach = pinned(node).filter(|insets| *insets < 0.);
-            let nearest = match (height_of(node), reach) {
-                (Some(own), _) => Some(own),
-                (None, Some(reach)) => parent.and_then(&height_of).map(|h| h - reach),
-                (None, None) => chain
-                    .iter()
-                    .rev()
-                    .skip(1)
-                    .find_map(|node| height_of(node))
-                    .map(|above| above - pinned(node).unwrap_or(0.)),
-            };
-            if reach.is_some() && nearest.is_none() {
-                faults.push(format!(
+            match press_height(chain) {
+                Press::Declared(height) if height >= hit => {}
+                Press::ReachesPastAnUndeclaredParent => faults.push(format!(
                     "a press box reaches past a parent that declares no height at {}",
                     path()
-                ));
-            } else if !nearest.is_some_and(|h| h >= hit) {
-                faults.push(format!(
+                )),
+                Press::Declared(_) | Press::Undeclared => faults.push(format!(
                     "a pressable node declares no height of at least {hit} (itself or the nearest row above it that declares one) at {}",
                     path()
-                ));
+                )),
             }
         }
         if let Node::Field {

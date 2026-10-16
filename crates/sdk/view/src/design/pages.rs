@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Ladder, TextType, heading, space};
 use crate::prelude::*;
-use crate::{AnyElement, Div, FontWeight, Stateful};
+use crate::{AnyElement, Div, FontWeight, Hsla, Stateful};
 use gpui::SharedString;
 
 /// The view's own route stack, newest last: part of the view's state, so
@@ -74,14 +74,18 @@ pub const CAPSULE_CLEARANCE: Pixels = px(96.);
 /// One page's frame: a title row (`{id}-title`, [`Ladder::header`] tall)
 /// with the heading (`{id}-heading`, truncating), what the page adds
 /// beside it ([`Page::back`], [`Page::leading`], [`Page::caption`],
-/// [`Page::trailing`]), over the children, which fill the rest:
-/// `design::page("rooms", "Chat", &ladder, &theme).root()` for a view's
-/// first page, `design::page("room", name, &ladder, &theme).back(pop)` for
-/// one under it.
+/// [`Page::trailing`]), over the children, which fill the rest. A view's
+/// first page is [`Page::root`], one under it has [`Page::back`], chosen
+/// from the stack's depth:
+/// `design::page("rooms", top, &ladder, &theme).map(|page| match
+/// pages.depth() { 0 => page.root(), _ => page.back(pop) })`.
 ///
 /// Under a finger the row is the Expo kit's `Header` (`Header.tsx:28-73`):
 /// 56 tall, 8 in, 4 between its parts, a hairline under it, the title in
-/// [`Ladder::title`] medium.
+/// [`Ladder::title`] medium. A page with neither is drawn as one under the
+/// root with no way back: the 17 title over the hairline, and no Back (the
+/// Expo `Header`'s `back` and `root` are independent props,
+/// `Header.tsx:16`, `:23`).
 pub fn page(
     id: impl Into<ElementId>,
     title: impl Into<SharedString>,
@@ -127,7 +131,9 @@ impl Page {
     /// The way back to the page under this one: a control (`{id}-back`,
     /// [`Ladder::hit`] each way, named "Back") that runs `back`. Under a
     /// finger it is the Expo kit's header `Hit` with the Lucide arrow
-    /// (`Header.tsx:45`); under a pointer a `‹` at the title size.
+    /// (`Header.tsx:45`); under a pointer a `‹` at the title size. The
+    /// phone's own Back is not this: it is the view root's `on_back` (SPEC
+    /// §9 rule 13). Set both from the same `pages.depth() > 0`.
     pub fn back(mut self, back: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         let (ladder, theme) = (self.ladder, self.theme);
         let id = ElementId::Name(format!("{}-back", self.id).into());
@@ -188,6 +194,8 @@ impl Page {
     }
 }
 
+impl gpui::prelude::FluentBuilder for Page {}
+
 impl ParentElement for Page {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
         self.body.extend(elements);
@@ -230,7 +238,9 @@ impl IntoElement for Page {
             .items_center()
             .map(|row| match ladder.touch {
                 // its own band (`Header.tsx:33-43`): the body scrolls under
-                // it, never through it; a root's hairline is there but clear
+                // it, never through it. A root's hairline is drawn clear
+                // (`Header.tsx:40-41`), so the row is one height on every
+                // page and the title does not move when the stack deepens.
                 true => row
                     .gap(space::XXS)
                     .px(space::SM)
@@ -238,7 +248,7 @@ impl IntoElement for Page {
                     .bg(theme.background)
                     .border_b_1()
                     .border_color(match root {
-                        true => crate::hsla(0., 0., 0., 0.),
+                        true => Hsla::transparent_black(),
                         false => theme.border,
                     }),
                 false => row.gap(space::SM).px(space::LG),
