@@ -26,5 +26,5 @@ ducklink.workspace = true
 # Typed fake-host tests use the program contracts.
 [dev-dependencies]
 # `examples/live.rs`: the view in the real app over the fake node
-view = { workspace = true, features = ["live"] }
+view = { workspace = true, features = ["rig"] }
 abi.workspace = true

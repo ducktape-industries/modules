@@ -82,7 +82,11 @@ fn serves(ctx: &QueryCtx, service: &str) -> Result<bool, Error> {
 }
 
 async fn request(ctx: &Ctx, request: egress::Request, wait: Option<u64>) -> Result<Vec<u8>, Error> {
-    let op = egress::Op::Request { request, wait };
+    let op = egress::Op::Request {
+        request,
+        delivery: egress::Delivery::Whole,
+        wait,
+    };
     ctx.call_raw(bound(ctx)?, abi::encode(&op)).await
 }
 

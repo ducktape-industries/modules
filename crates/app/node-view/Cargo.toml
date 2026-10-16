@@ -23,5 +23,5 @@ serde.workspace = true
 
 [dev-dependencies]
 # `examples/live.rs`: the view in the real app over the fake node
-view = { workspace = true, features = ["live"] }
+view = { workspace = true, features = ["rig"] }
 serde_json.workspace = true

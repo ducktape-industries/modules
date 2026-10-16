@@ -422,13 +422,16 @@ fn a_member_leaves_and_a_stranger_cannot() {
 }
 
 #[test]
-fn a_programs_motion_emits_its_op_to_the_programs_once_enacted() {
+fn a_role_motion_sends_its_op_to_the_role_once_enacted_and_takes_its_refusal() {
     let store = founded();
     let op = abi::encode(&programs::Op::Cancel {
         height: 1_000,
         program: "chat".into(),
     });
-    let motion = Motion::Programs { op: op.clone() };
+    let motion = Motion::Role {
+        role: abi::role::PROGRAMS.into(),
+        op: op.clone(),
+    };
     vote(&store, 1, motion.clone()).unwrap();
     assert!(store.take_emissions().is_empty());
     assert_eq!(vote(&store, 2, motion).unwrap(), Voted::Enacted);
@@ -436,7 +439,75 @@ fn a_programs_motion_emits_its_op_to_the_programs_once_enacted() {
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].target, MockHost::role(abi::role::PROGRAMS));
     assert_eq!(sent[0].payload, op);
-    assert!(!sent[0].reply);
+    // its refusal comes back as the reply, and the vote that enacted it stands
+    assert!(sent[0].reply);
+    let ctx = store.exec(env(Origin::Program(MockHost::role(abi::role::PROGRAMS))));
+    let refused = ::program::Outcome::Rejected(Error::new(code::NOT_FOUND, "no such change"));
+    let id = ::program::MessageId {
+        program: crate::PROGRAM.into(),
+        seq: 0,
+    };
+    assert_eq!(Valset::reply(&ctx, &id, &refused), Ok(()));
+    assert!(motions(&store, 3).1.is_empty());
+}
+
+#[test]
+fn a_halo_role_motion_sends_its_op_to_the_halo_once_enacted() {
+    let store = founded();
+    let lanes = MockHost::default();
+    let founding = halo::Genesis { lanes: Vec::new() };
+    halo::Halo::init(
+        &lanes.exec(MockHost::env(halo::PROGRAM).root()),
+        &abi::encode(&founding),
+    )
+    .unwrap();
+    store.sibling::<halo::Halo>(MockHost::role(abi::role::HALO), &lanes);
+    let op = abi::encode(&halo::Op::Open {
+        name: "chat".into(),
+        cap: halo::Class::Member,
+    });
+    let motion = Motion::Role {
+        role: abi::role::HALO.into(),
+        op: op.clone(),
+    };
+    vote(&store, 1, motion.clone()).unwrap();
+    assert!(store.take_emissions().is_empty());
+    assert_eq!(vote(&store, 2, motion).unwrap(), Voted::Enacted);
+    let sent = store.take_emissions();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].target, MockHost::role(abi::role::HALO));
+    assert_eq!(sent[0].payload, op);
+    assert!(sent[0].reply);
+}
+
+#[test]
+fn a_bind_motion_binds_or_unbinds_a_role_and_never_a_required_one() {
+    let store = founded();
+    let bind = Motion::Bind {
+        role: abi::role::EGRESS.into(),
+        program: Some("egress-b".into()),
+    };
+    pass(&store, &[1, 2], bind);
+    let unbind = Motion::Bind {
+        role: abi::role::EGRESS.into(),
+        program: None,
+    };
+    pass(&store, &[1, 2], unbind);
+    assert_eq!(
+        store.take_binds(),
+        [
+            (abi::role::EGRESS.to_owned(), Some("egress-b".into())),
+            (abi::role::EGRESS.to_owned(), None),
+        ]
+    );
+    for role in abi::role::REQUIRED {
+        let rebind = Motion::Bind {
+            role: role.to_string(),
+            program: Some("other".into()),
+        };
+        assert_eq!(refused(&store, 1, Op::Vote(rebind)), code::INVALID_INPUT);
+    }
+    assert!(motions(&store, 3).1.is_empty());
 }
 
 #[test]
@@ -608,15 +679,21 @@ fn counted(votes: u64) -> Voted {
     Voted::Counted { votes, needed: 3 }
 }
 
+/// A `Role` motion of `op` for the program bound to the programs role.
+fn programs_role(op: &programs::Op) -> Motion {
+    Motion::Role {
+        role: abi::role::PROGRAMS.into(),
+        op: abi::encode(op),
+    }
+}
+
 /// A `programs` op scheduling chat's removal at `height`.
 fn schedule(height: u64) -> Motion {
     let op = programs::Op::Schedule(Scheduled {
         height,
         change: Change::Remove("chat".into()),
     });
-    Motion::Programs {
-        op: abi::encode(&op),
-    }
+    programs_role(&op)
 }
 
 #[test]
@@ -709,32 +786,39 @@ fn cancel(height: u64) -> Motion {
         height,
         program: "chat".into(),
     };
-    Motion::Programs {
-        op: abi::encode(&op),
-    }
+    programs_role(&op)
 }
 
+/// valset reads no role's op: one too late to land, one the programs would refuse and bytes
+/// that are no op are counted like any other, for the role's program to refuse when the
+/// vote passes. Only a role the network does not bind is refused, before whom the frame
+/// votes for is asked.
 #[test]
-fn a_programs_op_that_cannot_land_is_refused_at_the_first_vote() {
+fn a_role_motion_is_counted_unread_and_refused_only_for_an_unbound_role() {
     let store = delegated();
     // the block is at height 3
-    for late in [schedule(3), schedule(2), cancel(3), cancel(1)] {
-        assert_eq!(refused(&store, 1, Op::Vote(late)), code::INVALID_INPUT);
-    }
-    let late = device(&store, 20, ADA, schedule(2)).unwrap_err();
-    assert_eq!(late.code, code::INVALID_INPUT);
-    let garbage = Motion::Programs {
+    assert_eq!(vote(&store, 1, schedule(2)).unwrap(), counted(1));
+    assert_eq!(vote(&store, 1, cancel(1)).unwrap(), counted(1));
+    let bad = grant(programs::Scope::Program("valset".into()), BOB, false);
+    assert_eq!(vote(&store, 1, bad).unwrap(), counted(1));
+    let garbage = Motion::Role {
+        role: abi::role::PROGRAMS.into(),
         op: b"not an op".to_vec(),
     };
-    assert_eq!(refused(&store, 1, Op::Vote(garbage)), code::INVALID_INPUT);
-    assert!(motions(&store, 3).1.is_empty());
-    assert_eq!(vote(&store, 1, schedule(4)).unwrap(), counted(1));
-    assert_eq!(vote(&store, 1, cancel(4)).unwrap(), counted(1));
-    // checked before whom the frame votes for: no identity is seated
-    // here, so asking it would be refused another way
+    assert_eq!(vote(&store, 1, garbage).unwrap(), counted(1));
+    assert_eq!(motions(&store, 3).1.len(), 4);
+    let unbound = Motion::Role {
+        role: "ledger".into(),
+        op: Vec::new(),
+    };
+    assert_eq!(
+        refused(&store, 1, Op::Vote(unbound.clone())),
+        code::UNSUPPORTED
+    );
+    // no identity is seated here, so asking it would be refused another way
     let store = founded();
-    let unread = device(&store, 20, ADA, cancel(2)).unwrap_err();
-    assert_eq!(unread.code, code::INVALID_INPUT);
+    let unread = device(&store, 20, ADA, unbound).unwrap_err();
+    assert_eq!(unread.code, code::UNSUPPORTED);
 }
 
 #[test]
@@ -757,27 +841,15 @@ fn an_identity_that_answers_the_account_but_refuses_its_profile_fails_the_vote()
 }
 
 #[test]
-fn motions_too_late_to_land_take_no_slot_of_a_page() {
+fn a_page_of_motions_cut_short_resumes_past_what_it_answered() {
     let store = delegated();
     for height in [4, 5, 9] {
         vote(&store, 1, schedule(height)).unwrap();
     }
     let at = Env {
-        height: 6,
+        height: 3,
         ..env(Origin::Root)
     };
-    let first = Query::Motions {
-        page: PageRequest::first(1),
-    };
-    let Reply::Motions { page, .. } = Valset::query(&store.query(at.clone()), first).unwrap()
-    else {
-        panic!()
-    };
-    assert_eq!(page.items.len(), 1);
-    assert_eq!(page.items[0].motion, schedule(9));
-    assert_eq!(page.next, None);
-    // a page cut short resumes past what it answered
-    let at = Env { height: 3, ..at };
     let first = Query::Motions {
         page: PageRequest::first(2),
     };
@@ -821,8 +893,8 @@ fn motions_list_what_vote_stored_and_voices_are_the_set_vote_uses() {
             },
         ]
     );
-    // at the change's height it can no longer land: left out
-    assert_eq!(motions(&store, 5).1.len(), 1);
+    // past the change's height it still waits: the programs refuse it when it passes
+    assert_eq!(motions(&store, 9).1.len(), 2);
     // a voter unseated drops out of the list as out of the tally
     pass(&store, &[1, 2, 3], Motion::Remove { key: key(4) });
     let (needed, pending) = motions(&store, 3);
@@ -840,48 +912,63 @@ fn grant(scope: programs::Scope, account: AccountNumber, revoke: bool) -> Motion
         false => programs::Op::Grant(grant),
         true => programs::Op::Revoke(grant),
     };
-    Motion::Programs {
-        op: abi::encode(&op),
-    }
-}
-
-#[test]
-fn a_grant_the_programs_would_refuse_is_refused_at_the_first_vote() {
-    use programs::Scope;
-    let store = delegated();
-    for bad in [
-        grant(Scope::All, 99, false),
-        grant(Scope::Program("valset".into()), BOB, false),
-        grant(Scope::Program("Chat".into()), BOB, false),
-    ] {
-        assert_eq!(refused(&store, 1, Op::Vote(bad)), code::INVALID_INPUT);
-    }
-    assert!(motions(&store, 3).1.is_empty());
-    let good = grant(Scope::Program("trade".into()), BOB, false);
-    assert_eq!(vote(&store, 1, good.clone()).unwrap(), counted(1));
-    // a revoke is never refused: its holder may have stepped down first
-    assert_eq!(
-        vote(&store, 1, grant(Scope::All, 99, true)).unwrap(),
-        counted(1)
-    );
-    let waiting = motions(&store, 3).1;
-    assert!(waiting.iter().any(|pending| pending.motion == good));
-    assert_eq!(waiting.len(), 2);
+    programs_role(&op)
 }
 
 #[test]
 fn a_programs_vote_is_described_in_the_programss_words() {
-    let Motion::Programs { op } = schedule(9) else {
+    let Motion::Role { op, .. } = schedule(9) else {
         unreachable!()
     };
     let programs = programs::describe(&abi::decode(&op).unwrap());
     let described = crate::describe(&Op::Vote(schedule(9)));
     assert_eq!(described.title, "Vote · Schedule · chat");
     assert_eq!(described.fields, programs.fields);
-    let garbage = Op::Vote(Motion::Programs {
+    let garbage = Op::Vote(Motion::Role {
+        role: abi::role::PROGRAMS.into(),
         op: b"not an op".to_vec(),
     });
     let described = crate::describe(&garbage);
     assert_eq!(described.title, "Vote · programs");
     assert_eq!(described.fields[0].label, "op");
+}
+
+#[test]
+fn a_halo_vote_is_described_in_the_halos_words() {
+    let op = halo::Op::Close {
+        name: "chat".into(),
+    };
+    let described = crate::describe(&Op::Vote(Motion::Role {
+        role: abi::role::HALO.into(),
+        op: abi::encode(&op),
+    }));
+    assert_eq!(described.title, "Vote · Close lane · chat");
+    assert_eq!(described.fields, halo::describe(&op).fields);
+    let garbage = Op::Vote(Motion::Role {
+        role: abi::role::HALO.into(),
+        op: b"not an op".to_vec(),
+    });
+    let described = crate::describe(&garbage);
+    assert_eq!(described.title, "Vote · halo");
+    assert_eq!(described.fields[0].label, "op");
+}
+
+#[test]
+fn a_bind_and_another_roles_op_are_described_by_the_role_name() {
+    let title = |motion: Motion| crate::describe(&Op::Vote(motion)).title;
+    let bind = Motion::Bind {
+        role: abi::role::EGRESS.into(),
+        program: Some("egress".into()),
+    };
+    assert_eq!(title(bind), "Vote · bind egress to egress");
+    let unbind = Motion::Bind {
+        role: abi::role::SCHEDULER.into(),
+        program: None,
+    };
+    assert_eq!(title(unbind), "Vote · unbind scheduler");
+    let other = Motion::Role {
+        role: abi::role::EGRESS.into(),
+        op: vec![1],
+    };
+    assert_eq!(title(other), "Vote · egress");
 }

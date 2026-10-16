@@ -324,8 +324,7 @@ pub(crate) fn grant(ctx: &ExecCtx, grant: Grant) -> Result<(), Error> {
 }
 
 /// Refused unless the vote may make `grant` ([`grant_refused`]), asking
-/// identity for its account's profile: the rule's check, and valset's at
-/// the first vote.
+/// identity for its account's profile.
 pub fn grantable(ctx: &QueryCtx, grant: &Grant) -> Result<(), Error> {
     let bound = &ctx.env().role(abi::role::IDENTITY)?.clone();
     let asked = identity::Query::Profile(grant.account);
