@@ -278,8 +278,13 @@ impl Settings {
                 let mut listed = self.listed(number);
                 listed.push(person);
                 let audience = Audience::Accounts(listed);
-                let which: fn(&mut Answering) -> &mut Form = |answering| &mut answering.form;
-                return self.submit_audience(number, audience, which, from, cx);
+                return self.submit_audience(
+                    number,
+                    audience,
+                    |answering| &mut answering.form,
+                    from,
+                    cx,
+                );
             }
             Ok(Found::Nobody) => Problem::NoSuchAccount,
             Ok(Found::Several) => Problem::SeveralAccounts,

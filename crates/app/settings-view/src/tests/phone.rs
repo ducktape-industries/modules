@@ -633,8 +633,8 @@ fn whom_it_answers_opens_tall_and_scrolls() {
 }
 
 /// A Remove pressed while a choice is out goes nowhere: sent, it would
-/// undo the choice. Its button is off until the choice lands (Expo turns
-/// Remove off while any write is out).
+/// undo the choice. The model drops it, and its button is off until the
+/// choice lands.
 #[test]
 fn a_remove_waits_for_a_choice_that_is_out() {
     let (mut cx, answers) = answering(identity::Audience::Accounts(vec![8, 9]));
@@ -686,15 +686,24 @@ fn a_person_add_landing_leaves_a_sheet_opened_meanwhile() {
     );
 }
 
-/// "· Saving…" says any write is out, not only the choice's (Expo).
+/// While any write is out, not only a change to whom it answers, the
+/// sheet says "· Saving…", Remove and Add are off and Add reads
+/// "Adding…" (Expo's one busy scope).
 #[test]
-fn whom_it_answers_says_saving_while_any_write_is_out() {
-    let mut cx = agents();
+fn whom_it_answers_waits_while_any_write_is_out() {
+    let (mut cx, _) = answering(identity::Audience::Accounts(vec![8]));
+    on_phone(&mut cx);
     cx.host().never::<Submit<Identity>>();
     cx.simulate_click("settings/agents/12");
     cx.simulate_click("settings/agents/12/suspend");
     cx.simulate_click("settings/agents/12/answers/open");
-    assert!(cx.has_text("Who it answers · Saving…"), "{:?}", cx.texts());
+    has_all(&cx, &["Who it answers · Saving…", "Adding…"]);
+    for off in [
+        "settings/agents/12/answers/8/remove",
+        "settings/agents/12/answers/add",
+    ] {
+        assert!(cx.interactivity(off).on_click.is_none(), "{off} is on");
+    }
 }
 
 /// Return sends the create fields only; rename and the person field wait

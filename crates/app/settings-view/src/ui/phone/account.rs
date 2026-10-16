@@ -10,14 +10,14 @@
 //! (`read_account`). "Add a device" is the phone shell's row, not this
 //! view's (SPEC §7.4).
 use sha2::{Digest, Sha256};
-use view::design::{Kind as ButtonKind, Ladder, Orientation};
+use view::design::{Kind as ButtonKind, Ladder, Nav, Orientation};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
 use super::agents;
 use super::parts::{
-    ROW_TALL, column, labelled, mono, muted_icon, name_input, name_line, named, note, problem_of,
-    quiet, title_and_caption,
+    column, labelled, mono, muted_icon, name_input, name_line, named, note, problem_of, quiet,
+    title_and_caption,
 };
 use crate::Settings;
 use crate::queries::{Account, Key, Seat};
@@ -26,13 +26,6 @@ use crate::words;
 
 /// The page element's id; `design::page` names its title row after it.
 const PAGE: &str = "settings/page";
-// SDK gap: the strip, swap when feat/phone-kit lands
-/// The strip of panes, its hairline included (Expo `src/design/theme.ts:81`).
-const STRIP: Pixels = px(44.);
-/// The strip's hairline (Expo `src/design/theme.ts:83`).
-const HAIRLINE: Pixels = px(1.);
-/// The line under the open pane's name (Expo `src/kit/Choice.tsx:138`).
-const UNDERLINE: Pixels = px(2.);
 /// This device's key, where no account names it (Expo
 /// `app/account/index.tsx:97`).
 const THIS_DEVICE: &str = "Phone";
@@ -56,10 +49,8 @@ pub(super) fn screen(
             quiet("settings/invite/unsupported", NO_INVITES, ladder, theme).into_any_element()
         }
     };
-    // SDK gap: a root page, swap for #406's `Page::root` when it lands
-    // the view's first page has no Back of its own: the shell's capsule closes it
-    let back: Option<fn(&ClickEvent, &mut Window, &mut App)> = None;
-    let page = design::page(PAGE, "Account", back, ladder, theme);
+    // the view's first page: no Back of its own, the shell's capsule closes it
+    let page = design::page(PAGE, "Account", Nav::Root, ladder, theme);
     // SDK gap: the network caption, swap when the SDK builds it (kit.md §2)
     let page = match words::network(&view.session) {
         Some(network) => page.caption(network.to_owned()),
@@ -76,7 +67,6 @@ pub(super) fn screen(
     )
 }
 
-// SDK gap: the strip, swap when feat/phone-kit lands
 /// The panes under the title row (the Expo kit's `Strip`,
 /// `src/kit/Choice.tsx:114`): one Tab stop, ← → open the next.
 fn strip(
@@ -85,84 +75,39 @@ fn strip(
     cx: &mut Context<Settings>,
     ladder: &Ladder,
     theme: &Theme,
-) -> Div {
+) -> Stateful<Div> {
     let sections = view.sections();
     let at = sections
         .iter()
         .position(|section| *section == shown)
         .unwrap_or_default();
     let picked = sections.clone();
-    let tabs = design::composite("settings/strip", Role::TabList, "Account")
+    let tabs = sections.into_iter().map(|section| {
+        let on = section == shown;
+        let pick = cx
+            .listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.select_section(section, cx));
+        let id = format!("settings/strip/{}", section.slug());
+        design::item(
+            design::tab(id, section.label(), on, ladder, theme, pick),
+            Role::Tab,
+            on,
+        )
+    });
+    design::composite("settings/strip", Role::TabList, "Account")
         .orientation(Orientation::Horizontal)
-        .active(at, sections.len())
+        .active(at, picked.len())
         .wrap()
         .on_move(cx.processor(move |v: &mut Settings, index: usize, _, cx| {
             v.select_section(picked[index], cx)
         }))
         .build()
-        .flex()
-        .px(design::space::SM)
-        .children(
-            sections
-                .into_iter()
-                .map(|section| strip_item(section, shown, cx, ladder, theme)),
-        );
-    div()
         .flex_none()
-        .h(STRIP)
+        .flex()
+        .h(ladder.strip)
+        .px(design::space::SM)
         .border_b_1()
         .border_color(theme.border)
-        .child(tabs)
-}
-
-// SDK gap: the strip, swap when feat/phone-kit lands
-/// One pane's name in the strip: muted, or, while it is the one shown,
-/// medium over the underline. It draws as tall as the strip above its
-/// hairline.
-fn strip_item(
-    section: Section,
-    shown: Section,
-    cx: &mut Context<Settings>,
-    ladder: &Ladder,
-    theme: &Theme,
-) -> Div {
-    let on = section == shown;
-    let pick =
-        cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.select_section(section, cx));
-    // the item is already wider than a finger (its name and 10 each side),
-    // so its press reaches out only in height, to the 44 a finger needs
-    let press = design::hit(
-        format!("settings/strip/{}", section.slug()),
-        ladder.hit,
-        STRIP - HAIRLINE,
-        ladder,
-    )
-    .aria_label(section.label())
-    .aria_selected(on)
-    .on_click(pick);
-    let underline = div()
-        .absolute()
-        .left_0()
-        .right_0()
-        .bottom_0()
-        .h(UNDERLINE)
-        .bg(theme.foreground);
-    let label = div()
-        .relative()
-        .h_full()
-        .flex()
-        .items_center()
-        .text_type(ladder.small)
-        .text_color(if on { theme.foreground } else { theme.muted })
-        .when(on, |label| label.font_weight(FontWeight::MEDIUM))
-        .child(section.label())
-        .when(on, |label| label.child(underline));
-    div()
-        .relative()
-        .h(STRIP - HAIRLINE)
-        .px(design::space::MD)
-        .child(label)
-        .child(design::item(press, Role::Tab, on))
+        .children(tabs)
 }
 
 /// The Account pane: who the seated key is and its keys, or what stands in
@@ -293,7 +238,7 @@ fn who(name: &str, about: String, ladder: &Ladder, theme: &Theme) -> Stateful<Di
 }
 
 fn keys_head(count: usize, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
-    design::section_head("settings/keys", words::KEYS, Some(count), ladder, theme)
+    design::section_head("settings/keys", words::KEYS, ladder, theme).child(count.to_string())
 }
 
 /// One key: a phone for this device's, a key for the rest; its name over
@@ -313,7 +258,7 @@ fn key_row(
     }
     let glyph = if this { "smartphone" } else { "key-round" };
     design::row(format!("settings/key/{i}"), ladder, theme)
-        .min_h(ROW_TALL)
+        .min_h(ladder.row_tall)
         .child(design::lead(muted_icon(glyph, ladder, theme)))
         .child(title_and_caption(
             label,

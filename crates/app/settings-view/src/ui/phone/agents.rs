@@ -16,12 +16,12 @@ use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
 use super::parts::{
-    ROW_TALL, STOPPED_LINES, caption, chevron, column, hint, labelled, mono, muted_icon,
-    name_input, name_line, named, note, problem_of, quiet, title_and_caption,
+    STOPPED_LINES, caption, chevron, column, hint, labelled, mono, muted_icon, name_input,
+    name_line, named, note, problem_of, quiet, title_and_caption,
 };
 use crate::Settings;
 use crate::queries::{Agent, Seat};
-use crate::state::{Answering, Choice, Sheet};
+use crate::state::{Choice, Form, Sheet};
 use crate::ui::shared::{agent_face, audience_choices};
 use crate::words;
 
@@ -68,18 +68,14 @@ pub(super) fn pane(
             ladder,
             theme,
         ))
-        .child(design::section_head(
-            "settings/agents/list",
-            "Agents",
-            Some(account.agents.len()),
-            ladder,
-            theme,
-        ))
+        .child(
+            design::section_head("settings/agents/list", "Agents", ladder, theme)
+                .child(account.agents.len().to_string()),
+        )
         .children(rows)
         .child(design::section_head(
             "settings/agents/add",
             words::ADD,
-            None,
             ladder,
             theme,
         ))
@@ -116,7 +112,7 @@ fn add_row(
     theme: &Theme,
 ) -> Stateful<Div> {
     design::row(id.to_owned(), ladder, theme)
-        .min_h(ROW_TALL)
+        .min_h(ladder.row_tall)
         .role(Role::Button)
         .focusable()
         .on_click(open)
@@ -155,7 +151,7 @@ fn agent_row(
         v.open_sheet(Sheet::Actions(number), cx)
     });
     design::row(format!("settings/agents/{number}"), ladder, theme)
-        .min_h(ROW_TALL)
+        .min_h(ladder.row_tall)
         .role(Role::Button)
         .focusable()
         .on_click(open)
@@ -450,15 +446,19 @@ fn answers_form(
     // what stopped the choice; a person's is the field's
     let refused = answering.and_then(|answering| problem_of(&answering.pick, ""));
     let shown = Choice::shown(&agent.audience, listing);
+    // any write out (Expo's one `useBusy(SCOPE)`, `src/account/Agents.tsx:43`)
+    let writing = view.writing();
     let people = match (shown, answering) {
-        (Choice::Specific, Some(answering)) => Some(people(agent, answering, cx, ladder, theme)),
+        (Choice::Specific, Some(answering)) => {
+            Some(people(agent, &answering.form, writing, cx, ladder, theme))
+        }
         _ => None,
     };
     let done = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
         v.open_sheet(Sheet::Actions(number), cx)
     });
-    // any write out, as Expo's `useBusy` scope (`src/account/Agents.tsx:362`)
-    let saving = match view.writing() {
+    // `src/account/Agents.tsx:362`
+    let saving = match writing {
         true => format!(" · {}", words::SAVING),
         false => String::new(),
     };
@@ -495,17 +495,18 @@ fn answers_form(
 }
 
 /// The people an agent answers under Specific: each with Remove, then the
-/// field that adds one by name or number, and Add. Remove and Add wait
-/// while any change to whom it answers is out (Expo `Agents.tsx:38-43`).
+/// field that adds one by name or number, and Add. Remove and Add wait,
+/// and Add reads "Adding…", while any write is out (`writing`; Expo's
+/// `useForm` busy, `src/account/Agents.tsx:38-43`, `:386`, `:403`).
 fn people(
     agent: &Agent,
-    answering: &Answering,
+    form: &Form,
+    writing: bool,
     cx: &mut Context<Settings>,
     ladder: &Ladder,
     theme: &Theme,
 ) -> Stateful<Div> {
-    let form = &answering.form;
-    let busy = answering.busy();
+    let busy = writing;
     let problem = problem_of(form, words::ADD_PERSON.empty);
     let number = agent.number;
     let listed: &[u64] = match &agent.audience {

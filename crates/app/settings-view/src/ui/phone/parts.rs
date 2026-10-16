@@ -11,9 +11,6 @@ use view::{Div, ElementId, FontWeight, Stateful, Svg};
 use crate::state::Form;
 use crate::words;
 
-// SDK gap: `Ladder::row_tall`, swap when feat/phone-kit lands
-/// A row with a caption under its title (Expo `src/kit/Row.tsx:44`).
-pub(super) const ROW_TALL: Pixels = px(design::height::touch::ROW_TALL as f32);
 // SDK gap: the row's title over caption, swap when feat/phone-kit lands
 /// The room between a row's title and its caption (Expo `src/kit/Row.tsx:58`).
 const TITLE_GAP: Pixels = px(1.);
