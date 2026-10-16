@@ -14,6 +14,8 @@ use view::methods::Query;
 fn main() {
     let unprivileged = std::env::var_os("READER").is_some_and(|reader| reader == "none");
     live::run("explorer", |net| {
+        // told of every frame from here, as on a network: who did what
+        net.hook::<activity::Activity>(activity::PROGRAM);
         net.seat::<chat::Chat>(chat::PROGRAM);
         let ada = net.person("ada");
         let bob = net.person("bob");
