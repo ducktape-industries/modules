@@ -1,5 +1,6 @@
 //! The small controls on a message card: the action strip's buttons, a
 //! reaction, and the way into a thread.
+use crate::words;
 use view::prelude::*;
 
 /// An action strip button's height, the smallest box a pointer presses
@@ -113,7 +114,7 @@ pub(super) fn reaction_button(
                     .child(count.to_string()),
             ),
         // `+` is the picker's method, not a toggle
-        Face::Add => control.aria_label("Add reaction").child("+"),
+        Face::Add => control.aria_label(words::ADD_REACTION).child("+"),
     };
     if enabled {
         design::item(
@@ -163,7 +164,7 @@ pub(super) fn replies_button(
                 .border_color(theme.border_strong)
         })
         .active(|style| style.bg(theme.accent_soft))
-        .aria_label(format!("Open thread, {replies}"))
+        .aria_label(words::open_thread(&replies))
         .on_click(click)
         .consumes_click()
         .child(replies)

@@ -4,7 +4,7 @@ use chat::Principal;
 use view::prelude::*;
 
 use crate::Chat;
-use crate::queries::{audiences, channels, roster};
+use crate::queries::{channels, ownerships, roster};
 use futures::FutureExt;
 
 /// Why the reader may not write in the open room.
@@ -70,14 +70,20 @@ impl Chat {
         let host = cx.host();
         let names = roster(host.clone()).shared();
         cx.load(self, names.clone(), |chat| &mut chat.names);
-        let answers = async move { audiences(host, &names.await?).await };
-        cx.load(self, answers, |chat| &mut chat.audiences);
+        let answers = async move { ownerships(host, &names.await?).await };
+        cx.load(self, answers, |chat| &mut chat.ownerships);
     }
 
     pub(crate) fn load_channels(&mut self, cx: &mut Context<Self>) {
         // a link that came back: the sidebar says the rooms are loading
         self.channels = Loadable::Idle;
         cx.load(self, channels(cx.host()), |chat| &mut chat.channels);
+    }
+
+    /// The network the session is on, by its label (`<label>#<salt>`).
+    pub(crate) fn network(&self) -> &str {
+        let chain = self.session.chain_id.as_str();
+        chain.split_once('#').map_or(chain, |(label, _)| label)
     }
 
     /// The reader's account number, as the host resolved it.
@@ -89,6 +95,15 @@ impl Chat {
     /// key holds none, since only an account writes.
     pub(crate) fn me(&self) -> Option<Principal> {
         Principal::writer(self.my_account())
+    }
+
+    /// The reader's account name for the first page's avatar, as the
+    /// roster names it (Expo `chat/index.tsx:110`, `connection.account.name`);
+    /// empty until the session and the roster both say who the reader is.
+    pub(crate) fn reader_name(&self) -> String {
+        let me = self.me();
+        me.and_then(|me| self.names.ready()?.name(&me).map(str::to_owned))
+            .unwrap_or_default()
     }
 
     /// The reader, as a query's `viewer`.
@@ -126,7 +141,7 @@ impl Chat {
     /// ([`crate::names::unanswered`]).
     pub(crate) fn unanswered(&self, principal: &Principal) -> Option<&'static str> {
         let names = self.names.ready()?;
-        let audiences = self.audiences.ready()?;
-        crate::names::unanswered(names, audiences, principal, self.my_account()?)
+        let ownerships = self.ownerships.ready()?;
+        crate::names::unanswered(names, ownerships, principal, self.my_account()?)
     }
 }

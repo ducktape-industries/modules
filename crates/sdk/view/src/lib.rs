@@ -30,20 +30,24 @@ mod view_element;
 pub use behavior::{
     ModalOverlay, ResizeHandle, Sensor, Sheet, modal_overlay, resize_handle, sensor, sheet,
 };
+mod media;
+mod revised;
 mod web;
 pub use element::{
     AnyElement, Div, Element, Input, IntoElement, Lowering, ParentElement, RenderOnce, Textarea,
     UniformList, UniformListScrollHandle, div, uniform_list,
 };
-/// What a field tells a software keyboard, in gpui's words (`Input::autocapitalize`,
-/// `Input::input_action`); `VirtualKeyboard` (`Input::virtual_keyboard`) is
-/// the wire's copy of gpui's.
-pub use gpui::{Autocapitalize, TextInputAction};
+/// What a field tells a software keyboard, in gpui's words
+/// (`Input::autocapitalize`, `Input::input_action`, `Input::virtual_keyboard`).
+pub use gpui::{Autocapitalize, TextInputAction, VirtualKeyboard};
 pub use interactivity::{
     BackEvent, FocusHandle, InteractiveElement, Interactivity, ScrollHandle, Stateful,
     StatefulInteractiveElement,
 };
 pub use list::{List, ListState, list};
+pub use media::{
+    Camera, MediaState, MediaStatus, MicHandle, Microphone, Playback, camera, microphone,
+};
 pub use primitives::{
     Anchored, Canvas, Deferred, ImageSource, ImageStyle, Img, StyledImage, Svg, Transformation,
     anchored, canvas, deferred, img, svg,
@@ -51,7 +55,6 @@ pub use primitives::{
 pub use rich_text::{InteractiveText, StyledText};
 pub use view_element::{AnyView, ViewElement};
 pub use web::{Web, WebHandle, WebState, web};
-pub use wire::VirtualKeyboard;
 
 /// Every SDK name a view file writes, in one import:
 /// `use view::prelude::*;`. gpui's names (elements, styles,
@@ -71,15 +74,15 @@ pub mod prelude {
         ElementId, Entity, EventEmitter, FileDropEvent, FluentBuilder, FocusHandle, FollowMode,
         Global, Host, HoverListenerMode, Hsla, Input, InteractiveElement, InteractiveText,
         IntoElement, KeyDownEvent, KeyUpEvent, List, ListAlignment, ListHorizontalSizingBehavior,
-        ListOffset, ListScrollEvent, ListSizingBehavior, ListState, Loadable,
-        ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
-        MousePressureEvent, MouseUpEvent, ParentElement, PinchEvent, Pixels, Render, RenderOnce,
-        Role, ScrollHandle, ScrollStrategy, ScrollWheelEvent, SharedString,
-        StatefulInteractiveElement, Styled, StyledImage, StyledText, Subscription, Task, TextField,
-        TextInputAction, Textarea, Theme, UniformListScrollHandle, View, VirtualKeyboard,
-        WebHandle, WebState, Window, anchored, canvas, deferred, design, div, export_notifier,
-        export_view, hsla, img, list, modal_overlay, px, rems, resize_handle, rgb, sensor, sheet,
-        svg, uniform_list, web,
+        ListOffset, ListScrollEvent, ListSizingBehavior, ListState, Loadable, MediaState,
+        MediaStatus, MicHandle, ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseExitEvent,
+        MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit, ParentElement, PinchEvent,
+        Pixels, Playback, Render, RenderOnce, Role, ScrollHandle, ScrollStrategy, ScrollWheelEvent,
+        SharedString, StatefulInteractiveElement, Styled, StyledImage, StyledText, Subscription,
+        Task, TextField, TextInputAction, Textarea, Theme, UniformListScrollHandle, View,
+        VirtualKeyboard, WebHandle, WebState, Window, anchored, camera, canvas, deferred, design,
+        div, export_notifier, export_view, hsla, img, list, microphone, modal_overlay, px, rems,
+        resize_handle, rgb, sensor, sheet, svg, uniform_list, web,
     };
 }
 mod text;

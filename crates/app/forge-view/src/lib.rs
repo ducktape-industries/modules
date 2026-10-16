@@ -12,7 +12,10 @@
 //! - `state`: what the view holds; `select`: what the screens read out of it.
 //! - `sync`: which reads the screen needs; `queries`: how one read is asked.
 //! - `navigate`, `actions`, `review`, `tree`: what an event changes.
-//! - `ui`: the screens; `ui::markdown`: documents and their links.
+//! - `words`: every sentence both designs say; `markdown`, `highlight`,
+//!   `blob`: documents, source tokens and the open file, read once for
+//!   either design; `list`: a list as one Tab stop.
+//! - `ui`: the desktop's screens; `ui::phone`: the phone's (the Expo app's).
 //!
 //! What becomes a notice is forge's NOTIFIER's (`notifier.rs`): the host
 //! runs it once per network, open panes or none. The `notifier` feature
@@ -25,6 +28,14 @@ view::export_notifier!(ForgeNotices);
 #[cfg(not(feature = "notifier"))]
 mod api;
 #[cfg(not(feature = "notifier"))]
+mod blob;
+#[cfg(not(feature = "notifier"))]
+mod highlight;
+#[cfg(not(feature = "notifier"))]
+mod list;
+#[cfg(not(feature = "notifier"))]
+mod markdown;
+#[cfg(not(feature = "notifier"))]
 mod queries;
 #[cfg(not(feature = "notifier"))]
 mod select;
@@ -34,6 +45,8 @@ mod state;
 mod sync;
 #[cfg(not(feature = "notifier"))]
 mod tree;
+#[cfg(not(feature = "notifier"))]
+mod words;
 
 #[cfg(not(feature = "notifier"))]
 mod actions;
@@ -138,8 +151,26 @@ impl Render for Forge {
         // sees each
         self.settle_title(cx);
         self.settle_showing(cx);
-        ui::render(self, window.touch(), cx)
+        // the one pick between the two designs: under a finger the Expo
+        // app's screens (`ui::phone`), under a pointer the desktop's; the
+        // phone's screens read a little more (`Forge::touch`)
+        if self.touch != window.touch() {
+            self.touch = window.touch();
+            self.sync(cx);
+        }
+        if self.touch {
+            ui::phone::render(self, cx)
+        } else {
+            ui::render(self, cx).into_any_element()
+        }
     }
+}
+
+#[cfg(not(feature = "notifier"))]
+/// An element id from its name: every id in this view is a name, so a test
+/// or the host finds it by what it says.
+pub(crate) fn id(text: impl Into<String>) -> ElementId {
+    ElementId::Name(text.into().into())
 }
 
 #[cfg(not(feature = "notifier"))]

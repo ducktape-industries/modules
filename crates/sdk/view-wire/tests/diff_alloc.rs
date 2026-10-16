@@ -28,6 +28,7 @@ fn text(content: &str) -> Node {
         id: None,
         style: PLAIN,
         content: content.into(),
+        transform: None,
     })
 }
 

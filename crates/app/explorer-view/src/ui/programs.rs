@@ -6,9 +6,9 @@
 //! code declares first, then the code, who changes it and what is coming.
 use super::*;
 use crate::Network;
-use crate::acting::{self, Edit, Form, Path};
-use crate::decode::{preview, size};
-use crate::state::blob_ref;
+use crate::acting::{self, Asked, Edit, Form, FormField, Path};
+use crate::decode::{self, bytes_preview};
+use crate::state::{Declared, Unlisted, blob_ref};
 use ::programs::{Grant, NOTICE, Pending, Scope};
 use view::design::Ladder;
 
@@ -17,18 +17,16 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) 
         Loadable::Ready(network) | Loadable::Reloading(network, _) => network,
         Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme, ladder),
         Loadable::Idle | Loadable::Loading(_) => {
-            return quiet(
-                "explorer-programs-loading",
-                "Reading the programs role…",
-                theme,
-            );
+            return quiet("explorer-programs-loading", words::READING_ROLE, theme);
         }
     };
-    if network.programs.is_empty() && network.views.is_empty() && network.changes.is_empty() {
+    if network.is_empty() {
         return empty_state(
             "explorer-empty",
+            "package",
             "No programs",
-            "The programs role of this network runs nothing yet.",
+            words::RUNS_NOTHING,
+            ladder,
             theme,
         )
         .into_any_element();
@@ -50,13 +48,9 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) 
         .enumerate()
         .map(|(index, change)| scheduled(view, index, change, cx, theme, ladder))
         .collect();
-    let nothing_scheduled = scheduled.is_empty().then(|| {
-        quiet(
-            "explorer-no-changes",
-            "Nothing is scheduled against the programs role.",
-            theme,
-        )
-    });
+    let nothing_scheduled = scheduled
+        .is_empty()
+        .then(|| quiet("explorer-no-changes", words::NOTHING_SCHEDULED, theme));
     let running_form = form(
         view,
         |edit| !edits_a_view(edit) && *edit != Edit::Grant,
@@ -180,7 +174,7 @@ fn listed(
             theme,
         )
         .child(named(view, network, &listed.name, theme, ladder))
-        .child(muted("view only", theme))
+        .child(muted(words::VIEW_ONLY, theme))
         .child(mono(short(listed.view.digest())).text_color(theme.muted))
         .children(presses(view, network, &listed.name, true, cx, theme));
         list.row(route, row, theme)
@@ -190,10 +184,10 @@ fn listed(
 
 /// A name and who changes it ([`changers`]); a hook marked so.
 fn named(view: &Explorer, network: &Network, name: &str, theme: &Theme, ladder: &Ladder) -> Div {
-    let hook = network.hooks.iter().any(|hook| hook == name);
+    let hook = network.is_hook(name);
     div()
         .flex_1()
-        .min_w(px(0.))
+        .min_w_0()
         .flex()
         .items_center()
         .gap_2()
@@ -213,53 +207,19 @@ fn changers(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Vec<AnyElement> {
-    let bound = network
-        .roles
-        .as_ref()
-        .is_some_and(|roles| ::programs::role_bound(roles, name));
-    if bound {
-        return vec![muted("validators' vote", theme)];
-    }
-    let every = network.grants.iter().any(|grant| grant.scope == Scope::All);
-    network
-        .grants
-        .iter()
-        .filter(|grant| grant.scope == Scope::Program(name.to_owned()))
-        .map(|grant| holder(view, grant.account, theme, ladder))
-        .chain(every.then(|| muted("every-program maintainers", theme)))
+    let Some(maintainers) = network.maintainers(name) else {
+        return vec![muted(words::VALIDATORS_VOTE, theme)];
+    };
+    maintainers
+        .named
+        .into_iter()
+        .map(|account| holder(view, account, theme, ladder))
+        .chain(
+            maintainers
+                .every
+                .then(|| muted(words::EVERY_PROGRAM, theme)),
+        )
         .collect()
-}
-
-/// The role `name` fills for the kernel, in the kernel's word for it: the
-/// roles are the chain's own table, so a role it gains is named here as is.
-fn role_of<'a>(roles: &'a abi::Roles, name: &str) -> Option<&'a str> {
-    roles
-        .iter()
-        .find(|(_, program)| program.as_str() == name)
-        .map(|(role, _)| role)
-}
-
-/// What a capability lets a view do, in a line a person reads: the phone's
-/// "uses camera" for a view. Every capability is worded here, so a new one
-/// is worded before it ships.
-fn allows(capability: Capability) -> &'static str {
-    match capability {
-        Capability::Chain => "reads the chain: blocks, transactions and the node's status",
-        Capability::Program => "asks programs questions and follows what they change",
-        Capability::Op => "sends operations to the chain in your name",
-        Capability::Invite => "mints invites with the node's key",
-        Capability::Link => "opens links: another view, or the browser",
-        Capability::Blob => "reads blobs the node holds",
-        Capability::Host => "knows the session: who you are, which chain, when it is on screen",
-        Capability::Clock => "wakes on a timer",
-        Capability::Clipboard => "reads and writes the clipboard",
-        Capability::Notify => "posts notifications",
-        Capability::Store => "keeps its own data on this device",
-        Capability::Web => "shows web pages, and takes the web links the app opens",
-        Capability::Live => {
-            "sends and hears live streams in its program's rooms, as the program grants"
-        }
-    }
 }
 
 /// One program, or one view-only entry: what its code declares first (the
@@ -279,29 +239,24 @@ pub(super) fn program(
         Loadable::Ready(network) | Loadable::Reloading(network, _) => network,
         Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme, ladder),
         Loadable::Idle | Loadable::Loading(_) => {
-            return quiet(
-                "explorer-program-loading",
-                "Reading the programs role…",
-                theme,
-            );
+            return quiet("explorer-program-loading", words::READING_ROLE, theme);
         }
     };
     let entry = view.runs(name);
     let Some(code) = view.code_of(name) else {
         return empty_state(
             "explorer-no-program",
-            format!("Nothing called {name}"),
-            "The programs role runs and lists nothing by this name.",
+            "search-x",
+            words::nothing_called(name),
+            words::NO_PROGRAM_HERE,
+            ladder,
             theme,
         )
         .into_any_element();
     };
     let listed = entry.is_none();
-    let hook = network.hooks.iter().any(|hook| hook == name);
-    let role = network
-        .roles
-        .as_ref()
-        .and_then(|roles| role_of(roles, name));
+    let hook = network.is_hook(name);
+    let role = network.role_of(name);
     let blob = view.manifest.ready().and_then(|blob| blob.as_ref());
     let manifest = blob
         .and_then(|blob| blob.view.as_ref())
@@ -311,11 +266,7 @@ pub(super) fn program(
         .items_center()
         .gap_3()
         .pr_5()
-        .child(titled(
-            if listed { "view only" } else { "program" },
-            name.to_owned(),
-            theme,
-        ))
+        .child(titled(words::entry_kind(listed), name.to_owned(), theme))
         .children(hook.then(|| chip("explorer-program-hook".into(), "hook", theme, ladder)))
         .children(role.map(|role| chip("explorer-program-role".into(), role, theme, ladder)))
         .child(div().flex_1())
@@ -352,7 +303,7 @@ pub(super) fn program(
     let copy = {
         let id = id.clone();
         press("explorer-copy-code", "Copy", cx, theme, move |view, cx| {
-            view.copy(id.clone(), "the code id", cx)
+            view.copy(id.clone(), words::CODE_ID, cx)
         })
     };
     let code_field = div()
@@ -360,7 +311,7 @@ pub(super) fn program(
         .flex()
         .items_center()
         .gap_3()
-        .min_w(px(0.))
+        .min_w_0()
         .child(
             mono(id)
                 .id("explorer-code-id")
@@ -368,25 +319,17 @@ pub(super) fn program(
                 .overflow_hidden(),
         )
         .child(copy);
-    let sizes = blob.map(|blob| match &blob.view {
-        Some(carried) if !listed => format!(
-            "{} of code, {} of it the view",
-            size(blob.size),
-            size(carried.size)
-        ),
-        _ => size(blob.size),
-    });
-    let params = entry.map(|entry| match entry.params.is_empty() {
-        true => muted("none", theme),
-        false => mono(preview(
-            entry.params.len() as u64,
-            &entry.params[..entry.params.len().min(32)],
-        ))
-        .into_any_element(),
+    let sizes = blob.map(|blob| words::code_size(blob, listed));
+    let params = entry.map(|entry| {
+        if entry.params.is_empty() {
+            muted(words::NO_PARAMS, theme)
+        } else {
+            mono(bytes_preview(&entry.params)).into_any_element()
+        }
     });
     let mut who = changers(view, network, name, theme, ladder);
     if who.is_empty() {
-        who.push(muted("no account: the validators' vote only", theme));
+        who.push(muted(words::VOTE_ONLY, theme));
     }
     let about = div()
         .flex()
@@ -405,19 +348,12 @@ pub(super) fn program(
         .filter(|manifest| !manifest.targets.is_empty())
         .map(|manifest| manifest.targets.join(", "));
     let blocks = view.chain.blocks.len() as u64;
-    let sent = view.chain.txs.iter().filter(|tx| tx.target == name).count() as u64;
+    let sent = view.sent_to(name);
     // no window yet: the way to its transactions, without a count of nothing
     let transactions = (!listed).then(|| {
         line("explorer-program-transactions".into(), theme).child(link(
             "explorer-program-txs".into(),
-            match blocks {
-                0 => "Transactions →".to_owned(),
-                _ => format!(
-                    "{} in the last {} →",
-                    plural(sent, "transaction", "transactions"),
-                    plural(blocks, "block", "blocks")
-                ),
-            },
+            words::to_transactions(sent, blocks),
             Route::Transactions(Some(name.to_owned())),
             cx,
             theme,
@@ -433,7 +369,7 @@ pub(super) fn program(
     let nothing_scheduled = scheduled.is_empty().then(|| {
         quiet(
             "explorer-program-no-changes",
-            "Nothing is scheduled for it.",
+            words::NOTHING_SCHEDULED_FOR_IT,
             theme,
         )
     });
@@ -459,7 +395,7 @@ pub(super) fn program(
         .children(manifest.map(|manifest| {
             field(
                 "Min width",
-                muted(&format!("{} px", manifest.min_width), theme),
+                muted(&words::min_width(manifest.min_width), theme),
                 theme,
             )
         }))
@@ -493,58 +429,26 @@ fn capabilities(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Vec<AnyElement> {
-    let blob = match &view.manifest {
-        Loadable::Idle | Loadable::Loading(_) => {
+    let manifest = match view.declared(listed) {
+        Declared::Reading => {
             return vec![quiet(
                 "explorer-manifest-loading",
-                "Reading the code…",
+                words::READING_CODE,
                 theme,
             )];
         }
-        Loadable::Failed(refusal) => return vec![failed(&refusal.message, cx, theme, ladder)],
-        Loadable::Ready(blob) | Loadable::Reloading(blob, _) => blob,
+        Declared::Refused(sentence) => return vec![failed(sentence, cx, theme, ladder)],
+        Declared::Nothing(why) => {
+            let id = match why {
+                Unlisted::NoCode => "explorer-no-code",
+                Unlisted::NoView => "explorer-no-view",
+                Unlisted::NoListedView | Unlisted::Unreadable => "explorer-unread-view",
+                Unlisted::AsksNothing => "explorer-no-capabilities",
+            };
+            return vec![quiet(id, why.sentence(), theme)];
+        }
+        Declared::Asks(manifest) => manifest,
     };
-    let Some(blob) = blob else {
-        return vec![quiet(
-            "explorer-no-code",
-            "The node does not hold this code yet.",
-            theme,
-        )];
-    };
-    let manifest = match &blob.view {
-        None if listed => {
-            return vec![quiet(
-                "explorer-unread-view",
-                "This app cannot read this view's manifest.",
-                theme,
-            )];
-        }
-        None => {
-            return vec![quiet(
-                "explorer-no-view",
-                "This program draws nothing: no view, so nothing is asked of the host.",
-                theme,
-            )];
-        }
-        Some(CarriedView { manifest: None, .. }) => {
-            return vec![quiet(
-                "explorer-unread-view",
-                "Its view carries a manifest this app cannot read: built for another wire, or asking a capability this app does not have.",
-                theme,
-            )];
-        }
-        Some(CarriedView {
-            manifest: Some(manifest),
-            ..
-        }) => manifest,
-    };
-    if manifest.capabilities.is_empty() {
-        return vec![quiet(
-            "explorer-no-capabilities",
-            "Its view asks nothing of the host.",
-            theme,
-        )];
-    }
     manifest
         .capabilities
         .iter()
@@ -558,7 +462,7 @@ fn capabilities(
                     .w(LABEL_W)
                     .flex_shrink_0(),
             )
-            .child(div().child(allows(*capability)))
+            .child(div().child(words::allows(*capability)))
             .into_any_element()
         })
         .collect()
@@ -586,16 +490,18 @@ fn chip(id: String, label: &str, theme: &Theme, ladder: &Ladder) -> AnyElement {
 /// An account by its name (`account N` while unread), an agent marked so,
 /// the reader marked "(you)".
 fn holder(view: &Explorer, number: u64, theme: &Theme, ladder: &Ladder) -> AnyElement {
-    let account = view.account(number);
-    let name = account.map_or_else(|| format!("account {number}"), |a| a.card.name.clone());
-    let you = view.acting.account == Some(number);
-    let agent = account.is_some_and(|a| {
-        matches!(
-            a.kind(),
-            identity::Kind::Program {
-                category: identity::Category::Agent,
-                ..
-            }
+    let name = view.name_of(number);
+    let name = if view.acting.account == Some(number) {
+        words::you(&name)
+    } else {
+        name
+    };
+    let agent = view.is_agent(number).then(|| {
+        chip(
+            format!("explorer-agent-{number}"),
+            words::AGENT,
+            theme,
+            ladder,
         )
     });
     div()
@@ -603,14 +509,12 @@ fn holder(view: &Explorer, number: u64, theme: &Theme, ladder: &Ladder) -> AnyEl
         .items_center()
         .gap_1()
         .text_size(design::text::SECONDARY)
-        .child(if you { format!("{name} (you)") } else { name })
-        .children(agent.then(|| chip(format!("explorer-agent-{number}"), "agent", theme, ladder)))
+        .child(name)
+        .children(agent)
         .into_any_element()
 }
 
-/// Upgrade and Remove on the reader's path to `name`: straight to the
-/// programs by grant, proposed by vote, or none. A role's program is never
-/// removed; a hook only by vote, which a maintainer with voices proposes.
+/// [`Explorer::edits`] as presses beside a row or a title.
 fn presses(
     view: &Explorer,
     network: &Network,
@@ -619,59 +523,15 @@ fn presses(
     cx: Cx,
     theme: &Theme,
 ) -> Vec<AnyElement> {
-    let Some(path) = view.path(name) else {
-        return Vec::new();
-    };
-    let bound = network
-        .roles
-        .as_ref()
-        .is_none_or(|roles| ::programs::role_bound(roles, name));
-    let hook = network.hooks.iter().any(|hook| hook == name);
-    let edit = |remove: bool, path: Path| {
-        let name = name.to_owned();
-        move |view: &mut Explorer, cx: &mut Context<Explorer>| {
-            let edit = match remove {
-                false => Edit::Upgrade {
-                    name: name.clone(),
-                    view: listed,
-                },
-                true => Edit::Remove {
-                    name: name.clone(),
-                    view: listed,
-                },
-            };
-            view.open_form(edit, path, cx)
-        }
-    };
-    let upgrade = match path {
-        Path::Grant => "Upgrade",
-        Path::Vote => "Propose upgrade",
-    };
-    let mut out = vec![press(
-        format!("explorer-upgrade-{name}"),
-        upgrade,
-        cx,
-        theme,
-        edit(false, path),
-    )];
-    let removes = match path {
-        Path::Grant if hook => view.acting.votes().then_some(Path::Vote),
-        path => Some(path),
-    };
-    if let Some(path) = removes.filter(|_| !bound) {
-        let remove = match path {
-            Path::Grant => "Remove",
-            Path::Vote => "Propose remove",
-        };
-        out.push(press(
-            format!("explorer-remove-{name}"),
-            remove,
-            cx,
-            theme,
-            edit(true, path),
-        ));
-    }
-    out
+    view.edits(network, name, listed)
+        .into_iter()
+        .map(|offer| {
+            let (edit, path) = (offer.edit, offer.path);
+            press(edit.press_id(), offer.word, cx, theme, move |view, cx| {
+                view.open_form(edit.clone(), path, cx)
+            })
+        })
+        .collect()
 }
 
 /// One change the programs role will fold in: what it does, to what, when, who
@@ -691,27 +551,20 @@ fn scheduled(
         Some(_) => (theme.accent_foreground, theme.accent_soft),
     };
     let by = match pending.by {
-        Some(number) => format!("by {}", name_of(view, number)),
-        None => "by vote".into(),
+        Some(number) => format!("by {}", view.name_of(number)),
+        None => words::BY_VOTE.into(),
     };
     let window = pending.by.and(view.status.ready()).map(|status| {
         let blocks = pending.height.saturating_sub(status.height);
         format!(
             "validators can cancel for {} min",
-            minutes(blocks, status.block_time_ms)
+            decode::minutes(blocks, status.block_time_ms)
         )
     });
     let program = change.program();
-    let path = match pending.by {
-        Some(_) if view.maintains(program) => Some(Path::Grant),
-        _ => view.acting.votes().then_some(Path::Vote),
-    };
-    let cancel = path.map(|path| {
+    let cancel = view.cancels(pending).map(|path| {
         let op = acting::cancel(pending);
-        let label = match path {
-            Path::Grant => "Cancel",
-            Path::Vote => "Propose cancel",
-        };
+        let label = path.cancel_word();
         press(
             format!("explorer-cancel-{index}"),
             label,
@@ -753,26 +606,14 @@ fn scheduled(
         .into_any_element()
 }
 
-/// How long `blocks` take at the node's block time, in whole minutes.
-fn minutes(blocks: u64, block_time_ms: u64) -> u64 {
-    (blocks * block_time_ms).div_ceil(60_000)
-}
-
-fn name_of(view: &Explorer, number: u64) -> String {
-    view.account(number)
-        .map_or_else(|| format!("account {number}"), |a| a.card.name.clone())
-}
-
 /// Every grant: what it covers, who holds it. The reader's own steps down
 /// by grant; a reader with voices proposes a grant or a revoke.
 fn access(view: &Explorer, network: &Network, cx: Cx, theme: &Theme, ladder: &Ladder) -> Div {
-    let about = view.status.ready().map_or_else(String::new, |status| {
-        format!(" (about {} min)", minutes(NOTICE, status.block_time_ms))
-    });
-    let notice = caption(
-        format!("changes by a maintainer wait {NOTICE} blocks{about}"),
-        theme,
-    );
+    let minutes = view
+        .status
+        .ready()
+        .map(|status| decode::minutes(NOTICE, status.block_time_ms));
+    let notice = caption(words::maintainer_wait(minutes), theme);
     let propose = view.acting.votes().then(|| {
         press(
             "explorer-propose-grant",
@@ -788,13 +629,9 @@ fn access(view: &Explorer, network: &Network, cx: Cx, theme: &Theme, ladder: &La
         .enumerate()
         .map(|(index, grant)| granted(view, network, index, grant, cx, theme, ladder))
         .collect();
-    let none = rows.is_empty().then(|| {
-        quiet(
-            "explorer-no-grants",
-            "No account maintains a program: only the validators' vote changes the programs role.",
-            theme,
-        )
-    });
+    let none = rows
+        .is_empty()
+        .then(|| quiet("explorer-no-grants", words::NO_MAINTAINER, theme));
     div()
         .child(heading(
             "explorer-access-header",
@@ -817,26 +654,14 @@ fn granted(
     ladder: &Ladder,
 ) -> AnyElement {
     let unseated = match &grant.scope {
-        Scope::Program(id) if !network.names(id) => Some(muted(
-            &format!(
-                "runs nothing yet: {} may add it",
-                name_of(view, grant.account)
-            ),
-            theme,
-        )),
+        Scope::Program(id) if !network.names(id) => {
+            Some(muted(&words::may_add(&view.name_of(grant.account)), theme))
+        }
         _ => None,
     };
-    let own = view.acting.account == Some(grant.account);
-    let path = match own {
-        true => Some(Path::Grant),
-        false => view.acting.votes().then_some(Path::Vote),
-    };
-    let revoke = path.map(|path| {
+    let revoke = view.revokes(grant).map(|path| {
         let op = ::programs::Op::Revoke(grant.clone());
-        let label = match path {
-            Path::Grant => "Step down",
-            Path::Vote => "Propose revoke",
-        };
+        let label = path.revoke_word();
         press(
             format!("explorer-revoke-{index}"),
             label,
@@ -872,120 +697,47 @@ fn form(
     let form = view.acting.form.as_ref().filter(|form| here(&form.edit))?;
     let network = view.network.ready()?;
     let tip = view.status.ready().map_or(0, |status| status.height);
-    let title = match (&form.edit, form.path) {
-        (Edit::Upgrade { name, .. }, Path::Grant) => format!("Upgrade {name}"),
-        (Edit::Upgrade { name, .. }, Path::Vote) => format!("Propose upgrade · {name}"),
-        (Edit::Remove { name, .. }, Path::Grant) => format!("Remove {name}"),
-        (Edit::Remove { name, .. }, Path::Vote) => format!("Propose remove · {name}"),
-        (Edit::Add, _) => "Add a program".into(),
-        (Edit::Grant, _) => "Propose a grant".into(),
-    };
-    let field = |id: &str, field: &TextField, name: &str, hint: &str, width: f32| {
-        Input::new(id.to_owned(), field, name.to_owned())
+    let title = form.title();
+    let field = |field: FormField| {
+        Input::new(field.id(), form.text(field), field.label())
             .h(design::size::CONTROL)
-            .w(px(width))
+            .w(px(field_width(field)))
             .px_2()
             .border_1()
             .border_color(theme.border_strong)
             .bg(theme.background)
             .text_size(design::text::SECONDARY)
-            .placeholder(hint.to_owned())
+            .placeholder(field.hint())
             .into_any_element()
     };
-    let mut fields: Vec<AnyElement> = Vec::new();
-    let mut notes: Vec<String> = Vec::new();
-    match &form.edit {
-        Edit::Add => {
-            fields.push(field(
-                "explorer-form-name",
-                &form.name,
-                "Name",
-                "program id",
-                160.,
-            ));
-            let kind = |view_kind: bool, label: &str| {
-                let pick = cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| {
-                    view.add_view(view_kind, cx)
-                });
-                design::button(
-                    SharedString::from(format!("explorer-form-{label}")),
-                    label.to_owned(),
-                    ladder,
-                    theme,
-                    pick,
-                )
-                .selected(form.view == view_kind)
-                .into_any_element()
-            };
-            fields.push(kind(false, "program"));
-            fields.push(kind(true, "view"));
-        }
-        Edit::Grant => {
-            fields.push(field(
-                "explorer-form-account",
-                &form.account,
-                "Account",
-                "account number",
-                140.,
-            ));
-            fields.push(field(
-                "explorer-form-name",
-                &form.name,
-                "Program",
-                "a program, or empty for every program",
-                240.,
-            ));
-            notes.push(who(view, form));
-            notes.push("This proposes a vote: the validators carry it in Nodes.".into());
-        }
-        Edit::Upgrade { .. } | Edit::Remove { .. } => {}
-    }
-    if matches!(form.edit, Edit::Upgrade { .. } | Edit::Add) {
-        fields.push(field(
-            "explorer-form-code",
-            &form.code,
-            "Code id",
-            "sha256:… of the published code",
-            280.,
-        ));
-    }
-    if form.edit == Edit::Add && !form.view {
-        fields.push(field(
-            "explorer-form-params",
-            &form.params,
-            "Params",
-            "params hex, or empty",
-            160.,
-        ));
-    }
-    if form.edit != Edit::Grant {
-        fields.push(field(
-            "explorer-form-height",
-            &form.height,
-            "At block",
-            "block height",
-            140.,
-        ));
-        notes.push(match form.path {
-            Path::Grant => format!(
-                "Block {} or later: the validators get {NOTICE} blocks to look, and can cancel it by vote until it lands.",
-                grouped(acting::earliest(tip))
-            ),
-            Path::Vote => "Lands at this block once the validators carry the vote.".into(),
+    let kind = |view_kind: bool, label: &str| {
+        let pick = cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| {
+            view.add_view(view_kind, cx)
         });
-    }
-    if let Edit::Upgrade { name, view: false } = &form.edit
-        && let Some(entry) = network.programs.iter().find(|entry| &entry.program == name)
-    {
-        notes.push(format!(
-            "Params kept: {}, as {name} runs now.",
-            plural(entry.params.len() as u64, "byte", "bytes")
-        ));
-    }
-    let submit = match form.path {
-        Path::Grant => "Schedule",
-        Path::Vote => "Propose",
+        design::button(
+            SharedString::from(format!("explorer-form-{label}")),
+            label.to_owned(),
+            ladder,
+            theme,
+            pick,
+        )
+        .selected(form.view == view_kind)
+        .into_any_element()
     };
+    let fields: Vec<AnyElement> = form
+        .asks()
+        .into_iter()
+        .flat_map(|asked| match asked {
+            Asked::Field(asked) => vec![field(asked)],
+            Asked::Kind => vec![kind(false, "program"), kind(true, "view")],
+        })
+        .collect();
+    let mut notes: Vec<String> = Vec::new();
+    if form.edit == Edit::Grant {
+        notes.push(who(view, form));
+    }
+    notes.extend(form.notes(network, tip));
+    let submit = form.verb();
     let send = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.submit_form(cx));
     let close = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.close_form(cx));
     Some(
@@ -1019,7 +771,7 @@ fn form(
                     .id("explorer-form-problem")
                     .text_size(design::text::SECONDARY)
                     .text_color(theme.danger)
-                    .child(problem.clone())
+                    .child(problem.sentence.clone())
             }))
             .child(
                 div()
@@ -1039,21 +791,27 @@ fn form(
     )
 }
 
+/// How wide a field is drawn, for what it takes.
+fn field_width(field: FormField) -> f32 {
+    match field {
+        FormField::Account | FormField::Height => 140.,
+        FormField::Name | FormField::Params => 160.,
+        FormField::Program => 240.,
+        FormField::Code => 280.,
+    }
+}
+
 /// The account a grant form names, as typed: its name and what it is.
 fn who(view: &Explorer, form: &Form) -> String {
-    let typed = form.account.text();
-    let typed = typed.trim().trim_start_matches('#');
-    match typed.parse::<u64>().ok() {
-        None => "Type the account's number.".into(),
+    match form.account_number() {
+        None => words::TYPE_ACCOUNT.into(),
         Some(number) => match view.account(number) {
             Some(account) => format!(
                 "#{number} · {} · {}",
                 account.card.name,
-                identity::view::kind(&account.kind(), |manager| {
-                    view.account(manager).map(|m| m.card.name.clone())
-                })
+                view.kind_of(account)
             ),
-            None => format!("No account {number} here."),
+            None => words::no_account_numbered(number),
         },
     }
 }

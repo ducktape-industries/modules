@@ -2,7 +2,10 @@
 //! programs' own types, worded only when drawn (`ui/`).
 use serde::{Deserialize, Serialize};
 use view::borsh_bytes;
+use view::design::Pages;
+use view::methods::CarriedView;
 use view::prelude::*;
+use view::wire::manifest::Manifest;
 
 use crate::acting::Acting;
 use crate::chain::{BlockRow, Chain, TxRow};
@@ -65,6 +68,18 @@ impl Route {
         })
     }
 
+    /// A tab's own list: the root a page opened from it returns to.
+    pub(crate) fn listed(&self) -> bool {
+        matches!(
+            self,
+            Route::Overview
+                | Route::Blocks
+                | Route::Transactions(None)
+                | Route::Accounts
+                | Route::Programs
+        )
+    }
+
     /// The tab this page sits under.
     pub(crate) fn tab(&self) -> usize {
         match self {
@@ -79,11 +94,15 @@ impl Route {
 
 /// A blob id as `blob.*` asks spell it: `sha256:<hex>` or `sha1:<hex>`.
 pub(crate) fn blob_ref(id: &abi::BlobId) -> String {
-    let kind = match id {
+    format!("{}:{}", blob_kind(id), abi::hex(id.digest()))
+}
+
+/// The digest a blob id names, by its name in a `blob.*` ask.
+pub(crate) fn blob_kind(id: &abi::BlobId) -> &'static str {
+    match id {
         abi::BlobId::Sha256(_) => "sha256",
         abi::BlobId::Sha1(_) => "sha1",
-    };
-    format!("{kind}:{}", abi::hex(id.digest()))
+    }
 }
 
 /// A 32-byte hash as 64 hex digits, `0x` allowed.
@@ -143,14 +162,32 @@ pub struct Network {
     pub roles: Option<abi::Roles>,
 }
 
+impl Note {
+    /// What a write came to: on the Programs page it sits in the page's
+    /// own scroll (Expo `Outcomes`, `programs.tsx:150`).
+    pub(crate) fn of_a_write(&self) -> bool {
+        matches!(self, Note::Sent(_) | Note::Refused(_))
+    }
+}
+
+/// The page a link named by a hash (`block/<hash>`, `tx/<hash>`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Linked {
+    Block,
+    Tx,
+}
+
 /// The line under the bar: what a search, a link or a copy came to. Worded
 /// when drawn.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Note {
     /// a search that names nothing here
     NotFound(String),
+    /// a hash nothing here has: searched for (`link` none), or named by a
+    /// block or transaction link
     NoSuchHash {
         listed_from: Option<u64>,
+        link: Option<Linked>,
     },
     /// a link whose path names no page
     Unlinked(String),
@@ -164,7 +201,11 @@ pub enum Note {
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Explorer {
-    pub(crate) route: Route,
+    /// The view's one route model in both designs (Expo's `Stack`): the
+    /// tab's list at the root, each page opened from it pushed over it, a
+    /// block's steps replacing the top. The phone draws the top alone, Back
+    /// popping one; the desktop draws the top under its tab bar.
+    pub(crate) pages: Pages<Route>,
     /// the search field, as typed
     pub(crate) search: TextField,
     pub(crate) note: Option<Note>,
@@ -188,6 +229,13 @@ pub struct Explorer {
     #[serde(skip)]
     pub(crate) manifest_of: Option<String>,
     pub(crate) located: Loadable<Option<TxRow>>,
+    /// a phone's Activity rows: the transactions behind the account page's
+    /// newest frames, read by their place (`read_rows`)
+    #[serde(skip)]
+    pub(crate) acted_rows: Loadable<Vec<TxRow>>,
+    /// the account and the count of frames `acted_rows` was read for
+    #[serde(skip)]
+    pub(crate) rows_of: Option<(u64, usize)>,
     /// a `chain.blocks` page is in flight
     #[serde(skip)]
     pub(crate) pulling: bool,
@@ -215,9 +263,97 @@ pub struct Explorer {
     /// who reads and what they change, read again on every open
     #[serde(skip)]
     pub(crate) acting: Acting,
+    /// the phone's root title row is the search field (the Expo header's
+    /// search), not the title
+    #[serde(skip)]
+    pub(crate) searching: bool,
+    /// the phone's sheet over the page, if one is open
+    #[serde(skip)]
+    pub(crate) sheet: Option<Sheet>,
+}
+
+/// A sheet the phone opens over the Programs page (Expo `programs.tsx`);
+/// a form is [`Acting::form`], as on the desktop.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Sheet {
+    /// More: add a program, propose a grant
+    More,
+    /// one program's or view-only entry's sheet: its page, its
+    /// transactions, the reader's presses on it
+    Program(String),
+}
+
+/// What the code behind a program page declares, as far as it has been
+/// read (`blob.manifest`).
+pub(crate) enum Declared<'a> {
+    Reading,
+    /// the node refused the read, in its words
+    Refused(&'a str),
+    /// no capability to list, and why
+    Nothing(Unlisted),
+    /// what its view asks of the host
+    Asks(&'a Manifest),
+}
+
+/// Why a program page lists no capability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Unlisted {
+    /// the node does not hold the code
+    NoCode,
+    /// a program whose code carries no view
+    NoView,
+    /// a view-only entry whose blob carries no view
+    NoListedView,
+    /// a view whose manifest this app cannot read
+    Unreadable,
+    /// a view that asks for nothing
+    AsksNothing,
+}
+
+impl Unlisted {
+    pub(crate) fn sentence(self) -> &'static str {
+        match self {
+            Unlisted::NoCode => "The node does not hold this code yet.",
+            Unlisted::NoView => {
+                "This program draws nothing: no view, so nothing is asked of the host."
+            }
+            Unlisted::NoListedView => "This app cannot read this view's manifest.",
+            Unlisted::Unreadable => {
+                "Its view carries a manifest this app cannot read: built for another wire, or asking a capability this app does not have."
+            }
+            Unlisted::AsksNothing => "Its view asks nothing of the host.",
+        }
+    }
 }
 
 impl Explorer {
+    /// What the code of the program page on screen declares; `listed`, a
+    /// view-only entry's.
+    pub(crate) fn declared(&self, listed: bool) -> Declared<'_> {
+        let blob = match &self.manifest {
+            Loadable::Idle | Loadable::Loading(_) => return Declared::Reading,
+            Loadable::Failed(refusal) => return Declared::Refused(&refusal.message),
+            Loadable::Ready(blob) | Loadable::Reloading(blob, _) => blob,
+        };
+        let manifest = match blob.as_ref().map(|blob| &blob.view) {
+            None => return Declared::Nothing(Unlisted::NoCode),
+            Some(None) if listed => return Declared::Nothing(Unlisted::NoListedView),
+            Some(None) => return Declared::Nothing(Unlisted::NoView),
+            Some(Some(CarriedView { manifest: None, .. })) => {
+                return Declared::Nothing(Unlisted::Unreadable);
+            }
+            Some(Some(CarriedView {
+                manifest: Some(manifest),
+                ..
+            })) => manifest,
+        };
+        if manifest.capabilities.is_empty() {
+            Declared::Nothing(Unlisted::AsksNothing)
+        } else {
+            Declared::Asks(manifest)
+        }
+    }
+
     /// Every account identity listed, or none yet.
     pub(crate) fn account_list(&self) -> &[identity::Account] {
         self.accounts
@@ -229,6 +365,57 @@ impl Explorer {
         self.account_list()
             .iter()
             .find(|account| account.number == number)
+    }
+
+    /// An account's name, or `account 7` where identity lists no such
+    /// account.
+    pub(crate) fn name_of(&self, number: u64) -> String {
+        self.account(number).map_or_else(
+            || format!("account {number}"),
+            |account| account.card.name.clone(),
+        )
+    }
+
+    /// Whether account `number` is an agent: a program account its manager
+    /// declared one.
+    pub(crate) fn is_agent(&self, number: u64) -> bool {
+        self.account(number).is_some_and(|account| {
+            matches!(
+                account.kind(),
+                identity::Kind::Program {
+                    category: identity::Category::Agent,
+                    ..
+                }
+            )
+        })
+    }
+
+    /// The network's label: the session's chain id before its salt
+    /// (`<label>#<salt>`); none until a session names one.
+    pub(crate) fn network_label(&self) -> Option<&str> {
+        let chain = self.session_chain.as_str();
+        let label = chain.split_once('#').map_or(chain, |(label, _)| label);
+        (!label.is_empty()).then_some(label)
+    }
+
+    /// Blocks left in the epoch, while the node counts epochs.
+    pub(crate) fn epoch_left(&self) -> Option<u64> {
+        let status = self
+            .status
+            .ready()
+            .filter(|status| status.epoch_length > 0)?;
+        let closes = (status.epoch + 1) * status.epoch_length - 1;
+        Some(closes.saturating_sub(status.height))
+    }
+
+    /// What `account` is, its manager named from the list: "User", "Agent ·
+    /// managed by Dev · suspended", "Program · forge" (identity's own wording,
+    /// [`identity::view::kind`], over `Kind::badge` and `Kind::note`).
+    pub(crate) fn kind_of(&self, account: &identity::Account) -> String {
+        identity::view::kind(&account.kind(), |manager| {
+            self.account(manager)
+                .map(|manager| manager.card.name.clone())
+        })
     }
 
     /// The account holding `key`, and which of its keys it is.
@@ -253,6 +440,29 @@ impl Explorer {
                 .filter(|used| used.account == number)
                 .collect(),
         )
+    }
+
+    /// The transactions activity recorded for account `number`, once read.
+    pub(crate) fn sent_by(&self, number: u64) -> Option<u64> {
+        let used = self.used_by(number)?;
+        Some(used.iter().map(|used| used.frames).sum())
+    }
+
+    /// The programs account `number` used and how often, most first, then
+    /// by name, once read.
+    pub(crate) fn programs_used(&self, number: u64) -> Option<Vec<(&str, u64)>> {
+        let mut used: Vec<(&str, u64)> = self
+            .used_by(number)?
+            .into_iter()
+            .map(|used| (used.program.as_str(), used.frames))
+            .collect();
+        used.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+        Some(used)
+    }
+
+    /// How many of the window's transactions went to `name`.
+    pub(crate) fn sent_to(&self, name: &str) -> u64 {
+        self.chain.txs.iter().filter(|tx| tx.target == name).count() as u64
     }
 
     pub(crate) fn acted(&self, number: u64) -> Option<&[activity::Frame]> {

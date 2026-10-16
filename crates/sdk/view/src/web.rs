@@ -2,6 +2,7 @@
 //! for a view that declares [`Capability::Web`](crate::methods::Capability::Web).
 use crate::element::wire_id;
 use crate::interactivity::EventListener;
+use crate::revised::Revised;
 use crate::{App, Element, ElementId, IntoElement, Lowering, Window, wire};
 use gpui::{StyleRefinement, Styled};
 
@@ -14,15 +15,7 @@ pub use wire::WebState;
 /// `load`, `back`, `forward`, `reload` or `stop`, and notify. Each
 /// reaches the page once.
 #[derive(Clone, Default)]
-pub struct WebHandle(std::rc::Rc<std::cell::RefCell<WebQueue>>);
-
-#[derive(Default)]
-struct WebQueue {
-    /// Moves with every command: the host applies the commands of a
-    /// revision it has not seen.
-    revision: u64,
-    commands: Vec<wire::WebCommand>,
-}
+pub struct WebHandle(std::rc::Rc<std::cell::RefCell<Revised<wire::WebCommand>>>);
 
 impl WebHandle {
     pub fn new() -> Self {
@@ -30,9 +23,7 @@ impl WebHandle {
     }
 
     fn push(&self, command: wire::WebCommand) {
-        let mut queue = self.0.borrow_mut();
-        queue.revision = queue.revision.wrapping_add(1);
-        queue.commands.push(command);
+        self.0.borrow_mut().push(command);
     }
 
     /// Opens `url`. The host loads only an `https://` page, or an
@@ -120,10 +111,10 @@ impl Element for Web {
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
-        let (revision, commands) = self.handle.map_or((0, Vec::new()), |handle| {
-            let mut queue = handle.0.borrow_mut();
-            (queue.revision, std::mem::take(&mut queue.commands))
-        });
+        let (revision, commands) = self
+            .handle
+            .map(|handle| handle.0.borrow_mut().take())
+            .unwrap_or_default();
         wire::Node::Web {
             id: wire_id(self.id),
             url: self.url,

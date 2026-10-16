@@ -86,13 +86,19 @@ pub(crate) fn assert_frame_accessible(root: Option<&Node>, tooltips: &[TooltipRe
 }
 
 /// Lowers the one element `build` makes under a view's context, with no
-/// host behind it: the tree, and the table its nodes' styles are in.
+/// host behind it: the tree, the table its nodes' styles are in, and the
+/// presses [`design::dense`](crate::design::dense) marked in it (what
+/// [`assert_fits`] takes beside the two).
 /// Nothing holds the tree to the host's rules here, as [`TestAppContext`]
 /// holds every frame of a view: this is for a test of what one element
 /// carries, [`assert_accessible`] its audit when the test wants one.
 pub fn lower<V, E: crate::IntoElement>(
     build: impl FnOnce(&mut crate::Context<V>) -> E,
-) -> (Node, crate::wire::Styles) {
+) -> (
+    Node,
+    crate::wire::Styles,
+    Vec<Vec<crate::wire::ElementIdWire>>,
+) {
     let mut app = crate::App::for_driver();
     let entity = crate::Entity::reserve(&app);
     let mut window = app.window();
@@ -101,7 +107,8 @@ pub fn lower<V, E: crate::IntoElement>(
         entity,
     });
     let tree = crate::Lowering::new(&mut window, &mut app).lower(element);
-    (tree, app.styles())
+    let dense = app.inner.dense.take();
+    (tree, app.styles(), dense)
 }
 
 /// Panics listing each node assistive technology cannot name, place or
@@ -248,23 +255,61 @@ pub fn sweep(cx: &mut TestAppContext, mut drive: impl FnMut(&mut TestAppContext)
     cx.fits = None;
 }
 
+/// How tall a press is, as [`assert_fits`] reads its declared sizes.
+enum Press {
+    /// the press's own declared height (`h`, else `min_h`)
+    Declared(f32),
+    /// a box reaching past its parent: the parent inside its border, and
+    /// the reach
+    Reaches(f32),
+    /// no declared height on the press, so it is read off the nearest
+    /// declared row above it
+    Undeclared,
+    /// a box reaching past a parent whose height is left to layout, which
+    /// the sweep cannot read
+    ReachesPastAnUndeclaredParent,
+}
+
 /// Panics listing each node that does not fit a body `width` wide under
 /// `ladder`: a fixed or minimum width past `width`; a pressable node (a
 /// click route, a field) whose height is under `ladder.hit`, or that is
 /// invisible. Its height is its own declared one, else the nearest row
 /// above it that declares one; for a node pinned absolute to its parent's
-/// top and bottom, that row's less the two insets, so a negative inset
-/// reaches past it (`design::hit`). Also a many-line field with an
-/// `on_submit` (the software Return is a newline); the root's `on_back`
-/// not exactly when there is somewhere to go back to (a sheet open, or a
-/// Back control drawn: a node named "Back", as `design::page` names it
-/// below the root of a `Pages` stack). Declared sizes only: the harness has no layout
-/// engine, so a width or height left to layout is not judged here (the qa
-/// phone-layout goldens are). A long press has no wire signal of its own,
-/// so its custom-action twin (rule 5) is the review's.
+/// top and bottom, that row's less the two insets. A node that reaches
+/// past its parent (negative insets, `design::hit`) is measured off its
+/// parent alone, which must declare its height: the reach is sized to
+/// that parent, so a taller row further up says nothing about the box.
+/// An absolute box is placed inside its parent's border, so it is the
+/// parent's height less the border, and the reach.
+/// Also a many-line field with an `on_submit` (the software Return is a
+/// newline); the root's `on_back` not exactly when there is somewhere to
+/// go back to (a sheet open, or a Back control drawn: a node named "Back",
+/// as `design::page` names it for [`Nav::Back`](crate::design::Nav::Back)).
+/// A long press has no wire signal of its own, so its custom-action twin
+/// (rule 5) is the review's.
+///
+/// It reads declared sizes only: the harness has no layout engine, so a
+/// width or height left to layout is not judged here (the qa phone-layout
+/// goldens are). So it trusts a press box under 44 when the box takes its
+/// height from a declared row above it that is 44 or more:
+/// - a `design::hit` told its parent is 44 or more each way, so it
+///   reaches nowhere;
+/// - a box pinned by insets that add up to zero (`top(-12)`,
+///   `bottom(12)`);
+/// - a box pinned by one inset only;
+/// - a press with no declared height of its own.
+///
+/// And it refuses a `design::hit` whose parent's height is left to
+/// layout (`h_full`, `size_full`) even where the box fits.
+///
+/// A press filed under one of the paths in `dense` (the presses
+/// [`design::dense`](crate::design::dense) marked as `tree` lowered) may be
+/// under a finger's height: a dense list keeps its row's own press box, as
+/// the Expo app's does. A press inside it is held to the height as any.
 pub fn assert_fits(
     tree: &Node,
     styles: &crate::wire::Styles,
+    dense: &[Vec<crate::wire::ElementIdWire>],
     width: f32,
     ladder: &crate::design::Ladder,
 ) {
@@ -283,6 +328,16 @@ pub fn assert_fits(
         let style = declared(node.style())?;
         px_of(&style.size.height).or_else(|| px_of(&style.min_size.height))
     };
+    // what a node's top and bottom borders take off its height
+    let border_of = |node: &Node| {
+        let edge = |width: Option<gpui::AbsoluteLength>| match width {
+            Some(gpui::AbsoluteLength::Pixels(px)) => f32::from(px),
+            _ => 0.,
+        };
+        declared(node.style()).map_or(0., |style| {
+            edge(style.border_widths.top) + edge(style.border_widths.bottom)
+        })
+    };
     // what an absolute node pinned top and bottom takes off its parent's
     // height (negative when it reaches past it)
     let pinned = |node: &Node| {
@@ -291,6 +346,31 @@ pub fn assert_fits(
             return None;
         }
         Some(px_of(&style.inset.top)? + px_of(&style.inset.bottom)?)
+    };
+    // how tall the last node of `chain` presses: its own declared height;
+    // for a box reaching past its parent (`design::hit`), the parent's
+    // inside its border and the reach; else the nearest declared row above
+    // it, less what it is pinned in by
+    let press_height = |chain: &[&Node]| {
+        let node = *chain.last().expect("a chain ends at its node");
+        if let Some(own) = height_of(node) {
+            return Press::Declared(own);
+        }
+        let reach = pinned(node).filter(|insets| *insets < 0.).map(f32::abs);
+        if let Some(reach) = reach {
+            let parent = chain.iter().rev().nth(1).copied();
+            let inside = parent.and_then(|parent| Some(height_of(parent)? - border_of(parent)));
+            return inside.map_or(Press::ReachesPastAnUndeclaredParent, |inside| {
+                Press::Reaches(inside + reach)
+            });
+        }
+        let height = chain
+            .iter()
+            .rev()
+            .skip(1)
+            .find_map(|node| height_of(node))
+            .map(|above| above - pinned(node).unwrap_or(0.));
+        height.map_or(Press::Undeclared, Press::Declared)
     };
     chain(tree, &mut |chain| {
         let node = *chain.last().unwrap();
@@ -321,19 +401,23 @@ pub fn assert_fits(
             if invisible {
                 faults.push(format!("a pressable node is invisible at {}", path()));
             }
-            let nearest = height_of(node).or_else(|| {
-                let above = chain
-                    .iter()
-                    .rev()
-                    .skip(1)
-                    .find_map(|node| height_of(node))?;
-                Some(above - pinned(node).unwrap_or(0.))
-            });
-            if !nearest.is_some_and(|h| h >= hit) {
-                faults.push(format!(
+            let marked = dense.contains(&authored_path(chain));
+            match press_height(chain) {
+                // a dense list's press keeps its own box
+                _ if marked => {}
+                Press::Declared(height) | Press::Reaches(height) if height >= hit => {}
+                Press::Reaches(height) => faults.push(format!(
+                    "a press box reaching past its parent comes to {height} (the parent inside its border, and the reach), under {hit}, at {}: tell `design::hit` the parent's true size and border (`edge`)",
+                    path()
+                )),
+                Press::ReachesPastAnUndeclaredParent => faults.push(format!(
+                    "a press box reaches past a parent that declares no height at {}: declare the parent's height (`.h(..)` or `.min_h(..)`); one left to layout (`h_full`, `size_full`) is not read",
+                    path()
+                )),
+                Press::Declared(_) | Press::Undeclared => faults.push(format!(
                     "a pressable node declares no height of at least {hit} (itself or the nearest row above it that declares one) at {}",
                     path()
-                ));
+                )),
             }
         }
         if let Node::Field {

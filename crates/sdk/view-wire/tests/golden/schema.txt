@@ -1,6 +1,7 @@
 # methods: kind, target, request -> reply; borsh unless named
 blob.get None String -> Option<Vec<u8>>
 blob.manifest None String -> Option<Manifested>
+camera.devices None () -> Vec<CameraDevice>
 chain.block None BlockAsk -> Option<Block>
 chain.blocks None BlockPage -> BlockList
 chain.heads None () -> Head
@@ -11,13 +12,17 @@ clipboard.read None () -> Clipboard
 clipboard.write None String -> ()
 clock.ticks None i64 -> ()
 host.badge None i64 -> ()
+host.float None Float -> Placement
 host.id None String -> String
 host.log None String -> ()
+host.placement None () -> Placement
 host.route None () -> String
 host.screen None () -> Vec<String>
 host.session None () -> Session
+host.show None Place -> ()
 host.showing None String -> ()
 host.title None String -> ()
+host.unfloat None () -> ()
 host.visible None () -> bool
 host.widget None TypeName("WidgetCommand") -> Unit tree
 invite.create None CreateInvite -> Invite
@@ -26,6 +31,8 @@ live.publish None LivePublish -> Publishing
 live.send None LiveSend -> ()
 live.subscribe None LiveSubscribe -> LiveItem
 live.tracks None String -> Watching
+microphone.chime None Option<String> -> ()
+microphone.devices None () -> AudioDevices
 notify.post None Notification -> Delivery
 notify.seen None String -> ()
 op.submit Some("P") ProgramOp -> Submitted
@@ -40,6 +47,13 @@ store.set None (String, Option<Vec<u8>>) -> ()
 () = Primitive(0)
 (String, Option<Vec<u8>>) = Tuple { elements: ["String", "Option<Vec<u8>>"] }
 (String, Vec<u8>) = Tuple { elements: ["String", "Vec<u8>"] }
+AudioDevice = Struct { fields: NamedFields([("id", "String"), ("name", "String"), ("default", "bool"), ("kind", "AudioKind")]) }
+AudioDevices = Struct { fields: NamedFields([("inputs", "Vec<AudioDevice>"), ("outputs", "Vec<AudioDevice>")]) }
+AudioKind = Enum { tag_width: 1, variants: [(0, "Speaker", "AudioKind__Speaker"), (1, "Earpiece", "AudioKind__Earpiece"), (2, "Headphones", "AudioKind__Headphones"), (3, "Other", "AudioKind__Other")] }
+AudioKind__Earpiece = Struct { fields: Empty }
+AudioKind__Headphones = Struct { fields: Empty }
+AudioKind__Other = Struct { fields: Empty }
+AudioKind__Speaker = Struct { fields: Empty }
 Block = Struct { fields: NamedFields([("height", "u64"), ("id", "[u8; 32]"), ("parent", "[u8; 32]"), ("time", "u64"), ("epoch", "u64"), ("proposer", "Option<Vec<u8>>"), ("txs", "Vec<Tx>")]) }
 BlockAsk = Struct { fields: NamedFields([("by", "BlockRef"), ("most", "u32")]) }
 BlockList = Struct { fields: NamedFields([("blocks", "Vec<Block>"), ("listed_from", "Option<u64>")]) }
@@ -47,8 +61,10 @@ BlockPage = Struct { fields: NamedFields([("before", "Option<u64>"), ("limit", "
 BlockRef = Enum { tag_width: 1, variants: [(0, "Height", "BlockRef__Height"), (1, "Id", "BlockRef__Id")] }
 BlockRef__Height = Struct { fields: UnnamedFields(["u64"]) }
 BlockRef__Id = Struct { fields: UnnamedFields(["[u8; 32]"]) }
-Capability = Enum { tag_width: 1, variants: [(0, "Chain", "Capability__Chain"), (1, "Program", "Capability__Program"), (2, "Op", "Capability__Op"), (3, "Invite", "Capability__Invite"), (4, "Link", "Capability__Link"), (5, "Blob", "Capability__Blob"), (6, "Host", "Capability__Host"), (7, "Clock", "Capability__Clock"), (8, "Clipboard", "Capability__Clipboard"), (9, "Notify", "Capability__Notify"), (10, "Store", "Capability__Store"), (11, "Web", "Capability__Web"), (12, "Live", "Capability__Live")] }
+CameraDevice = Struct { fields: NamedFields([("id", "String"), ("name", "String"), ("default", "bool"), ("facing", "Facing")]) }
+Capability = Enum { tag_width: 1, variants: [(0, "Chain", "Capability__Chain"), (1, "Program", "Capability__Program"), (2, "Op", "Capability__Op"), (3, "Invite", "Capability__Invite"), (4, "Link", "Capability__Link"), (5, "Blob", "Capability__Blob"), (6, "Host", "Capability__Host"), (7, "Clock", "Capability__Clock"), (8, "Clipboard", "Capability__Clipboard"), (9, "Notify", "Capability__Notify"), (10, "Store", "Capability__Store"), (11, "Web", "Capability__Web"), (12, "Live", "Capability__Live"), (13, "Camera", "Capability__Camera"), (14, "Microphone", "Capability__Microphone")] }
 Capability__Blob = Struct { fields: Empty }
+Capability__Camera = Struct { fields: Empty }
 Capability__Chain = Struct { fields: Empty }
 Capability__Clipboard = Struct { fields: Empty }
 Capability__Clock = Struct { fields: Empty }
@@ -56,6 +72,7 @@ Capability__Host = Struct { fields: Empty }
 Capability__Invite = Struct { fields: Empty }
 Capability__Link = Struct { fields: Empty }
 Capability__Live = Struct { fields: Empty }
+Capability__Microphone = Struct { fields: Empty }
 Capability__Notify = Struct { fields: Empty }
 Capability__Op = Struct { fields: Empty }
 Capability__Program = Struct { fields: Empty }
@@ -71,7 +88,12 @@ Delivery__Blocked = Struct { fields: Empty }
 Delivery__Logged = Struct { fields: Empty }
 Description = Struct { fields: NamedFields([("title", "String"), ("fields", "Vec<Field>")]) }
 Error = Struct { fields: NamedFields([("code", "String"), ("message", "String")]) }
+Facing = Enum { tag_width: 1, variants: [(0, "Front", "Facing__Front"), (1, "Back", "Facing__Back"), (2, "External", "Facing__External")] }
+Facing__Back = Struct { fields: Empty }
+Facing__External = Struct { fields: Empty }
+Facing__Front = Struct { fields: Empty }
 Field = Struct { fields: NamedFields([("label", "String"), ("value", "Value")]) }
+Float = Struct { fields: NamedFields([("width", "u32"), ("height", "u32"), ("min_width", "u32"), ("min_height", "u32"), ("on_top", "bool")]) }
 Head = Struct { fields: NamedFields([("height", "u64"), ("time", "u64"), ("id", "[u8; 32]")]) }
 Invite = Struct { fields: NamedFields([("invite", "String"), ("notes", "Vec<Error>")]) }
 LiveAnnounce = Struct { fields: NamedFields([("name", "String"), ("by", "u64"), ("mode", "LiveMode"), ("up", "bool")]) }
@@ -104,12 +126,18 @@ Option<Located> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some",
 Option<Manifest> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Manifest")] }
 Option<Manifested> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Manifested")] }
 Option<Receipt> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Receipt")] }
+Option<String> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "String")] }
 Option<Vec<u8>> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Vec<u8>")] }
 Option<u64> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "u64")] }
 Outcome = Enum { tag_width: 1, variants: [(0, "Applied", "Outcome__Applied"), (1, "Rejected", "Outcome__Rejected")] }
 Outcome__Applied = Struct { fields: NamedFields([("output", "Vec<u8>")]) }
 Outcome__Rejected = Struct { fields: UnnamedFields(["Error"]) }
 Peer = Struct { fields: NamedFields([("key", "Vec<u8>"), ("signed", "Option<u64>")]) }
+Place = Enum { tag_width: 1, variants: [(0, "Account", "Place__Account"), (1, "CameraSettings", "Place__CameraSettings"), (2, "MicrophoneSettings", "Place__MicrophoneSettings")] }
+Place__Account = Struct { fields: Empty }
+Place__CameraSettings = Struct { fields: Empty }
+Place__MicrophoneSettings = Struct { fields: Empty }
+Placement = Struct { fields: NamedFields([("floating", "bool"), ("on_top", "bool")]) }
 ProgramOp = Struct { fields: Empty }
 ProgramQuery = Struct { fields: Empty }
 ProgramReply = Struct { fields: Empty }
@@ -140,7 +168,9 @@ Value__List = Struct { fields: UnnamedFields(["Vec<Value>"]) }
 Value__Program = Struct { fields: UnnamedFields(["String"]) }
 Value__Text = Struct { fields: UnnamedFields(["String"]) }
 Value__Time = Struct { fields: UnnamedFields(["u64"]) }
+Vec<AudioDevice> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "AudioDevice" }
 Vec<Block> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Block" }
+Vec<CameraDevice> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "CameraDevice" }
 Vec<Capability> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Capability" }
 Vec<Error> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Error" }
 Vec<Field> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Field" }
@@ -533,6 +563,9 @@ Event enum
   36 Web struct
     handler: U32
     state: TypeName("WebState")
+  37 Media struct
+    handler: U32
+    state: TypeName("MediaState")
 FontFallbacks NewTypeStruct(Seq(Str))
 FontStyle enum
   0 Normal: Unit
@@ -708,6 +741,26 @@ Location enum
   1 Left: Unit
   2 Right: Unit
   3 Numpad: Unit
+MediaState struct
+  status: TypeName("MediaStatus")
+  device: Str
+  playback: TypeName("Playback")
+  detail: Str
+  speaking: Bool
+  opens_settings: Bool
+MediaStatus enum
+  0 Starting: Unit
+  1 Live: Unit
+  2 Denied: Unit
+  3 Busy: Unit
+  4 Gone: Unit
+  5 NoDevice: Unit
+  6 Unsupported: Unit
+  7 Failed: Unit
+MicCommand enum
+  0 Record struct
+    seconds: U8
+  1 Stop: Unit
 Modifiers struct
   control: Bool
   alt: Bool
@@ -937,6 +990,22 @@ Node enum
     revision: U64
     commands: Seq(TypeName("WebCommand"))
     on_state: Option(U32)
+  17 Camera struct
+    id: TypeName("WireRepr")
+    style: U32
+    device: Option(Str)
+    mirror: Bool
+    object_fit: TypeName("ImageObjectFit")
+    on_state: Option(U32)
+  18 Microphone struct
+    id: TypeName("WireRepr")
+    style: U32
+    device: Option(Str)
+    output: Option(Str)
+    monitor: Bool
+    revision: U64
+    commands: Seq(TypeName("MicCommand"))
+    on_state: Option(U32)
 NodeId NewTypeStruct(U64)
 Orientation enum
   0 horizontal: Unit
@@ -967,6 +1036,10 @@ Pinch struct
   modifiers: TypeName("Modifiers")
   phase: TypeName("TouchPhase")
 Pixels NewTypeStruct(F32)
+Playback enum
+  0 Idle: Unit
+  1 Recording: Unit
+  2 Playing: Unit
 Point struct
   x: TypeName("Pixels")
   y: TypeName("Pixels")
@@ -1241,6 +1314,7 @@ TextNode struct
   id: Option(TypeName("WireRepr"))
   style: U32
   content: Str
+  transform: Option(TypeName("TextTransform"))
 TextPosition struct
   node: TypeName("NodeId")
   characterIndex: U64
@@ -1264,6 +1338,8 @@ TextSelection struct
 TextToken struct
   range: TypeName("TextRange")
   id: Str
+TextTransform enum
+  0 Uppercase: Unit
 Toggled enum
   0 false: Unit
   1 true: Unit

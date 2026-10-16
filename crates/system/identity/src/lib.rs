@@ -1,7 +1,8 @@
 //! The `identity` program: accounts, and who acts as each. Everything that
 //! acts is an account: a user (the keys they hold), a program account (the
 //! keys its manager, a user, adds, and the script that runs its actions) and
-//! a system account (the one the kernel registers as it admits a program). The types, rules and [`Identity`] program are
+//! a system account (the one the kernel registers as it admits a program). An agent's
+//! manager also sets whom it answers, an [`Ownership`] whose `Owner` is the manager. The types, rules and [`Identity`] program are
 //! always built; a view links them with `program` off (`view.rs` is what a
 //! view shows of an account). The `program` feature adds its wasm exports.
 //!
@@ -15,7 +16,7 @@ mod rules;
 mod tests;
 pub mod view;
 
-pub use ::program::AccountNumber;
+pub use ::program::{AccountNumber, Ownership};
 pub use abi::role::identity::{Category, Kind, Profile, Script, Standing};
 pub use program::Identity;
 
@@ -78,14 +79,6 @@ pub enum Life {
     Active { keys: Vec<Key> },
     Suspended { keys: Vec<Key> },
     Revoked,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub enum Audience {
-    #[default]
-    Manager,
-    Accounts(Vec<AccountNumber>),
-    Anyone,
 }
 
 impl Account {
@@ -219,9 +212,9 @@ pub enum Op {
     Revoke {
         account: AccountNumber,
     },
-    SetAudience {
+    SetOwnership {
         account: AccountNumber,
-        audience: Audience,
+        ownership: Ownership,
     },
     SetScript {
         account: AccountNumber,
@@ -271,8 +264,8 @@ pub enum Query {
         by: AccountNumber,
         page: PageRequest,
     },
-    #[ask(Reply::Audience(Audience))]
-    Audience { number: AccountNumber },
+    #[ask(Reply::Ownership(Ownership))]
+    Ownership { number: AccountNumber },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -289,7 +282,7 @@ pub enum Reply {
     Generation(u64),
     Resolved(Vec<Option<AccountNumber>>),
     Accounts(PageResponse<Account>),
-    Audience(Audience),
+    Ownership(Ownership),
 }
 
 /// An op as a person reads it: a title and its fields. The source of the
@@ -298,14 +291,14 @@ pub fn describe(op: &Op) -> describe::Description {
     use describe::{Value, field};
     let account = |number: &AccountNumber| field("account", Value::Account(*number));
     let optional = |text: &Option<String>| Value::Text(text.clone().unwrap_or_else(|| "—".into()));
-    let answers = |audience: &Audience| match audience {
-        Audience::Manager => Value::text("its manager"),
-        Audience::Accounts(numbers) => Value::List(
+    let answers = |ownership: &Ownership| match ownership {
+        Ownership::Owner => Value::text("its manager"),
+        Ownership::Accounts(numbers) => Value::List(
             std::iter::once(Value::text("its manager"))
                 .chain(numbers.iter().copied().map(Value::Account))
                 .collect(),
         ),
-        Audience::Anyone => Value::text("anyone"),
+        Ownership::Anyone => Value::text("anyone"),
     };
     let scheme = |scheme: &abi::Scheme| {
         field(
@@ -380,12 +373,12 @@ pub fn describe(op: &Op) -> describe::Description {
         Op::Suspend { account: number } => ("Suspend".into(), vec![account(number)]),
         Op::Resume { account: number } => ("Resume".into(), vec![account(number)]),
         Op::Revoke { account: number } => ("Revoke".into(), vec![account(number)]),
-        Op::SetAudience {
+        Op::SetOwnership {
             account: number,
-            audience,
+            ownership,
         } => (
             "Set who it answers".into(),
-            vec![account(number), field("answers", answers(audience))],
+            vec![account(number), field("answers", answers(ownership))],
         ),
         Op::SetScript {
             account: number,
@@ -424,7 +417,7 @@ fn op_variants_only_append() {
             "Suspend",
             "Resume",
             "Revoke",
-            "SetAudience",
+            "SetOwnership",
             "SetScript",
         ]
     );
@@ -445,7 +438,7 @@ fn query_and_reply_variants_only_append() {
             "Resolve",
             "List",
             "Managed",
-            "Audience",
+            "Ownership",
         ]
     );
     assert_eq!(
@@ -458,7 +451,7 @@ fn query_and_reply_variants_only_append() {
             "Generation",
             "Resolved",
             "Accounts",
-            "Audience",
+            "Ownership",
         ]
     );
 }

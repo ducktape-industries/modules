@@ -2,7 +2,7 @@
 //! `PageResponse`; `next` is the cursor of the page after it.
 use chat::view::Names;
 use chat::{ChannelInfo, MemberRow, MessageHits, MsgRow, PageRequest, Principal, ask};
-use identity::Audience;
+use identity::Ownership;
 use std::collections::BTreeMap;
 use view::prelude::*;
 
@@ -43,15 +43,18 @@ pub(crate) async fn roster(host: Host) -> Result<Names, Error> {
 
 /// Whom each agent that acts answers besides its manager, as identity
 /// keeps it: one ask per agent the roster names.
-pub(crate) async fn audiences(host: Host, names: &Names) -> Result<BTreeMap<u64, Audience>, Error> {
+pub(crate) async fn ownerships(
+    host: Host,
+    names: &Names,
+) -> Result<BTreeMap<u64, Ownership>, Error> {
     let agents = names
         .people()
         .filter(|number| crate::message::agent(names, &Principal::Account(*number)));
     let asks = agents.map(|number| {
         let host = host.clone();
         async move {
-            let audience = host.query(identity::ask::Audience { number }).await?;
-            Ok::<_, Error>((number, audience))
+            let ownership = host.query(identity::ask::Ownership { number }).await?;
+            Ok::<_, Error>((number, ownership))
         }
     });
     Ok(futures::future::try_join_all(asks)

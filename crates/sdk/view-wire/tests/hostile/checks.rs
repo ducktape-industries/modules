@@ -96,7 +96,9 @@ pub(super) fn check_bounds(node: &Node, styles: &Styles, depth: usize, ctx: &str
             check_native_style(&styles[*style]);
             check_bounds(child, styles, depth + 1, ctx);
         }
-        Node::Web { style, .. } => check_native_style(&styles[*style]),
+        Node::Web { style, .. } | Node::Camera { style, .. } | Node::Microphone { style, .. } => {
+            check_native_style(&styles[*style])
+        }
         Node::ResizeHandle { content, .. } => {
             check_bounds(content, styles, depth + 1, ctx);
         }
@@ -202,7 +204,7 @@ pub(super) fn check_bounds(node: &Node, styles: &Styles, depth: usize, ctx: &str
         } => {
             check_native_style(&styles[*style]);
             assert!(
-                (1..=8).contains(&detents.len())
+                detents.len() <= 8
                     && detents.iter().all(|d| (0. ..=1.).contains(d))
                     && detents.windows(2).all(|pair| pair[0] < pair[1]),
                 "{ctx}: sanitize kept unsound sheet detents {detents:?}"

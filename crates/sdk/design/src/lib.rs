@@ -68,35 +68,68 @@ pub mod type_scale {
     pub const MONO: f64 = 12.;
 
     /// The scale under a finger (`window.touch()`): the Expo app's text
-    /// roles (mobile `src/design/theme.ts` `type`), each a size and its line
-    /// height (`*_LINE`), since the reader is further from a phone than from
-    /// a desk. The body is 15.
+    /// roles, each a size and its line height (`*_LINE`), since the reader
+    /// is further from a phone than from a desk, and for the three roles
+    /// Expo spaces out or tightens, the space after each letter
+    /// (`*_LETTER_SPACING`, in px). The body is 15. Each number is mobile
+    /// `src/design/theme.ts` `type` (`theme.ts:40-62`), at the line named
+    /// on it.
     pub mod touch {
-        /// a view's first page's title
+        /// a code to read out or compare: the join code, a key's
+        /// fingerprint (`theme.ts:61` `display`)
+        pub const DISPLAY: f64 = 36.;
+        /// [`DISPLAY`]'s line height
+        pub const DISPLAY_LINE: f64 = 44.;
+        /// [`DISPLAY`]'s letter spacing: 0.04 of its size apart
+        /// (`theme.ts:61` `letterSpacing`)
+        pub const DISPLAY_LETTER_SPACING: f64 = 1.44;
+        /// a view's first page's title (`theme.ts:59` `bigTitle`)
         pub const BIG_TITLE: f64 = 22.;
+        /// [`BIG_TITLE`]'s line height
         pub const BIG_TITLE_LINE: f64 = 27.;
-        /// a detail head's name, a fact's value
+        /// [`BIG_TITLE`]'s letter spacing: 0.01 of its size tighter
+        /// (`theme.ts:59` `letterSpacing`)
+        pub const BIG_TITLE_LETTER_SPACING: f64 = -0.22;
+        /// a detail head's name, a fact's value (`theme.ts:57` `heading`)
         pub const HEADING: f64 = 20.;
+        /// [`HEADING`]'s line height
         pub const HEADING_LINE: f64 = 24.;
-        /// a page title in a view's own title row
+        /// a page title in a view's own title row (`theme.ts:55` `title`)
         pub const TITLE: f64 = 17.;
+        /// [`TITLE`]'s line height
         pub const TITLE_LINE: f64 = 21.;
+        /// body text (`theme.ts:42` `body`)
         pub const BODY: f64 = 15.;
+        /// [`BODY`]'s line height
         pub const BODY_LINE: f64 = 21.;
-        /// strip items, key/value rows, dialog bodies
+        /// strip items, key/value rows, dialog bodies (`theme.ts:44` `small`)
         pub const SMALL: f64 = 14.;
+        /// [`SMALL`]'s line height
         pub const SMALL_LINE: f64 = 19.;
-        /// secondary copy; a mono run at this size
+        /// secondary copy; a mono run at this size (`theme.ts:46`
+        /// `secondary`)
         pub const SECONDARY: f64 = 13.;
+        /// [`SECONDARY`]'s line height
         pub const SECONDARY_LINE: f64 = 18.;
-        /// a caption, a timestamp, a count
+        /// a caption, a timestamp, a count (`theme.ts:47` `caption`)
         pub const CAPTION: f64 = 12.;
+        /// [`CAPTION`]'s line height
         pub const CAPTION_LINE: f64 = 16.;
-        /// a badge, a chip's count, a tab label
+        /// a badge, a chip's count, a tab label (`theme.ts:49` `tiny`)
         pub const TINY: f64 = 11.;
+        /// [`TINY`]'s line height
         pub const TINY_LINE: f64 = 14.;
-        /// code, in the data face
+        /// a fact's key, a code box's label, in capitals (`theme.ts:51`
+        /// `eyebrow`)
+        pub const EYEBROW: f64 = 11.;
+        /// [`EYEBROW`]'s line height
+        pub const EYEBROW_LINE: f64 = 14.;
+        /// [`EYEBROW`]'s letter spacing: 0.06 of its size apart
+        /// (`theme.ts:51` `letterSpacing`)
+        pub const EYEBROW_LETTER_SPACING: f64 = 0.66;
+        /// code, in the data face (`theme.ts:53` `code`)
         pub const CODE: f64 = 12.;
+        /// [`CODE`]'s line height
         pub const CODE_LINE: f64 = 20.;
     }
 }
@@ -125,7 +158,9 @@ pub mod radius {
 
 /// Gaps and insets, in pixels. One ladder: every gap the kit's builders open
 /// and every edge they pad is a step on it, so a view names the step instead
-/// of the number.
+/// of the number. The Expo app's `gap` is this ladder, step for step (mobile
+/// `src/design/tokens.gen.ts:94-103` `spacing`), so a touch layout names the
+/// same steps.
 pub mod spacing {
     /// two lines that read as one: a name over its caption
     pub const HAIR: f64 = 2.;
@@ -166,44 +201,63 @@ pub mod height {
     pub const ICON: f64 = 16.;
 
     /// The heights under a finger (`window.touch()`): Apple's 44pt, Android's
-    /// 48dp, the Expo app's `src/design/theme.ts` `size`.
+    /// 48dp. Each number is mobile `src/design/theme.ts` `size`
+    /// (`theme.ts:69-88`) at the line named on it; an avatar's initial is
+    /// the Expo kit's `Avatar` table (`src/kit/Avatar.tsx:7` `TEXT`).
     pub mod touch {
-        /// a page's title row
+        /// a page's title row (`theme.ts:70` `header`)
         pub const HEADER: f64 = 56.;
-        /// a list row
+        /// a list row (`theme.ts:72` `row`)
         pub const ROW: f64 = 48.;
-        /// a list row with a caption under its title
+        /// a list row with a caption under its title (`theme.ts:73`
+        /// `rowTall`)
         pub const ROW_TALL: f64 = 56.;
-        /// a control on one line
+        /// a control on one line (`theme.ts:74` `control`)
         pub const CONTROL: f64 = 44.;
-        /// the one action a screen leads with
+        /// the one action a screen leads with (`theme.ts:75` `primary`)
         pub const PRIMARY: f64 = 48.;
-        /// the smallest box a finger presses, each way
+        /// a small button (`theme.ts:76` `small`)
+        pub const SMALL: f64 = 36.;
+        /// the smallest box a finger presses, each way (`theme.ts:71` `hit`)
         pub const HIT: f64 = 44.;
-        /// a state word on a tag
+        /// a few choices in one box, its two hairlines included
+        /// (`theme.ts:77` `segmented`)
+        pub const SEGMENTED: f64 = 36.;
+        /// a state word on a tag (`theme.ts:79` `badge`)
         pub const BADGE: f64 = 20.;
-        /// a row of a sheet
+        /// a row of a sheet (`theme.ts:80` `sheetRow`)
         pub const SHEET_ROW: f64 = 52.;
-        /// a person's initial in a list row or beside a message, and the
-        /// initial's size (the Expo kit's `Avatar` sizes its initials by a
-        /// table, not one ratio)
+        /// a bar of tabs, its hairline included (`theme.ts:81` `strip`)
+        pub const STRIP: f64 = 44.;
+        /// a person's initial in a list row or beside a message
+        /// (`theme.ts:86` `avatar.list`)
         pub const AVATAR: f64 = 32.;
+        /// [`AVATAR`]'s initial (the Expo kit's `Avatar` sizes its
+        /// initials by a table, not one ratio)
         pub const AVATAR_TEXT: f64 = 13.;
-        /// a person's initial inline: a title row, a mention
+        /// a person's initial inline: a title row, a mention (`theme.ts:86`
+        /// `avatar.inline`)
         pub const AVATAR_INLINE: f64 = 24.;
+        /// [`AVATAR_INLINE`]'s initial
         pub const AVATAR_INLINE_TEXT: f64 = 11.;
-        /// a person's initial heading a sheet
+        /// a person's initial heading a sheet (`theme.ts:86` `avatar.sheet`)
         pub const AVATAR_SHEET: f64 = 40.;
+        /// [`AVATAR_SHEET`]'s initial
         pub const AVATAR_SHEET_TEXT: f64 = 16.;
-        /// a person's initial heading their own page
+        /// a person's initial heading their own page (`theme.ts:86`
+        /// `avatar.detail`)
         pub const AVATAR_DETAIL: f64 = 56.;
+        /// [`AVATAR_DETAIL`]'s initial
         pub const AVATAR_DETAIL_TEXT: f64 = 22.;
-        /// an icon on an icon button or in a title row
+        /// an icon on an icon button or in a title row (`theme.ts:87`
+        /// `icon.hit`)
         pub const ICON: f64 = 22.;
-        /// an icon leading a list row
+        /// an icon leading a list row (`theme.ts:87` `icon.row`)
         pub const ICON_ROW: f64 = 18.;
-        /// an icon leading a sheet row
+        /// an icon leading a sheet row (`theme.ts:87` `icon.sheet`)
         pub const ICON_SHEET: f64 = 20.;
+        /// an empty state's icon (`theme.ts:87` `icon.empty`)
+        pub const ICON_EMPTY: f64 = 28.;
     }
 }
 
@@ -504,6 +558,20 @@ pub fn short_hex(text: &str) -> String {
     format!("{head}…{tail}")
 }
 
+/// A key's fingerprint, to compare by eye with the device that shows it:
+/// the first four bytes of its SHA-256 in upper-case hex, split in two
+/// (`4354 C7BD`). It is the app's `noded-client` `join::fingerprint`
+/// (`crates/noded-client/src/join.rs:51-58`), which the Expo app calls
+/// (`app/settings.tsx:63`, `app/account/index.tsx:148`).
+pub fn fingerprint(key: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let hex: String = Sha256::digest(key)[..4]
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect();
+    format!("{} {}", &hex[..4], &hex[4..])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -518,6 +586,11 @@ mod tests {
             short_hex("오리테이프오리테이프오리테이프"),
             "오리테이프오리테…리테이프"
         );
+    }
+    #[test]
+    fn a_fingerprint_is_the_first_four_bytes_of_the_keys_sha256() {
+        // SHA-256 of 32 zero bytes is 66687aad…
+        assert_eq!(fingerprint(&[0; 32]), "6668 7AAD");
     }
     #[test]
     fn every_embedded_font_file_exists_and_is_truetype() {

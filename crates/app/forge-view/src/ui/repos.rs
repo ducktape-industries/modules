@@ -7,6 +7,7 @@ use crate::Forge;
 use crate::queries::PAGE;
 use crate::ui::components::{PRESS_TARGET, button, empty_state, heading, id, ref_label};
 use crate::ui::{pending, staged};
+use crate::words;
 use forge::{Query, Reply, RepoInfo};
 use view::design::Ladder;
 
@@ -169,7 +170,7 @@ fn repo_title(
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> Div {
-    let url = crate::ui::repo_link(forge, name);
+    let url = forge.repo_link(name);
     div()
         .flex_1()
         .min_w(NAME_MIN_W)
@@ -337,7 +338,7 @@ pub(crate) fn overview(
         forge,
         &query(),
         "forge-repos-list",
-        "Reading the repositories…",
+        words::READING_REPOSITORIES,
         cx,
         theme,
         ladder,
@@ -367,19 +368,22 @@ pub(crate) fn overview(
     };
     let rows = listed(forge, body);
     if rows.is_empty() {
+        // the Expo app's (`app/(tabs)/forge/index.tsx:77-79`)
+        let (glyph, title, detail) = match forge.search.is_blank() {
+            true => ("hammer", words::NO_REPOSITORIES_YET, words::CREATE_ONE),
+            false => (
+                "search",
+                words::NOTHING_MATCHES,
+                words::NO_REPOSITORY_MATCHES,
+            ),
+        };
         return column
             .child(empty_state(
                 id("forge-repos-empty"),
-                if forge.search.is_blank() {
-                    "No repositories yet"
-                } else {
-                    "Nothing matches"
-                },
-                if forge.search.is_blank() {
-                    "Create one with New repository, then push to it."
-                } else {
-                    "No repository here reads like that."
-                },
+                glyph,
+                title,
+                detail,
+                ladder,
                 theme,
             ))
             .into_any_element();
@@ -412,7 +416,7 @@ pub(crate) fn overview(
             match forge.repos_cursor.as_ref().map_or(0, |(_, cell)| *cell) {
                 0 => forge.open_repo(name, cx),
                 1 => {
-                    let url = crate::ui::repo_link(forge, &name);
+                    let url = forge.repo_link(&name);
                     cx.host().notify::<view::methods::ClipboardWrite>(url);
                     forge.copied = Some(name);
                     cx.notify();
@@ -463,7 +467,7 @@ pub(crate) fn rail(
         forge,
         &query(),
         "forge-rail-list",
-        "Reading the repositories…",
+        words::READING_REPOSITORIES,
         cx,
         theme,
         ladder,
@@ -613,13 +617,19 @@ fn header(
             .border_color(theme.border_strong)
             .bg(theme.background)
             .text_color(theme.foreground)
-            .placeholder("Filter by name"),
+            .placeholder(words::FILTER_BY_NAME),
         )
         .child(div().flex_1())
         .child(
-            button(id("forge-new-repo"), "New repository", ladder, theme, new)
-                .kind(design::Kind::Primary)
-                .enabled(forge.may_write()),
+            button(
+                id("forge-new-repo"),
+                words::NEW_REPOSITORY,
+                ladder,
+                theme,
+                new,
+            )
+            .kind(design::Kind::Primary)
+            .enabled(forge.may_write()),
         )
         .into_any_element()
 }
@@ -639,7 +649,7 @@ fn dialog(
     });
     let formats = design::segmented(
         id("forge-new-repo-format"),
-        "Object format",
+        words::OBJECT_FORMAT,
         ladder,
         theme,
         Some(usize::from(form.sha1)),
@@ -676,7 +686,7 @@ fn dialog(
         .bg(theme.surface)
         .child(heading(
             id("forge-new-repo-title"),
-            "New repository",
+            words::NEW_REPOSITORY,
             2,
             theme,
         ))
@@ -695,19 +705,21 @@ fn dialog(
                         .gap(design::space::XS)
                         .child(caption("Name"))
                         .child(
-                            Input::new(id("forge-new-repo-name"), &form.name, "Repository name")
-                                .h(design::size::CONTROL)
-                                .w_full()
-                                .px_2()
-                                .border_1()
-                                .border_color(theme.border_strong)
-                                .bg(theme.background)
-                                .text_color(theme.foreground)
-                                .placeholder("letters, digits, dot, dash, underscore")
-                                .on_change(typed)
-                                .on_submit(
-                                    cx.listener(|forge, _: &(), _, cx| forge.create_repo(cx)),
-                                ),
+                            Input::new(
+                                id("forge-new-repo-name"),
+                                &form.name,
+                                words::REPOSITORY_NAME,
+                            )
+                            .h(design::size::CONTROL)
+                            .w_full()
+                            .px_2()
+                            .border_1()
+                            .border_color(theme.border_strong)
+                            .bg(theme.background)
+                            .text_color(theme.foreground)
+                            .placeholder(words::NAME_RULE)
+                            .on_change(typed)
+                            .on_submit(cx.listener(|forge, _: &(), _, cx| forge.create_repo(cx))),
                         ),
                 )
                 .child(
@@ -716,13 +728,11 @@ fn dialog(
                         .flex_col()
                         .items_start()
                         .gap(design::space::XS)
-                        .child(caption("Object format"))
+                        .child(caption(words::OBJECT_FORMAT))
                         .child(formats),
                 ),
         )
-        .child(caption(
-            "Pick SHA-1 to push an existing Git project. The format is fixed once created.",
-        ));
+        .child(caption(words::FORMAT_RULE));
     if !form.error.is_empty() {
         card = card.child(
             div()

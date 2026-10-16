@@ -16,6 +16,7 @@ mod agents;
 mod menus;
 mod message;
 mod notices;
+mod phone;
 mod reader;
 mod rich;
 mod room;
@@ -103,8 +104,8 @@ fn configure(cx: &mut TestAppContext) {
     // the one agent, eddy's own, answers only him
     cx.host().handle::<Ask<Identity>>(|query| {
         Ok(match query {
-            identity::Query::Audience { number: 8 } => {
-                identity::Reply::Audience(identity::Audience::Manager)
+            identity::Query::Ownership { number: 8 } => {
+                identity::Reply::Ownership(identity::Ownership::Owner)
             }
             query => panic!("unexpected identity query: {query:?}"),
         })
@@ -198,11 +199,12 @@ fn restored(cx: &TestAppContext) -> (TestAppContext, Entity<Chat>) {
     (restored, view)
 }
 
-/// The thread under message `root` opened beside the room.
+/// The thread under message `root` opened beside the room, as the desktop
+/// opens one: its reply field takes the keys.
 fn thread(cx: &mut TestAppContext, view: &Entity<Chat>, root: u64) {
     cx.update(view, |chat, _, cx| {
         cx.notify();
-        chat.open_thread(root, cx);
+        chat.reply_in_thread(root, cx);
     });
     cx.run_until_parked();
 }

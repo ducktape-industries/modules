@@ -36,6 +36,19 @@ impl Chat {
             Err(refusal) => cx.log_refused("the route", &refusal),
         })
         .detach();
+        // the chain's clock: which day "Today" is (a day separator's word
+        // under a finger); a new frame only when the day turns
+        cx.follow::<ChainHeads>((), |chat, head, cx| match head {
+            Ok(head) => {
+                let today = Some(crate::message::day_of(head.time));
+                if chat.today != today {
+                    chat.today = today;
+                    cx.notify();
+                }
+            }
+            Err(refusal) => cx.log_refused("the chain's heads", &refusal),
+        })
+        .detach();
         cx.follow::<HostVisible>((), |chat, visible, cx| match visible {
             Ok(visible) => chat.visibility_changed(visible, cx),
             Err(refusal) => cx.log_refused("visibility", &refusal),

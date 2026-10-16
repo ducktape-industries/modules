@@ -24,6 +24,8 @@ mod emoji;
 #[cfg(not(feature = "notifier"))]
 mod kept;
 mod links;
+#[cfg(not(feature = "notifier"))]
+mod listing;
 mod message;
 mod names;
 #[cfg(not(feature = "notifier"))]
@@ -34,6 +36,8 @@ mod queries;
 #[cfg(not(feature = "notifier"))]
 mod room;
 #[cfg(not(feature = "notifier"))]
+mod room_list;
+#[cfg(not(feature = "notifier"))]
 mod search;
 #[cfg(not(feature = "notifier"))]
 mod session;
@@ -43,6 +47,7 @@ mod state;
 mod ui;
 #[cfg(not(feature = "notifier"))]
 mod watch;
+mod words;
 
 pub use notifier::ChatNotices;
 #[cfg(feature = "notifier")]
@@ -65,11 +70,13 @@ const SPAN: usize = WINDOW;
 
 #[cfg(not(feature = "notifier"))]
 impl View for Chat {
-    const NAME: &'static str = "Chat";
+    const NAME: &'static str = words::CHAT;
     const DESCRIPTION: &'static str =
         "Channels, direct messages, threads, search and the live call of this workspace.";
     const ICON: &'static str = "icons/messages-square.svg";
     const CAPABILITIES: &'static [Capability] = &[
+        // the heads' time: which day "Today" is
+        Capability::Chain,
         Capability::Program,
         Capability::Op,
         Capability::Host,
@@ -103,7 +110,7 @@ impl View for Chat {
             let (id, thread) = (room.id.clone(), room.thread.as_ref().map(|t| t.root));
             self.open(id, cx);
             if let Some(root) = thread {
-                self.open_thread(root, cx);
+                self.reply_in_thread(root, cx);
             }
         }
         if !self.search.query.is_empty() {
@@ -119,12 +126,17 @@ impl Render for Chat {
         // clamp to it before the frame that shows them
         let size = window.viewport_size();
         self.layout.viewport = (size.width.into(), size.height.into());
-        self.layout.clamp();
         self.seat_drafts();
         // names land async: the frame is the one place that sees each
         self.settle_title(cx);
         self.settle_showing(cx);
-        ui::render(self, window.touch(), cx)
+        // the one pick: a phone draws the Expo app's own screens, every
+        // other window the desktop's (STRUCTURE v2)
+        if window.touch() {
+            ui::phone::render(self, cx)
+        } else {
+            ui::render(self, cx).into_any_element()
+        }
     }
 }
 

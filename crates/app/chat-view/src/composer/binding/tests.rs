@@ -90,7 +90,7 @@ fn lowered_styled(
     key: &str,
     choices: &[MentionChoice],
 ) -> (wire::Node, wire::Styles) {
-    testing::lower(|cx| {
+    let (tree, styles, _) = testing::lower(|cx| {
         view(
             draft,
             key,
@@ -103,7 +103,8 @@ fn lowered_styled(
             cx,
             |_: &mut ComposerView, _, _, _| {},
         )
-    })
+    });
+    (tree, styles)
 }
 
 fn find_field(root: &wire::Node) -> Option<&wire::Node> {
@@ -355,7 +356,7 @@ fn no_claim_is_on_a_key_the_engine_owns() {
             "{claims:?}"
         );
     }
-    let (root, _) = testing::lower(|cx| {
+    let (root, _, _) = testing::lower(|cx| {
         view(
             &caret("@A", 2),
             "c",

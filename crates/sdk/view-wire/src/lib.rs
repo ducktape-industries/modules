@@ -91,9 +91,11 @@ mod widget;
 pub use widget::{WidgetCommand, WidgetTarget};
 pub mod web;
 pub use web::{WebCommand, WebState};
+pub mod media;
+pub use media::{MediaState, MediaStatus, MicCommand, Playback};
 
 mod styled_nodes;
-pub use styled_nodes::{ContainerNode, TextNode};
+pub use styled_nodes::{ContainerNode, TextNode, TextTransform};
 mod node;
 pub use node::{
     Anchor, AnchoredFitMode, AnchoredPositionMode, ImageObjectFit, ImageStyle, Node, SvgSource,

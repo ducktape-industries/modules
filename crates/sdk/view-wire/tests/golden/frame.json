@@ -10,7 +10,8 @@
               "Name": "the tip"
             },
             "style": 0,
-            "content": "the tip"
+            "content": "the tip",
+            "transform": null
           }
         }
       }
@@ -323,7 +324,8 @@
                       "Name": "anchored"
                     },
                     "style": 0,
-                    "content": "anchored"
+                    "content": "anchored",
+                    "transform": null
                   }
                 }
               ]
@@ -368,7 +370,8 @@
                       "Name": "row 0"
                     },
                     "style": 0,
-                    "content": "row 0"
+                    "content": "row 0",
+                    "transform": null
                   }
                 },
                 {
@@ -377,7 +380,8 @@
                       "Name": "row 1"
                     },
                     "style": 0,
-                    "content": "row 1"
+                    "content": "row 1",
+                    "transform": null
                   }
                 }
               ]
@@ -456,7 +460,8 @@
                       "Name": "item"
                     },
                     "style": 0,
-                    "content": "item"
+                    "content": "item",
+                    "transform": null
                   }
                 }
               ]
@@ -487,7 +492,8 @@
                     "Name": "divider"
                   },
                   "style": 0,
-                  "content": "divider"
+                  "content": "divider",
+                  "transform": null
                 }
               }
             }
@@ -501,7 +507,8 @@
                     "Name": "later"
                   },
                   "style": 0,
-                  "content": "later"
+                  "content": "later",
+                  "transform": null
                 }
               }
             }
@@ -519,7 +526,8 @@
                     "Name": "measured"
                   },
                   "style": 0,
-                  "content": "measured"
+                  "content": "measured",
+                  "transform": null
                 }
               }
             }
@@ -542,12 +550,56 @@
             }
           },
           {
+            "Camera": {
+              "id": {
+                "Name": "camera"
+              },
+              "style": 0,
+              "device": "0",
+              "mirror": true,
+              "object_fit": "Cover",
+              "on_state": 18
+            }
+          },
+          {
+            "Microphone": {
+              "id": {
+                "Name": "microphone"
+              },
+              "style": 0,
+              "device": "Built-in Microphone",
+              "output": "Headphones",
+              "monitor": true,
+              "revision": 2,
+              "commands": [
+                {
+                  "Record": {
+                    "seconds": 5
+                  }
+                },
+                "Stop"
+              ],
+              "on_state": 19
+            }
+          },
+          {
             "Text": {
               "id": {
                 "Name": "plain"
               },
               "style": 0,
-              "content": "plain"
+              "content": "plain",
+              "transform": null
+            }
+          },
+          {
+            "Text": {
+              "id": {
+                "Name": "capitals"
+              },
+              "style": 0,
+              "content": "Drawn in capitals",
+              "transform": "Uppercase"
             }
           },
           {
@@ -582,7 +634,8 @@
                       "Name": "while loading"
                     },
                     "style": 0,
-                    "content": "while loading"
+                    "content": "while loading",
+                    "transform": null
                   }
                 }
               ],
@@ -682,7 +735,8 @@
                       "Name": "base"
                     },
                     "style": 0,
-                    "content": "base"
+                    "content": "base",
+                    "transform": null
                   }
                 },
                 {
@@ -691,7 +745,8 @@
                       "Name": "modal"
                     },
                     "style": 0,
-                    "content": "modal"
+                    "content": "modal",
+                    "transform": null
                   }
                 }
               ]
@@ -715,7 +770,8 @@
                     "Name": "actions"
                   },
                   "style": 0,
-                  "content": "actions"
+                  "content": "actions",
+                  "transform": null
                 }
               }
             }
@@ -864,7 +920,8 @@
                       "Name": "anchored"
                     },
                     "style": 0,
-                    "content": "anchored"
+                    "content": "anchored",
+                    "transform": null
                   }
                 }
               ]
@@ -911,7 +968,8 @@
                       "Name": "row 0"
                     },
                     "style": 0,
-                    "content": "row 0"
+                    "content": "row 0",
+                    "transform": null
                   }
                 },
                 {
@@ -920,7 +978,8 @@
                       "Name": "row 1"
                     },
                     "style": 0,
-                    "content": "row 1"
+                    "content": "row 1",
+                    "transform": null
                   }
                 }
               ]
@@ -1096,7 +1155,8 @@
                       "Name": "item"
                     },
                     "style": 0,
-                    "content": "item"
+                    "content": "item",
+                    "transform": null
                   }
                 }
               ]
@@ -1137,7 +1197,8 @@
                       "Name": "while loading"
                     },
                     "style": 0,
-                    "content": "while loading"
+                    "content": "while loading",
+                    "transform": null
                   }
                 }
               ],
@@ -1633,7 +1694,8 @@
                 "Name": "replaced"
               },
               "style": 0,
-              "content": "replaced"
+              "content": "replaced",
+              "transform": null
             }
           }
         }
@@ -1649,7 +1711,8 @@
                 "Name": "re-propped"
               },
               "style": 0,
-              "content": "re-propped"
+              "content": "re-propped",
+              "transform": null
             }
           }
         }
@@ -1664,7 +1727,8 @@
                 "Name": "inserted"
               },
               "style": 0,
-              "content": "inserted"
+              "content": "inserted",
+              "transform": null
             }
           }
         }
@@ -2506,6 +2570,19 @@
           "can_go_forward": true
         }
       }
+    },
+    {
+      "Media": {
+        "handler": 18,
+        "state": {
+          "status": "Failed",
+          "device": "FaceTime HD Camera",
+          "playback": "Recording",
+          "detail": "the driver stopped",
+          "speaking": true,
+          "opens_settings": true
+        }
+      }
     }
   ],
   [
@@ -3001,6 +3078,19 @@
       "Right",
       "Numpad"
     ],
+    "MediaStatus": [
+      "Starting",
+      "Live",
+      "Denied",
+      "Busy",
+      "Gone",
+      "NoDevice",
+      "Unsupported",
+      "Failed"
+    ],
+    "MicCommand": [
+      "Stop"
+    ],
     "MouseButton": [
       "Left",
       "Right",
@@ -3075,6 +3165,11 @@
       "Clip",
       "Hidden",
       "Scroll"
+    ],
+    "Playback": [
+      "Idle",
+      "Recording",
+      "Playing"
     ],
     "Position": [
       "Relative",
@@ -3298,6 +3393,9 @@
       "Previous",
       "Search",
       "Send"
+    ],
+    "TextTransform": [
+      "Uppercase"
     ],
     "Toggled": [
       "false",

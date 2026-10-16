@@ -29,10 +29,11 @@ use view_wire::{
     CanvasCommand, CanvasLineCap, CanvasLineJoin, CanvasSegment, CanvasShape, CanvasStroke,
     ContainerNode, DispatchPhase, Edit, ElementIdAtom, ElementIdWire, Error, Event, Frame,
     GroupRefinement, HasPopup, ImageData, ImageObjectFit, ImageStyle, Interactivity, Invalid,
-    KeyClaim, ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node,
-    Patch, Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, Style, StyleId, SvgSource,
-    SvgTransformation, TextChange, TextNode, TextRange, TextToken, Tooltip, TooltipResponse,
-    WebCommand, WebState, WidgetCommand, click, interactivity, keyboard, mouse,
+    KeyClaim, ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live,
+    MediaState, MediaStatus, MicCommand, Node, Patch, Playback, Request, RichTextHighlightStyle,
+    RichTextHover, RichTextRuns, Style, StyleId, SvgSource, SvgTransformation, TextChange,
+    TextNode, TextRange, TextToken, TextTransform, Tooltip, TooltipResponse, WebCommand, WebState,
+    WidgetCommand, click, interactivity, keyboard, mouse,
 };
 
 const MESSAGE: &str =
@@ -40,8 +41,8 @@ const MESSAGE: &str =
 
 /// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
-const NODE_VARIANTS: usize = 17;
-const EVENT_VARIANTS: usize = 37;
+const NODE_VARIANTS: usize = 19;
+const EVENT_VARIANTS: usize = 38;
 
 fn golden(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -90,6 +91,7 @@ fn text(content: &str) -> Node {
         id: Some(id(content)),
         style: style(),
         content: content.into(),
+        transform: None,
     })
 }
 
@@ -444,8 +446,109 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             },
         ),
         exchange::<HostVisible>((), true),
+        exchange::<HostFloat>(
+            Float {
+                width: 320,
+                height: 200,
+                min_width: 240,
+                min_height: 150,
+                on_top: true,
+            },
+            Placement {
+                floating: true,
+                on_top: true,
+            },
+        ),
+        exchange::<HostFloat>(
+            Float {
+                width: 320,
+                height: 200,
+                min_width: 240,
+                min_height: 150,
+                on_top: false,
+            },
+            Placement {
+                floating: true,
+                on_top: false,
+            },
+        ),
+        exchange::<HostUnfloat>((), ()),
+        exchange::<HostPlacement>(
+            (),
+            Placement {
+                floating: false,
+                on_top: false,
+            },
+        ),
         exchange::<HostBadge>(3, ()),
         exchange::<HostTitle>("general".into(), ()),
+        exchange::<HostShow>(Place::Account, ()),
+        exchange::<HostShow>(Place::CameraSettings, ()),
+        exchange::<HostShow>(Place::MicrophoneSettings, ()),
+        exchange::<CameraDevices>(
+            (),
+            vec![
+                CameraDevice {
+                    id: "0".into(),
+                    name: "FaceTime HD Camera".into(),
+                    default: true,
+                    facing: Facing::Front,
+                },
+                CameraDevice {
+                    id: "1".into(),
+                    name: "Back Camera".into(),
+                    default: false,
+                    facing: Facing::Back,
+                },
+                CameraDevice {
+                    id: "2".into(),
+                    name: "USB Camera".into(),
+                    default: false,
+                    facing: Facing::External,
+                },
+            ],
+        ),
+        exchange::<MicrophoneDevices>(
+            (),
+            AudioDevices {
+                inputs: vec![
+                    AudioDevice {
+                        id: "Built-in Microphone".into(),
+                        name: "Built-in Microphone".into(),
+                        default: true,
+                        kind: AudioKind::Other,
+                    },
+                    AudioDevice {
+                        id: "AirPods".into(),
+                        name: "AirPods".into(),
+                        default: false,
+                        kind: AudioKind::Headphones,
+                    },
+                ],
+                outputs: vec![
+                    AudioDevice {
+                        id: "Speaker".into(),
+                        name: "Speaker".into(),
+                        default: true,
+                        kind: AudioKind::Speaker,
+                    },
+                    AudioDevice {
+                        id: "Earpiece".into(),
+                        name: "iPhone".into(),
+                        default: false,
+                        kind: AudioKind::Earpiece,
+                    },
+                    AudioDevice {
+                        id: "Headphones".into(),
+                        name: "Headphones".into(),
+                        default: false,
+                        kind: AudioKind::Headphones,
+                    },
+                ],
+            },
+        ),
+        exchange::<MicrophoneChime>(Some("Headphones".into()), ()),
+        exchange::<MicrophoneChime>(None, ()),
         exchange::<LinkOpen>("duck://chat/room".into(), ()),
         exchange::<HostRoute>((), "tx/00ff".into()),
         exchange::<HostId>("msg".into(), "msg-1".into()),

@@ -19,13 +19,14 @@ pub const DESCRIBE_SECTION: &str = "ducktape.describe";
 pub const NOTIFY_SECTION: &str = "ducktape.notify";
 pub const FOUNDING: &str = include_str!("../founding.toml");
 
-pub const PROGRAMS: [(&str, &str); 6] = [
+pub const PROGRAMS: [(&str, &str); 7] = [
     ("programs", "settings_view"),
     ("valset", "node_view"),
     ("identity", "members_view"),
     ("chat", "chat_view"),
     ("forge", "forge_view"),
     ("harness", "harness_view"),
+    ("files", "files_view"),
 ];
 pub const UNVIEWED: &[&str] = &[
     "blobs",
@@ -33,7 +34,6 @@ pub const UNVIEWED: &[&str] = &[
     "halo",
     "scheduler",
     "activity",
-    "files",
     "egress",
     "attribution",
 ];

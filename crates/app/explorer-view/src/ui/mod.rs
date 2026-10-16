@@ -1,12 +1,16 @@
-//! The explorer's pages. Square corners, rows split by one-pixel rules,
-//! hashes and numbers in the data face.
+//! The explorer's pages under a pointer: the desktop tree, which the root
+//! picks when the device is not touch first (`lib.rs`; the phone's is
+//! `ui/phone/`). Square corners, rows split by one-pixel rules, hashes and
+//! numbers in the data face.
 use std::ops::Range;
 
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
+use crate::chain::{Line, lines};
 use crate::decode::{ago, date, grouped, plural, short};
-use crate::{BlockRow, Explorer, Note, Route, TxRow};
+use crate::words::{self, unindexed};
+use crate::{BlockRow, Cx, Explorer, Route, TxRow};
 use design::{empty_state, mono};
 
 /// The rows each Overview panel draws.
@@ -48,11 +52,10 @@ const LATEST_BLOCKS_W: Pixels = px(420.);
 /// The avatar an account page opens with.
 const PAGE_AVATAR: Pixels = px(40.);
 
-type Cx<'a, 'b> = &'a mut Context<'b, Explorer>;
-
 mod accounts;
 mod blocks;
 mod overview;
+pub(crate) mod phone;
 mod programs;
 mod transactions;
 use accounts::{account, accounts};
@@ -62,9 +65,9 @@ use programs::{program, programs};
 use transactions::{transactions, tx};
 use view::design::Ladder;
 
-pub fn render(view: &Explorer, touch: bool, cx: Cx) -> AnyElement {
+pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
     let theme = *cx.global::<Theme>();
-    let ladder = &design::ladder(touch);
+    let ladder = &design::POINTER;
     let mut root = div()
         .id("explorer")
         .flex()
@@ -75,7 +78,7 @@ pub fn render(view: &Explorer, touch: bool, cx: Cx) -> AnyElement {
         .text_size(design::text::BODY)
         .child(bar(view, cx, &theme, ladder));
     if let Some(note) = &view.note {
-        let note = worded(note);
+        let note = words::note(note);
         root = root.child(
             div()
                 .id("explorer-note")
@@ -90,40 +93,12 @@ pub fn render(view: &Explorer, touch: bool, cx: Cx) -> AnyElement {
         );
     }
     let scroller = div().id("explorer-page").flex_1().flex().flex_col();
-    let scroller = match view.route {
-        Route::Transactions(_) | Route::Blocks | Route::Accounts => scroller.min_h(px(0.)),
+    let scroller = match view.pages.top() {
+        Route::Transactions(_) | Route::Blocks | Route::Accounts => scroller.min_h_0(),
         _ => scroller.overflow_y_scroll(),
     };
     root.child(scroller.child(page(view, cx, &theme, ladder)))
         .into_any_element()
-}
-
-pub(crate) fn unindexed(from: u64) -> String {
-    format!(
-        "History before block {} is not indexed on this node.",
-        grouped(from)
-    )
-}
-
-/// The line under the bar, in words.
-fn worded(note: &Note) -> String {
-    match note {
-        Note::NotFound(query) => format!("Nothing here is called “{query}”."),
-        Note::NoSuchHash { listed_from } => {
-            let since = listed_from.filter(|from| *from > 0);
-            match since {
-                Some(from) => format!(
-                    "No block or transaction since block {} has this hash. {}",
-                    grouped(from),
-                    unindexed(from)
-                ),
-                None => "No block or transaction has this hash.".into(),
-            }
-        }
-        Note::Unlinked(route) => format!("This link names nothing the Explorer shows: {route}"),
-        Note::Copied(what) => format!("Copied {what}."),
-        Note::Sent(words) | Note::Refused(words) => words.clone(),
-    }
 }
 
 fn bar(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> impl IntoElement {
@@ -135,7 +110,7 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> impl IntoElem
         ("programs", "Programs", Route::Programs),
     ];
     let submit = cx.listener(|view: &mut Explorer, _: &(), _, cx| view.search(cx));
-    let shown = view.route.tab();
+    let shown = view.pages.top().tab();
     let routes: Vec<Route> = tabs.iter().map(|(_, _, route)| route.clone()).collect();
     let pressed = routes.clone();
     let tabs = tabs.into_iter().map(|(key, label, route)| {
@@ -201,7 +176,7 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> impl IntoElem
                 .flex()
                 .items_center()
                 .child(
-                    Input::new("explorer-search", &view.search, "Search the chain")
+                    Input::new("explorer-search", &view.search, words::SEARCH)
                         .w_full()
                         .h(design::size::CONTROL)
                         .px_2()
@@ -209,7 +184,7 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> impl IntoElem
                         .border_color(theme.border)
                         .bg(theme.background)
                         .text_size(design::text::SECONDARY)
-                        .placeholder("Search by height, hash, account or program")
+                        .placeholder(words::SEARCH_HINT)
                         .on_submit(submit),
                 ),
         )
@@ -217,16 +192,16 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> impl IntoElem
 
 fn page(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let without_chain = matches!(
-        view.route,
+        view.pages.top(),
         Route::Programs | Route::Program(_) | Route::Accounts
     );
     if view.chain.blocks.is_empty() && !without_chain {
         return match &view.chain.failed {
             Some(sentence) => failed(sentence, cx, theme, ladder),
-            None => quiet("explorer-loading", "Reading the chain…", theme),
+            None => quiet("explorer-loading", words::READING_CHAIN, theme),
         };
     }
-    match view.route.clone() {
+    match view.pages.top().clone() {
         Route::Overview => overview(view, cx, theme, ladder),
         Route::Blocks => blocks(view, cx, theme),
         Route::Block(height) => block(view, height, cx, theme, ladder),
@@ -449,8 +424,8 @@ impl Rows {
         )
         .track_scroll(&scroll)
         .flex_1()
-        .min_h(px(0.));
-        list.flex_1().min_h(px(0.)).flex().flex_col().child(window)
+        .min_h_0();
+        list.flex_1().min_h_0().flex().flex_col().child(window)
     }
 }
 
@@ -496,7 +471,7 @@ fn block_row(block: &BlockRow, now: u64, cx: Cx, theme: &Theme) -> Stateful<Div>
     .child(
         div()
             .text_color(theme.muted)
-            .child(format!("{} tx", block.txs)),
+            .child(words::tx_count(block.txs as u64)),
     )
     .child(
         mono(ago(now, block.time))
@@ -505,40 +480,6 @@ fn block_row(block: &BlockRow, now: u64, cx: Cx, theme: &Theme) -> Stateful<Div>
             .justify_end()
             .text_color(theme.faint),
     )
-}
-
-/// One line of a block list: a block, or a run of empty ones.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Line<'a> {
-    Block(&'a BlockRow),
-    /// consecutive blocks with no transaction, `oldest..=newest`
-    Empty {
-        newest: u64,
-        oldest: u64,
-    },
-}
-
-/// `blocks` (newest first) as at most `rows` lines, each run of two or more
-/// empty blocks folded into one, so the list reaches back past quiet
-/// stretches as far as the window holds.
-pub(crate) fn lines(blocks: &[BlockRow], rows: usize) -> Vec<Line<'_>> {
-    let mut lines = Vec::new();
-    let mut at = 0;
-    while at < blocks.len() && lines.len() < rows {
-        let run = blocks[at..]
-            .iter()
-            .take_while(|block| block.txs == 0)
-            .count();
-        if run >= 2 {
-            let (newest, oldest) = (blocks[at].height, blocks[at + run - 1].height);
-            lines.push(Line::Empty { newest, oldest });
-            at += run;
-        } else {
-            lines.push(Line::Block(&blocks[at]));
-            at += 1;
-        }
-    }
-    lines
 }
 
 fn line_route(line: &Line) -> Route {
@@ -552,12 +493,7 @@ fn line_row(line: &Line, now: u64, cx: Cx, theme: &Theme) -> Stateful<Div> {
     match line {
         Line::Block(block) => block_row(block, now, cx, theme),
         Line::Empty { newest, oldest } => {
-            let text = format!(
-                "{}–{} · {} empty blocks",
-                grouped(*oldest),
-                grouped(*newest),
-                grouped(newest - oldest + 1)
-            );
+            let text = words::empty_run(*oldest, *newest);
             row(
                 SharedString::from(format!("explorer-empty-{newest}")).into(),
                 text.clone(),
@@ -702,9 +638,10 @@ fn outcome(run: &Receipt, theme: &Theme) -> (&'static str, Hsla, Hsla) {
 
 fn verdict(applied: bool, theme: &Theme) -> (&'static str, Hsla, Hsla) {
     let word = activity::view::verdict(applied);
-    match applied {
-        true => (word, theme.success, theme.success_soft),
-        false => (word, theme.danger, theme.danger_soft),
+    if applied {
+        (word, theme.success, theme.success_soft)
+    } else {
+        (word, theme.danger, theme.danger_soft)
     }
 }
 
@@ -786,7 +723,7 @@ fn press(
 fn copy_button(view: &Explorer, route: &Route, cx: Cx, theme: &Theme) -> Option<AnyElement> {
     let link = view.link(route)?;
     let copy = cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| {
-        view.copy(link.clone(), "the link", cx)
+        view.copy(link.clone(), words::LINK, cx)
     });
     Some(
         div()

@@ -2,7 +2,7 @@
 //! sends it makes, and which drafts are kept.
 use crate::composer::{Draft, Event, MentionChoice, Outcome, Send, Target, pending_row};
 use crate::names::mention_token;
-use crate::{Chat, Mode};
+use crate::{Chat, Mode, words};
 use chat::MsgRow;
 use view::methods::Submitted;
 
@@ -217,7 +217,7 @@ impl Chat {
             .ready()
             .and_then(|names| names.name(&chat::Principal::Account(peer)))
             .map(str::to_owned)
-            .unwrap_or_else(|| format!("account {peer}"));
+            .unwrap_or_else(|| words::account(peer));
         Some(chat::Op::CreateDmChannel {
             counterpart: peer,
             name,

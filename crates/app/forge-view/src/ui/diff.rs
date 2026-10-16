@@ -15,9 +15,12 @@ use std::rc::Rc;
 use view::prelude::*;
 
 use crate::Forge;
+use crate::select::path_of;
+use crate::state::Anchor;
 use crate::ui::components::{PRESS_TARGET, badge, empty_state, id, path_text, quiet};
 use crate::ui::staged;
-use forge::{Content, FileDiff, FileStatus, LineKind, Query, Reply, Side};
+use crate::words::{self, file_status, why_no_lines};
+use forge::{Content, FileDiff, LineKind, Query, Reply};
 use view::design::Ladder;
 
 /// A route an event of a virtual row takes back into the view.
@@ -42,9 +45,6 @@ const NOTE_W: Pixels = px(520.);
 /// character counts two): a line of capitals, about 8 px a character at
 /// the note's size, still fits the box's 498 px of text.
 const NOTE_CHARS: usize = 60;
-
-/// The anchor a gutter button carries: path, new side, line.
-pub(crate) type Anchor = (Vec<u8>, bool, u64);
 
 /// One row of the diff as it is painted: a file's header, a hunk's, or a
 /// line. Built for the rows on screen, from the held reply.
@@ -185,17 +185,13 @@ impl Rows {
         let hunk = laid.hunks.partition_point(|(first, _)| *first <= index);
         let Some((first, _)) = hunk.checked_sub(1).map(|hunk| laid.hunks[hunk]) else {
             if index == laid.first_row + 1 && file.hunks.is_empty() {
-                return Painted::banner(Kind::Hunk, why(file).into(), path);
+                return Painted::banner(Kind::Hunk, why_no_lines(file).into(), path);
             }
             return Painted::banner(Kind::Hunk, String::new(), Vec::new());
         };
         let hunk = &file.hunks[hunk - 1];
         let Some(line) = (index - first).checked_sub(1) else {
-            let text = format!(
-                "@@ -{},{} +{},{} @@",
-                hunk.old.start, hunk.old.count, hunk.new.start, hunk.new.count
-            );
-            return Painted::banner(Kind::Hunk, text, path);
+            return Painted::banner(Kind::Hunk, words::hunk(hunk), path);
         };
         let Some(line) = hunk.lines.get(line) else {
             return Painted::banner(Kind::Hunk, String::new(), Vec::new());
@@ -309,14 +305,13 @@ impl Notes {
                 zones.entry(row).or_default().extend(rows_of_box);
             }
         };
-        for (n, (path, new_side, line, author, body, outdated)) in
-            published_comments(forge).into_iter().enumerate()
-        {
-            let text = wrap(&body).into_iter().map(NoteKind::Text);
+        for (n, comment) in forge.published_comments().into_iter().enumerate() {
+            let text = wrap(&comment.body).into_iter().map(NoteKind::Text);
             let rows_of_box = boxed(
                 &format!("forge-diff-comment-{n}"),
-                std::iter::once(NoteKind::Head(author, outdated)).chain(text),
+                std::iter::once(NoteKind::Head(comment.author, comment.outdated)).chain(text),
             );
+            let (path, new_side, line) = comment.anchor;
             place(&path, new_side, line, rows_of_box);
         }
         let review = forge.review();
@@ -330,7 +325,7 @@ impl Notes {
                 continue;
             }
             let text = wrap(&draft.body.text()).into_iter().map(NoteKind::Text);
-            let head = NoteKind::Head("Your pending comment".into(), false);
+            let head = NoteKind::Head(words::YOUR_PENDING_COMMENT.into(), false);
             let rows_of_box = boxed(
                 &format!("forge-diff-draft-{n}"),
                 std::iter::once(head).chain(text),
@@ -499,7 +494,7 @@ pub(crate) fn render(
         forge,
         query,
         element_id,
-        "Reading the diff…",
+        words::READING_DIFF,
         cx,
         theme,
         &ladder,
@@ -519,14 +514,22 @@ pub(crate) fn render(
     let only = forge.nav().diff_path.clone();
     let shown = |file: &FileDiff| only.is_none() || only.as_deref() == path_of(file).as_deref();
     if !page.items.iter().any(shown) {
+        // Expo's: a change's diff `send` (`forge/change.tsx:342`), a
+        // commit's `git-commit-horizontal` (`commit/[oid].tsx:96`)
+        let glyph = match reviewable {
+            true => "send",
+            false => "git-commit-horizontal",
+        };
         return empty_state(
             id(format!("{element_id}-empty")),
-            "No changes",
+            glyph,
+            words::NO_CHANGES,
             if *total_files == 0 {
-                "These endpoints hold the same tree."
+                words::SAME_TREE
             } else {
                 "No file here matches what is selected."
             },
+            &ladder,
             theme,
         )
         .into_any_element();
@@ -550,10 +553,13 @@ pub(crate) fn render(
     }));
     let composer = forge
         .review()
-        .and_then(|review| Some((review.open.as_ref()?, &review.error)))
-        .map(|(open, error)| Composer {
+        .and_then(|review| Some((review.open.as_ref()?, review.refused)))
+        .map(|(open, refused)| Composer {
             body: open.body.clone(),
-            error: error.clone(),
+            error: refused
+                .map(words::review_refusal)
+                .unwrap_or_default()
+                .into(),
             stage: Rc::new(cx.listener(|forge, _: &(), _, cx| forge.stage_comment(cx))),
             cancel: Rc::new(cx.listener(|forge, _: &(), _, cx| forge.discard_comment(cx))),
         });
@@ -737,7 +743,7 @@ fn file_strip(
                 .aria_selected(shown)
                 .on_click(click)
                 .child(crate::ui::bold(label))
-                .child(quiet(status_label(file.status), &theme))
+                .child(quiet(file_status(file.status), &theme))
                 .children(counts(file).map(|counts| quiet(counts, &theme)));
             design::item(row, Role::ListBoxOption, index == active).into_any_element()
         },
@@ -750,20 +756,6 @@ pub(crate) fn file_at(reply: &Reply, index: usize) -> Option<&FileDiff> {
     match reply {
         Reply::Diff { page, .. } => page.items.get(index),
         _ => None,
-    }
-}
-
-pub(crate) fn path_of(file: &FileDiff) -> Option<Vec<u8>> {
-    file.new_path.clone().or_else(|| file.old_path.clone())
-}
-
-fn status_label(status: FileStatus) -> &'static str {
-    match status {
-        FileStatus::Added => "added",
-        FileStatus::Deleted => "deleted",
-        FileStatus::Modified => "modified",
-        FileStatus::ModeChanged => "mode changed",
-        FileStatus::TypeChanged => "type changed",
     }
 }
 
@@ -791,13 +783,8 @@ impl Painted {
 
 /// A file's header row: its path (old → new when renamed), status, counts.
 fn file_header(file: &FileDiff) -> String {
-    let header = match (&file.old_path, &file.new_path) {
-        (Some(old), Some(new)) if old != new => {
-            format!("{} → {}", path_text(old), path_text(new))
-        }
-        _ => path_text(&path_of(file).unwrap_or_default()),
-    };
-    let status = status_label(file.status);
+    let header = words::file_path(file);
+    let status = file_status(file.status);
     match counts(file) {
         Some(counts) => format!("{header} · {status} · {counts}"),
         None => format!("{header} · {status}"),
@@ -808,41 +795,6 @@ fn file_header(file: &FileDiff) -> String {
 /// an oversize file or a submodule has none to count, not zero.
 fn counts(file: &FileDiff) -> Option<String> {
     (file.content == Content::Text).then(|| format!("+{} −{}", file.additions, file.deletions))
-}
-
-/// Why a file has no lines to show.
-fn why(file: &FileDiff) -> &'static str {
-    match file.content {
-        Content::Binary => "Binary file — no lines to show",
-        Content::Oversize => "Too large to diff inline",
-        Content::Gitlink => "Submodule pointer",
-        Content::Text => "No line changes",
-    }
-}
-
-type Anchored = (Vec<u8>, bool, u64, String, String, bool);
-
-/// Every published line comment of the open change, by anchor.
-fn published_comments(forge: &Forge) -> Vec<Anchored> {
-    let Some((_, _, _, reviews)) = forge.change() else {
-        return Vec::new();
-    };
-    let mut all = Vec::new();
-    for review in &reviews.items {
-        let author = forge.principal_name(&review.author);
-        let outdated = forge.outdated(&review.draft.commit_oid);
-        for comment in &review.draft.comments {
-            all.push((
-                comment.path.clone(),
-                comment.side == Side::New,
-                comment.line,
-                author.clone(),
-                comment.body.clone(),
-                outdated,
-            ));
-        }
-    }
-    all
 }
 
 /// One of the diff's own rows. Each is one line high, as the list draws
@@ -981,7 +933,7 @@ fn note_row(
             .when(*outdated, |slice| {
                 slice.child(badge(
                     id(format!("{}-outdated", note.key)),
-                    "outdated",
+                    words::OUTDATED,
                     ladder,
                     theme.warning,
                     theme.warning_soft,
@@ -1002,7 +954,7 @@ fn note_row(
                     .bg(theme.background)
                     .text_size(design::text::SECONDARY)
                     .text_color(theme.foreground)
-                    .placeholder("What should change here?")
+                    .placeholder(words::COMMENT_PROMPT)
                     .on_submit(move |_: &(), window: &mut Window, app: &mut App| {
                         stage(&(), window, app)
                     }),
@@ -1129,7 +1081,7 @@ mod tests {
         FileDiff {
             old_path: None,
             new_path: Some(path.as_bytes().to_vec()),
-            status: FileStatus::Added,
+            status: forge::FileStatus::Added,
             old_oid: None,
             new_oid: Some("new".into()),
             old_kind: None,

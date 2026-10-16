@@ -124,6 +124,37 @@ fn lang(name: &str) -> Option<&'static Lang> {
     })
 }
 
+/// The language a file's name says it is written in, as the phone's file
+/// bar names it (the Expo app's `highlight.ts` `languageOf`): markdown,
+/// else named from the table [`lang`] picks; `None` for plain text.
+pub(crate) fn language_of(name: &str) -> Option<&'static str> {
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".md") || lower.ends_with(".markdown") {
+        return Some("markdown");
+    }
+    let table = lang(name)?;
+    let is = |other: &Lang| std::ptr::eq(table, other);
+    Some(if is(&RUST) {
+        "rust"
+    } else if is(&JS) {
+        if lower.ends_with(".ts") || lower.ends_with(".tsx") {
+            "typescript"
+        } else {
+            "javascript"
+        }
+    } else if is(&SHELL) {
+        "shell"
+    } else if is(&CONFIG) {
+        if lower.ends_with(".toml") {
+            "toml"
+        } else {
+            "yaml"
+        }
+    } else {
+        "json"
+    })
+}
+
 /// Tokens of every line of `text`, by line. Markdown source is its own
 /// case: a heading or a fence line is one token, the rest is prose.
 pub(crate) fn tokens(name: &str, lines: &[&str]) -> Vec<Vec<(Range<usize>, Token)>> {
@@ -296,30 +327,6 @@ pub(crate) fn style(token: Token, theme: &Theme) -> HighlightStyle {
         font_style: (token == Token::Comment).then_some(FontStyle::Italic),
         ..Default::default()
     }
-}
-
-/// One source line as mono rich text in its tokens' colours.
-pub(crate) fn line(
-    element_id: ElementId,
-    text: &str,
-    tokens: &[(Range<usize>, Token)],
-    theme: &Theme,
-) -> AnyElement {
-    let styled = StyledText::new(text.to_owned()).with_highlights(
-        tokens
-            .iter()
-            .map(|(range, token)| (range.clone(), style(*token, theme))),
-    );
-    div()
-        .id(element_id)
-        .flex_1()
-        .min_w(px(0.))
-        .font_family(design::fonts::FAMILY_MONO)
-        .text_size(design::text::SECONDARY)
-        .text_color(theme.foreground)
-        .whitespace_nowrap()
-        .child(styled)
-        .into_any_element()
 }
 
 #[cfg(test)]

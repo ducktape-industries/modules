@@ -1,22 +1,20 @@
-//! Blocks drawn as elements: styled runs over one `StyledText` per
-//! paragraph, links pressed through the caller's [`OnLink`].
+//! The desktop's documents: [`crate::markdown`]'s blocks drawn as
+//! elements, styled runs over one `StyledText` per paragraph, links pressed
+//! through the caller's [`OnLink`].
 use std::ops::Range;
-use std::rc::Rc;
 
 use view::prelude::*;
 use view::{
     Div, FontStyle, FontWeight, HighlightStyle, Stateful, StrikethroughStyle, UnderlineStyle,
 };
 
-use super::parse::{Block, Text, parse};
+use crate::highlight;
+use crate::markdown::{Block, OnLink, Text, parse};
+use crate::ui::code::source_line;
 use crate::ui::components::id;
-use crate::ui::highlight;
 
 /// A list item's marker column: room for a two-digit number and its dot.
 const LIST_MARKER_W: Pixels = px(18.);
-
-/// What a pressed link does, given its raw destination.
-pub(crate) type OnLink = Rc<dyn Fn(&String, &mut Window, &mut App)>;
 
 /// Rich text for one paragraph: styled runs, links pressed through `on_link`.
 fn rich(element_id: String, text: &Text, theme: &Theme, on_link: &OnLink) -> AnyElement {
@@ -169,12 +167,7 @@ fn code(key: &str, lang: &str, text: &str, theme: &Theme) -> AnyElement {
         .bg(theme.surface)
         .overflow_x_scroll();
     for (at, (line, tokens)) in lines.iter().zip(&tokens).enumerate() {
-        block = block.child(highlight::line(
-            id(format!("{key}-{at}")),
-            line,
-            tokens,
-            theme,
-        ));
+        block = block.child(source_line(id(format!("{key}-{at}")), line, tokens, theme));
     }
     block.into_any_element()
 }
@@ -235,14 +228,14 @@ mod view_tests {
         fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             let theme = *cx.global::<view::Theme>();
             let doc = cx.weak_entity();
-            let on_link: super::super::OnLink = std::rc::Rc::new(move |dest, _, cx| {
+            let on_link: crate::markdown::OnLink = std::rc::Rc::new(move |dest, _, cx| {
                 doc.update(cx, |doc, cx| {
                     doc.pressed.push(dest.clone());
                     cx.notify();
                 })
                 .unwrap();
             });
-            super::super::render(
+            super::render(
                 "doc",
                 "# Title\n\nSee [rfcs](duck://net-1/forge/rfcs), [local](../a.md) or https://x.example",
                 &theme,

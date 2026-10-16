@@ -247,9 +247,10 @@ pub struct Sheet {
     on_dismiss: Option<EventListener<()>>,
 }
 
-/// A [`Sheet`] named `label`, opened at the first of its `detents`
-/// (`[0.6, 1.0]` until told otherwise). An open sheet is a dialog, and a
-/// dialog has a name: an empty `label` panics.
+/// A [`Sheet`] named `label`, as tall as what it holds (at most the body)
+/// until [`Sheet::detents`] gives it snap points, as the Expo kit's `Sheet`
+/// sizes itself without `snaps`. An open sheet is a dialog, and a dialog
+/// has a name: an empty `label` panics.
 pub fn sheet(id: impl Into<ElementId>, label: impl Into<String>) -> Sheet {
     let label = label.into();
     assert!(
@@ -260,7 +261,7 @@ pub fn sheet(id: impl Into<ElementId>, label: impl Into<String>) -> Sheet {
         id: id.into(),
         label,
         child: None,
-        detents: vec![0.6, 1.0],
+        detents: Vec::new(),
         style: Box::default(),
         on_dismiss: None,
     }
@@ -268,9 +269,11 @@ pub fn sheet(id: impl Into<ElementId>, label: impl Into<String>) -> Sheet {
 
 impl Sheet {
     /// Where the sheet rests, as fractions of the body's height above zero,
-    /// ascending, one to eight; the first is where it opens, and a drag
-    /// below the first dismisses. Anything else panics here, where the
-    /// author sees it, instead of the host refusing the whole frame.
+    /// ascending, one to eight, instead of as tall as what it holds; the
+    /// first is where it opens, and a drag below the first dismisses (a
+    /// list that can outgrow the screen scrolls inside one snap: Expo's
+    /// `snaps={['85%']}`). Anything else panics here, where the author sees
+    /// it, instead of the host refusing the whole frame.
     pub fn detents(mut self, detents: impl IntoIterator<Item = f32>) -> Self {
         self.detents = detents.into_iter().collect();
         assert!(

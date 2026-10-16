@@ -43,23 +43,16 @@ pub(super) fn overview(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) 
 /// The row of figures: height, epoch, validators, accounts.
 fn stats(view: &Explorer, theme: &Theme) -> impl IntoElement {
     let status = view.status.ready();
-    let dash = || "—".to_string();
+    let dash = || words::NO_VALUE.to_owned();
     let (height, cadence) = match status {
         Some(status) => (
             grouped(status.height),
-            format!("Block every {:.1} s", status.block_time_ms as f64 / 1000.),
+            words::block_every(status.block_time_ms),
         ),
         None => (dash(), String::new()),
     };
-    let (epoch, next) = match status {
-        Some(status) if status.epoch_length > 0 => {
-            let closes = (status.epoch + 1) * status.epoch_length - 1;
-            let left = closes.saturating_sub(status.height);
-            (
-                grouped(status.epoch),
-                format!("Next in {}", plural(left, "block", "blocks")),
-            )
-        }
+    let (epoch, next) = match (status, view.epoch_left()) {
+        (Some(status), Some(left)) => (grouped(status.epoch), words::next_in(left)),
         _ => (dash(), String::new()),
     };
     let validators = view
@@ -149,7 +142,7 @@ fn stat(
 fn latest_blocks(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoElement {
     let all = link(
         "explorer-all-blocks".into(),
-        "All blocks →".into(),
+        words::ALL_BLOCKS.into(),
         Route::Blocks,
         cx,
         theme,
@@ -186,7 +179,7 @@ fn latest_txs(
 ) -> impl IntoElement {
     let all = link(
         "explorer-all-txs".into(),
-        "All transactions →".into(),
+        words::ALL_TRANSACTIONS.into(),
         Route::Transactions(None),
         cx,
         theme,
