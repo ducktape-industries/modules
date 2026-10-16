@@ -94,7 +94,11 @@ avatar, bio); the `Control` is who acts as it:
   `Suspended { keys }` (keys kept, frames refused) or `Revoked` (keys
   dropped, final). A `Script { calls, config }` names the program that runs
   the account's actions and hands it `config`, text only that program gives
-  a meaning. Not every program account is an agent; `Agent` is the one
+  a meaning: harness reads it as the path of the agent's configuration file
+  in `files`. While the account is active, `attribution` hands every change
+  about it to the program `calls` names, once that program registered with
+  it (`Register { deliver }`); a change about any other account reaches no
+  program. Not every program account is an agent; `Agent` is the one
   category so far.
 - `System { program }`: a program's own account, registered by the kernel
   as it admits the program. It holds no keys; the program alone acts as it.

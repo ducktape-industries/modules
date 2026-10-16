@@ -1,19 +1,17 @@
-//! The Anthropic API as JSON: a thread's request in parts (a header, one part per message,
-//! separators, a close) so earlier messages are reused blobs, a reply read back as a turn, an
-//! on-demand compaction's summary, and a model's context window from the models endpoint.
+//! The Anthropic Messages API as JSON: a thread's request in parts (a header, one part per
+//! message, separators, a close) so earlier messages are reused blobs, a reply read back as a
+//! turn, an on-demand compaction's summary, and a model's context window from the models
+//! endpoint.
 use abi::role::egress::http::{Head, Method, Response};
 use serde_json::{Map, Value, json};
 
-use crate::{Body, Frame, Role, Said, Stop, ThreadRow, Usage};
+use super::{Answered, Header, Reply, Summarized, Summary};
+use crate::{Body, Frame, Role, Said, Stop, Usage, tools};
 
 pub(crate) const VERSION: &str = "2023-06-01";
 pub(crate) const COMPACTION_BETA: &str = "compact-2026-09-04";
 pub(crate) const CLOSE: &str = "]}";
 pub(crate) const SUMMARIZE: &str = r#"],"compaction":{"type":"summarize"}}"#;
-// A non-streamed Messages request runs up to 10 minutes (Anthropic's SDKs refuse a longer one).
-// ponytail: 600 blocks is 10 minutes at 1-second blocks; derive it from the network's block time
-// once a program can read it.
-pub(crate) const WAIT: u64 = 600;
 
 pub(crate) fn head(summarized: bool) -> Head {
     let mut headers = vec![
@@ -30,10 +28,10 @@ pub(crate) fn head(summarized: bool) -> Head {
     }
 }
 
-pub(crate) fn model(model: &str) -> Head {
+pub(crate) fn model(name: &str) -> Head {
     Head {
         method: Method::Get,
-        target: format!("/v1/models/{model}"),
+        target: format!("/v1/models/{name}"),
         headers: vec![("anthropic-version".into(), VERSION.into())],
     }
 }
@@ -42,18 +40,32 @@ fn cached() -> Value {
     json!({ "type": "ephemeral" })
 }
 
-pub(crate) fn header(thread: &ThreadRow, mut tools: Vec<Value>) -> String {
+fn definitions() -> Vec<Value> {
+    tools::CATALOG
+        .iter()
+        .map(|entry| {
+            json!({
+                "name": entry.name,
+                "description": entry.description,
+                "input_schema": (entry.schema)(),
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn header(header: &Header) -> String {
+    let mut tools = definitions();
     if let Some(Value::Object(last)) = tools.last_mut() {
         last.insert("cache_control".into(), cached());
     }
     let mut request = Map::new();
-    request.insert("model".into(), json!(thread.model));
-    request.insert("max_tokens".into(), json!(thread.max_tokens));
+    request.insert("model".into(), json!(header.name));
+    request.insert("max_tokens".into(), json!(header.max_tokens));
     request.insert("tools".into(), Value::Array(tools));
-    if !thread.system.is_empty() {
+    if !header.system.is_empty() {
         request.insert(
             "system".into(),
-            json!([{ "type": "text", "text": thread.system, "cache_control": cached() }]),
+            json!([{ "type": "text", "text": header.system, "cache_control": cached() }]),
         );
     }
     let mut text = Value::Object(request).to_string();
@@ -127,28 +139,16 @@ pub(crate) fn summary_message(block: &str) -> String {
     format!(r#"{{"role":"assistant","content":[{block}]}}"#)
 }
 
-pub(crate) struct Reply {
-    pub model: String,
-    pub said: Vec<Said>,
-    pub stop: Stop,
-    pub usage: Usage,
+pub(crate) fn summary_words(block: &str) -> String {
+    serde_json::from_str::<Value>(block)
+        .ok()
+        .and_then(|value| value["content"].as_str().map(str::to_owned))
+        .unwrap_or_else(|| block.to_owned())
 }
 
-pub(crate) enum Answered {
-    Reply(Reply),
-    Overflow,
-    Failed(String),
-}
-
-pub(crate) struct Summary {
-    pub block: String,
-    pub tokens: u64,
-}
-
-pub(crate) enum Summarized {
-    Summary(Summary),
-    Overflow,
-    Failed(String),
+pub(crate) fn summary_text(text: &str) -> String {
+    let content = json!([{ "type": "text", "text": text }]);
+    json!({ "role": "assistant", "content": content }).to_string()
 }
 
 fn stop(reason: Option<&str>) -> Stop {

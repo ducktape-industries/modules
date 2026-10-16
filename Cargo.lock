@@ -2646,6 +2646,7 @@ dependencies = [
  "serde",
  "serde_json",
  "store",
+ "toml 1.1.6+spec-1.1.0",
  "valset",
 ]
 
@@ -2656,6 +2657,7 @@ dependencies = [
  "chat",
  "ducklink",
  "egress",
+ "files",
  "harness",
  "identity",
  "serde",
