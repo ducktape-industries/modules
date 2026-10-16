@@ -361,8 +361,10 @@ impl Forge {
             let open = self.nav.commit.as_deref();
             wanted.extend(open.into_iter().flat_map(|oid| self.commit_reads(oid)));
         }
-        // the strip counts the files on every tab, as Expo's does
-        wanted.extend(self.diff_query());
+        // the phone's strip counts the files on every tab, as Expo's does
+        if self.touch || self.nav.change_tab == ChangeTab::Files {
+            wanted.extend(self.diff_query());
+        }
         wanted
     }
 

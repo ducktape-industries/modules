@@ -22,6 +22,7 @@ use view::{Div, FontWeight, ListAlignment, ListOffset, ListState, Stateful};
 
 use super::document;
 use super::parts::{self, Tint};
+use super::review;
 use crate::Forge;
 use crate::highlight::{self, Token};
 use crate::id;
@@ -764,7 +765,7 @@ fn composer_card(forge: &Forge, look: &Look, cx: &mut Context<Forge>) -> Statefu
     let (outer, inner) = card(format!("{}-composer", look.key), true, look);
     let Some((open, error)) = forge
         .review()
-        .and_then(|review| Some((review.open.as_ref()?, review.error.clone())))
+        .and_then(|review| Some((review.open.as_ref()?, review::refusal(review).to_owned())))
     else {
         return outer;
     };

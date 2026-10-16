@@ -1062,7 +1062,7 @@ fn an_empty_comment_verdict_is_refused_before_it_reaches_the_program() {
     cx.run_until_parked();
     assert_eq!(cx.host().requests::<SubmitForge>().len(), before);
     assert!(
-        cx.has_text("Say something, or discard."),
+        cx.has_text("A comment review needs a body or a line comment"),
         "{:?}",
         cx.texts()
     );

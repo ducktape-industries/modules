@@ -94,6 +94,11 @@ pub struct Forge {
     /// the change whose Close waits for a second press: closing is final
     #[serde(skip)]
     pub(crate) closing: Option<String>,
+    /// drawn under a finger (`window.touch()`): the phone's screens,
+    /// whose change strip counts every tab as Expo's does, so a change's
+    /// conversation and diff are read whichever tab is open
+    #[serde(skip)]
+    pub(crate) touch: bool,
     /// the dropdown open under its button, if any
     #[serde(skip)]
     pub(crate) menu: Option<Menu>,

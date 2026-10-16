@@ -63,6 +63,16 @@ pub(super) fn render(
     .into_any_element()
 }
 
+/// Why finishing the review was refused, in Expo's words: its one
+/// refusal, an empty comment review, says "Say something, or discard."
+/// (`review.tsx:46`); any other as the model says it.
+pub(super) fn refusal(review: &ReviewSession) -> &str {
+    match review.error.as_str() {
+        words::EMPTY_COMMENT_REVIEW => "Say something, or discard.",
+        said => said,
+    }
+}
+
 /// What the review says overall, and why it was refused; 16 in, 4 under.
 fn overall(review: &ReviewSession, ladder: &Ladder, theme: &Theme) -> Div {
     let field = Textarea::new(id("forge-review-body"), &review.body, words::REVIEW_BODY)
@@ -75,7 +85,7 @@ fn overall(review: &ReviewSession, ladder: &Ladder, theme: &Theme) -> Div {
         .child(parts::text_area_field(
             None,
             field,
-            &review.error,
+            refusal(review),
             ladder,
             theme,
         ))

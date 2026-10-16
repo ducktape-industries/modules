@@ -189,6 +189,10 @@ pub(crate) fn change_state(state: ChangeState) -> &'static str {
 
 // The change form
 pub(crate) const NEW_CHANGE: &str = "New change";
+
+/// A comment review with no body and no line comment, refused before it
+/// is sent (the phone says Expo's own words for it).
+pub(crate) const EMPTY_COMMENT_REVIEW: &str = "A comment review needs a body or a line comment";
 pub(crate) const TITLE_PROMPT: &str = "What this change does";
 pub(crate) const BODY_PROMPT: &str = "Why it changes";
 

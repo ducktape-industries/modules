@@ -3,6 +3,7 @@
 use view::prelude::*;
 
 use crate::state::{Forge, PendingComment, ReviewSession, change_key};
+use crate::words;
 use forge::{Op, ReviewDraft, Verdict};
 
 impl Forge {
@@ -125,7 +126,7 @@ impl Forge {
         let comments = review.line_comments();
         if matches!(verdict, Verdict::Comment) && review.body.is_blank() && comments.is_empty() {
             if let Some(review) = self.reviews.get_mut(&key) {
-                review.error = "Say something, or discard.".into();
+                review.error = words::EMPTY_COMMENT_REVIEW.into();
             }
             cx.notify();
             return;

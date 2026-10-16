@@ -121,8 +121,13 @@ impl Render for Forge {
         // sees each
         self.settle_title(cx);
         // the one pick between the two designs: under a finger the Expo
-        // app's screens (`ui::phone`), under a pointer the desktop's
-        if window.touch() {
+        // app's screens (`ui::phone`), under a pointer the desktop's; the
+        // phone's screens read a little more (`Forge::touch`)
+        if self.touch != window.touch() {
+            self.touch = window.touch();
+            self.sync(cx);
+        }
+        if self.touch {
             ui::phone::render(self, cx)
         } else {
             ui::render(self, cx).into_any_element()

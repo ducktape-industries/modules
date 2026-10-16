@@ -4,7 +4,7 @@ use std::rc::Rc;
 use view::prelude::*;
 
 use crate::queries::PAGE;
-use crate::state::{self, Forge, Menu, Nav, change_key};
+use crate::state::{self, ChangeTab, Forge, Menu, Nav, change_key};
 use crate::words::ref_label;
 use forge::Principal;
 use forge::{
@@ -416,11 +416,13 @@ impl Forge {
         }
     }
 
-    /// The hidden chat channel of the open change, read on every tab: the
-    /// strip counts its lines, as Expo's does.
+    /// The hidden chat channel of the open change: read on its tab, and
+    /// on every tab on the phone, whose strip counts its lines as Expo's
+    /// does.
     pub(crate) fn open_channel(&self) -> Option<String> {
         let (change, _, _, _) = self.change()?;
-        Some(change.channel.clone())
+        let read = self.touch || self.nav.change_tab == ChangeTab::Conversation;
+        read.then(|| change.channel.clone())
     }
 
     pub(crate) fn review(&self) -> Option<&state::ReviewSession> {
