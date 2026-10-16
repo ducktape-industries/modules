@@ -1,12 +1,13 @@
 //! The wires harness speaks to a model, one module each, reached through one `match` on
-//! [`Wire`] per step: the turn request's parts, the reply read back as a turn, the model's
-//! context window, and a thread's summary. What they read back is harness's own: a [`Reply`]
-//! of [`Said`] blocks, a [`Summary`] the wire alone reads again.
+//! [`Wire`] per step: the turn request's parts, the reply read back as a turn, each streamed
+//! event folded into a [`Partial`], the model's context window, and a thread's summary. What
+//! they read back is harness's own: a [`Reply`] of [`Said`] blocks, a [`Summary`] the wire
+//! alone reads again.
 pub(crate) mod anthropic;
 
 use abi::role::egress::http::{Head, Response};
 
-use crate::{Frame, Role, Said, Stop, Usage, Wire};
+use crate::{Flow, Frame, Partial, Role, Said, Stop, Usage, Wire};
 
 pub(crate) struct Header<'a> {
     pub name: &'a str,
@@ -14,6 +15,7 @@ pub(crate) struct Header<'a> {
     pub system: &'a str,
 }
 
+#[derive(Debug, PartialEq)]
 pub(crate) struct Reply {
     pub model: String,
     pub said: Vec<Said>,
@@ -111,3 +113,46 @@ pub(crate) fn window(wire: Wire, response: &Response) -> Result<Option<u64>, Str
         Wire::AnthropicMessages => anthropic::window(response),
     }
 }
+
+pub(crate) fn fold(partial: &mut Partial, data: &[u8]) {
+    let Some(data) = event_data(data) else {
+        return;
+    };
+    match partial.wire {
+        Wire::AnthropicMessages => anthropic::fold(partial, &data),
+    }
+}
+
+fn event_data(event: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(event);
+    let data: Vec<&str> = text
+        .split(['\n', '\r'])
+        .filter_map(|line| line.strip_prefix("data:"))
+        .map(|value| value.strip_prefix(' ').unwrap_or(value))
+        .collect();
+    let has_data = !data.is_empty();
+    has_data.then(|| data.join("\n"))
+}
+
+pub(crate) fn folded(partial: Partial) -> Answered {
+    match partial.flow {
+        Flow::Ended => Answered::Reply(Reply {
+            model: partial.model,
+            said: partial.said,
+            stop: partial.stop.unwrap_or(Stop::EndTurn),
+            usage: partial.usage,
+        }),
+        Flow::Overflowed => Answered::Overflow,
+        Flow::Open => Answered::Failed(format!(
+            "the model's reply ended after {} events, before the model finished it",
+            partial.next_seq
+        )),
+        Flow::Broken { reason } => {
+            Answered::Failed(format!("the model's streamed reply broke: {reason}"))
+        }
+        Flow::Failed { text } => Answered::Failed(text),
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests;

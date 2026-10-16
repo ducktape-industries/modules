@@ -1,10 +1,11 @@
 //! The agents on a `MockChain` with identity, attribution, awaits, scheduler, chat, files, egress
 //! and valset seated: an agent is a program account whose script calls harness and names its
 //! configuration in files; a mention or a direct message reaches it, the node serving its model's
-//! egress service answers as the model would, and every tool call runs once its relay comes
-//! back, as the agent.
+//! egress service answers as the model would, whole or one streamed event at a time, and every
+//! tool call runs once its relay comes back, as the agent.
 mod config;
 mod models;
+mod streams;
 
 use ::program::{Error, MockChain, Origin, Principal, code};
 use egress::{Answer, Egress, RELAY, Request, RequestRow, http};

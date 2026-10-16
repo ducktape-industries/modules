@@ -2,11 +2,12 @@
 //! attribution, an agent is a program account whose script calls harness and names its
 //! configuration file in files, a founder node serves the model's service and the relay, and a
 //! mention in chat, the model's turn and the agent's write each land in their own block while
-//! the thread's loop waits parked.
+//! the thread's loop waits parked; the next turn streams back through egress one event per
+//! block and grows in the thread's partial reply until the stream ends.
 use super::*;
 
 use egress::{Answer, RELAY, Request, RequestRow, http};
-use harness::{Body, Op, Query, Reply, ThreadRow};
+use harness::{Body, Flow, Op, Partial, Query, Reply, Said, ThreadRow};
 use serde_json::{Value, json};
 
 const NODE: u64 = 1;
@@ -48,6 +49,39 @@ impl Net {
             answer: Answer::Output(output),
         };
         self.apply(&public(NODE), egress::PROGRAM, &op).await;
+    }
+
+    async fn stream(&mut self, id: u64, events: &[Value], seqs: std::ops::Range<usize>) {
+        for seq in seqs {
+            let event = &events[seq];
+            let data = format!("event: {}\ndata: {event}", event["type"].as_str().unwrap());
+            let op = egress::Op::Event(egress::Event {
+                id,
+                seq: seq as u64,
+                data: data.into_bytes(),
+            });
+            self.apply(&public(NODE), egress::PROGRAM, &op).await;
+        }
+    }
+
+    async fn end_stream(&mut self, id: u64, events: u64) {
+        let op = egress::Op::EndStream {
+            id,
+            events,
+            end: egress::StreamEnd::Complete {
+                status: 200,
+                headers: vec![("content-type".into(), "text/event-stream".into())],
+            },
+        };
+        self.apply(&public(NODE), egress::PROGRAM, &op).await;
+    }
+
+    async fn partial(&self, thread: u64) -> Option<Partial> {
+        let Reply::Partial(partial) = self.ask(harness::PROGRAM, &Query::Partial { thread }).await
+        else {
+            panic!()
+        };
+        partial
     }
 
     async fn threads(&self, agent: u64) -> Vec<ThreadRow> {
@@ -251,11 +285,61 @@ fn a_mentioned_agent_answers_through_elected_nodes_and_writes_as_itself() {
             (&result["type"], &result["tool_use_id"], &result["is_error"]),
             (&json!("tool_result"), &json!("toolu_1"), &json!(false))
         );
-        net.answer(
-            next.id,
-            model_reply(json!([{ "type": "text", "text": "Noted." }]), "end_turn"),
-        )
-        .await;
+        assert_eq!(
+            next.delivery,
+            egress::Delivery::Events {
+                deliver: harness::streamed_as(thread.id)
+            }
+        );
+        let start = json!({
+            "type": "message_start",
+            "message": {
+                "model": "claude-test",
+                "content": [],
+                "usage": { "input_tokens": 1, "output_tokens": 1 },
+            },
+        });
+        let block = json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": { "type": "text", "text": "" },
+        });
+        let delta = |text: &str| {
+            json!({
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": { "type": "text_delta", "text": text },
+            })
+        };
+        let events = [
+            start,
+            block,
+            delta("Not"),
+            delta("ed."),
+            json!({ "type": "content_block_stop", "index": 0 }),
+            json!({
+                "type": "message_delta",
+                "delta": { "stop_reason": "end_turn" },
+                "usage": { "output_tokens": 2 },
+            }),
+            json!({ "type": "message_stop" }),
+        ];
+        net.stream(next.id, &events, 0..3).await;
+        let growing = net.partial(thread.id).await.unwrap();
+        assert_eq!(
+            (growing.said, growing.flow),
+            (vec![Said::Text("Not".into())], Flow::Open)
+        );
+        net.stream(next.id, &events, 3..events.len()).await;
+        assert_eq!(net.parked(), 1, "the loop waits until the stream ends");
+        net.end_stream(next.id, events.len() as u64).await;
+        assert_eq!(net.partial(thread.id).await, None);
+        let frames = net.frames(thread.id).await;
+        let Some(Body::Turn { said, usage, .. }) = frames.last() else {
+            panic!("the streamed reply is the thread's last turn: {frames:?}");
+        };
+        assert_eq!(said, &[Said::Text("Noted.".into())]);
+        assert_eq!((usage.input, usage.output), (1, 2));
         assert!(net.assigned(SERVICE).await.is_empty());
         assert_eq!(net.parked(), 0, "the loop finished");
     });

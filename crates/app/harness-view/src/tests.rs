@@ -3,10 +3,11 @@ use std::rc::Rc;
 
 use super::*;
 use harness::{
-    AgentSetup, BlobId, Body, CallRow, CallState, Config, Configured, Context as Fill, Frame,
-    ModelRow, Principal, Said, Standing, Stop, ToolInfo, Usage, Window, Wire, WithheldFrame,
+    AgentSetup, BlobId, Body, CallRow, CallState, Config, Configured, Context as Fill, Flow,
+    Forming, Frame, ModelRow, Partial, Principal, Said, Standing, Stop, ToolInfo, Usage, Window,
+    Wire, WithheldFrame,
 };
-use view::methods::{LinkOpen, Query, Session, Submitted};
+use view::methods::{Change, Changes, LinkOpen, Query, Session, Submitted};
 use view::testing::TestAppContext;
 
 const EDDY: u64 = 7;
@@ -157,6 +158,7 @@ struct Net {
     calls: Vec<CallRow>,
     held: Vec<(u64, Body)>,
     withheld: Vec<(u64, WithheldFrame)>,
+    partials: Vec<(u64, Partial)>,
     serving: Vec<(String, usize)>,
     services: Vec<egress::ServiceRow>,
 }
@@ -244,6 +246,7 @@ impl Default for Net {
             }],
             held: Vec::new(),
             withheld: Vec::new(),
+            partials: Vec::new(),
             serving: vec![("anthropic".into(), 1), (egress::RELAY.into(), 1)],
             services: vec![egress::ServiceRow {
                 name: "anthropic".into(),
@@ -322,6 +325,12 @@ fn seated(net: Net, me: u64) -> (TestAppContext, Shared) {
                     .filter(|(id, _)| *id == thread)
                     .map(|(_, withheld)| *withheld)
                     .collect(),
+            ),
+            harness::Query::Partial { thread } => harness::Reply::Partial(
+                net.partials
+                    .iter()
+                    .find(|(id, _)| *id == thread)
+                    .map(|(_, partial)| partial.clone()),
             ),
             harness::Query::Tools => harness::Reply::Tools(vec![
                 ToolInfo {
@@ -568,6 +577,79 @@ fn a_thread_shows_its_transcript_calls_and_usage() {
         cx.host().requests::<LinkOpen>(),
         ["duck://garage-0a1b2c3d/chat/general"]
     );
+}
+
+fn streaming() -> Partial {
+    Partial {
+        wire: Wire::AnthropicMessages,
+        model: "claude-sonnet-5-5".into(),
+        said: vec![
+            Said::Thinking {
+                text: "The log names the deploy".into(),
+                signature: "sig".into(),
+            },
+            Said::Text("The slowdown began with".into()),
+            Said::ToolUse {
+                id: "toolu_02".into(),
+                name: "forge_log".into(),
+                input: r#"{"repo":"pay"#.into(),
+            },
+        ],
+        forming: Forming::Kept { index: 2 },
+        stop: None,
+        usage: Usage::default(),
+        next_seq: 14,
+        flow: Flow::Open,
+    }
+}
+
+#[test]
+fn the_reply_the_model_is_streaming_grows_under_the_transcript() {
+    let net = Net {
+        partials: vec![(7, streaming())],
+        ..Net::default()
+    };
+    let (mut cx, shared) = seated(net, EDDY);
+    let changes = cx.host().stream::<Changes<harness::Harness>>();
+    cx.simulate_click("agent-12");
+    cx.run_until_parked();
+    cx.simulate_click("thread-7");
+    cx.run_until_parked();
+    for text in [
+        "is answering · 14 events so far",
+        "Thinking",
+        "The log names the deploy",
+        "The slowdown began with",
+        "forge_log",
+        r#"{"repo":"pay"#,
+        "Forming",
+    ] {
+        assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
+    }
+    let broken = Partial {
+        flow: Flow::Broken {
+            reason: "event 15 arrived where event 14 was due".into(),
+        },
+        ..streaming()
+    };
+    shared.borrow_mut().partials = vec![(7, broken)];
+    changes.send(Some(Change {
+        height: 10,
+        keys: Vec::new(),
+    }));
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("the reply broke: event 15 arrived where event 14 was due"),
+        "{:?}",
+        cx.texts()
+    );
+    shared.borrow_mut().partials.clear();
+    changes.send(Some(Change {
+        height: 11,
+        keys: Vec::new(),
+    }));
+    cx.run_until_parked();
+    assert!(cx.find("thread-partial").is_none());
 }
 
 #[test]
@@ -961,7 +1043,9 @@ fn an_agent_whose_configuration_harness_cannot_run_says_what_is_wrong() {
     cx.run_until_parked();
     assert!(cx.has_text(problem), "{:?}", cx.texts());
     assert!(
-        cx.has_text("thread 7 · opened at block 8,960 · asks no model until its configuration is fixed"),
+        cx.has_text(
+            "thread 7 · opened at block 8,960 · asks no model until its configuration is fixed"
+        ),
         "{:?}",
         cx.texts()
     );
@@ -1088,6 +1172,16 @@ fn screens() -> Vec<(&'static str, TestAppContext)> {
         ("no-node", open(unserved, &["agent-12"])),
         ("create", create),
         ("models", open(Net::default(), &["agents-models"])),
+        (
+            "streaming",
+            open(
+                Net {
+                    partials: vec![(7, streaming())],
+                    ..Net::default()
+                },
+                &["agent-12", "thread-7"],
+            ),
+        ),
     ]
 }
 

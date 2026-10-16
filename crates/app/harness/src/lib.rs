@@ -2,7 +2,8 @@
 //! script calls harness; its script's `config` is the path of its configuration in `files`
 //! (`config.rs`), which harness reads at each model call. A mention or a direct message about
 //! the agent reaches harness through `attribution`; the model is a record harness keeps
-//! (`SetModel`), reached through the egress role in the wire it speaks (`wire/`). Every tool
+//! (`SetModel`), reached through the egress role in the wire it speaks (`wire/`), which streams
+//! a turn's reply back one event at a time (`Streamed`, folded into a [`Partial`]). Every tool
 //! call runs in a later block, as the agent.
 mod agents;
 pub mod config;
@@ -10,6 +11,7 @@ mod models;
 mod program;
 mod queries;
 mod state;
+mod streams;
 #[cfg(test)]
 mod tests;
 mod tools;
@@ -17,6 +19,7 @@ mod turns;
 mod wire;
 
 pub use ::program::{BlobId, Principal};
+pub use abi::role::egress::Event;
 pub use abi::role::identity::{AccountNumber, Standing};
 pub use attribution::Change;
 pub use config::{Config, Malformed};
@@ -42,6 +45,10 @@ pub enum Op {
     },
     RemoveModel {
         id: String,
+    },
+    Streamed {
+        thread: u64,
+        event: Event,
     },
 }
 
@@ -267,6 +274,49 @@ pub struct Usage {
     pub cache_write: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Partial {
+    pub wire: Wire,
+    pub model: String,
+    pub said: Vec<Said>,
+    pub forming: Forming,
+    pub stop: Option<Stop>,
+    pub usage: Usage,
+    pub next_seq: u64,
+    pub flow: Flow,
+}
+
+impl Partial {
+    pub fn new(wire: Wire) -> Partial {
+        Partial {
+            wire,
+            model: String::new(),
+            said: Vec::new(),
+            forming: Forming::Nothing,
+            stop: None,
+            usage: Usage::default(),
+            next_seq: 0,
+            flow: Flow::Open,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Forming {
+    Nothing,
+    Kept { index: u64 },
+    Skipped { index: u64 },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Flow {
+    Open,
+    Ended,
+    Overflowed,
+    Broken { reason: String },
+    Failed { text: String },
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Asking {
     Idle,
@@ -392,6 +442,9 @@ pub enum Query {
     #[ask(Reply::Withheld(Vec<WithheldFrame>))]
     #[reads(state::WITHHELD, state::FRAMES)]
     Withheld { thread: u64 },
+    #[ask(Reply::Partial(Option<Partial>))]
+    #[reads(state::PARTIALS)]
+    Partial { thread: u64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -406,10 +459,17 @@ pub enum Reply {
     Model(Option<ModelRow>),
     Models(PageResponse<ModelRow>),
     Withheld(Vec<WithheldFrame>),
+    Partial(Option<Partial>),
 }
 
 pub fn attributed_as() -> Vec<u8> {
     vec![1]
+}
+
+pub fn streamed_as(thread: u64) -> Vec<u8> {
+    let mut deliver = vec![4];
+    deliver.extend(thread.to_le_bytes());
+    deliver
 }
 
 pub fn describe(op: &Op) -> describe::Description {
@@ -438,6 +498,10 @@ pub fn describe(op: &Op) -> describe::Description {
             format!("Remove model · {id}"),
             vec![field("model", Value::text(id))],
         ),
+        Op::Streamed { thread, event } => (
+            format!("Event {} of thread {thread}'s model reply", event.seq),
+            vec![field("data", Value::count(event.data.len() as u64))],
+        ),
     };
     describe::Description { title, fields }
 }
@@ -448,7 +512,7 @@ describe::export!(Op, describe);
 fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
-        ["Close", "Attributed", "SetModel", "RemoveModel"]
+        ["Close", "Attributed", "SetModel", "RemoveModel", "Streamed"]
     );
 }
 
@@ -458,7 +522,7 @@ fn query_variants_only_append() {
         describe::variants::<Query>(),
         [
             "Agent", "Thread", "Threads", "Frames", "Held", "Calls", "Tools", "ThreadAt", "Model",
-            "Models", "Withheld"
+            "Models", "Withheld", "Partial"
         ]
     );
 }
@@ -487,5 +551,18 @@ fn the_delivery_prefix_decodes_as_attributed() {
     assert_eq!(
         abi::decode::<Op>(&delivered).unwrap(),
         Op::Attributed(Box::new(change))
+    );
+}
+
+#[test]
+fn the_stream_prefix_decodes_as_streamed() {
+    let event = Event {
+        id: 3,
+        seq: 2,
+        data: b"data: {}".to_vec(),
+    };
+    assert_eq!(
+        abi::decode::<Op>(&event.payload(&streamed_as(9))).unwrap(),
+        Op::Streamed { thread: 9, event }
     );
 }
