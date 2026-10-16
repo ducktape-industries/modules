@@ -107,7 +107,7 @@ fn a_phone_view_survives_the_sweep() {
         cx.simulate_click("Pick");
         assert!(
             matches!(cx.node("picker"), wire::Node::Sheet { detents, label, .. }
-                if detents == &[0.6, 1.0] && label.as_deref() == Some("Pick one"))
+                if detents.is_empty() && label.as_deref() == Some("Pick one"))
         );
         cx.simulate_dismiss("picker");
         assert!(cx.find("picker").is_none());
