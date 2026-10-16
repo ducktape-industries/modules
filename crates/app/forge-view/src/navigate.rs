@@ -73,6 +73,14 @@ impl Forge {
             Page::Change => self.open_change(None, cx),
             Page::File => self.single_file(None, cx),
             Page::Commit => self.open_commit(None, cx),
+            Page::Folder => {
+                // one folder up, or the tab's root
+                let up = self.nav.folder.as_deref().and_then(|path| {
+                    let at = path.iter().rposition(|byte| *byte == b'/')?;
+                    Some(path[..at].to_vec())
+                });
+                self.open_folder(up, cx);
+            }
             Page::Blob => self.nav_close_blob(cx),
         }
     }
@@ -117,6 +125,7 @@ impl Forge {
         self.nav.expanded = kept.expanded;
         self.nav.cursor = kept.cursor;
         self.nav.blob = kept.blob;
+        self.nav.folder = kept.folder;
         self.nav.goto = kept.goto;
         self.nav.tab = tab;
         if tab == RepoTab::Settings {
@@ -228,7 +237,17 @@ impl Forge {
         self.nav.expanded.clear();
         self.nav.cursor = None;
         self.nav.blob = None;
+        self.nav.folder = None;
         self.nav.commit = None;
+        self.moved(cx);
+    }
+
+    /// The phone's Code tab opens the folder at `path` on its own page;
+    /// `None` goes back to the tab's root.
+    pub(crate) fn open_folder(&mut self, path: Option<Vec<u8>>, cx: &mut Context<Self>) {
+        self.tree_search.reset("");
+        self.nav.folder = path;
+        self.nav.blob = None;
         self.moved(cx);
     }
 

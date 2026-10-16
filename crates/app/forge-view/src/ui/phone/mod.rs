@@ -81,6 +81,7 @@ fn page(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
         Page::Change => change::render(forge, back, cx, ladder, theme),
         Page::File => diff::render(forge, back, cx, ladder, theme),
         Page::Commit => commit::render(forge, back, cx, ladder, theme),
+        Page::Folder => code::folder(forge, back, cx, ladder, theme),
         Page::Blob => code::render(forge, back, cx, ladder, theme),
     }
 }

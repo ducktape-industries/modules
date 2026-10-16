@@ -1,12 +1,14 @@
-//! A file of the browsed ref (Expo
-//! `app/(tabs)/forge/[repo]/code/[...path].tsx`, board 63): its name over
-//! its folder and the ref, Copy the path and Copy link in the title row;
-//! `lang · N lines · size` with Wrap (and Source for markdown) over its
-//! lines, or the markdown rendered; why a file that is not text shows
-//! nothing.
+//! A folder or a file of the browsed ref (Expo
+//! `app/(tabs)/forge/[repo]/code/[...path].tsx`, boards 62, 63). A folder:
+//! `name/` over its parent and the ref, the crumbs and the ref over its
+//! rows. A file: its name over its folder and the ref, Copy the path and
+//! Copy link in the title row; `lang · N lines · size` with Wrap (and
+//! Source for markdown) over its lines, or the markdown rendered; why a
+//! file that is not text shows nothing.
 //!
-//! Reads the open blob (`Nav::blob`); writes the clipboard and the page's
-//! wrap and source toggles.
+//! Reads the open folder (`Nav::folder`) and blob (`Nav::blob`); writes
+//! the clipboard, the page's wrap and source toggles, and the folder a
+//! crumb goes back to.
 use view::Div;
 use view::design::{Kind, Ladder};
 use view::prelude::*;
@@ -14,6 +16,7 @@ use view::prelude::*;
 use super::document;
 use super::lines::{self, Shown};
 use super::parts::{self, Back};
+use super::tabs;
 use crate::Forge;
 use crate::highlight;
 use crate::id;
@@ -59,6 +62,72 @@ pub(super) fn render(
         .children(parts::notices(forge, ladder, theme))
         .child(body(forge, (&oid, dir, name), cx, ladder, theme))
         .into_any_element()
+}
+
+/// A folder on its own page (board 62): `name/` over its parent (the
+/// repository at the top) and the ref; the crumbs and the ref over the
+/// folder's rows.
+pub(super) fn folder(
+    forge: &Forge,
+    back: Back,
+    cx: &mut Context<Forge>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> AnyElement {
+    let path = forge.nav().folder.clone().unwrap_or_default();
+    let shown = path_text(&path);
+    let (dir, name) = shown.rsplit_once('/').unwrap_or(("", &shown));
+    let repo = forge.repo_name();
+    let rev = ref_label(&forge.head_name());
+    let above = if dir.is_empty() { repo.as_str() } else { dir };
+    let caption = format!("{above} · {rev}");
+    let bar = parts::bar(
+        "forge-folder-bar",
+        crumbs(&repo, &shown, cx, ladder, theme),
+        parts::caption(rev, ladder, theme),
+        ladder,
+        theme,
+    );
+    design::page("forge-page-folder", format!("{name}/"), back, ladder, theme)
+        .caption(caption)
+        .children(parts::notices(forge, ladder, theme))
+        .child(tabs::folder_body(forge, path, bar, cx, ladder, theme))
+        .into_any_element()
+}
+
+/// `repo / a / b` in the data face (`Crumbs`): the folder shown in ink,
+/// each one above it muted, a press going back to its own page.
+fn crumbs(repo: &str, path: &str, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> Div {
+    let parts: Vec<&str> = path.split('/').collect();
+    let depth = parts.len();
+    let mut line = div()
+        .flex()
+        .font_family(design::fonts::FAMILY_MONO)
+        .text_type(ladder.secondary)
+        .whitespace_nowrap();
+    for (at, part) in std::iter::once(repo)
+        .chain(parts.iter().copied())
+        .enumerate()
+    {
+        let said = format!("{}{part}", if at == 0 { "" } else { " / " });
+        if at == depth {
+            line = line.child(div().text_color(theme.foreground).child(said));
+            continue;
+        }
+        let up = (at > 0).then(|| parts[..at].join("/").into_bytes());
+        let press =
+            cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_folder(up.clone(), cx));
+        line = line.child(
+            div()
+                .id(id(format!("forge-crumb-{at}")))
+                .text_color(theme.muted)
+                .role(Role::Button)
+                .focusable()
+                .on_click(press)
+                .child(said),
+        );
+    }
+    line
 }
 
 /// A copy control: `text` to the clipboard; its glyph turns to a check

@@ -185,6 +185,10 @@ pub(crate) struct Nav {
     pub cursor: Option<Vec<u8>>,
     /// the open file: its path and blob oid
     pub blob: Option<(Vec<u8>, String)>,
+    /// the folder the phone's Code tab shows on a page of its own, by
+    /// full path (Expo `code/[...path].tsx`); the desktop opens folders
+    /// in place (`expanded`)
+    pub folder: Option<Vec<u8>>,
     /// a file a link named, opened once its folder's tree lands
     #[serde(skip)]
     pub goto: Option<Vec<u8>>,
@@ -223,7 +227,14 @@ impl Nav {
             return pages;
         }
         match self.tab {
-            RepoTab::Code if self.blob.is_some() => pages.push(Page::Blob),
+            RepoTab::Code => {
+                if self.folder.is_some() {
+                    pages.push(Page::Folder);
+                }
+                if self.blob.is_some() {
+                    pages.push(Page::Blob);
+                }
+            }
             RepoTab::Commits if self.commit.is_some() => pages.push(Page::Commit),
             _ => {}
         }
@@ -247,6 +258,8 @@ pub(crate) enum Page {
     File,
     /// one commit of a repository's or a change's log
     Commit,
+    /// one folder of the Code tab (the phone's)
+    Folder,
     /// one file of the Code tab
     Blob,
 }

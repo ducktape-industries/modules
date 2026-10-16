@@ -200,9 +200,8 @@ fn readme_body(
 
 // ------------------------------------------------------------------ Code
 
-/// The root folder (`FolderBody`): the file bar, "Filter files", then the
-/// folders (`name/`, a chevron) and the files (mono) the filter keeps; a
-/// folder opens in place under itself, a file on its own page.
+/// The root folder: the file bar (the repository and the ref) over its
+/// [`folder_body`].
 fn code(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> AnyElement {
     let bar = parts::file_bar(
         "forge-code-bar",
@@ -211,6 +210,20 @@ fn code(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
         ladder,
         theme,
     );
+    folder_body(forge, Vec::new(), bar, cx, ladder, theme)
+}
+
+/// A folder's body (`FolderBody`): `bar`, "Filter files", then the
+/// folders (`name/`, a chevron) and the files (mono) the filter keeps;
+/// each opens on a page of its own.
+pub(super) fn folder_body(
+    forge: &Forge,
+    dir: Vec<u8>,
+    bar: Stateful<Div>,
+    cx: &mut Context<Forge>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> AnyElement {
     let filter = Input::new(
         id("forge-tree-search"),
         &forge.tree_search,
@@ -229,12 +242,12 @@ fn code(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
     if let Some(state) = unresolved(forge, ladder, theme) {
         return page.child(state).into_any_element();
     }
-    let Some(root) = forge.tree_query(Vec::new()) else {
+    let Some(tree) = forge.tree_query(dir.clone()) else {
         return page.into_any_element();
     };
     if let Err(state) = parts::stage(
         forge,
-        &root,
+        &tree,
         "forge-tree",
         words::READING_TREE,
         cx,
@@ -242,7 +255,7 @@ fn code(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
     ) {
         return page.child(state).into_any_element();
     }
-    let rows = forge.tree_rows();
+    let rows = forge.tree_rows_at(dir);
     if rows.is_empty() {
         return page
             .child(parts::empty_state(
@@ -259,10 +272,10 @@ fn code(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
         .into_any_element()
 }
 
-/// Opens a folder in place, or a file on its own page.
+/// Opens a folder, or a file, on its own page.
 fn press_entry(forge: &mut Forge, row: &tree::Row, cx: &mut Context<Forge>) {
     match &row.slot {
-        Slot::Entry { .. } if row.is_dir() => forge.toggle_dir(row.path.clone(), cx),
+        Slot::Entry { .. } if row.is_dir() => forge.open_folder(Some(row.path.clone()), cx),
         Slot::Entry { oid, .. } => forge.open_file(row.path.clone(), oid.clone(), cx),
         Slot::Loading | Slot::Failed(_) => {}
     }

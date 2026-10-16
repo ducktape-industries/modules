@@ -496,6 +496,30 @@ fn a_commit_shows_its_facts_its_files_and_their_diff() {
 
 // ------------------------------------------------------------------ a file of the Code tab
 
+/// A folder of the Code tab opens on its own page (Expo 33): `src/` over
+/// the repository and the ref, the crumbs over its rows; the crumb of the
+/// repository, and Back, go back to the tab.
+#[test]
+fn a_folder_opens_on_its_own_page_and_its_crumb_goes_back() {
+    let mut cx = repository("default");
+    press(&mut cx, "forge-tab-code");
+    press(&mut cx, "forge-tree-src");
+    assert!(cx.find("forge-page-folder").is_some(), "{:?}", cx.texts());
+    assert!(cx.has_text("src/"));
+    assert!(cx.find("forge-folder-bar").is_some());
+    press(&mut cx, "forge-crumb-0");
+    assert!(cx.find("forge-page-folder").is_none());
+    assert!(cx.find("forge-tree-src").is_some(), "the tab's root again");
+    press(&mut cx, "forge-tree-src");
+    cx.simulate_back();
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-page-folder").is_none(),
+        "Back pops the folder"
+    );
+    assert!(cx.find("forge-page-repo").is_some());
+}
+
 #[test]
 fn a_file_shows_its_lines_and_wrap_flips() {
     let mut cx = repository("default");
@@ -617,6 +641,9 @@ fn forge_fits_every_phone() {
         cx.run_until_parked();
         press(cx, "forge-tab-code");
         press(cx, "forge-tree-README.md");
+        cx.simulate_back();
+        cx.run_until_parked();
+        press(cx, "forge-tree-src");
         cx.simulate_back();
         cx.run_until_parked();
         press(cx, "forge-tab-changes");
