@@ -52,9 +52,9 @@ fn detail(
     };
     let Some(row) = detail.agent.clone() else {
         return design::empty_state(
-            "agent-gone",
+            "agent-gone", "bot-off",
             "Not hired",
-            format!("Harness runs no agent as account {agent}: its manager dismissed it, or never hired it."),
+            format!("Harness runs no agent as account {agent}: its manager dismissed it, or never hired it."), ladder,
             theme,
         )
         .into_any_element();

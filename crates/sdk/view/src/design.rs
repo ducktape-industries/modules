@@ -8,14 +8,18 @@
 //! phone's shapes sit here too: the width class a view lays out by
 //! ([`width_class`]), the size ladder it picks by the session's pointer
 //! ([`ladder`]), the page stack ([`Pages`]) and the page frame ([`page`])
-//! a Compact layout is made of, and the sheet ([`sheet`]).
+//! a Compact layout is made of, and the sheet ([`sheet`]). The words
+//! every view says of a refusal and of a write that did not land
+//! ([`sentence`], [`failure`]) sit here too.
 pub use ::design::*;
 
 mod format;
 mod pages;
+mod words;
 pub(crate) use format::set_utc_offset;
 pub use format::{ago, clock, date, day, grouped, initial, local, plural};
 pub use pages::{CAPSULE_CLEARANCE, Nav, Page, Pages, page};
+pub use words::{failure, sentence};
 
 use crate::prelude::*;
 use crate::{AnyElement, Div, FontWeight, Hsla, Pixels, Stateful, StyleRefinement};
@@ -317,9 +321,11 @@ pub fn sheet(
     }
 }
 
-/// How far a sheet's head and rows sit in from its sides (the Expo kit's
-/// `SheetHead` and `SheetRow`, `Sheet.tsx:148`, `:162`).
-const SHEET_INSET: Pixels = px(20.);
+/// How far a sheet's head, its rows and a form sheet's body sit in from
+/// its sides (the Expo kit's `SheetHead` and `SheetRow`, `Sheet.tsx:148`,
+/// `:162`; a form's body, `Agents.tsx:194`, `programs.tsx:465`). A form
+/// sheet's body: `div().flex().flex_col().gap(space::LG).p(SHEET_INSET)`.
+pub const SHEET_INSET: Pixels = px(20.);
 
 /// The gap between a sheet row's icon and its label (`Sheet.tsx:162`).
 const SHEET_ROW_GAP: Pixels = px(14.);
@@ -327,7 +333,8 @@ const SHEET_ROW_GAP: Pixels = px(14.);
 /// What a sheet is about, at its top (the Expo kit's `SheetHead`,
 /// `Sheet.tsx:144-152`): 4 over, 12 under, 20 in from each side, a
 /// hairline under it. The caller adds its lines (who and when in
-/// `ladder.caption`, then the subject in `ladder.body`).
+/// `ladder.caption`, then the subject in `ladder.body`); a form sheet's
+/// head is [`sheet_title`].
 pub fn sheet_head(id: impl Into<ElementId>, theme: &Theme) -> Stateful<Div> {
     div()
         .id(id)
@@ -340,46 +347,156 @@ pub fn sheet_head(id: impl Into<ElementId>, theme: &Theme) -> Stateful<Div> {
         .border_color(theme.border)
 }
 
-/// One action of a sheet (the Expo kit's `SheetRow`, `Sheet.tsx:154-175`):
-/// [`Ladder::sheet_row`] tall, the whole row the press, an icon at
-/// [`Ladder::icon_sheet`] in muted (`None` for a row with none), then
-/// `label` in body text; a `danger` row (Delete) wears the danger tone on
-/// both.
-pub fn sheet_row(
+/// A form sheet's head (a `SheetHead` holding the form's title,
+/// `Agents.tsx:189-193`, `programs.tsx:460-464`): [`sheet_head`] with
+/// `title` in `ladder.title` medium, a level-2 heading (`{id}-title`).
+pub fn sheet_title(
     id: impl Into<ElementId>,
-    icon: Option<&str>,
-    label: impl Into<SharedString>,
-    danger: bool,
+    title: impl Into<SharedString>,
     ladder: &Ladder,
     theme: &Theme,
-    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
-    let (glyph, words) = match danger {
-        true => (theme.danger, theme.danger),
-        false => (theme.muted, theme.foreground),
-    };
+    let id = id.into();
+    let title_id = ElementId::Name(format!("{id}-title").into());
+    sheet_head(id, theme).child(
+        heading(title_id, title, 2, theme)
+            .text_type(ladder.title)
+            .font_weight(FontWeight::MEDIUM),
+    )
+}
+
+/// A form sheet's foot (`Agents.tsx:224-232`, `programs.tsx:506-509`):
+/// `cancel` as a quiet [`button`] (Cancel, Close), then `verb` as the
+/// primary one, taking the rest of the row, 8 apart. The verb's busy
+/// label and whether it is enabled are the caller's.
+pub fn form_verbs<C, V>(cancel: Button<C>, verb: Button<V>) -> Div
+where
+    C: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    V: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+{
     div()
-        .id(id)
-        .w_full()
-        .h(ladder.sheet_row)
         .flex()
-        .items_center()
-        .gap(SHEET_ROW_GAP)
-        .px(SHEET_INSET)
-        .map(|row| pressed(row, ladder))
-        .role(Role::Button)
-        .focusable()
-        .on_click(click)
-        .children(icon.map(|name| self::icon(name, ladder.icon_sheet).text_color(glyph)))
+        .gap(space::SM)
+        .child(cancel.kind(Kind::Quiet))
+        // a column stretches the button it holds across its width
         .child(
             div()
                 .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_type(ladder.body)
-                .text_color(words)
-                .child(label.into()),
+                .flex()
+                .flex_col()
+                .child(verb.kind(Kind::Primary)),
         )
+}
+
+/// One action of a sheet (the Expo kit's `SheetRow`, `Sheet.tsx:154-175`):
+/// [`Ladder::sheet_row`] tall, the whole row the press, `label` in body
+/// text taking the slack; [`SheetRow::icon`] leads it, [`SheetRow::hint`]
+/// trails it, and [`SheetRow::danger`] marks a row that destroys:
+/// `design::sheet_row("delete", "Delete", &ladder, &theme, delete)
+/// .icon("trash").danger()`.
+pub fn sheet_row<F>(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    ladder: &Ladder,
+    theme: &Theme,
+    click: F,
+) -> SheetRow<F>
+where
+    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+{
+    SheetRow {
+        id: id.into(),
+        label: label.into(),
+        icon: None,
+        hint: None,
+        danger: false,
+        ladder: *ladder,
+        theme: *theme,
+        click,
+    }
+}
+
+/// A [`sheet_row`] being built.
+pub struct SheetRow<F> {
+    id: ElementId,
+    label: SharedString,
+    icon: Option<SharedString>,
+    hint: Option<SharedString>,
+    danger: bool,
+    ladder: Ladder,
+    theme: Theme,
+    click: F,
+}
+
+impl<F> SheetRow<F>
+where
+    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+{
+    /// A Lucide glyph before the label (`icons/<name>.svg`), at
+    /// [`Ladder::icon_sheet`], muted.
+    pub fn icon(mut self, name: impl Into<SharedString>) -> Self {
+        self.icon = Some(name.into());
+        self
+    }
+    /// A value at the row's right (`Sheet.tsx:168-172`): caption, muted,
+    /// on one line; the label gives way to it.
+    pub fn hint(mut self, hint: impl Into<SharedString>) -> Self {
+        self.hint = Some(hint.into());
+        self
+    }
+    /// The row destroys something (Delete, Remove): its glyph and its
+    /// label wear the danger tone.
+    pub fn danger(mut self) -> Self {
+        self.danger = true;
+        self
+    }
+}
+
+impl<F> IntoElement for SheetRow<F>
+where
+    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+{
+    type Element = Stateful<Div>;
+    fn into_element(self) -> Self::Element {
+        let (ladder, theme) = (self.ladder, self.theme);
+        let (glyph, words) = match self.danger {
+            true => (theme.danger, theme.danger),
+            false => (theme.muted, theme.foreground),
+        };
+        div()
+            .id(self.id)
+            .w_full()
+            .h(ladder.sheet_row)
+            .flex()
+            .items_center()
+            .gap(SHEET_ROW_GAP)
+            .px(SHEET_INSET)
+            .map(|row| pressed(row, &ladder))
+            .role(Role::Button)
+            .focusable()
+            .on_click(self.click)
+            .children(
+                self.icon
+                    .map(|name| icon(&name, ladder.icon_sheet).text_color(glyph)),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_type(ladder.body)
+                    .text_color(words)
+                    .child(self.label),
+            )
+            .children(self.hint.map(|hint| {
+                div()
+                    .flex_none()
+                    .truncate()
+                    .text_type(ladder.caption)
+                    .text_color(theme.muted)
+                    .child(hint)
+            }))
+    }
 }
 
 /// A Lucide icon of the set the app bundles (`icons/<name>.svg`), `size`
@@ -465,19 +582,200 @@ pub fn pressed<E: StatefulInteractiveElement>(element: E, ladder: &Ladder) -> E 
     }
 }
 
-/// A text field's box (the Expo kit's `Field`, `Field.tsx:46-56`): at least
-/// [`Ladder::control`] tall, a `border_strong` hairline on the window's
-/// ground, body text 12 in from its sides. The host draws the edge the
-/// focused field wears.
-pub fn field(input: crate::Input, ladder: &Ladder, theme: &Theme) -> crate::Input {
-    input
-        .min_h(ladder.control)
-        .px(space::LG)
-        .border_1()
-        .border_color(theme.border_strong)
-        .bg(theme.background)
-        .text_color(theme.foreground)
-        .text_type(ladder.body)
+/// What a [`field`] holds: a one-line [`Input`](crate::Input) or a
+/// many-line [`Textarea`](crate::Textarea).
+pub trait FieldControl: Styled + IntoElement {
+    /// The value will not do, and `problem` says why: the control is
+    /// invalid and the problem its description, so a screen reader hears
+    /// what the eye reads (rule 18).
+    fn refused(self, problem: SharedString) -> Self;
+    /// The words a screen reader reads after the control's name.
+    fn described(self, caption: SharedString) -> Self;
+    /// The text's inset inside an edge `thicker` than a hairline: 12 in,
+    /// less that (`Field.tsx:52`), and for many lines 10 over and under,
+    /// less the same (`Field.tsx:79`), so the text stays put.
+    fn text_inset(self, thicker: Pixels) -> Self;
+}
+
+impl FieldControl for crate::Input {
+    fn refused(self, problem: SharedString) -> Self {
+        self.invalid(gpui::accesskit::Invalid::True)
+            .description(problem)
+    }
+    fn described(self, caption: SharedString) -> Self {
+        self.description(caption)
+    }
+    fn text_inset(self, thicker: Pixels) -> Self {
+        self.px(space::LG - thicker)
+    }
+}
+
+impl FieldControl for crate::Textarea {
+    fn refused(self, problem: SharedString) -> Self {
+        self.invalid(gpui::accesskit::Invalid::True)
+            .description(problem)
+    }
+    fn described(self, caption: SharedString) -> Self {
+        self.description(caption)
+    }
+    fn text_inset(self, thicker: Pixels) -> Self {
+        self.px(space::LG - thicker).py(space::MD - thicker)
+    }
+}
+
+/// A text field in its box (the Expo kit's `Field`, `Field.tsx:22-97`):
+/// `control` at least [`Ladder::control`] tall, a `border_strong` hairline
+/// on the window's ground, body text 12 in; the host draws the edge the
+/// focused field wears. [`Field::label`] goes over the box,
+/// [`Field::caption`] or [`Field::problem`] under it:
+/// `design::field(Input::new("name", &form.name, "Agent name"), &ladder,
+/// &theme).label("Agent name").when_some(problem, Field::problem)`.
+pub fn field<C: FieldControl>(control: C, ladder: &Ladder, theme: &Theme) -> Field<C> {
+    Field {
+        control,
+        label: None,
+        caption: None,
+        problem: None,
+        mono: false,
+        lead: None,
+        ladder: *ladder,
+        theme: *theme,
+    }
+}
+
+/// A [`field`] being built.
+pub struct Field<C> {
+    control: C,
+    label: Option<SharedString>,
+    caption: Option<SharedString>,
+    problem: Option<SharedString>,
+    mono: bool,
+    lead: Option<SharedString>,
+    ladder: Ladder,
+    theme: Theme,
+}
+
+impl<C: FieldControl> Field<C> {
+    /// The words over the box, in caption muted, 6 over it
+    /// (`Field.tsx:41-45`). They are for the eye: a screen reader reads
+    /// the control's own name.
+    pub fn label(mut self, label: impl Into<SharedString>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+    /// A rule or a hint under the box, in caption muted, 6 under it
+    /// (`Field.tsx:90-93`), and the control's description. A problem
+    /// takes its place.
+    pub fn caption(mut self, caption: impl Into<SharedString>) -> Self {
+        self.caption = Some(caption.into());
+        self
+    }
+    /// What is wrong with the value (`Field.tsx:37-38`, `:86-89`): under
+    /// the box in caption danger, and the box's edge 2 thick in danger,
+    /// its text kept where it was; the control is invalid and the problem
+    /// its description.
+    pub fn problem(mut self, problem: impl Into<SharedString>) -> Self {
+        self.problem = Some(problem.into());
+        self
+    }
+    /// The text in the data face at `ladder.secondary`
+    /// (`Field.tsx:76-77`): a key, an account number.
+    pub fn mono(mut self) -> Self {
+        self.mono = true;
+        self
+    }
+    /// A Lucide glyph before the text, inside the box (`Field.tsx:58`, a
+    /// search field's `Search`): at [`Ladder::icon_row`], muted, 12 in,
+    /// the text 8 after it. It sits in the control's own box, so the edge
+    /// the host draws on a focused field is the one edge round both.
+    pub fn lead(mut self, name: impl Into<SharedString>) -> Self {
+        self.lead = Some(name.into());
+        self
+    }
+}
+
+impl<C: FieldControl> gpui::prelude::FluentBuilder for Field<C> {}
+
+impl<C: FieldControl> IntoElement for Field<C> {
+    type Element = Div;
+    fn into_element(self) -> Div {
+        let (ladder, theme) = (self.ladder, self.theme);
+        // a value that will not do: the edge 2 thick in danger, one past
+        // the hairline (`Field.tsx:37-38`)
+        let (thicker, edge) = match self.problem {
+            Some(_) => (HAIRLINE, theme.danger),
+            None => (px(0.), theme.border_strong),
+        };
+        let control = self.control.text_inset(thicker);
+        let control = match self.problem {
+            Some(_) => control.border_2(),
+            None => control.border_1(),
+        };
+        let control = control
+            .border_color(edge)
+            .min_h(ladder.control)
+            .bg(theme.background)
+            .text_color(theme.foreground);
+        let control = match self.mono {
+            true => control
+                .font_family(fonts::FAMILY_MONO)
+                .text_type(ladder.secondary),
+            false => control.text_type(ladder.body),
+        };
+        // the lead sits in the box's padding, 12 in from inside the edge
+        // as the box's own padding is, and the text 8 after it
+        let control = match &self.lead {
+            Some(_) => control.pl(space::LG - thicker + ladder.icon_row + space::SM),
+            None => control,
+        };
+        let line = |words: SharedString, tone: Hsla| {
+            div()
+                .mt(space::XS)
+                .text_type(ladder.caption)
+                .text_color(tone)
+                .child(words)
+        };
+        let (control, under) = match (self.problem, self.caption) {
+            (Some(problem), _) => (
+                control.refused(problem.clone()),
+                Some(line(problem, theme.danger)),
+            ),
+            (None, Some(caption)) => (
+                control.described(caption.clone()),
+                Some(line(caption, theme.muted)),
+            ),
+            (None, None) => (control, None),
+        };
+        let boxed = match self.lead {
+            Some(name) => div()
+                .relative()
+                .child(control)
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .left(space::LG + HAIRLINE)
+                        .flex()
+                        .items_center()
+                        .child(icon(&name, ladder.icon_row).text_color(theme.muted)),
+                )
+                .into_any_element(),
+            None => control.into_any_element(),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .children(self.label.map(|label| {
+                div()
+                    .mb(space::XS)
+                    .text_type(ladder.caption)
+                    .text_color(theme.muted)
+                    .child(label)
+            }))
+            .child(boxed)
+            .children(under)
+    }
 }
 
 /// How wide a row's lead column is (`Row.tsx:57`).
@@ -517,6 +815,50 @@ pub fn row(id: impl Into<ElementId>, ladder: &Ladder, theme: &Theme) -> Stateful
         .border_color(theme.border)
 }
 
+/// The gap between a row's title and its caption (`Row.tsx:58`).
+const TITLE_GAP: Pixels = px(1.);
+
+/// A [`row`]'s words (the Expo kit's `Row`, `Row.tsx:58-73`): a column
+/// taking the row's slack, `title` on top (a [`row_title`]) and, 1 under
+/// it, what the caller adds: a [`row_caption`], the row then
+/// `.min_h(ladder.row_tall)` (`Row.tsx:44`).
+pub fn title_and_caption(title: impl IntoElement) -> Div {
+    div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .gap(TITLE_GAP)
+        .child(title)
+}
+
+/// A row's title (`Row.tsx:59-62`): one line of `ladder.body` in the
+/// foreground. A muted title (an archived room) recolours it; one in the
+/// data face is `.font_family(fonts::FAMILY_MONO).text_type(ladder.secondary)`.
+pub fn row_title(text: impl Into<SharedString>, ladder: &Ladder, theme: &Theme) -> Div {
+    div()
+        .truncate()
+        .text_type(ladder.body)
+        .text_color(theme.foreground)
+        .child(text.into())
+}
+
+/// A row's caption under its title (`Row.tsx:66-69`): one line of
+/// `ladder.caption`, muted.
+pub fn row_caption(text: impl Into<SharedString>, ladder: &Ladder, theme: &Theme) -> Div {
+    div()
+        .truncate()
+        .text_type(ladder.caption)
+        .text_color(theme.muted)
+        .child(text.into())
+}
+
+/// The chevron at a row's end, for a row that opens a page
+/// (`Row.tsx:75`): Lucide `chevron-right` at [`Ladder::icon_row`], faint.
+pub fn chevron(ladder: &Ladder, theme: &Theme) -> crate::Svg {
+    icon("chevron-right", ladder.icon_row).text_color(theme.faint)
+}
+
 /// How tall a section head is at least (`Row.tsx:86`).
 const SECTION_HEAD: Pixels = px(40.);
 
@@ -551,36 +893,89 @@ pub fn section_head(
         .child(label)
 }
 
-/// Nothing to show yet: what is missing, then what would fill it.
+/// How far an empty state sits in from its top and bottom
+/// (`States.tsx:26`).
+const EMPTY_Y: Pixels = px(40.);
+
+/// How far an empty state sits in from its sides (`States.tsx:26`).
+const EMPTY_X: Pixels = px(32.);
+
+/// How wide an empty state's detail runs at most (`States.tsx:31`).
+const EMPTY_DETAIL: Pixels = px(280.);
+
+/// Nothing to show yet: what is missing, then what would fill it. Under a
+/// finger it is the Expo kit's `EmptyState` (`States.tsx:11-37`): centred,
+/// 40 over and under, 32 in, 8 apart, the Lucide `glyph` at 28 in faint,
+/// the title in `ladder.body` medium, the detail in `ladder.secondary`
+/// muted at most 280 wide. Its one action, a small button, is the caller's
+/// child, 8 further down (`States.tsx:34`):
+/// `.child(div().mt(space::SM).child(design::button(..).small()))`.
+/// Under a pointer it is the title and the detail alone, at the start.
 pub fn empty_state(
     id: impl Into<ElementId>,
+    glyph: &str,
     title: impl Into<SharedString>,
     detail: impl Into<SharedString>,
+    ladder: &Ladder,
     theme: &Theme,
 ) -> Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .flex_col()
-        .gap_1()
-        .p_6()
-        .max_w(px(420.))
-        .child(
-            div()
-                .text_size(text::SECTION)
-                .font_weight(FontWeight::MEDIUM)
-                .child(title.into()),
-        )
-        .child(
-            div()
-                .text_size(text::SECONDARY)
-                .text_color(theme.muted)
-                .child(detail.into()),
-        )
+    let (title, detail) = (title.into(), detail.into());
+    match ladder.touch {
+        true => div()
+            .id(id)
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(space::SM)
+            .py(EMPTY_Y)
+            .px(EMPTY_X)
+            .child(
+                icon(glyph, px(::design::height::touch::ICON_EMPTY as f32)).text_color(theme.faint),
+            )
+            .child(
+                div()
+                    .text_type(ladder.body)
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme.foreground)
+                    .text_center()
+                    .child(title),
+            )
+            .child(
+                div()
+                    .max_w(EMPTY_DETAIL)
+                    .text_type(ladder.secondary)
+                    .text_color(theme.muted)
+                    .text_center()
+                    .child(detail),
+            ),
+        false => div()
+            .id(id)
+            .flex()
+            .flex_col()
+            .gap_1()
+            .p_6()
+            .max_w(px(420.))
+            .child(
+                div()
+                    .text_size(text::SECTION)
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(title),
+            )
+            .child(
+                div()
+                    .text_size(text::SECONDARY)
+                    .text_color(theme.muted)
+                    .child(detail),
+            ),
+    }
 }
 
-/// A refused read: the reason, and Retry. The screen is `{name}-refused`,
-/// its retry control `{name}-retry`.
+/// A refused read: the sentence, and Retry. The screen is
+/// `{name}-refused`, its retry control `{name}-retry`. Under a finger it
+/// is the Expo kit's `Refused` (`Notice.tsx:70-77`), a danger `Notice`
+/// ([`notice_refused`]); under a pointer a bordered box with a Retry
+/// button.
 pub fn refused(
     name: &str,
     sentence: impl Into<SharedString>,
@@ -588,9 +983,14 @@ pub fn refused(
     theme: &Theme,
     retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
+    let id = ElementId::Name(format!("{name}-refused").into());
+    let retry_id = ElementId::Name(format!("{name}-retry").into());
+    if ladder.touch {
+        return notice_refused(id, retry_id, sentence.into(), ladder, theme, retry);
+    }
     let theme = *theme;
     div()
-        .id(ElementId::Name(format!("{name}-refused").into()))
+        .id(id)
         .flex()
         .flex_col()
         .gap_2()
@@ -602,19 +1002,68 @@ pub fn refused(
         .child(sentence.into())
         .child(
             div()
-                .id(ElementId::Name(format!("{name}-retry").into()))
+                .id(retry_id)
                 .px_2()
                 .py_1()
                 .w(px(64.))
                 .min_h(ladder.hit)
                 .bg(theme.surface)
-                // the Expo kit's `Notice` action: medium (`Notice.tsx:61`)
-                .when(ladder.touch, |retry| retry.font_weight(FontWeight::MEDIUM))
                 .hover(move |style| style.bg(theme.surface_raised))
                 .role(Role::Button)
                 .focusable()
                 .on_click(retry)
                 .child("Retry"),
+        )
+}
+
+/// How tall a `Notice`'s action is: its `secondary` line and 6 over and
+/// under (`Notice.tsx:60-61`).
+const NOTICE_ACTION: Pixels = px(30.);
+
+/// A refused read under a finger (`Notice.tsx:15-77`): a full-width strip
+/// on `danger_soft`, 10 over and under, 16 in, 10 apart, the sentence in
+/// `ladder.secondary` danger taking the slack, then Retry, medium, 8 in
+/// from its left; an alert a screen reader says at once. Retry presses
+/// through a [`hit`] reaching to [`Ladder::hit`] (Expo's `hitSlop` is 8,
+/// `Notice.tsx:60`), and is at least as wide.
+fn notice_refused(
+    id: ElementId,
+    retry_id: ElementId,
+    sentence: SharedString,
+    ladder: &Ladder,
+    theme: &Theme,
+    retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let press = hit(retry_id, ladder.hit, NOTICE_ACTION, px(0.), ladder)
+        .role(Role::Button)
+        .aria_label("Retry")
+        .focusable()
+        .on_click(retry);
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(space::MD)
+        .py(space::MD)
+        .px(space::BLOCK)
+        .bg(theme.danger_soft)
+        .text_type(ladder.secondary)
+        .text_color(theme.danger)
+        .role(Role::Alert)
+        .aria_live(gpui::accesskit::Live::Assertive)
+        .child(div().flex_1().min_w_0().child(sentence))
+        .child(
+            div()
+                .relative()
+                .flex_none()
+                .h(NOTICE_ACTION)
+                .min_w(ladder.hit)
+                .flex()
+                .items_center()
+                .pl(space::SM)
+                .font_weight(FontWeight::MEDIUM)
+                .child("Retry")
+                .child(press),
         )
 }
 
@@ -721,9 +1170,10 @@ pub enum Kind {
 }
 
 /// A button. Disabled keeps it visible, drops the click and says so.
-/// Selected is the chosen one: fg text on the window and an fg edge. A
-/// button told whether it is selected is a toggle, pressed or not; one
-/// never told is a plain button.
+/// Busy is an op in flight: the click is dropped and a screen reader hears
+/// it is busy. Selected is the chosen one: fg text on the window and an fg
+/// edge. A button told whether it is selected is a toggle, pressed or not;
+/// one never told is a plain button.
 #[derive(IntoElement)]
 pub struct Button<F>
 where
@@ -738,6 +1188,8 @@ where
     selected: Option<bool>,
     /// `Some(active)`: a cell of a [`composite`] grid, never focusable
     item: Option<bool>,
+    small: bool,
+    busy: bool,
     click: F,
 }
 
@@ -760,6 +1212,8 @@ where
         kind: Kind::Plain,
         selected: None,
         item: None,
+        small: false,
+        busy: false,
         click,
     }
 }
@@ -786,6 +1240,23 @@ where
         self.item = Some(active);
         self
     }
+    /// The small button (`Button.tsx:16`): under a finger 36 tall
+    /// (`theme.ts:76`), 12 in, the label in [`Ladder::secondary`]; it still
+    /// presses at [`Ladder::hit`], through a [`hit`] over it. A pointer has
+    /// one button size, so under a pointer it changes nothing.
+    pub fn small(mut self) -> Self {
+        self.small = true;
+        self
+    }
+    /// An op in flight (`Button.tsx:20-21`): the click is dropped and the
+    /// button says it is busy. Under a finger it keeps its look, as the
+    /// Expo kit's does; under a pointer it looks disabled. The Expo kit's
+    /// spinner beside the label is not drawn: the view wire carries no
+    /// animation.
+    pub fn busy(mut self, busy: bool) -> Self {
+        self.busy = busy;
+        self
+    }
 }
 
 impl<F> RenderOnce for Button<F>
@@ -793,11 +1264,22 @@ where
     F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        if self.ladder.touch {
-            return self.touched();
+        match self.ladder.touch {
+            true => self.touched(),
+            false => self.pointed().into_any_element(),
         }
+    }
+}
+
+impl<F> Button<F>
+where
+    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+{
+    /// Under a pointer: compact, a surface fill, hover and press shades.
+    fn pointed(self) -> Stateful<Div> {
         let theme = self.theme;
         let selected = self.selected == Some(true);
+        let enabled = self.enabled && !self.busy;
         let mut element = div()
             .id(self.id)
             .px_2()
@@ -812,7 +1294,7 @@ where
         // around it; the rest stay quiet.
         element = match (self.kind, selected) {
             // a primary that cannot run greys out but keeps its place
-            (Kind::Primary, _) if !self.enabled => {
+            (Kind::Primary, _) if !enabled => {
                 element.bg(theme.faint).text_color(theme.primary_foreground)
             }
             (Kind::Primary, _) => focus_shown_on_ink(
@@ -851,11 +1333,12 @@ where
         if selected {
             element = element.font_weight(FontWeight::MEDIUM);
         }
-        if !self.enabled {
-            return match self.kind {
+        if !enabled {
+            let element = match self.kind {
                 Kind::Primary => element.aria_disabled(true),
                 _ => element.text_color(theme.muted).aria_disabled(true),
             };
+            return element.when(self.busy, |element| element.aria_busy(true));
         }
         element = match (self.kind, selected) {
             (Kind::Quiet, false) => element.hover(move |style| style.text_color(theme.foreground)),
@@ -874,17 +1357,31 @@ where
     F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 {
     /// Under a finger, the Expo kit's `Button` (`Button.tsx:30-81`):
-    /// square, [`Ladder::control`] tall (48 for the primary), 16 in, a
-    /// hairline edge; the label in body text, medium but for a quiet one.
-    /// A plain and an outline button draw the kit's outline (it has no grey
-    /// fill); a disabled one goes faint on a quiet edge. No hover: a press
-    /// dims it.
-    fn touched(self) -> Stateful<Div> {
-        let theme = self.theme;
-        let selected = self.selected == Some(true);
+    /// square, [`Ladder::control`] tall (48 for the primary, 36 small), 16
+    /// in (12 small), a hairline edge; the label in body text (secondary
+    /// small), medium but for a quiet one. A plain and an outline button
+    /// draw the kit's outline (it has no grey fill); a disabled one goes
+    /// faint on a quiet edge, a busy one keeps its look. No hover: a press
+    /// dims it. A small button presses through a [`hit`] over it, which
+    /// draws nothing, so a press does not dim it.
+    fn touched(self) -> AnyElement {
+        let Self {
+            id,
+            label,
+            ladder,
+            theme,
+            enabled,
+            kind,
+            selected,
+            item,
+            small,
+            busy,
+            click,
+        } = self;
+        let chosen = selected == Some(true);
         let clear = Hsla::transparent_black();
         // (ground, edge, text)
-        let (ground, edge, tone) = match (self.kind, self.enabled, selected) {
+        let (ground, edge, tone) = match (kind, enabled, chosen) {
             (Kind::Primary, false, _) => (
                 Some(theme.surface_raised),
                 theme.surface_raised,
@@ -901,14 +1398,23 @@ where
                 (None, theme.border_strong, theme.foreground)
             }
         };
-        let height = match self.kind {
-            Kind::Primary => px(::design::height::touch::PRIMARY as f32),
-            _ => self.ladder.control,
+        // (height, inset, words)
+        let (height, inset, words) = match (small, kind) {
+            (true, _) => (
+                px(::design::height::touch::SMALL as f32),
+                space::LG,
+                ladder.secondary,
+            ),
+            (false, Kind::Primary) => (
+                px(::design::height::touch::PRIMARY as f32),
+                space::BLOCK,
+                ladder.label,
+            ),
+            (false, _) => (ladder.control, space::BLOCK, ladder.label),
         };
-        let mut element = div()
-            .id(self.id)
+        let face = div()
             .h(height)
-            .px(space::BLOCK)
+            .px(inset)
             .flex()
             .items_center()
             .justify_center()
@@ -916,24 +1422,59 @@ where
             .border_1()
             .border_color(edge)
             .text_color(tone)
-            .text_type(self.ladder.label)
-            .when(self.kind != Kind::Quiet || selected, |button| {
+            .text_type(words)
+            .when(kind != Kind::Quiet || chosen, |button| {
                 button.font_weight(FontWeight::MEDIUM)
             })
             .when_some(ground, |button, ground| button.bg(ground))
+            .child(label.clone());
+        let press = ButtonPress {
+            selected,
+            enabled,
+            busy,
+            item,
+        };
+        if !small {
+            let face = face.id(id);
+            let face = match (enabled && !busy, kind) {
+                (true, Kind::Primary) => focus_shown_on_ink(pressed(face, &ladder), &theme),
+                (true, _) => pressed(face, &ladder),
+                (false, _) => face,
+            };
+            return press.takes(face, click).into_any_element();
+        }
+        let hit = hit(id, ladder.hit, height, HAIRLINE, &ladder).aria_label(label);
+        face.relative()
+            .min_w(ladder.hit)
+            .child(press.takes(hit, click))
+            .into_any_element()
+    }
+}
+
+/// What a touch button's press says and takes: a button, toggled or not,
+/// then busy or disabled (no click) or its click.
+struct ButtonPress {
+    selected: Option<bool>,
+    enabled: bool,
+    busy: bool,
+    item: Option<bool>,
+}
+
+impl ButtonPress {
+    fn takes(
+        self,
+        element: Stateful<Div>,
+        click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Stateful<Div> {
+        let element = element
             .role(Role::Button)
-            .child(self.label);
-        if let Some(on) = self.selected {
-            element = element.aria_toggled(on.into());
+            .when_some(self.selected, |element, on| element.aria_toggled(on.into()));
+        match (self.enabled, self.busy) {
+            (true, false) => takes_press(element, self.item, click),
+            (_, busy) => element
+                .aria_disabled(true)
+                .when(busy, |element| element.aria_busy(true)),
         }
-        if !self.enabled {
-            return element.aria_disabled(true);
-        }
-        let mut element = pressed(element, &self.ladder);
-        if self.kind == Kind::Primary {
-            element = focus_shown_on_ink(element, &theme);
-        }
-        takes_press(element, self.item, self.click)
     }
 }
 
@@ -1090,7 +1631,8 @@ where
 /// (`Choice.tsx:138`).
 const UNDERLINE: Pixels = px(2.);
 
-/// A strip's hairline under its tabs (`Choice.tsx:117`, `size.hairline`).
+/// A hairline (`size.hairline`): a strip's under its tabs
+/// (`Choice.tsx:117`), a field's edge (`Field.tsx:38`).
 const HAIRLINE: Pixels = px(1.);
 
 /// A tab: quiet text, the chosen one fg, medium and underlined, no fill. It
@@ -1167,6 +1709,30 @@ pub fn tab(
             })
             .hover(move |style| style.text_color(theme.foreground)),
     }
+}
+
+/// A bar of [`tab`]s (the Expo kit's `Strip`, `Choice.tsx:113-145`):
+/// `bar` is the built `TabList` [`composite`], which holds the focus and
+/// the arrows and says whether a move opens a tab or only a press does;
+/// each tab is `item(tab(..), Role::Tab, active)`. It is 8 in, a hairline
+/// under it, and scrolls sideways. Under a finger it is [`Ladder::strip`]
+/// tall, its hairline included, and its tabs span it; under a pointer it
+/// grows to hold its tabs above the hairline, since a pointer tab's own
+/// bottom edge would cover it:
+/// `design::strip(design::composite("pages", Role::TabList, "Pages")
+/// .orientation(Orientation::Horizontal).wrap().active(at, count)
+/// .on_move(..).build(), &ladder, &theme).children(tabs)`.
+pub fn strip(bar: Stateful<Div>, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
+    let bar = match ladder.touch {
+        true => bar.h(ladder.strip),
+        false => bar.min_h(ladder.strip),
+    };
+    bar.flex_none()
+        .flex()
+        .px(space::SM)
+        .overflow_x_scroll()
+        .border_b_1()
+        .border_color(theme.border)
 }
 
 /// One Tab stop whose items the arrows pick: a tab list, a radio group, a
@@ -1985,6 +2551,176 @@ mod tests {
         let primary = style(Kind::Primary);
         assert_eq!(primary.size.height, Some(px(48.).into()));
         assert_eq!(primary.background, Some(theme.primary.into()));
+    }
+
+    /// A small button is the kit's 36 face, 12 in, secondary text, and
+    /// presses through a hit over it that reaches 44 tall; a busy one keeps
+    /// its look, drops its click and says it is busy.
+    #[test]
+    fn under_touch_a_small_button_presses_at_44_and_a_busy_one_says_so() {
+        let theme = Theme::light();
+        let retry = || button("retry", "Retry", &TOUCH, &theme, |_, _, _| {}).small();
+        let (face, styles) = lower_styled(div().w(px(360.)).child(retry()));
+        crate::testing::assert_fits(&face, &styles, 360., &TOUCH);
+        let face = &face.children()[0];
+        let look = &styles[face.style().expect("a styled face")];
+        assert_eq!(look.size.height, Some(px(36.).into()));
+        assert_eq!(look.padding.left, Some(px(12.).into()));
+        assert_eq!(look.text.font_size, Some(px(13.).into()));
+        assert_eq!(face.interactivity().and_then(|face| face.on_click), None);
+        let press = face.children().last().expect("the press");
+        let control = interactivity(press);
+        assert_eq!(control.role, Some(Role::Button));
+        assert_eq!(control.aria.label.as_deref(), Some("Retry"));
+        assert!(control.focusable && control.on_click.is_some());
+        let inset = &styles[press.style().expect("a styled press")].inset;
+        assert_eq!(
+            (inset.top, inset.bottom),
+            (Some(px(-5.).into()), Some(px(-5.).into()))
+        );
+
+        let (busy, styles) = lower_styled(
+            button("save", "Save", &TOUCH, &theme, |_, _, _| {})
+                .kind(Kind::Primary)
+                .busy(true),
+        );
+        let control = interactivity(&busy);
+        assert!(control.on_click.is_none() && !control.focusable);
+        assert_eq!(control.aria.disabled, Some(true));
+        assert!(control.aria.busy);
+        let look = &styles[busy.style().expect("a styled button")];
+        assert_eq!(look.background, Some(theme.primary.into()));
+        let (busy, _) =
+            lower_styled(button("save", "Save", &POINTER, &theme, |_, _, _| {}).busy(true));
+        let control = interactivity(&busy);
+        assert!(control.on_click.is_none() && control.aria.busy);
+        assert_eq!(control.aria.disabled, Some(true));
+    }
+
+    /// The first [`wire::Node::Field`] in `node`'s tree: its options.
+    fn field_options(node: &wire::Node) -> Option<&wire::InputOptions> {
+        match node {
+            wire::Node::Field { options, .. } => Some(options),
+            _ => node.children().iter().find_map(field_options),
+        }
+    }
+
+    /// A field's problem is its control's: invalid, and the problem its
+    /// description, so a screen reader hears what the eye reads (rule 18);
+    /// without one, its caption is the description. One line or many.
+    #[test]
+    fn a_fields_problem_makes_its_control_invalid_and_says_why() {
+        let theme = Theme::light();
+        let text = crate::TextField::new("ada");
+        let said = |node: wire::Node| {
+            assert_eq!(faults(&node), []);
+            let options = field_options(&node).expect("a field");
+            (options.invalid, options.description.clone())
+        };
+        let refused = (Some(wire::Invalid::True), Some("Too long.".to_owned()));
+        let line = || {
+            field(crate::Input::new("name", &text, "Name"), &TOUCH, &theme)
+                .label("Name")
+                .caption("Up to 32 letters.")
+        };
+        assert_eq!(
+            said(lower(line())),
+            (None, Some("Up to 32 letters.".to_owned()))
+        );
+        assert_eq!(said(lower(line().problem("Too long."))), refused);
+        let lines = || {
+            field(
+                crate::Textarea::new("about", &text, "About"),
+                &TOUCH,
+                &theme,
+            )
+        };
+        assert_eq!(said(lower(lines())), (None, None));
+        assert_eq!(said(lower(lines().problem("Too long."))), refused);
+    }
+
+    /// A sheet row is one press the row's height; a hint trails its label
+    /// in caption muted, and a row that destroys wears the danger tone.
+    #[test]
+    fn a_sheet_row_is_one_press_whose_hint_trails_and_whose_danger_shows() {
+        let theme = Theme::light();
+        let (row, styles) = lower_styled(
+            sheet_row("delete", "Delete", &TOUCH, &theme, |_, _, _| {})
+                .icon("trash")
+                .hint("3 files")
+                .danger(),
+        );
+        let control = interactivity(&row);
+        assert_eq!(control.role, Some(Role::Button));
+        assert!(control.focusable && control.on_click.is_some());
+        assert_eq!(faults(&row), []);
+        let look = |node: &wire::Node| styles[node.style().expect("a styled node")].clone();
+        assert_eq!(look(&row).size.height, Some(TOUCH.sheet_row.into()));
+        let [glyph, label, hint] = row.children() else {
+            panic!("a glyph, a label and a hint: {row:?}")
+        };
+        assert_eq!(look(glyph).text.color, Some(theme.danger));
+        assert_eq!(look(label).text.color, Some(theme.danger));
+        assert_eq!(look(hint).text.color, Some(theme.muted));
+        assert_eq!(look(hint).text.font_size, Some(px(12.).into()));
+    }
+
+    /// A strip is the ladder's strip tall under a finger, and at least that
+    /// under a pointer, a hairline under it either way.
+    #[test]
+    fn a_strip_is_the_strip_tall_under_a_finger_and_at_least_that_under_a_pointer() {
+        let theme = Theme::light();
+        let bar = |ladder: &Ladder| {
+            let bar = composite("pages", Role::TabList, "Pages").build();
+            let (node, styles) = lower_styled(strip(bar, ladder, &theme));
+            styles[node.style().expect("a styled strip")].clone()
+        };
+        let touch = bar(&TOUCH);
+        assert_eq!(touch.size.height, Some(px(44.).into()));
+        assert_eq!(touch.border_widths.bottom, Some(px(1.).into()));
+        let pointer = bar(&POINTER);
+        assert_eq!(pointer.size.height, None);
+        assert_eq!(pointer.min_size.height, Some(POINTER.strip.into()));
+    }
+
+    /// Under a finger an empty state is the kit's: centred, the glyph 28
+    /// faint over the title and the detail; a refused read is the kit's
+    /// danger notice, an alert whose Retry presses at 44.
+    #[test]
+    fn under_touch_an_empty_state_and_a_refused_read_are_the_kits() {
+        let theme = Theme::light();
+        let (empty, styles) = lower_styled(empty_state(
+            "none",
+            "users",
+            "No accounts",
+            "Nothing yet.",
+            &TOUCH,
+            &theme,
+        ));
+        let look = &styles[empty.style().expect("a styled state")];
+        assert_eq!(look.align_items, Some(gpui::AlignItems::Center));
+        assert_eq!(look.padding.top, Some(px(40.).into()));
+        assert_eq!(look.padding.left, Some(px(32.).into()));
+        let glyph = &styles[empty.children()[0].style().expect("a styled glyph")];
+        assert_eq!(glyph.size.height, Some(px(28.).into()));
+        assert_eq!(glyph.text.color, Some(theme.faint));
+
+        let (notice, styles) = lower_styled(div().w(px(360.)).child(refused(
+            "rooms",
+            "The node refused.",
+            &TOUCH,
+            &theme,
+            |_, _, _| {},
+        )));
+        crate::testing::assert_fits(&notice, &styles, 360., &TOUCH);
+        let notice = &notice.children()[0];
+        let alert = interactivity(notice);
+        assert_eq!(alert.role, Some(Role::Alert));
+        assert_eq!(alert.aria.live, Some(wire::Live::Assertive));
+        let retry = notice.children()[1].children().last().expect("the press");
+        let control = interactivity(retry);
+        assert_eq!(control.aria.label.as_deref(), Some("Retry"));
+        assert!(control.focusable && control.on_click.is_some());
     }
 
     /// What the Expo kit sets `weight="medium"` asks for 500 under a

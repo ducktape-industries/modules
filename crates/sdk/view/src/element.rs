@@ -602,6 +602,21 @@ impl Textarea {
         Self(self.0.read_only(read_only))
     }
 
+    /// See [`Input::description`].
+    pub fn description(self, description: impl Into<String>) -> Self {
+        Self(self.0.description(description))
+    }
+
+    /// See [`Input::disabled`].
+    pub fn disabled(self, disabled: bool) -> Self {
+        Self(self.0.disabled(disabled))
+    }
+
+    /// See [`Input::invalid`].
+    pub fn invalid(self, invalid: gpui::accesskit::Invalid) -> Self {
+        Self(self.0.invalid(invalid))
+    }
+
     /// See [`Input::autocorrect`].
     pub fn autocorrect(self, autocorrect: bool) -> Self {
         Self(self.0.autocorrect(autocorrect))

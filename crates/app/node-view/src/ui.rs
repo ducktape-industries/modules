@@ -240,8 +240,10 @@ fn body(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -
         Loadable::Ready(nodes) | Loadable::Reloading(nodes, _) if nodes.is_empty() => {
             design::empty_state(
                 "nodes-empty",
+                "server",
                 "No members",
                 "The validator set of this network is empty.",
+                ladder,
                 theme,
             )
             .into_any_element()

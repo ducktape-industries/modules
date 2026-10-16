@@ -521,12 +521,14 @@ pub(crate) fn render(
     if !page.items.iter().any(shown) {
         return empty_state(
             id(format!("{element_id}-empty")),
+            "git-commit-horizontal",
             "No changes",
             if *total_files == 0 {
                 "These endpoints hold the same tree."
             } else {
                 "No file here matches what is selected."
             },
+            &ladder,
             theme,
         )
         .into_any_element();

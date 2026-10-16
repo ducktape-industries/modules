@@ -36,8 +36,10 @@ pub(crate) fn render(
         return column
             .child(empty_state(
                 id("forge-changes-nobody"),
+                "user-round",
                 "No account",
                 "Create an account to see the changes that involve you.",
+                &ladder,
                 theme,
             ))
             .into_any_element();
@@ -71,6 +73,7 @@ pub(crate) fn render(
         return column
             .child(empty_state(
                 id("forge-changes-empty"),
+                "git-pull-request",
                 if forge.filter == Filter::Judgment {
                     "Nothing waits on you"
                 } else {
@@ -81,6 +84,7 @@ pub(crate) fn render(
                 } else {
                     "Compare a branch from the Refs tab to open one."
                 },
+                &ladder,
                 theme,
             ))
             .into_any_element();

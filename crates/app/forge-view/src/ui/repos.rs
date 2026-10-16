@@ -367,19 +367,26 @@ pub(crate) fn overview(
     };
     let rows = listed(forge, body);
     if rows.is_empty() {
+        // the Expo app's (`app/(tabs)/forge/index.tsx:77-79`)
+        let (glyph, title, detail) = match forge.search.is_blank() {
+            true => (
+                "hammer",
+                "No repositories yet",
+                "Create one with New repository, then push to it.",
+            ),
+            false => (
+                "search",
+                "Nothing matches",
+                "No repository here reads like that.",
+            ),
+        };
         return column
             .child(empty_state(
                 id("forge-repos-empty"),
-                if forge.search.is_blank() {
-                    "No repositories yet"
-                } else {
-                    "Nothing matches"
-                },
-                if forge.search.is_blank() {
-                    "Create one with New repository, then push to it."
-                } else {
-                    "No repository here reads like that."
-                },
+                glyph,
+                title,
+                detail,
+                ladder,
                 theme,
             ))
             .into_any_element();

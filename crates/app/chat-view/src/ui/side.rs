@@ -84,8 +84,10 @@ pub fn thread(
     } else {
         pane = pane.child(empty_state(
             "chat-thread-empty",
+            "messages-square",
             "No thread open",
             "Choose a reply from the room.",
+            ladder,
             theme,
         ));
     }

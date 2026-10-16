@@ -56,8 +56,10 @@ pub(super) fn render(
         (Some(waiting), _) => waiting,
         (None, None) => design::empty_state(
             "thread-gone",
+            "message-square",
             "No such thread",
             format!("Harness holds no thread {id}."),
+            ladder,
             theme,
         )
         .into_any_element(),

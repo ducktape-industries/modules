@@ -220,8 +220,10 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladde
     if all.is_empty() {
         return design::empty_state(
             "members-empty",
+            "users",
             "No accounts",
             "The identity program of this network holds no accounts yet.",
+            ladder,
             theme,
         )
         .into_any_element();
@@ -235,8 +237,15 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladde
             }
             (needle, _) => format!("No account reads like “{needle}”."),
         };
-        return design::empty_state("members-no-match", "Nothing matches", detail, theme)
-            .into_any_element();
+        return design::empty_state(
+            "members-no-match",
+            "users",
+            "Nothing matches",
+            detail,
+            ladder,
+            theme,
+        )
+        .into_any_element();
     }
     // one Tab stop; the arrows select as they move, and the active row is
     // the selected one, else the first shown, which Enter selects

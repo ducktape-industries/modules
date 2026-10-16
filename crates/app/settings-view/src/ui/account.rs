@@ -66,8 +66,10 @@ pub(super) fn account(
         }
         Loadable::Ready(None) | Loadable::Reloading(None, _) => design::empty_state(
             "settings/account/empty",
+            "user-round",
             "No account",
             "No host key is selected. Sign in with a key to create an account.",
+            ladder,
             theme,
         )
         .p_0()

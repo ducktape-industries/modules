@@ -62,8 +62,10 @@ fn rows(view: &Agents, cx: &mut Context<Agents>, theme: &Theme, ladder: &Ladder)
     if roster.agents.is_empty() && roster.unhired.is_empty() {
         return design::empty_state(
             "agents-empty",
+            "bot",
             "No agents yet",
             "Harness runs no agent on this network. Create one to answer in chat.",
+            ladder,
             theme,
         )
         .into_any_element();
