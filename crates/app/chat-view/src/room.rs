@@ -412,7 +412,19 @@ impl Chat {
         }
     }
 
+    /// The thread under `root`, read and shown; the keys stay where they
+    /// are.
     pub(crate) fn open_thread(&mut self, root: u64, cx: &mut Context<Self>) {
+        self.load_thread(root, false, cx);
+    }
+
+    /// The thread under `root`, its reply field taking the keys once it
+    /// can be typed in.
+    pub(crate) fn reply_in_thread(&mut self, root: u64, cx: &mut Context<Self>) {
+        self.load_thread(root, true, cx);
+    }
+
+    fn load_thread(&mut self, root: u64, reply: bool, cx: &mut Context<Self>) {
         let viewer = self.viewer();
         self.details = None;
         self.menu = None;
@@ -441,13 +453,14 @@ impl Chat {
                         thread.has_more = next.is_some();
                         thread.next = next;
                         room_of(chat).settle();
-                        // the reply field takes the keys once it can be typed in
-                        let key = Target::Post {
-                            channel: id,
-                            thread: Some(root),
+                        if reply {
+                            let key = Target::Post {
+                                channel: id,
+                                thread: Some(root),
+                            }
+                            .key();
+                            crate::composer::focus(window, &key);
                         }
-                        .key();
-                        crate::composer::focus(window, &key);
                     }
                     Err(refusal) => thread.replies = Loadable::Failed(refusal),
                 }

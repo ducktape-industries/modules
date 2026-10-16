@@ -173,7 +173,7 @@ impl Chat {
                 self.open_menu(pane, seq, rev, Mode::Reactions, window, cx)
             }
             Control::More => self.open_menu(pane, seq, rev, Mode::More, window, cx),
-            Control::Replies | Control::Thread => self.open_thread(seq, cx),
+            Control::Replies | Control::Thread => self.reply_in_thread(seq, cx),
         }
     }
 

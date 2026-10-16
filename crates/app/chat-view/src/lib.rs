@@ -78,7 +78,7 @@ impl View for Chat {
             let (id, thread) = (room.id.clone(), room.thread.as_ref().map(|t| t.root));
             self.open(id, cx);
             if let Some(root) = thread {
-                self.open_thread(root, cx);
+                self.reply_in_thread(root, cx);
             }
         }
         if !self.search.query.is_empty() {

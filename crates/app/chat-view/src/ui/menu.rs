@@ -315,7 +315,7 @@ fn act(
     cx: &mut Context<Chat>,
 ) {
     match action {
-        Action::Reply => chat.open_thread(seq, cx),
+        Action::Reply => chat.reply_in_thread(seq, cx),
         Action::React => chat.open_menu(pane, seq, rev, Mode::Reactions, window, cx),
         Action::Edit => chat.open_menu(pane, seq, rev, Mode::Editing, window, cx),
         Action::Delete => chat.open_menu(pane, seq, rev, Mode::Delete, window, cx),

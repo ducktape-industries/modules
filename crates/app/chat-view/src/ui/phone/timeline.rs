@@ -3,7 +3,7 @@
 //! the foot, its intro at the top once its history is all here, a day's
 //! separator over its first message ("Today" for the chain's today), "New"
 //! over the first unread one, "Latest" back to the newest; a thread's root
-//! over how many replies it has, then the replies. Reads the pane's rows,
+//! over how many replies it has, then the replies, with no separators. Reads the pane's rows,
 //! the read boundary and the chain's day; scrolling pages older history in
 //! (`Chat::list_scrolled`).
 use view::list as gpui_list;
@@ -116,7 +116,11 @@ fn rows(
                     false => div().into_any_element(),
                 };
             };
-            let marks = marks(chat, &messages, at, unread, &theme, &ladder);
+            // a thread runs without separators, as the Expo thread's list
+            let marks = match pane {
+                Pane::Timeline => marks(chat, &messages, at, unread, &theme, &ladder),
+                Pane::Thread => Vec::new(),
+            };
             let count =
                 (pane == Pane::Thread && at == 0).then(|| replies(message, &theme, &ladder));
             let row = message::row(chat, message, pane, cx, &theme, &ladder);

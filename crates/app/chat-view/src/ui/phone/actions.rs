@@ -10,7 +10,6 @@ use view::prelude::*;
 use view::{Div, Stateful};
 
 use super::picker::{self, Cell};
-use crate::composer::Target;
 use crate::message::ChatMessage;
 use crate::words;
 use crate::{CANCEL_DELETE, CONFIRM_DELETE, Chat, Mode, Pane, emoji};
@@ -173,15 +172,9 @@ fn rows(
         };
     let mut rows = Vec::new();
     if !deleted && !in_thread {
-        let channel = chat.room_id();
-        let reply = cx.listener(move |chat, _: &ClickEvent, window, cx| {
+        let reply = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
             cx.notify();
-            chat.open_thread(seq, cx);
-            let reply = Target::Post {
-                channel: channel.clone(),
-                thread: Some(seq),
-            };
-            crate::composer::focus(window, &reply.key());
+            chat.reply_in_thread(seq, cx);
         });
         rows.push(row(
             "chat-actions-reply",

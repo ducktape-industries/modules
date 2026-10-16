@@ -600,6 +600,11 @@ fn a_root_with_replies_has_its_thread_button_and_it_opens_the_thread() {
     cx.simulate_click("chat-message-m1-replies");
     cx.run_until_parked();
     assert!(cx.find("chat-thread-page").is_some());
+    // reading a thread raises no keyboard (Expo autofocuses only a reply)
+    assert_ne!(
+        cx.focused().and_then(|node| node.key()),
+        Some("draft-general-1/editor")
+    );
 }
 
 #[test]
@@ -751,6 +756,11 @@ fn reply_in_thread_opens_the_thread() {
     cx.run_until_parked();
     assert!(cx.find("chat-thread-page").is_some());
     assert!(cx.has_text("Reply in thread"), "the thread's composer");
+    assert_eq!(
+        cx.focused().and_then(|node| node.key()),
+        Some("draft-general-2/editor"),
+        "the reply field takes the keys"
+    );
 }
 
 // ---------- the picker (`src/chat/Actions.tsx` `Picker`) ----------
@@ -816,6 +826,21 @@ fn a_thread_shows_its_root_its_count_and_no_replies_yet() {
     assert!(cx.find("draft-general-1/editor").is_some());
     cx.simulate_back();
     assert!(cx.find("chat-room-page").is_some());
+}
+
+#[test]
+fn a_thread_runs_without_the_rooms_day_separators() {
+    let (mut cx, view) = in_general();
+    let day = 86_400_000;
+    let root = MsgRow {
+        time: 20 * day,
+        ..row(1, 7, "hello")
+    };
+    rows_are(&mut cx, &view, vec![root]);
+    assert!(cx.find("chat-day-m1").is_some(), "the room's has one");
+    thread(&mut cx, &view, 1);
+    assert!(cx.find("chat-thread-page").is_some());
+    assert!(cx.find("chat-day-m1").is_none());
 }
 
 #[test]
