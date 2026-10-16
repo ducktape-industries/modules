@@ -14,11 +14,13 @@
 //! kept across a snapshot, only what the screen shows.
 mod activity;
 mod ui;
+mod words;
 
 use programs::PageRequest;
 use serde::{Deserialize, Serialize};
-use view::design::Pages;
+use view::design::{self, Ladder, Pages};
 use view::prelude::*;
+use view::{Div, Stateful};
 
 use identity::Identity;
 use valset::Valset;
@@ -148,6 +150,18 @@ impl Group {
             identity::Kind::System(_) => Group::Programs,
         }
     }
+
+    /// An avatar in this group's look: a person's as it is, an agent's in
+    /// the agent tint, a program's square in the data face.
+    fn face(self, avatar: Div, theme: &Theme) -> Div {
+        match self {
+            Group::People => avatar,
+            Group::Agents => avatar.bg(theme.agent_soft).text_color(theme.agent),
+            Group::Programs => avatar
+                .rounded_none()
+                .font_family(design::fonts::FAMILY_MONO),
+        }
+    }
 }
 
 /// One account as this screen shows it.
@@ -175,6 +189,11 @@ impl Row {
             _ => None,
         }
     }
+
+    /// An agent's standing word: `active`, else why it no longer acts.
+    fn life(&self) -> &'static str {
+        self.kind.note().unwrap_or(words::ACTIVE)
+    }
 }
 
 /// One key an account acts with.
@@ -184,6 +203,69 @@ struct Device {
     key: Vec<u8>,
     /// when it joined, in milliseconds
     added_at: u64,
+}
+
+impl Device {
+    /// Its label, else `Device N` by its place in the account's keys.
+    fn title(&self, index: usize) -> String {
+        self.label.clone().unwrap_or_else(|| words::device(index))
+    }
+
+    /// The key in hex, as the session names the key this device signs with.
+    fn hex(&self) -> String {
+        self.key.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+}
+
+/// An agent's standing as a badge: its word, active in the success
+/// colours, suspended in the warning ones, revoked in danger
+/// (`[number].tsx:141`).
+fn standing_badge(
+    id: &'static str,
+    agent: &Row,
+    standing: identity::Standing,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let (foreground, background) = match standing {
+        identity::Standing::Active => (theme.success, theme.success_soft),
+        identity::Standing::Suspended => (theme.warning, theme.warning_soft),
+        identity::Standing::Revoked => (theme.danger, theme.danger_soft),
+    };
+    design::badge(id, agent.life(), ladder, foreground, background)
+}
+
+/// A key's valset standing as a badge: a validator in the success colours,
+/// a resident quiet (Nodes' memberships drew them so).
+fn valset_badge(standing: &str, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
+    let (foreground, background) = match standing {
+        "Validator" => (theme.success, theme.success_soft),
+        _ => (theme.muted, theme.surface_raised),
+    };
+    design::badge(
+        "members-validator",
+        standing.to_owned(),
+        ladder,
+        foreground,
+        background,
+    )
+}
+
+/// Account `number`'s page in Explorer.
+fn explorer_link(number: u64) -> String {
+    format!("duck://explorer/account/{number}")
+}
+
+/// The name of account `number` in `rows`.
+fn name(rows: &[Row], number: u64) -> Option<String> {
+    rows.iter()
+        .find(|row| row.number == number)
+        .map(|row| row.name.clone())
+}
+
+/// The name of account `number` in `rows`, else `#N`.
+fn name_or_number(rows: &[Row], number: u64) -> String {
+    name(rows, number).unwrap_or_else(|| format!("#{number}"))
 }
 
 impl View for Members {
@@ -239,9 +321,10 @@ impl Render for Members {
         self.width = window.viewport_size().width.into();
         // a finger draws the phone's screens (the Expo app's), a pointer
         // the desk's: two trees over the one model, picked here once
-        match window.touch() {
-            true => ui::phone::render(self, cx).into_any_element(),
-            false => ui::render(self, cx).into_any_element(),
+        if window.touch() {
+            ui::phone::render(self, cx).into_any_element()
+        } else {
+            ui::render(self, cx).into_any_element()
         }
     }
 }
@@ -301,8 +384,8 @@ impl Members {
         self.moved(cx);
     }
 
-    /// Opens `number` over the member shown (the phone's manager link and
-    /// Manages rows): Back comes back here.
+    /// Opens `number` over the page shown (the phone's roster rows, its
+    /// manager link and its Manages rows): Back comes back here.
     fn open(&mut self, number: u64, cx: &mut Context<Self>) {
         if self.selected() == Some(number) {
             return;
@@ -400,18 +483,13 @@ impl Members {
             Loadable::Ready(rows) | Loadable::Reloading(rows, _) => rows,
         };
         if all.is_empty() {
-            let why = "The identity program of this network holds no accounts yet.";
-            return Roster::Empty("members-empty", "No accounts", why.into());
+            let why = words::NO_ACCOUNTS_WHY.into();
+            return Roster::Empty("members-empty", words::NO_ACCOUNTS, why);
         }
         if self.shown().is_empty() {
-            // the chip alone, or the filter (with or without a chip)
-            let detail = match (self.filter.text().trim(), self.only) {
-                ("", Some(group)) => {
-                    format!("No {} on this network yet.", group.label().to_lowercase())
-                }
-                (needle, _) => format!("No account reads like “{needle}”."),
-            };
-            return Roster::Empty("members-no-match", "Nothing matches", detail);
+            let only = self.only.map(Group::label);
+            let detail = words::no_match(self.filter.text().trim(), only);
+            return Roster::Empty("members-no-match", words::NOTHING_MATCHES, detail);
         }
         Roster::Rows(all)
     }
@@ -432,6 +510,36 @@ impl Members {
             Some(Group::Programs),
         ]
         .map(|group| (group, group.map_or("All", Group::label), count(group)))
+    }
+
+    /// The network's label: the session's chain id before its salt
+    /// (`testkit#0a1b` reads `testkit`).
+    fn network(&self) -> &str {
+        self.chain
+            .split_once('#')
+            .map_or(self.chain.as_str(), |(label, _)| label)
+    }
+
+    /// Open DM's link to `row`: a person or an agent, never the reader nor
+    /// a program.
+    fn dm_link(&self, row: &Row) -> Option<String> {
+        let me = self.me.filter(|me| *me != row.number)?;
+        match row.kind {
+            identity::Kind::User | identity::Kind::Program { .. } => ducklink::mint(
+                &self.chain,
+                chat::PROGRAM,
+                &[&chat::dm_channel_id(me, row.number)],
+            ),
+            identity::Kind::System(_) => None,
+        }
+    }
+
+    /// The agents account `number` manages.
+    fn managed(&self, number: u64) -> Vec<&Row> {
+        let rows = self.rows.ready().map_or(&[][..], Vec::as_slice);
+        rows.iter()
+            .filter(|row| row.manager() == Some(number))
+            .collect()
     }
 
     /// The rows the filter and the chip let through, grouped and in order.

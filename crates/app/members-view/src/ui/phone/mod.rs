@@ -19,14 +19,16 @@ mod member;
 mod members;
 mod parts;
 
-/// The page on top of the stack, under a root that hears Back while a
-/// member is open (SPEC §9 rule 13; the host leaves the program else).
+/// The page on top of the stack, under a root that hears Back while it
+/// draws a member (SPEC §9 rule 13; the host leaves the program else).
 pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> Stateful<Div> {
     let theme = *cx.global::<Theme>();
     let ladder = &TOUCH;
-    let page = match *view.pages.top() {
-        Page::Roster => members::page(view, cx, &theme, ladder),
-        Page::Member(number) => member::page(view, number, cx, &theme, ladder),
+    // Back follows the page drawn: a member's page has its Back, the roster
+    // none
+    let (page, back) = match *view.pages.top() {
+        Page::Roster => (members::page(view, cx, &theme, ladder), false),
+        Page::Member(number) => (member::page(view, number, cx, &theme, ladder), true),
     };
     div()
         .id("members")
@@ -36,7 +38,7 @@ pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> Stateful<Div>
         .bg(theme.background)
         .text_color(theme.foreground)
         .text_type(ladder.body)
-        .when(view.pages.depth() > 0, |root| {
+        .when(back, |root| {
             root.on_back(cx.listener(|view, _: &BackEvent, _, cx| view.back(cx)))
         })
         .child(page)

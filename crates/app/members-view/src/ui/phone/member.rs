@@ -11,12 +11,16 @@ use view::design::{self, Ladder, space};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
-use super::parts::{ROW_TALL, caption, chevron, face, name_line, quiet, title_and_caption};
+use super::parts::{
+    ROW_TALL, caption, chevron, face, name_line, quiet, refused, title_and_caption,
+};
 use crate::activity::Signed;
-use crate::ui::{name, refused, standing_badge, valset_badge};
-use crate::{Device, Group, Members, Row};
+use crate::{
+    Device, Group, Members, Row, explorer_link, name_or_number, standing_badge, valset_badge, words,
+};
 
 /// A small button is this tall (`theme.ts:76`, `size.small`).
+// SDK gap: the kit's small outline `Button`, swap when feat/phone-kit lands
 const SMALL: Pixels = px(36.);
 
 /// The member's page: Back, the name over `account N`, Explorer; then the
@@ -33,7 +37,7 @@ pub(super) fn page(
     let (Some(rows), Some(row)) = (view.rows.ready(), view.selected_row()) else {
         return missing(view, number, back, cx, theme, ladder);
     };
-    let explorer = format!("duck://explorer/account/{number}");
+    let explorer = explorer_link(number);
     let open_explorer = {
         let explorer = explorer.clone();
         move |_: &ClickEvent, _: &mut Window, cx: &mut App| cx.host().open_link(&explorer)
@@ -51,10 +55,7 @@ pub(super) fn page(
         .children(bio(row, ladder))
         .child(actions(view, row, explorer, theme, ladder))
         .children(devices(view, row, theme, ladder));
-    let managed: Vec<&Row> = rows
-        .iter()
-        .filter(|other| other.manager() == Some(number))
-        .collect();
+    let managed = view.managed(number);
     if !managed.is_empty() {
         body = body.children(manages(&managed, cx, theme, ladder));
     }
@@ -62,7 +63,7 @@ pub(super) fn page(
         body = body.children(activity(view, theme, ladder));
     }
     if row.group() == Group::Agents {
-        let note = "Suspend, revoke, rename and keys live in Account → Agents, for the manager.";
+        let note = words::MANAGED_IN_SETTINGS;
         body = body.child(quiet("members-managed-in-settings", note, theme, ladder));
     }
     design::page(
@@ -72,11 +73,11 @@ pub(super) fn page(
         ladder,
         theme,
     )
-    .caption(format!("account {number}"))
+    .caption(words::account(number))
     .trailing(design::icon_button(
         "members-explorer-open",
         design::icon("compass", ladder.icon),
-        "Explorer",
+        words::EXPLORER,
         ladder,
         theme,
         open_explorer,
@@ -105,7 +106,7 @@ fn missing(
         )
         .into_any_element(),
         Loadable::Idle | Loadable::Loading(_) => {
-            quiet("members-loading", "Reading the roster…", theme, ladder)
+            quiet("members-loading", words::READING_ROSTER, theme, ladder)
         }
     };
     design::page(
@@ -166,8 +167,8 @@ fn what(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Stateful<Div> {
-    let number = row.number;
-    let devices = design::plural(row.devices.len() as u64, "device", "devices");
+    let account = words::account(row.number);
+    let devices = words::devices(row.devices.len());
     let line = div()
         .id("members-caption")
         .flex()
@@ -177,18 +178,18 @@ fn what(
         .text_type(ladder.caption)
         .text_color(theme.muted);
     match &row.kind {
-        identity::Kind::User => line.child(format!("account {number} · Person · {devices}")),
+        identity::Kind::User => line.child(format!("{account} · Person · {devices}")),
         identity::Kind::System(program) if *program == row.name => {
-            line.child(format!("account {number} · Program"))
+            line.child(format!("{account} · {}", words::PROGRAM))
         }
         identity::Kind::System(program) => {
-            line.child(format!("account {number} · Program · {program}"))
+            line.child(format!("{account} · {} · {program}", words::PROGRAM))
         }
         identity::Kind::Program { manager, .. } => {
             let manager = *manager;
-            let who = name(rows, manager).unwrap_or_else(|| format!("#{manager}"));
+            let who = name_or_number(rows, manager);
             let open = cx.listener(move |view, _: &ClickEvent, _, cx| view.open(manager, cx));
-            line.child(format!("account {number} · Agent · managed by "))
+            line.child(format!("{account} · Agent · managed by "))
                 .child(inline_link("members-manager", who, open, theme, ladder))
                 .child(format!(" · {devices}"))
         }
@@ -201,10 +202,10 @@ fn badges(row: &Row, theme: &Theme, ladder: &Ladder) -> Div {
     let standing = match row.kind {
         identity::Kind::Program { standing, .. } => Some(standing_badge(
             "members-standing",
-            &row.kind,
+            row,
             standing,
-            theme,
             ladder,
+            theme,
         )),
         _ => None,
     };
@@ -216,7 +217,7 @@ fn badges(row: &Row, theme: &Theme, ladder: &Ladder) -> Div {
         .children(
             row.standing
                 .as_deref()
-                .map(|standing| valset_badge(standing, theme, ladder)),
+                .map(|standing| valset_badge(standing, ladder, theme)),
         )
 }
 
@@ -236,25 +237,18 @@ fn bio(row: &Row, ladder: &Ladder) -> Option<Stateful<Div>> {
 /// Open DM (a person or an agent, not the reader) and Explorer, as the
 /// kit's small outline buttons.
 fn actions(view: &Members, row: &Row, explorer: String, theme: &Theme, ladder: &Ladder) -> Div {
-    let dm = match (view.me, &row.kind) {
-        (Some(me), identity::Kind::User | identity::Kind::Program { .. }) if me != row.number => {
-            ducklink::mint(
-                &view.chain,
-                chat::PROGRAM,
-                &[&chat::dm_channel_id(me, row.number)],
-            )
-        }
-        _ => None,
-    };
+    let dm = view.dm_link(row);
     div()
         .flex()
         .gap(space::SM)
         .px(space::BLOCK)
         .pb(space::LG)
-        .children(dm.map(|link| small_button("members-open-dm", "Open DM", link, theme, ladder)))
+        .children(
+            dm.map(|link| small_button("members-open-dm", words::OPEN_DM, link, theme, ladder)),
+        )
         .child(small_button(
             "members-explorer",
-            "Explorer",
+            words::EXPLORER,
             explorer,
             theme,
             ladder,
@@ -264,10 +258,21 @@ fn actions(view: &Members, row: &Row, explorer: String, theme: &Theme, ladder: &
 /// Devices: the section head and a row per key the account acts with.
 fn devices(view: &Members, row: &Row, theme: &Theme, ladder: &Ladder) -> Vec<AnyElement> {
     let count = row.devices.len();
-    let head = design::section_head("members-devices", "Devices", Some(count), ladder, theme);
+    let head = design::section_head(
+        "members-devices",
+        words::DEVICES,
+        Some(count),
+        ladder,
+        theme,
+    );
     let mut section = vec![head.into_any_element()];
     if row.devices.is_empty() {
-        section.push(quiet("members-no-devices", "No devices", theme, ladder));
+        section.push(quiet(
+            "members-no-devices",
+            words::NO_DEVICES,
+            theme,
+            ladder,
+        ));
     }
     let rows = row.devices.iter().enumerate();
     section.extend(rows.map(|(index, device)| device_row(view, index, device, theme, ladder)));
@@ -284,25 +289,18 @@ fn device_row(
     theme: &Theme,
     ladder: &Ladder,
 ) -> AnyElement {
-    let hex: String = device
-        .key
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
+    let hex = device.hex();
     let glyph = match hex == view.signer {
         true => "smartphone",
         false => "key-round",
     };
-    let label = device
-        .label
-        .clone()
-        .unwrap_or_else(|| format!("Device {}", index + 1));
+    let label = device.title(index);
     let added = div()
         .flex_none()
         .font_family(design::fonts::FAMILY_MONO)
         .text_type(ladder.caption)
         .text_color(theme.faint)
-        .child(format!("added {}", design::day(device.added_at)));
+        .child(words::added(device.added_at));
     design::row(format!("members-device-{index}"), ladder, theme)
         .min_h(ROW_TALL)
         .child(design::lead(
@@ -329,7 +327,7 @@ fn manages(
 ) -> Vec<AnyElement> {
     let head = design::section_head(
         "members-manages",
-        "Manages",
+        words::MANAGES,
         Some(managed.len()),
         ladder,
         theme,
@@ -354,8 +352,8 @@ fn managed_row(
         return None;
     };
     let number = agent.number;
-    let about = format!("account {number} · Agent");
-    let life = agent.kind.note().unwrap_or("active");
+    let about = words::agent(number);
+    let life = agent.life();
     let row = design::row(format!("members-manages-{number}"), ladder, theme)
         .min_h(ROW_TALL)
         .role(Role::Button)
@@ -371,10 +369,10 @@ fn managed_row(
         ))
         .child(standing_badge(
             "members-manages-standing",
-            &agent.kind,
+            agent,
             standing,
-            theme,
             ladder,
+            theme,
         ))
         .child(chevron(theme, ladder));
     Some(row.into_any_element())
@@ -384,11 +382,17 @@ fn managed_row(
 /// or the quiet line for its read: on its way, refused (a network with no
 /// activity program says so; there is nothing to retry), or nothing yet.
 fn activity(view: &Members, theme: &Theme, ladder: &Ladder) -> Vec<AnyElement> {
-    let head = design::section_head("members-activity", "Recent activity", None, ladder, theme);
+    let head = design::section_head(
+        "members-activity",
+        words::RECENT_ACTIVITY,
+        None,
+        ladder,
+        theme,
+    );
     let body = match &view.activity {
         Loadable::Idle | Loadable::Loading(_) => vec![quiet(
             "members-activity-loading",
-            "Reading its activity…",
+            words::READING_ACTIVITY,
             theme,
             ladder,
         )],
@@ -401,7 +405,7 @@ fn activity(view: &Members, theme: &Theme, ladder: &Ladder) -> Vec<AnyElement> {
         Loadable::Ready(recent) | Loadable::Reloading(recent, _) if recent.items.is_empty() => {
             vec![quiet(
                 "members-no-activity",
-                "No activity recorded.",
+                words::NO_ACTIVITY,
                 theme,
                 ladder,
             )]
@@ -455,6 +459,7 @@ fn signed_row(
 
 /// The kit's small outline button (36 tall, 12 in, secondary medium),
 /// opening `link` through the host; its press reaches 44 up and down.
+// SDK gap: the kit's small outline `Button`, swap when feat/phone-kit lands
 fn small_button(
     id: &'static str,
     label: &'static str,
@@ -490,6 +495,7 @@ fn small_button(
 /// the data face, underlined, in the foreground. Its press reaches 44 up
 /// and down and half of 44 past each side, as wide as the word is unknown
 /// here.
+// SDK gap: the explorer kit's `Linked`, swap when feat/phone-kit lands
 fn inline_link(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,

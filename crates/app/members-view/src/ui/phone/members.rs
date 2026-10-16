@@ -5,21 +5,24 @@
 //! filter and the session's network and reader. Writes the chip (`only`),
 //! the filter, whether the filter is open (`filtering`), the arrows'
 //! `cursor`, and the page stack: a row opens its member
-//! (`Members::select`).
+//! (`Members::open`).
 use view::design::{self, CAPSULE_CLEARANCE, Ladder, space};
 use view::prelude::*;
 use view::{Div, Stateful};
 
-use super::parts::{ROW_TALL, caption, chevron, face, name_line, quiet, title_and_caption};
-use crate::ui::{name, refused, standing_badge};
-use crate::{Group, Members, Roster, Row};
+use super::parts::{
+    ROW_TALL, caption, chevron, face, name_line, quiet, refused, title_and_caption,
+};
+use crate::{Group, Members, Roster, Row, name_or_number, standing_badge, words};
 
 /// A filter chip is this tall (`theme.ts:78`, `size.chip`).
+// SDK gap: the kit's `Chips`, swap when feat/phone-kit lands
 const CHIP: Pixels = px(32.);
 /// A chosen chip's count shows at this opacity on the ink (`Choice.tsx:72`).
 const COUNT_ON_INK: f32 = 0.7;
 /// The open filter's text sits this far in from its 2-wide edge
 /// (`Field.tsx:52`: `gap.lg - (thick - 1)`).
+// SDK gap: the kit's `Field`, swap when feat/phone-kit lands
 const FIELD_INSET: Pixels = px(11.);
 
 /// `Members` over the network and how many accounts it holds, Filter in
@@ -55,12 +58,12 @@ pub(super) fn page(
     });
     let page = design::page(
         "members-roster",
-        "Members",
+        words::MEMBERS,
         None::<fn(&ClickEvent, &mut Window, &mut App)>,
         ladder,
         theme,
     );
-    let page = match network(view) {
+    let page = match view.network() {
         "" => page,
         network => page.caption(format!("{network} · {count} accounts")),
     };
@@ -76,17 +79,11 @@ pub(super) fn page(
     .into_any_element()
 }
 
-/// The network's label: the session's chain id before its salt
-/// (`testkit#0a1b` reads `testkit`).
-fn network(view: &Members) -> &str {
-    view.chain
-        .split_once('#')
-        .map_or(view.chain.as_str(), |(label, _)| label)
-}
-
 /// The title row while the filter is open (the kit's `Header` with its
 /// `center`): the field, its magnifier inside the edge, and Close filter,
 /// which empties it.
+// SDK gap: a `center` slot on `design::page` and the kit's `Field`, swap
+// when feat/phone-kit lands
 fn filter_row(
     view: &Members,
     cx: &mut Context<Members>,
@@ -101,10 +98,10 @@ fn filter_row(
     });
     // Expo's testID; a name or a number wants no autocorrection and no
     // capitals
-    let input = Input::new("members-filter", &view.filter, "Filter members")
+    let input = Input::new("members-filter", &view.filter, words::FILTER_LABEL)
         .autocorrect(false)
         .autocapitalize(Autocapitalize::None)
-        .placeholder("Filter by name or number")
+        .placeholder(words::FILTER_HINT)
         .flex_1()
         .min_w(px(0.))
         .text_type(ladder.body)
@@ -142,8 +139,9 @@ fn filter_row(
         ))
 }
 
-/// The kit's `Chips`, one per [`Members::choices`]; the row scrolls
+/// The kit's `Chips`, one per `Members::choices`; the row scrolls
 /// sideways.
+// SDK gap: the kit's `Chips`, swap when feat/phone-kit lands
 fn chips(
     view: &Members,
     cx: &mut Context<Members>,
@@ -228,7 +226,7 @@ fn chip(
 fn list(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     match view.roster() {
         Roster::Rows(_) => {}
-        Roster::Reading => return quiet("members-loading", "Reading the roster…", theme, ladder),
+        Roster::Reading => return quiet("members-loading", words::READING_ROSTER, theme, ladder),
         Roster::Refused(refusal) => return refused(refusal, cx, theme, ladder),
         Roster::Empty(id, title, detail) => {
             return design::empty_state(id, title, detail, theme).into_any_element();
@@ -240,13 +238,13 @@ fn list(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladde
     let numbers: Vec<u64> = shown.iter().map(|row| row.number).collect();
     let cursor = view.cursor.filter(|index| *index < numbers.len());
     let active = cursor.unwrap_or(0);
-    let mut list = design::composite("members-list", Role::ListBox, "Members")
+    let mut list = design::composite("members-list", Role::ListBox, words::MEMBERS)
         .active(active, numbers.len())
         .on_move(cx.processor(|view, index: usize, _, cx| {
             view.cursor = Some(index);
             cx.notify();
         }))
-        .on_press(cx.processor(move |view, index: usize, _, cx| view.select(numbers[index], cx)))
+        .on_press(cx.processor(move |view, index: usize, _, cx| view.open(numbers[index], cx)))
         .build()
         .flex_1()
         .min_h(px(0.))
@@ -307,21 +305,20 @@ fn member_row(
     let all = view.rows.ready().map_or(&[][..], Vec::as_slice);
     let number = row.number;
     let me = view.me == Some(number);
-    let managed_by = row.manager().map(|manager| {
-        let who = name(all, manager).unwrap_or_else(|| format!("#{manager}"));
-        format!("managed by {who}")
-    });
+    let managed_by = row
+        .manager()
+        .map(|manager| format!("managed by {}", name_or_number(all, manager)));
     let (tail, what) = match &row.kind {
         identity::Kind::Program { standing, .. } => (
-            standing_badge("members-row-standing", &row.kind, *standing, theme, ladder)
+            standing_badge("members-row-standing", row, *standing, ladder, theme)
                 .into_any_element(),
-            row.kind.note().unwrap_or("active"),
+            row.life(),
         ),
         identity::Kind::System(_) => (
-            caption("Program", theme, ladder)
+            caption(words::PROGRAM, theme, ladder)
                 .flex_none()
                 .into_any_element(),
-            "Program",
+            words::PROGRAM,
         ),
         identity::Kind::User => (
             caption("Person", theme, ladder)
@@ -330,7 +327,7 @@ fn member_row(
             "Person",
         ),
     };
-    let description = [me.then_some("you"), managed_by.as_deref(), Some(what)]
+    let description = [me.then_some(words::YOU), managed_by.as_deref(), Some(what)]
         .into_iter()
         .flatten()
         .collect::<Vec<_>>()
@@ -344,7 +341,7 @@ fn member_row(
         // a press opens the member: the option the arrows rest on is the
         // chosen one
         .aria_selected(place.cursor)
-        .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.select(number, cx)))
+        .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.open(number, cx)))
         .child(design::lead(face(row, ladder.avatar, theme)))
         .child(title_and_caption(
             name_line(row, me, ladder.body, theme, ladder),

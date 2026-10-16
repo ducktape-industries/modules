@@ -6,7 +6,10 @@ use view::design::{size, space, text};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
-use crate::{Group, Members, Roster, Row};
+use crate::{
+    Group, Members, Roster, Row, explorer_link, name, name_or_number, standing_badge, valset_badge,
+    words,
+};
 use view::design::Ladder;
 
 pub(crate) mod phone;
@@ -117,7 +120,7 @@ fn list_pane(
                 .px(space::BLOCK)
                 .pt(px(14.))
                 .pb(space::MD)
-                .child(design::heading("members-title", "Members", 1, theme).flex_1())
+                .child(design::heading("members-title", words::MEMBERS, 1, theme).flex_1())
                 .child(
                     div()
                         .text_size(text::CAPTION)
@@ -133,7 +136,7 @@ fn list_pane(
                 .px(space::BLOCK)
                 .pb(space::MD)
                 .child(
-                    Input::new("members-filter", &view.filter, "Filter members")
+                    Input::new("members-filter", &view.filter, words::FILTER_LABEL)
                         .h(size::CONTROL)
                         .w_full()
                         .px_2()
@@ -142,7 +145,7 @@ fn list_pane(
                         .border_color(theme.border_strong)
                         .bg(theme.surface)
                         .text_color(theme.foreground)
-                        .placeholder("Filter by name or number"),
+                        .placeholder(words::FILTER_HINT),
                 )
                 .child(chips(view, cx, theme)),
         )
@@ -189,7 +192,7 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladde
     let all = match view.roster() {
         Roster::Rows(all) => all,
         Roster::Reading => {
-            return pad(design::quiet("Reading the roster…", theme))
+            return pad(design::quiet(words::READING_ROSTER, theme))
                 .id("members-loading")
                 .into_any_element();
         }
@@ -208,7 +211,7 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladde
         .unwrap_or(0);
     let active_number = numbers[active];
     let pressed = numbers.clone();
-    let mut list = design::composite("members-list", Role::ListBox, "Members")
+    let mut list = design::composite("members-list", Role::ListBox, words::MEMBERS)
         .active(active, numbers.len())
         .on_move(cx.processor(move |view, index: usize, _, cx| view.select(numbers[index], cx)))
         .on_press(cx.processor(move |view, index: usize, _, cx| view.select(pressed[index], cx)))
@@ -271,7 +274,7 @@ fn member_row(
     let name_of = |manager| name(all, manager);
     let kind = match &row.kind {
         // a program named for its program says so once
-        identity::Kind::System(program) if *program == row.name => "Program".into(),
+        identity::Kind::System(program) if *program == row.name => words::PROGRAM.into(),
         kind => identity::view::kind(kind, name_of),
     };
     let me = view.me == Some(number);
@@ -291,7 +294,7 @@ fn member_row(
         // the name, not the avatar's initial drawn before it
         .aria_label(row.name.clone())
         .aria_description(if me {
-            format!("you · {kind}")
+            format!("{} · {kind}", words::YOU)
         } else {
             kind.clone()
         })
@@ -316,7 +319,7 @@ fn member_row(
                         div()
                             .text_size(text::CAPTION)
                             .text_color(theme.faint)
-                            .child("you"),
+                            .child(words::YOU),
                     )
                 }),
         )
@@ -336,24 +339,14 @@ fn member_row(
 /// and monospaced for a program; faint when it no longer acts.
 fn avatar(row: &Row, size: Pixels, dim: bool, theme: &Theme) -> Div {
     let avatar = design::avatar(&row.name, size, theme);
-    match row.group() {
-        _ if dim => avatar.bg(theme.background).text_color(theme.faint),
-        Group::People => avatar,
-        Group::Agents => avatar.bg(theme.agent_soft).text_color(theme.agent),
-        Group::Programs => avatar
-            .rounded_none()
-            .font_family(design::fonts::FAMILY_MONO),
+    match dim {
+        true => avatar.bg(theme.background).text_color(theme.faint),
+        false => row.group().face(avatar, theme),
     }
 }
 
-pub(crate) fn name(rows: &[Row], number: u64) -> Option<String> {
-    rows.iter()
-        .find(|row| row.number == number)
-        .map(|row| row.name.clone())
-}
-
 /// A refused roster read: its sentence, and Retry.
-pub(crate) fn refused(
+fn refused(
     refusal: &Error,
     cx: &mut Context<Members>,
     theme: &Theme,
@@ -394,10 +387,7 @@ fn detail(
         .flex_col()
         .child(head(view, row, rows, over, cx, theme, ladder))
         .child(devices(row, theme));
-    let managed: Vec<&Row> = rows
-        .iter()
-        .filter(|other| other.manager() == Some(row.number))
-        .collect();
+    let managed = view.managed(row.number);
     if !managed.is_empty() {
         detail = detail.child(manages(&managed, cx, theme, ladder));
     }
@@ -412,9 +402,7 @@ fn detail(
                 .pt(space::LG)
                 .text_size(text::SECONDARY)
                 .text_color(theme.muted)
-                .child(
-                    "Suspend, revoke, rename and keys live in Account → Agents, for the manager.",
-                ),
+                .child(words::MANAGED_IN_SETTINGS),
         );
     }
     detail.into_any_element()
@@ -434,11 +422,11 @@ fn head(
     let text = |text: String| div().child(text).into_any_element();
     // each part keeps its words (and the manager its link) on one line;
     // a narrow pane wraps between parts
-    let mut caption: Vec<Vec<AnyElement>> = vec![vec![text(format!("account {}", row.number))]];
+    let mut caption: Vec<Vec<AnyElement>> = vec![vec![text(words::account(row.number))]];
     match &row.kind {
         identity::Kind::User => caption.push(vec![text("User".into())]),
         identity::Kind::System(program) if *program == row.name => {
-            caption.push(vec![text("Program".into())])
+            caption.push(vec![text(words::PROGRAM.into())])
         }
         identity::Kind::System(_) => caption.push(vec![text(
             row.kind.badge(|_| String::new()).unwrap_or_default(),
@@ -450,7 +438,7 @@ fn head(
             // a link that chooses the manager here
             let what = row.kind.badge(|_| String::new()).unwrap_or_default();
             let manager = *manager;
-            let label = name(rows, manager).unwrap_or_else(|| format!("#{manager}"));
+            let label = name_or_number(rows, manager);
             let link = div()
                 .id("members-manager")
                 .text_color(theme.foreground)
@@ -463,18 +451,18 @@ fn head(
                 .into_any_element();
             caption.push(vec![text(what.trim_end().to_owned()), link]);
             caption.push(vec![
-                standing_badge("members-standing", &row.kind, *standing, theme, ladder)
+                standing_badge("members-standing", row, *standing, ladder, theme)
                     .into_any_element(),
             ]);
         }
     }
     if row.group() != Group::Programs {
-        let devices = design::plural(row.devices.len() as u64, "device", "devices");
+        let devices = words::devices(row.devices.len());
         caption.push(vec![text(devices)]);
     }
     if let Some(standing) = &row.standing {
         caption.push(vec![
-            valset_badge(standing, theme, ladder).into_any_element(),
+            valset_badge(standing, ladder, theme).into_any_element(),
         ]);
     }
     let last = caption.len() - 1;
@@ -488,17 +476,8 @@ fn head(
             .when(index < last, |part| part.child("·"))
     });
     let number = row.number;
-    let explorer = format!("duck://explorer/account/{number}");
-    let dm = match (view.me, &row.kind) {
-        (Some(me), identity::Kind::User | identity::Kind::Program { .. }) if me != number => {
-            ducklink::mint(
-                &view.chain,
-                chat::PROGRAM,
-                &[&chat::dm_channel_id(me, number)],
-            )
-        }
-        _ => None,
-    };
+    let explorer = explorer_link(number);
+    let dm = view.dm_link(row);
     div()
         .id("members-detail-head")
         .flex()
@@ -560,11 +539,16 @@ fn head(
                 .flex_shrink_0()
                 .gap(space::XS)
                 .when_some(dm, |buttons, link| {
-                    buttons.child(outline_button("members-open-dm", "Open DM", link, theme))
+                    buttons.child(outline_button(
+                        "members-open-dm",
+                        words::OPEN_DM,
+                        link,
+                        theme,
+                    ))
                 })
                 .child(outline_button(
                     "members-explorer",
-                    "Explorer",
+                    words::EXPLORER,
                     explorer,
                     theme,
                 ))
@@ -579,44 +563,6 @@ fn head(
                     ))
                 }),
         )
-}
-
-/// A key's valset standing: a validator in the success colours, a
-/// resident quiet (Nodes' memberships drew them so).
-pub(crate) fn valset_badge(standing: &str, theme: &Theme, ladder: &Ladder) -> Stateful<Div> {
-    let (foreground, background) = match standing {
-        "Validator" => (theme.success, theme.success_soft),
-        _ => (theme.muted, theme.surface_raised),
-    };
-    design::badge(
-        "members-validator",
-        standing.to_owned(),
-        ladder,
-        foreground,
-        background,
-    )
-}
-
-/// Active, suspended or revoked, in its colour.
-pub(crate) fn standing_badge(
-    id: &'static str,
-    kind: &identity::Kind,
-    standing: identity::Standing,
-    theme: &Theme,
-    ladder: &Ladder,
-) -> Stateful<Div> {
-    let (foreground, background) = match standing {
-        identity::Standing::Active => (theme.success, theme.success_soft),
-        identity::Standing::Suspended => (theme.warning, theme.warning_soft),
-        identity::Standing::Revoked => (theme.danger, theme.danger_soft),
-    };
-    design::badge(
-        id,
-        kind.note().unwrap_or("active"),
-        ladder,
-        foreground,
-        background,
-    )
 }
 
 /// A 1px-edged button that opens `link` through the host.
@@ -705,21 +651,14 @@ fn empty(text: &'static str, theme: &Theme) -> AnyElement {
 
 fn devices(row: &Row, theme: &Theme) -> impl IntoElement {
     let body = if row.devices.is_empty() {
-        vec![empty("No devices", theme)]
+        vec![empty(words::NO_DEVICES, theme)]
     } else {
         row.devices
             .iter()
             .enumerate()
             .map(|(index, device)| {
-                let label = device
-                    .label
-                    .clone()
-                    .unwrap_or_else(|| format!("Device {}", index + 1));
-                let hex: String = device
-                    .key
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect();
+                let label = device.title(index);
+                let hex = device.hex();
                 line()
                     .child(div().w(KEY_COLUMN).min_w(px(0.)).truncate().child(label))
                     .child(
@@ -728,7 +667,7 @@ fn devices(row: &Row, theme: &Theme) -> impl IntoElement {
                             .text_color(theme.muted),
                     )
                     .child(
-                        design::mono(format!("added {}", design::day(device.added_at)))
+                        design::mono(words::added(device.added_at))
                             .ml_auto()
                             .text_size(text::CAPTION)
                             .text_color(theme.faint),
@@ -739,7 +678,7 @@ fn devices(row: &Row, theme: &Theme) -> impl IntoElement {
     };
     section(
         "members-devices",
-        "Devices",
+        words::DEVICES,
         row.devices.len().to_string(),
         body,
         theme,
@@ -766,7 +705,7 @@ fn manages(
             };
             let number = agent.number;
             let theme = *theme;
-            let about = format!("account {number} · Agent");
+            let about = words::agent(number);
             let row = line()
                 .id(format!("members-manages-{}", number))
                 .cursor_pointer()
@@ -774,10 +713,7 @@ fn manages(
                 .role(Role::Button)
                 // the agent's name, not the avatar's initial drawn before it
                 .aria_label(agent.name.clone())
-                .aria_description(format!(
-                    "{about} · {}",
-                    agent.kind.note().unwrap_or("active")
-                ))
+                .aria_description(format!("{about} · {}", agent.life()))
                 .focusable()
                 .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.select(number, cx)))
                 .child(avatar(
@@ -800,17 +736,17 @@ fn manages(
                 )
                 .child(div().ml_auto().child(standing_badge(
                     "members-manages-standing",
-                    &agent.kind,
+                    agent,
                     standing,
-                    &theme,
                     ladder,
+                    &theme,
                 )));
             Some(row.into_any_element())
         })
         .collect();
     section(
         "members-manages",
-        "Manages",
+        words::MANAGES,
         managed.len().to_string(),
         body,
         theme,
@@ -824,7 +760,7 @@ fn activity(view: &Members, theme: &Theme, ladder: &Ladder) -> impl IntoElement 
                 .id("members-activity-loading")
                 .px(px(20.))
                 .pb(space::SM)
-                .child(design::quiet("Reading its activity…", theme))
+                .child(design::quiet(words::READING_ACTIVITY, theme))
                 .into_any_element(),
         ],
         Loadable::Failed(refusal) => vec![
@@ -840,7 +776,7 @@ fn activity(view: &Members, theme: &Theme, ladder: &Ladder) -> impl IntoElement 
                     .id("members-no-activity")
                     .px(px(20.))
                     .pb(space::SM)
-                    .child(design::quiet("No activity recorded.", theme))
+                    .child(design::quiet(words::NO_ACTIVITY, theme))
                     .into_any_element(),
             ]
         }
@@ -892,7 +828,7 @@ fn activity(view: &Members, theme: &Theme, ladder: &Ladder) -> impl IntoElement 
     };
     section(
         "members-activity",
-        "Recent activity",
+        words::RECENT_ACTIVITY,
         "newest first".to_owned(),
         body,
         theme,
