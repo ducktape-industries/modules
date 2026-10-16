@@ -35,10 +35,9 @@ pub use element::{
     AnyElement, Div, Element, Input, IntoElement, Lowering, ParentElement, RenderOnce, Textarea,
     UniformList, UniformListScrollHandle, div, uniform_list,
 };
-/// What a field tells a software keyboard, in gpui's words (`Input::autocapitalize`,
-/// `Input::input_action`); `VirtualKeyboard` (`Input::virtual_keyboard`) is
-/// the wire's copy of gpui's.
-pub use gpui::{Autocapitalize, TextInputAction};
+/// What a field tells a software keyboard, in gpui's words
+/// (`Input::autocapitalize`, `Input::input_action`, `Input::virtual_keyboard`).
+pub use gpui::{Autocapitalize, TextInputAction, VirtualKeyboard};
 pub use interactivity::{
     BackEvent, FocusHandle, InteractiveElement, Interactivity, ScrollHandle, Stateful,
     StatefulInteractiveElement,
@@ -51,7 +50,6 @@ pub use primitives::{
 pub use rich_text::{InteractiveText, StyledText};
 pub use view_element::{AnyView, ViewElement};
 pub use web::{Web, WebHandle, WebState, web};
-pub use wire::VirtualKeyboard;
 
 /// Every SDK name a view file writes, in one import:
 /// `use view::prelude::*;`. gpui's names (elements, styles,

@@ -462,8 +462,8 @@ impl Input {
     }
     /// The keyboard that opens: numbers for a member number, a URL
     /// keyboard for an address.
-    pub fn virtual_keyboard(mut self, keyboard: wire::VirtualKeyboard) -> Self {
-        self.options.text_input.virtual_keyboard = keyboard;
+    pub fn virtual_keyboard(mut self, keyboard: gpui::VirtualKeyboard) -> Self {
+        self.options.text_input.virtual_keyboard = keyboard.into();
         self
     }
 
@@ -620,7 +620,7 @@ impl Textarea {
         Self(self.0.input_action(action))
     }
     /// See [`Input::virtual_keyboard`].
-    pub fn virtual_keyboard(self, keyboard: wire::VirtualKeyboard) -> Self {
+    pub fn virtual_keyboard(self, keyboard: gpui::VirtualKeyboard) -> Self {
         Self(self.0.virtual_keyboard(keyboard))
     }
 
