@@ -522,6 +522,31 @@ pub enum Delivery {
     Blocked,
 }
 
+/// One camera, microphone or speaker, as `camera.devices` and
+/// `microphone.devices` list them: `id` is what a piece's `device` (or a
+/// microphone piece's `output`) names it by, `name` what a picker shows,
+/// `default` whether the system picks it when a piece names none. An id
+/// is the host's, good while the device stays plugged in.
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct Device {
+    pub id: String,
+    pub name: String,
+    pub default: bool,
+}
+/// `microphone.devices`: the microphones (`inputs`) and the speakers
+/// (`outputs`) the host can open.
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct AudioDevices {
+    pub inputs: Vec<Device>,
+    pub outputs: Vec<Device>,
+}
+
 // ---------- live: tracks through the connected node, off consensus ----------
 
 /// What a view publishes or subscribes to. `room` is the view's, one line
@@ -738,7 +763,10 @@ methods! {
     /// app, or an `https://` one, opened in the view that declares
     /// [`Capability::Web`] (as its `host.route`) when the app has one and a
     /// web view, else handed to the system browser. Any other scheme is
-    /// refused (`malformed_request`).
+    /// refused (`malformed_request`), but for the system's camera and
+    /// microphone settings ([`crate::media::SETTINGS_CAMERA`],
+    /// [`crate::media::SETTINGS_MICROPHONE`]) where a refused piece's
+    /// [`crate::MediaState::settings`] says the host opens them.
     LinkOpen, "link.open", String, ();
     /// `host.route`: a subscription, one item per `duck://` link opened into
     /// this view: the path after the view's own segment (`tx/<hash>` of
@@ -828,12 +856,28 @@ methods! {
     /// refusal (`not_granted`: the grant taken back; `malformed_request`,
     /// `bad_proof`, `live_unavailable`).
     LiveTracks, "live.tracks", String, Watching;
+    /// `camera.devices`: the cameras the host can open, as listed now
+    /// (ask again after a piece reports one `Gone`). Refused
+    /// [`refusal::MEDIA_UNSUPPORTED`] by a host that captures nothing.
+    CameraDevices, "camera.devices", (), Vec<Device>;
+    /// `microphone.devices`: the microphones and speakers the host can
+    /// open, as listed now. Refused [`refusal::MEDIA_UNSUPPORTED`] by a
+    /// host that captures nothing.
+    MicrophoneDevices, "microphone.devices", (), AudioDevices;
+    /// `microphone.chime`: the host's test chime (0.6 s, two notes) on a
+    /// speaker, by an output id `microphone.devices` listed (`None`: the
+    /// system's), answered once it has sounded. Apart from any microphone
+    /// piece: the speaker test works muted. Refused
+    /// [`refusal::MEDIA_UNSUPPORTED`] by a host that captures nothing,
+    /// [`refusal::HOST_FAULT`] when the speaker does not play.
+    MicrophoneChime, "microphone.chime", Option<String>, ();
 }
 
 /// The `<capability>` half of every kind in [`ALL`]: what a view's manifest
 /// declares, and the only names it may. A method is reached only through the
 /// capability its kind starts with. One capability gates a node, not a
-/// method: [`Capability::Web`].
+/// method: [`Capability::Web`]; two gate a node and their methods:
+/// [`Capability::Camera`], [`Capability::Microphone`].
 #[derive(
     Clone,
     Copy,
@@ -870,10 +914,19 @@ pub enum Capability {
     /// node lets an account publish or subscribe in a room only as the
     /// view's program granted it.
     Live,
+    /// The view places camera pieces ([`crate::Node::Camera`]) and lists
+    /// the cameras (`camera.devices`). Apart from `microphone`, as the
+    /// system asks for each apart: a voice-only view never gets a camera.
+    Camera,
+    /// The view places microphone pieces ([`crate::Node::Microphone`]),
+    /// which also play on a speaker, lists the microphones and speakers
+    /// (`microphone.devices`) and plays the test chime on a speaker
+    /// (`microphone.chime`).
+    Microphone,
 }
 
 impl Capability {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 15] = [
         Self::Chain,
         Self::Program,
         Self::Op,
@@ -887,6 +940,8 @@ impl Capability {
         Self::Store,
         Self::Web,
         Self::Live,
+        Self::Camera,
+        Self::Microphone,
     ];
 
     /// The name a manifest and a kind spell it with.
@@ -905,6 +960,8 @@ impl Capability {
             Self::Store => "store",
             Self::Web => "web",
             Self::Live => "live",
+            Self::Camera => "camera",
+            Self::Microphone => "microphone",
         }
     }
 
@@ -965,6 +1022,9 @@ pub mod refusal {
     /// there was none, or it was spent on an earlier request.
     pub const NEEDS_GESTURE: &str = "needs_gesture";
     pub const INVITE_UNSUPPORTED: &str = "invite_unsupported";
+    /// This host captures nothing: a build without camera and microphone
+    /// support, or a platform it does not cover.
+    pub const MEDIA_UNSUPPORTED: &str = "media_unsupported";
     /// The host closed the request with no answer; written on the view's
     /// side, by the SDK.
     pub const REQUEST_CLOSED: &str = "request_closed";
@@ -1097,6 +1157,7 @@ mod tests {
             (WIDGET_UNMOUNTED, "widget_unmounted"),
             (NEEDS_GESTURE, "needs_gesture"),
             (INVITE_UNSUPPORTED, "invite_unsupported"),
+            (MEDIA_UNSUPPORTED, "media_unsupported"),
             (REQUEST_CLOSED, "request_closed"),
             (LIVE_UNAVAILABLE, "live_unavailable"),
             (LIVE_NOT_PUBLISHED, "live_not_published"),

@@ -259,6 +259,12 @@ fn allows(capability: Capability) -> &'static str {
         Capability::Live => {
             "sends and hears live streams in its program's rooms, as the program grants"
         }
+        Capability::Camera => {
+            "shows your camera's picture: the app draws it, the view never sees it"
+        }
+        Capability::Microphone => {
+            "uses your microphone and speakers: the app records and plays, the view never hears it"
+        }
     }
 }
 

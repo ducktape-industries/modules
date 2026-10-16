@@ -97,6 +97,9 @@ pub(super) fn check_bounds(node: &Node, styles: &Styles, depth: usize, ctx: &str
             check_bounds(child, styles, depth + 1, ctx);
         }
         Node::Web { style, .. } => check_native_style(&styles[*style]),
+        Node::Camera { style, .. } | Node::Microphone { style, .. } => {
+            check_native_style(&styles[*style])
+        }
         Node::ResizeHandle { content, .. } => {
             check_bounds(content, styles, depth + 1, ctx);
         }

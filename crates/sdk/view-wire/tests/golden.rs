@@ -29,10 +29,11 @@ use view_wire::{
     CanvasCommand, CanvasLineCap, CanvasLineJoin, CanvasSegment, CanvasShape, CanvasStroke,
     ContainerNode, DispatchPhase, Edit, ElementIdAtom, ElementIdWire, Error, Event, Frame,
     GroupRefinement, HasPopup, ImageData, ImageObjectFit, ImageStyle, Interactivity, Invalid,
-    KeyClaim, ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node,
-    Patch, Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, Style, StyleId, SvgSource,
-    SvgTransformation, TextChange, TextNode, TextRange, TextToken, Tooltip, TooltipResponse,
-    WebCommand, WebState, WidgetCommand, click, interactivity, keyboard, mouse,
+    KeyClaim, ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live,
+    MediaState, MediaStatus, MicCommand, Node, Patch, Playback, Request, RichTextHighlightStyle,
+    RichTextHover, RichTextRuns, Style, StyleId, SvgSource, SvgTransformation, TextChange,
+    TextNode, TextRange, TextToken, Tooltip, TooltipResponse, WebCommand, WebState, WidgetCommand,
+    click, interactivity, keyboard, mouse,
 };
 
 const MESSAGE: &str =
@@ -40,8 +41,8 @@ const MESSAGE: &str =
 
 /// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
-const NODE_VARIANTS: usize = 17;
-const EVENT_VARIANTS: usize = 37;
+const NODE_VARIANTS: usize = 19;
+const EVENT_VARIANTS: usize = 38;
 
 fn golden(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -446,6 +447,31 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
         exchange::<HostVisible>((), true),
         exchange::<HostBadge>(3, ()),
         exchange::<HostTitle>("general".into(), ()),
+        exchange::<CameraDevices>(
+            (),
+            vec![Device {
+                id: "0".into(),
+                name: "FaceTime HD Camera".into(),
+                default: true,
+            }],
+        ),
+        exchange::<MicrophoneDevices>(
+            (),
+            AudioDevices {
+                inputs: vec![Device {
+                    id: "Built-in Microphone".into(),
+                    name: "Built-in Microphone".into(),
+                    default: true,
+                }],
+                outputs: vec![Device {
+                    id: "Headphones".into(),
+                    name: "Headphones".into(),
+                    default: false,
+                }],
+            },
+        ),
+        exchange::<MicrophoneChime>(Some("Headphones".into()), ()),
+        exchange::<MicrophoneChime>(None, ()),
         exchange::<LinkOpen>("duck://chat/room".into(), ()),
         exchange::<HostRoute>((), "tx/00ff".into()),
         exchange::<HostId>("msg".into(), "msg-1".into()),

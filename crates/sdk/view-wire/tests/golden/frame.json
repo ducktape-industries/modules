@@ -542,6 +542,39 @@
             }
           },
           {
+            "Camera": {
+              "id": {
+                "Name": "camera"
+              },
+              "style": 0,
+              "device": "0",
+              "mirror": true,
+              "fit": "Cover",
+              "on_state": 18
+            }
+          },
+          {
+            "Microphone": {
+              "id": {
+                "Name": "microphone"
+              },
+              "style": 0,
+              "device": "Built-in Microphone",
+              "output": "Headphones",
+              "monitor": true,
+              "revision": 2,
+              "commands": [
+                {
+                  "Record": {
+                    "seconds": 5
+                  }
+                },
+                "Stop"
+              ],
+              "on_state": 19
+            }
+          },
+          {
             "Text": {
               "id": {
                 "Name": "plain"
@@ -2506,6 +2539,19 @@
           "can_go_forward": true
         }
       }
+    },
+    {
+      "Media": {
+        "handler": 18,
+        "state": {
+          "status": "Failed",
+          "device": "FaceTime HD Camera",
+          "playback": "Recording",
+          "detail": "the driver stopped",
+          "speaking": true,
+          "settings": true
+        }
+      }
     }
   ],
   [
@@ -2927,6 +2973,10 @@
       "Grid",
       "None"
     ],
+    "Fit": [
+      "Contain",
+      "Cover"
+    ],
     "FlexDirection": [
       "Row",
       "Column",
@@ -3000,6 +3050,19 @@
       "Left",
       "Right",
       "Numpad"
+    ],
+    "MediaStatus": [
+      "Starting",
+      "Live",
+      "Denied",
+      "Busy",
+      "Gone",
+      "NoDevice",
+      "Unsupported",
+      "Failed"
+    ],
+    "MicCommand": [
+      "Stop"
     ],
     "MouseButton": [
       "Left",
@@ -3075,6 +3138,11 @@
       "Clip",
       "Hidden",
       "Scroll"
+    ],
+    "Playback": [
+      "Idle",
+      "Recording",
+      "Playing"
     ],
     "Position": [
       "Relative",

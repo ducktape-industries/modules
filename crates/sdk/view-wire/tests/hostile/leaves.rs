@@ -209,7 +209,10 @@ pub(super) fn gen_leaf(rng: &mut Rng) -> Node {
             Node::Space
         }
         2 => gen_svg(rng),
-        3 => gen_web(rng),
+        3 => match rng.next_range(3) {
+            0 => gen_web(rng),
+            _ => gen_media(rng),
+        },
         _ => gen_field(rng),
     }
 }
@@ -236,6 +239,47 @@ pub(super) fn gen_web(rng: &mut Rng) -> Node {
         id: gen_id(rng),
         url,
         style: PLAIN,
+        revision: rng.next_u64(),
+        commands,
+        on_state: rng.next_bool().then(|| rng.next_u64() as u32),
+    }
+}
+
+fn gen_device(rng: &mut Rng) -> Option<String> {
+    rng.next_bool()
+        .then(|| "d".repeat(rng.next_range(2 * LONG_DEVICE)))
+}
+
+/// A camera or microphone piece: hostile device ids, and commands
+/// recording any length.
+pub(super) fn gen_media(rng: &mut Rng) -> Node {
+    if rng.next_bool() {
+        return Node::Camera {
+            id: gen_id(rng),
+            style: PLAIN,
+            device: gen_device(rng),
+            mirror: rng.next_bool(),
+            fit: match rng.next_bool() {
+                true => view_wire::Fit::Cover,
+                false => view_wire::Fit::Contain,
+            },
+            on_state: rng.next_bool().then(|| rng.next_u64() as u32),
+        };
+    }
+    let commands = (0..=rng.next_range(MIC_COMMANDS))
+        .map(|_| match rng.next_bool() {
+            true => view_wire::MicCommand::Record {
+                seconds: rng.next_u64() as u8,
+            },
+            false => view_wire::MicCommand::Stop,
+        })
+        .collect();
+    Node::Microphone {
+        id: gen_id(rng),
+        style: PLAIN,
+        device: gen_device(rng),
+        output: gen_device(rng),
+        monitor: rng.next_bool(),
         revision: rng.next_u64(),
         commands,
         on_state: rng.next_bool().then(|| rng.next_u64() as u32),

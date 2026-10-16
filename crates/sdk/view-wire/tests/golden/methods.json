@@ -1007,7 +1007,9 @@
             "Notify",
             "Store",
             "Web",
-            "Live"
+            "Live",
+            "Camera",
+            "Microphone"
           ],
           "min_width": 480,
           "targets": [
@@ -1066,6 +1068,47 @@
   {
     "kind": "host.title",
     "request": "general",
+    "reply": null
+  },
+  {
+    "kind": "camera.devices",
+    "request": null,
+    "reply": [
+      {
+        "id": "0",
+        "name": "FaceTime HD Camera",
+        "default": true
+      }
+    ]
+  },
+  {
+    "kind": "microphone.devices",
+    "request": null,
+    "reply": {
+      "inputs": [
+        {
+          "id": "Built-in Microphone",
+          "name": "Built-in Microphone",
+          "default": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "Headphones",
+          "name": "Headphones",
+          "default": false
+        }
+      ]
+    }
+  },
+  {
+    "kind": "microphone.chime",
+    "request": "Headphones",
+    "reply": null
+  },
+  {
+    "kind": "microphone.chime",
+    "request": null,
     "reply": null
   },
   {

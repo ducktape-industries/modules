@@ -25,7 +25,9 @@ impl Node {
             | Self::Sensor { id, .. }
             | Self::Overlay { id, .. }
             | Self::Sheet { id, .. }
-            | Self::Web { id, .. } => Some(id),
+            | Self::Web { id, .. }
+            | Self::Camera { id, .. }
+            | Self::Microphone { id, .. } => Some(id),
             Self::Space | Self::Anchored { .. } | Self::Deferred { .. } | Self::Canvas { .. } => {
                 None
             }
@@ -63,7 +65,9 @@ impl Node {
             | Self::Overlay { style, .. }
             | Self::Sheet { style, .. }
             | Self::Canvas { style, .. }
-            | Self::Web { style, .. } => Some(*style),
+            | Self::Web { style, .. }
+            | Self::Camera { style, .. }
+            | Self::Microphone { style, .. } => Some(*style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => None,
         }
     }
@@ -86,7 +90,9 @@ impl Node {
             | Self::Overlay { style, .. }
             | Self::Sheet { style, .. }
             | Self::Canvas { style, .. }
-            | Self::Web { style, .. } => visit(style),
+            | Self::Web { style, .. }
+            | Self::Camera { style, .. }
+            | Self::Microphone { style, .. } => visit(style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => {}
         }
         if let Self::Container(crate::ContainerNode {
@@ -153,7 +159,9 @@ impl Node {
             | Self::Field { .. }
             | Self::Space
             | Self::Canvas { .. }
-            | Self::Web { .. } => &[],
+            | Self::Web { .. }
+            | Self::Camera { .. }
+            | Self::Microphone { .. } => &[],
         }
     }
 
@@ -186,7 +194,9 @@ impl Node {
             | Self::Space
             | Self::Svg { .. }
             | Self::Canvas { .. }
-            | Self::Web { .. } => &mut [],
+            | Self::Web { .. }
+            | Self::Camera { .. }
+            | Self::Microphone { .. } => &mut [],
         }
     }
 
@@ -214,7 +224,9 @@ impl Node {
             | Self::Space
             | Self::Svg { .. }
             | Self::Canvas { .. }
-            | Self::Web { .. } => None,
+            | Self::Web { .. }
+            | Self::Camera { .. }
+            | Self::Microphone { .. } => None,
         }
     }
 
