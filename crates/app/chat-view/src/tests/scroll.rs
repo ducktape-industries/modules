@@ -1,7 +1,7 @@
 //! The timeline as a reader scrolls it: the list's rows through a re-read,
 //! the paging at both ends of a landed window, and what a hover costs.
 use super::*;
-use crate::ui::timeline::{OVERDRAW, splices};
+use crate::listing::{OVERDRAW, splices};
 use std::cell::Cell;
 use std::rc::Rc;
 

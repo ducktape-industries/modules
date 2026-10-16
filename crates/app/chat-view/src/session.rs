@@ -88,6 +88,12 @@ impl Chat {
         cx.load(self, channels(cx.host()), |chat| &mut chat.channels);
     }
 
+    /// The network the session is on, by its label (`<label>#<salt>`).
+    pub(crate) fn network(&self) -> &str {
+        let chain = self.session.chain_id.as_str();
+        chain.split_once('#').map_or(chain, |(label, _)| label)
+    }
+
     /// The reader's account number, as the host resolved it.
     pub(crate) fn my_account(&self) -> Option<u64> {
         self.session.account
@@ -97,6 +103,15 @@ impl Chat {
     /// key holds none, since only an account writes.
     pub(crate) fn me(&self) -> Option<Principal> {
         Principal::writer(self.my_account())
+    }
+
+    /// The reader's account name for the first page's avatar, as the
+    /// roster names it (Expo `chat/index.tsx:110`, `connection.account.name`);
+    /// empty until the session and the roster both say who the reader is.
+    pub(crate) fn reader_name(&self) -> String {
+        let me = self.me();
+        me.and_then(|me| self.names.ready()?.name(&me).map(str::to_owned))
+            .unwrap_or_default()
     }
 
     /// The reader, as a query's `viewer`.

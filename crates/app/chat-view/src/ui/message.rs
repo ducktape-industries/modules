@@ -9,9 +9,11 @@ use crate::{Chat, Control, Pane};
 use chat::view::Names;
 use chat::{Block, Principal, Span};
 mod controls;
-mod rich;
+pub(crate) mod rich;
+use crate::message::plain_line;
+use crate::words;
 use controls::{Face, action_button, reaction_button, replies_button};
-use rich::{plain_line, rich_line};
+use rich::rich_line;
 use view::design::Ladder;
 
 const PENDING_OPACITY: f32 = 0.5;
@@ -456,7 +458,7 @@ fn edited_mark(message: &ChatMessage, theme: &Theme) -> Option<AnyElement> {
         div()
             .text_size(design::text::CAPTION)
             .text_color(theme.muted)
-            .child("edited")
+            .child(words::EDITED)
             .into_any_element()
     })
 }
@@ -599,7 +601,7 @@ fn program_post(
             .hover(move |style| style.text_decoration_1())
             .on_click(open)
             .consumes_click()
-            .child(format!("Open in {program}"));
+            .child(words::open_in(program));
         line = line.child(cell(
             &id,
             true,
