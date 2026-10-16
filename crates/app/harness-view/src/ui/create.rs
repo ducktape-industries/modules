@@ -1,13 +1,14 @@
-//! The create form: the ops a new agent takes, each with how far it got, the fields the
-//! hire sends, the services that reach a model, and the hire shown for the person's yes.
-//! Hiring again is the same form, its fields filled with what the agent was hired with.
+//! The create form: the ops a new agent takes, each with how far it got, the configuration
+//! file it writes (where, the model from harness's records, max output, wait, the system
+//! prompt) and who it answers. Editing is the same form, its fields filled from the agent's
+//! file, saved as a new version of it.
 use view::design::Ladder;
 use view::design::{size, space};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
-use super::{back, caption, panel, waiting};
-use crate::create::{Answers, Draft};
+use super::{back, caption, waiting, window_words};
+use crate::create::{Answers, Draft, proposed_path};
 use crate::{Agents, Screen};
 
 pub(super) fn render(
@@ -30,7 +31,7 @@ pub(super) fn render(
             )
             .into_any_element(),
             format!("Edit {name}"),
-            "Saving hires it again. Edits do not reach open threads: system, model, service and max_tokens are fixed when a thread opens, so the next thread opens with these.",
+            "Saving commits a new version of its configuration file. Harness reads the file at each model call, so the next call uses it, in open threads too.",
         ),
         _ => (
             back(
@@ -43,14 +44,14 @@ pub(super) fn render(
             )
             .into_any_element(),
             "Create an agent".to_owned(),
-            "Three ops in order, and a fourth when it answers more than you. The app asks you to confirm each identity op; this form asks before the hire.",
+            "Three ops in order, and a fourth when it answers more than you. The app asks you to confirm each one.",
         ),
     };
     let sending = draft.sending.is_some();
-    let next = match (draft.created, draft.handed) {
-        _ if draft.again => "Save…",
-        (None, _) => "Create",
-        _ => "Continue",
+    let next = match (draft.again, draft.created) {
+        (true, _) => "Save",
+        (false, None) => "Create",
+        (false, Some(_)) => "Continue",
     };
     let advance = cx.listener(|view: &mut Agents, _: &ClickEvent, _, cx| view.advance(cx));
     div()
@@ -74,17 +75,13 @@ pub(super) fn render(
                 .text_color(theme.danger)
                 .child(problem)
         }))
-        .child(match draft.confirming {
-            true => confirm(view, cx, theme, ladder).into_any_element(),
-            false => div()
-                .flex()
-                .child(
-                    design::button("create-next", next, ladder, theme, advance)
-                        .kind(design::Kind::Primary)
-                        .enabled(!sending),
-                )
-                .into_any_element(),
-        })
+        .child(
+            div().flex().child(
+                design::button("create-next", next, ladder, theme, advance)
+                    .kind(design::Kind::Primary)
+                    .enabled(!sending),
+            ),
+        )
         .into_any_element()
 }
 
@@ -92,6 +89,7 @@ fn steps(draft: &Draft, theme: &Theme) -> impl IntoElement + use<> {
     let created = draft
         .created
         .map(|agent| format!("Account {agent} created"));
+    let committed = draft.committed.then(|| draft.path());
     let rows = [
         (
             "Create the account",
@@ -100,12 +98,17 @@ fn steps(draft: &Draft, theme: &Theme) -> impl IntoElement + use<> {
             created,
         ),
         (
+            "Write its configuration",
+            "files · Commit",
+            draft.committed,
+            committed,
+        ),
+        (
             "Hand it to harness",
             "identity · SetScript → harness",
-            draft.handed,
+            draft.scripted,
             None,
         ),
-        ("Hire", "harness · Hire", draft.hired, None),
         (
             "Who it answers, if more than you",
             "identity · SetAudience",
@@ -187,6 +190,46 @@ fn fields(
         ));
     }
     form.child(labelled(
+        "Configuration file",
+        "Where in files its configuration lives. The script names this path; harness reads it at each model call.",
+        input(
+            Input::new("create-path", &draft.path, "Configuration file"),
+            theme,
+        )
+        .placeholder(proposed_path(&draft.name.text())),
+        theme,
+    ))
+    .child(models(view, cx, theme, ladder))
+    .child(
+        div()
+            .flex()
+            .flex_wrap()
+            .gap(space::LG)
+            .child(
+                labelled(
+                    "Max output tokens",
+                    "The most one answer writes, at least 1.",
+                    input(
+                        Input::new("create-max-tokens", &draft.max_tokens, "Max output tokens"),
+                        theme,
+                    )
+                    .placeholder("4096"),
+                    theme,
+                )
+                .w(px(200.)),
+            )
+            .child(
+                labelled(
+                    "Wait",
+                    "Blocks egress waits for the model's answer. Empty is egress's default.",
+                    input(Input::new("create-wait", &draft.wait, "Wait"), theme)
+                        .placeholder("egress's default"),
+                    theme,
+                )
+                .w(px(200.)),
+            ),
+    )
+    .child(labelled(
         "System prompt",
         "Harness puts its own preamble first (who the agent is, and where people reach it), then this.",
         Textarea::new("create-system", &draft.system, "System prompt")
@@ -200,87 +243,51 @@ fn fields(
             .placeholder("What this agent does, and how"),
         theme,
     ))
-    .child(
-        div()
-            .flex()
-            .flex_wrap()
-            .gap(space::LG)
-            .child(
-                labelled(
-                    "Model",
-                    "The model id as is: letters, digits, - . _ @ and :. The network keeps no list of models.",
-                    input(Input::new("create-model", &draft.model, "Model"), theme)
-                        .placeholder("claude-sonnet-5-5"),
-                    theme,
-                )
-                .flex_1()
-                .min_w(px(220.)),
-            )
-            .child(
-                labelled(
-                    "Max output tokens",
-                    "The most one answer writes, at least 1.",
-                    input(
-                        Input::new("create-max-tokens", &draft.max_tokens, "Max output tokens"),
-                        theme,
-                    )
-                    .placeholder("4096"),
-                    theme,
-                )
-                .w(px(200.)),
-            ),
-    )
-    .child(services(view, cx, theme, ladder))
-    .when(!draft.again && !draft.hired, |form| {
+    .when(!draft.again && !draft.scripted, |form| {
         form.child(audience(draft, cx, theme, ladder))
     })
 }
 
-/// The registered services, one press each: its owner, the nodes assigned to it, and how
-/// many member nodes serve it now.
-fn services(
+/// Harness's model records, one press each: the id the file names, its wire, its service and
+/// how many member nodes serve it now.
+fn models(
     view: &Agents,
     cx: &mut Context<Agents>,
     theme: &Theme,
     ladder: &Ladder,
 ) -> impl IntoElement + use<> {
-    let list = match waiting("create-services", &view.offers, cx, theme, ladder) {
+    let list = match waiting("create-models", &view.models, cx, theme, ladder) {
         Some(shown) => shown,
         None => {
-            let offers = view.offers.ready().map_or(&[][..], Vec::as_slice);
-            let roster = view.roster.ready();
-            let rows = offers.iter().map(|offer| {
-                let name = offer.row.name.clone();
-                let picked = view.draft.service.as_deref() == Some(name.as_str());
-                let owner = roster.map_or_else(
-                    || format!("account {}", offer.row.owner),
-                    |roster| roster.name(offer.row.owner),
-                );
-                let now = match offer.serving {
+            let models = view.models.ready().map_or(&[][..], Vec::as_slice);
+            let rows = models.iter().map(|model| {
+                let id = model.row.id.clone();
+                let picked = view.draft.model.as_deref() == Some(id.as_str());
+                let now = match model.serving {
                     0 => "no member node serves it now".to_owned(),
                     serving => format!("{serving} serving now"),
                 };
-                let pick = name.clone();
-                pickable(format!("service-{name}"), picked, theme)
+                let pick = id.clone();
+                pickable(format!("model-{id}"), picked, theme)
                     .on_click(
                         cx.listener(move |view: &mut Agents, _: &ClickEvent, _, cx| {
-                            view.draft.service = Some(pick.clone());
+                            view.draft.model = Some(pick.clone());
                             cx.notify();
                         }),
                     )
-                    .child(design::mono(name).w(px(160.)))
-                    .child(div().w(px(160.)).child(format!("owner {owner}")))
+                    .child(design::mono(id).w(px(160.)))
+                    .child(div().w(px(160.)).child(model.row.wire.label()))
                     .child(caption(
-                        design::plural(
-                            offer.row.nodes.len() as u64,
-                            "node assigned",
-                            "nodes assigned",
+                        format!(
+                            "{} · window {}",
+                            model.row.service,
+                            window_words(model.row.window)
                         ),
                         theme,
                     ))
                     .child(
                         div()
-                            .text_color(if offer.serving == 0 {
+                            .text_color(if model.serving == 0 {
                                 theme.danger
                             } else {
                                 theme.success
@@ -292,9 +299,9 @@ fn services(
                 .flex()
                 .flex_col()
                 .children(rows)
-                .when(offers.is_empty(), |list| {
+                .when(models.is_empty(), |list| {
                     list.child(design::quiet(
-                        "No service is registered: an account registers one in egress, and assigns the nodes that serve it.",
+                        "Harness keeps no model yet: set one on the Models page.",
                         theme,
                     ))
                 })
@@ -305,15 +312,15 @@ fn services(
         .flex()
         .flex_col()
         .gap(space::XXS)
-        .child(div().font_weight(FontWeight::MEDIUM).child("Service"))
+        .child(div().font_weight(FontWeight::MEDIUM).child("Model"))
         .child(caption(
-            "How the model is reached: an egress service the network registered.",
+            "A model record harness keeps: the wire it speaks and the egress service that reaches it.",
             theme,
         ))
         .child(list)
 }
 
-fn pickable(id: String, picked: bool, theme: &Theme) -> Stateful<Div> {
+pub(super) fn pickable(id: String, picked: bool, theme: &Theme) -> Stateful<Div> {
     let theme = *theme;
     div()
         .id(SharedString::from(id))
@@ -386,46 +393,4 @@ fn audience(
             }),
         theme,
     )
-}
-
-/// The hire as `describe(Hire)` prints it, for the person's yes: harness's op gets no card
-/// from the app.
-fn confirm(
-    view: &Agents,
-    cx: &mut Context<Agents>,
-    theme: &Theme,
-    ladder: &Ladder,
-) -> impl IntoElement + use<> {
-    let draft = &view.draft;
-    let agent = draft.created.unwrap_or_default();
-    let hire = cx.listener(|view: &mut Agents, _: &ClickEvent, _, cx| view.hire(cx));
-    let cancel = cx.listener(|view: &mut Agents, _: &ClickEvent, _, cx| {
-        view.draft.confirming = false;
-        cx.notify();
-    });
-    panel("create-confirm", theme.surface, theme)
-        .child(div().font_weight(FontWeight::MEDIUM).child("Hire an agent"))
-        .child(format!("agent {} (account {agent})", draft.name.text()))
-        .child(format!("model {}", draft.model.text().trim()))
-        .child(format!(
-            "service {}",
-            draft.service.clone().unwrap_or_default()
-        ))
-        .child(
-            div()
-                .flex()
-                .gap(space::SM)
-                .child(design::button(
-                    "create-confirm-back",
-                    "Back",
-                    ladder,
-                    theme,
-                    cancel,
-                ))
-                .child(
-                    design::button("create-hire", "Hire", ladder, theme, hire)
-                        .kind(design::Kind::Primary)
-                        .enabled(draft.sending.is_none()),
-                ),
-        )
 }

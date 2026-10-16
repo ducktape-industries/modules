@@ -1,11 +1,12 @@
-//! The screens: the agents, one agent, one thread, the create form. Colour is kept for
-//! what it says: an agent's tint, and a state's badge.
+//! The screens: the agents, one agent, one thread, the create form, the models. Colour is
+//! kept for what it says: an agent's tint, and a state's badge.
 mod agent;
 mod create;
 mod list;
+mod models;
 mod thread;
 
-use harness::{Asking, ThreadRow, Usage};
+use harness::{Asking, ThreadRow, Usage, Window};
 use view::design::Ladder;
 use view::design::{space, text};
 use view::prelude::*;
@@ -26,6 +27,7 @@ pub(crate) fn render(
         Screen::Create => create::render(view, cx, &theme, ladder),
         Screen::Agent(agent) => agent::render(view, agent, cx, &theme, ladder),
         Screen::Thread(id) => thread::render(view, id, cx, &theme, ladder),
+        Screen::Models => models::render(view, cx, &theme, ladder),
     };
     div()
         .id("agents")
@@ -127,13 +129,18 @@ pub(crate) fn state_badge(
         State::Working => ("Working", theme.success, theme.success_soft),
         State::Stuck => ("Stuck", theme.warning, theme.warning_soft),
         State::NoNode => ("No node", theme.danger, theme.danger_soft),
+        State::Unconfigured => ("Not configured", theme.danger, theme.danger_soft),
     };
     design::badge(id, label, ladder, foreground, background)
 }
 
-/// An agent's state: no node before anything, then the busiest of its open threads.
+/// An agent's state: its configuration and a node before anything, then the busiest of its
+/// open threads.
 pub(crate) fn agent_state(card: &Card, roster: &Roster) -> State {
-    if card.serving == 0 || roster.relaying == 0 {
+    let Some(serving) = card.serving else {
+        return State::Unconfigured;
+    };
+    if serving == 0 || roster.relaying == 0 {
         return State::NoNode;
     }
     let states = card.threads.iter().map(thread_state);
@@ -199,6 +206,24 @@ pub(crate) fn meter(context: harness::Context, window: Option<u64>, theme: &Them
             .bg(theme.border)
             .child(div().w(px(WIDTH * full)).h_full().bg(theme.foreground)),
     )
+}
+
+pub(crate) fn window_words(window: Window) -> String {
+    match window {
+        Window::Unasked => "not asked yet".to_owned(),
+        Window::Unreported => "not reported".to_owned(),
+        Window::Tokens(tokens) => format!("{} tokens", design::grouped(tokens)),
+    }
+}
+
+pub(crate) fn snapshot_words(snapshot: &harness::BlobId) -> String {
+    let short: String = snapshot
+        .digest()
+        .iter()
+        .take(6)
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    format!("snapshot {short}")
 }
 
 pub(crate) fn usage_words(usage: &Usage) -> String {
