@@ -97,17 +97,3 @@ pub struct MediaState {
     /// [`SETTINGS_MICROPHONE`]); `false` elsewhere.
     pub settings: bool,
 }
-
-/// Whether `frame` carries a camera piece. A host refuses such a frame
-/// from a view whose manifest does not declare
-/// [`Capability::Camera`](crate::methods::Capability::Camera).
-pub fn carries_camera(frame: &crate::Frame) -> bool {
-    frame.carries(&|node| matches!(node, crate::Node::Camera { .. }))
-}
-
-/// Whether `frame` carries a microphone piece. A host refuses such a frame
-/// from a view whose manifest does not declare
-/// [`Capability::Microphone`](crate::methods::Capability::Microphone).
-pub fn carries_microphone(frame: &crate::Frame) -> bool {
-    frame.carries(&|node| matches!(node, crate::Node::Microphone { .. }))
-}

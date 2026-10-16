@@ -1,3 +1,4 @@
+use crate::methods::Capability;
 use crate::*;
 use serde::{Deserialize, Serialize};
 
@@ -319,13 +320,20 @@ pub struct Frame {
 }
 
 impl Frame {
-    /// Whether any node the frame carries is one `is` picks: in its tree,
-    /// in a patch or in a tooltip's content. What a host checks a node a
-    /// capability gates by ([`crate::web::carries_web`],
-    /// [`crate::media::carries_camera`]).
-    pub fn carries(&self, is: &dyn Fn(&Node) -> bool) -> bool {
-        fn has(node: &Node, is: &dyn Fn(&Node) -> bool) -> bool {
-            is(node) || node.children().iter().any(|child| has(child, is))
+    /// A capability that a node the frame carries needs ([`Node::capability`])
+    /// and `declared` leaves out, looked for in the tree, in every patch and
+    /// in every tooltip's content; `None` when the view declared each. A
+    /// host refuses such a frame and ends the view: sent again, it would be
+    /// refused again.
+    pub fn undeclared(&self, declared: &[Capability]) -> Option<Capability> {
+        fn find(node: &Node, declared: &[Capability]) -> Option<Capability> {
+            node.capability()
+                .filter(|capability| !declared.contains(capability))
+                .or_else(|| {
+                    node.children()
+                        .iter()
+                        .find_map(|child| find(child, declared))
+                })
         }
         let patched = self.patches.iter().filter_map(|patch| match patch {
             Patch::Replace { node, .. }
@@ -341,7 +349,7 @@ impl Frame {
             .iter()
             .chain(patched)
             .chain(tooltips)
-            .any(|node| has(node, is))
+            .find_map(|node| find(node, declared))
     }
 }
 

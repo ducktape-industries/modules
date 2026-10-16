@@ -34,10 +34,3 @@ pub struct WebState {
     pub can_go_back: bool,
     pub can_go_forward: bool,
 }
-
-/// Whether `frame` carries a web piece: in its tree, in a patch or in a
-/// tooltip's content. A host refuses such a frame from a view whose
-/// manifest does not declare [`Capability::Web`](crate::methods::Capability::Web).
-pub fn carries_web(frame: &crate::Frame) -> bool {
-    frame.carries(&|node| matches!(node, crate::Node::Web { .. }))
-}

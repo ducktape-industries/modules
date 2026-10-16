@@ -297,7 +297,7 @@ pub enum Node {
     /// (deliberate; an accessible name can come later with the page's own
     /// accessibility tree). Only a view whose manifest declares the `web`
     /// capability may send one; a host refuses the frame of any other
-    /// ([`crate::web::carries_web`]).
+    /// ([`Frame::undeclared`]).
     ///
     /// The page opens on `url` when the host first sees the node (under its
     /// path) and is closed when a frame no longer has it. The view moves it
@@ -326,7 +326,7 @@ pub enum Node {
     /// flipped left to right when `mirror` (a person checking themselves
     /// expects a mirror). No picture crosses to the view. Only a view whose
     /// manifest declares the `camera` capability may send one; a host
-    /// refuses the frame of any other ([`crate::media::carries_camera`]).
+    /// refuses the frame of any other ([`Frame::undeclared`]).
     ///
     /// The camera opens when the host first sees the node (under its
     /// path), the system's permission asked first where it asks; it opens
@@ -348,7 +348,7 @@ pub enum Node {
     /// background. The level never crosses: it moves faster than a view
     /// should draw. Only a view whose manifest declares the `microphone`
     /// capability may send one; a host refuses the frame of any other
-    /// ([`crate::media::carries_microphone`]).
+    /// ([`Frame::undeclared`]).
     ///
     /// The microphone opens as a [`Node::Camera`]'s camera does, by
     /// `device` (an input `microphone.devices` listed), and is released
