@@ -280,8 +280,8 @@ impl<'a> Lowering<'a> {
         slots::picture(&self.app.inner.slots, bytes)
     }
 
-    pub(crate) fn picture_keyed(&self, key: u64, bytes: &[u8]) -> (u64, Option<Vec<u8>>) {
-        slots::picture_keyed(&self.app.inner.slots, key, bytes)
+    pub(crate) fn image(&self, image: &std::sync::Arc<gpui::Image>) -> (u64, Option<Vec<u8>>) {
+        slots::image(&self.app.inner.slots, image)
     }
 
     pub(crate) fn tooltip(&self, build: slots::TooltipBuilder) -> u32 {

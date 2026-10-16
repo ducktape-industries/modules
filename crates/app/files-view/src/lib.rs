@@ -60,7 +60,9 @@ impl View for Files {
 
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.watch(cx);
-        self.read_page(cx);
+        // what landed while the view was away: the follow hears only what
+        // lands from now
+        self.read_all(cx);
     }
 }
 

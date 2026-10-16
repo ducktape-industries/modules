@@ -3,7 +3,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use files::{BlobId, DiffKind, Node};
+use files::{BlobId, DiffKind};
 use view::methods::{Query as Ask, Submit};
 use view::wire;
 
@@ -492,15 +492,6 @@ fn an_image_shows_as_its_picture() {
     );
 }
 
-/// A file node, for the words a file's kind is said in.
-fn file() -> Node {
-    Node::File {
-        file: BlobId::Sha256([0; 32]),
-        size: 0,
-        exec: false,
-    }
-}
-
 /// Whether the side's row for `key` is the one picked.
 fn picked(cx: &TestAppContext, key: &str) -> bool {
     cx.interactivity(&format!("files/side/{key}")).aria.selected == Some(true)
@@ -524,6 +515,30 @@ fn a_pin_made_while_a_folder_is_open_joins_the_side() {
     };
     net.submit(net.me(), files::PROGRAM, &pin)
         .expect("a pin on a minted snapshot");
+    cx.run_until_parked();
+    assert!(cx.find("files/side/pin/v2").is_some(), "{:?}", cx.texts());
+}
+
+#[test]
+fn a_restored_view_reads_what_landed_while_it_was_away() {
+    let net = seeded();
+    let mut cx = desktop_at(&net, 1000.);
+    cx.simulate_click("files/side/home");
+    cx.run_until_parked();
+    let bytes = cx.snapshot().unwrap();
+    let snapshot = commit(
+        &net,
+        net.me(),
+        "Share more",
+        vec![put("/shared/more.txt", b"more")],
+    );
+    let pin = Op::Pin {
+        name: "v2".into(),
+        snapshot,
+    };
+    net.submit(net.me(), files::PROGRAM, &pin)
+        .expect("a pin on a minted snapshot");
+    cx.restore::<Files>(&bytes).unwrap();
     cx.run_until_parked();
     assert!(cx.find("files/side/pin/v2").is_some(), "{:?}", cx.texts());
 }

@@ -150,7 +150,7 @@ impl IntoElement for Img {
 fn image_data(source: ImageSource, lowering: &Lowering<'_>) -> (u64, Option<wire::ImageData>) {
     match source {
         GpuiImageSource::Image(image) => {
-            let (hash, bytes) = lowering.picture_keyed(image.id(), image.bytes());
+            let (hash, bytes) = lowering.image(&image);
             (hash, bytes.map(wire::ImageData::Encoded))
         }
         GpuiImageSource::Render(image) => render_image_data(&image, lowering),

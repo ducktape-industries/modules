@@ -16,7 +16,8 @@ impl Files {
         self.read(false, cx);
     }
 
-    /// Everything on screen, again: on every commit or pin anyone lands.
+    /// Everything on screen, again: on every commit or pin anyone lands,
+    /// and when the view attaches.
     pub(crate) fn read_all(&mut self, cx: &mut Context<Self>) {
         self.read(true, cx);
     }

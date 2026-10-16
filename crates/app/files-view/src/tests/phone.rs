@@ -5,6 +5,7 @@ use files::DiffKind;
 use view::testing::sweep;
 
 use super::*;
+use crate::state::Holds;
 use crate::words;
 
 fn tap(cx: &mut TestAppContext, key: &str) {
@@ -50,8 +51,8 @@ fn a_file_screen_shows_what_it_is_and_its_text() {
     tap(&mut cx, "files/place/home");
     tap(&mut cx, "files/entry/notes.txt");
     assert!(cx.has_text(NOTES), "{:?}", cx.texts());
-    assert!(cx.has_text("Text"));
-    assert!(cx.has_text("14 bytes"));
+    assert!(cx.has_text(words::kind(&file(), Holds::Text)));
+    assert!(cx.has_text(&words::size(NOTES.len() as u64)));
 }
 
 #[test]
@@ -60,7 +61,11 @@ fn an_image_screen_shows_its_picture() {
     let mut cx = phone(&net);
     tap(&mut cx, "files/place/shared");
     tap(&mut cx, "files/entry/dot.png");
-    assert!(cx.has_text("Image"), "{:?}", cx.texts());
+    assert!(
+        cx.has_text(words::kind(&file(), Holds::Picture)),
+        "{:?}",
+        cx.texts()
+    );
     assert!(cx.find("files-picture").is_some(), "{:?}", cx.texts());
 }
 

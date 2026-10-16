@@ -4,6 +4,9 @@ use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::{Arc, Weak};
+
+use gpui::Image;
 
 use crate::wire::ElementIdWire;
 
@@ -27,6 +30,8 @@ struct Tables {
     routes: Routes,
     tooltip_responses: Vec<crate::wire::TooltipResponse>,
     pictures: HashSet<u64>,
+    /// each image drawn, by its address: the key its picture is sent by
+    images: HashMap<usize, (Weak<Image>, u64)>,
     /// Widget commands asked this tick, sent with its frame
     /// ([`crate::window::send_widgets`]).
     widgets: Vec<crate::wire::WidgetCommand>,
@@ -297,17 +302,38 @@ impl Context {
 }
 
 pub fn picture(context: &Context, bytes: impl AsRef<[u8]>) -> (u64, Option<Vec<u8>>) {
-    use std::hash::{Hash, Hasher};
     let bytes = bytes.as_ref();
-    let mut hasher = std::hash::DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    picture_keyed(context, hasher.finish(), bytes)
+    send(context, hash(bytes), bytes)
 }
 
-/// A picture that carries its own key (gpui's `Image::id`, the hash of
-/// its bytes taken once when it was made): a frame that draws it again
-/// neither hashes nor copies its bytes.
-pub fn picture_keyed(context: &Context, key: u64, bytes: &[u8]) -> (u64, Option<Vec<u8>>) {
+/// An image's picture, keyed by its bytes' hash taken the first frame it
+/// draws and kept while the image lives: a frame that draws it again
+/// neither hashes nor copies its bytes. (gpui's own `Image::id` is a
+/// `usize` hash, 32 bits on wasm32: too few to name a picture by.)
+pub fn image(context: &Context, image: &Arc<Image>) -> (u64, Option<Vec<u8>>) {
+    let at = Arc::as_ptr(image) as usize;
+    let kept = context.0.borrow().images.get(&at).map(|(_, key)| *key);
+    let key = kept.unwrap_or_else(|| {
+        let key = hash(image.bytes());
+        let images = &mut context.0.borrow_mut().images;
+        // a kept `Weak` holds its image's allocation, so no other image is
+        // made at that address while its entry stays
+        images.retain(|_, (kept, _)| kept.strong_count() > 0);
+        images.insert(at, (Arc::downgrade(image), key));
+        key
+    });
+    send(context, key, image.bytes())
+}
+
+fn hash(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::hash::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// `key`'s bytes, the first time the host is sent them.
+fn send(context: &Context, key: u64, bytes: &[u8]) -> (u64, Option<Vec<u8>>) {
     let tables = &mut *context.0.borrow_mut();
     if !tables.pictures.insert(key) {
         return (key, None);

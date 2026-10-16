@@ -118,6 +118,15 @@ pub(crate) fn seeded() -> Network {
     net
 }
 
+/// A file node, for the words a file's kind is said in.
+pub(crate) fn file() -> files::Node {
+    files::Node::File {
+        file: files::BlobId::Sha256([0; 32]),
+        size: 0,
+        exec: false,
+    }
+}
+
 /// The view over `net`, read by `session`'s account, under a finger when
 /// `touch`.
 pub(crate) fn opened_as(net: &Network, session: Session, touch: bool) -> TestAppContext {

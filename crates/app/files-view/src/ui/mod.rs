@@ -144,9 +144,10 @@ fn body(view: &Files, layout: Layout, cx: Cx, k: &Kit) -> AnyElement {
         .flex_1()
         .min_h(px(0.))
         .flex()
-        .child(scrolled("files-list", list))
+        .child(scrolled("files-list", list).min_w(px(LIST_KEEPS)))
         .child(
             scrolled("files-detail", detail)
+                .min_w(px(DETAIL_KEEPS))
                 .border_l_1()
                 .border_color(k.theme.border),
         )
