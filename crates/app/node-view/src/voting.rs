@@ -11,11 +11,11 @@ use abi::hex;
 use abi::role::halo;
 use programs::{Change, Entry, Pending};
 use valset::{Motion, Op, Valset, Voted};
-use view::methods::Submitted;
+use view::methods::{self, Submitted};
 use view::prelude::*;
 
 use crate::Nodes;
-use crate::queries::{self, Motions, Names, Schedule};
+use crate::queries::{self, Motions, Names, Node, Schedule};
 
 #[derive(Default)]
 pub(crate) struct Voting {
@@ -32,7 +32,13 @@ pub(crate) struct Voting {
     /// a vote in flight: no other press until it lands
     pub(crate) busy: bool,
     /// what the last vote did, or the refusal it met
+    // ponytail: one outcome for every screen; Expo keeps a landed one per
+    // screen, so a vote on a page replaces the list's until Back
     pub(crate) outcome: Option<Result<String, String>>,
+    /// the member page the last vote was pressed on (`None`: the list); a
+    /// landed one's message shows only there (Expo: each screen's own
+    /// `usePress`), a failure on every screen (Expo's outbox rows)
+    pub(crate) pressed_on: Option<Vec<u8>>,
 }
 
 impl Voting {
@@ -72,7 +78,8 @@ impl Voting {
         self.voices.iter().filter(|v| !voters.contains(v)).count()
     }
 
-    fn entries(&self) -> &[Entry] {
+    /// The programs the programs role runs now; none until read.
+    pub(crate) fn entries(&self) -> &[Entry] {
         self.roster.ready().map_or(&[], Vec::as_slice)
     }
 
@@ -84,6 +91,7 @@ impl Voting {
 
 impl Nodes {
     pub(crate) fn session_changed(&mut self, session: Session, cx: &mut Context<Self>) {
+        self.chain = Some(session.chain_id).filter(|chain| !chain.is_empty());
         let signer = abi::unhex(&session.signer).filter(|key| !key.is_empty());
         if signer != self.voting.signer {
             // another reader's voices are not this one's
@@ -151,6 +159,7 @@ impl Nodes {
         cx.notify();
     }
 
+    /// The reader's yes to the press that waits for one: its vote goes.
     pub(crate) fn confirm(&mut self, cx: &mut Context<Self>) {
         if let Some(motion) = self.voting.confirming.take() {
             self.vote(motion, cx);
@@ -158,6 +167,7 @@ impl Nodes {
         cx.notify();
     }
 
+    /// The reader's Not now: the press that waits is dropped, unsent.
     pub(crate) fn hold(&mut self, cx: &mut Context<Self>) {
         self.voting.confirming = None;
         cx.notify();
@@ -166,31 +176,76 @@ impl Nodes {
     fn vote(&mut self, motion: Motion, cx: &mut Context<Self>) {
         self.voting.busy = true;
         self.voting.outcome = None;
+        self.voting.pressed_on = self.open.clone();
         let ask = cx.host().ask::<Submit<Valset>>(Op::Vote(motion));
         cx.land(ask, |view, answer, cx| {
             view.voting.busy = false;
-            view.voting.outcome = Some(match answer {
-                Ok(Submitted::Applied { output, .. }) => Ok(match abi::decode::<Voted>(&output) {
-                    Ok(Voted::Enacted) => "Enacted".to_owned(),
-                    Ok(Voted::Counted { votes, needed }) => {
-                        format!("Vote counted: {votes} of {needed}")
-                    }
-                    Err(_) => "Voted".to_owned(),
-                }),
-                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => Err(refusal.message),
-                Ok(Submitted::InDoubt { .. }) => {
-                    Err("No answer came back: it may have gone through.".into())
-                }
-            });
+            let said = said(answer);
+            // its page closed while it was in flight: a landed message went
+            // with it
+            let closed = view.voting.pressed_on.is_some() && view.voting.pressed_on != view.open;
+            view.voting.outcome = (said.is_err() || !closed).then_some(said);
             view.read_voices(cx);
             cx.notify();
         })
         .detach();
     }
 
+    /// The reader is done with the last vote's outcome.
     pub(crate) fn dismiss_outcome(&mut self, cx: &mut Context<Self>) {
         self.voting.outcome = None;
         cx.notify();
+    }
+}
+
+// SDK gap: a write's failure in words (Expo `src/write/words.ts`
+// `failure`), which every view that writes needs; the SDK builds it later
+/// What a vote came to, in the Expo app's words (mobile
+/// `src/network/nodes.ts` `votedWords`, `src/write/words.ts:79-84`
+/// `failure`): what a landed one did; else why it stopped, told apart by
+/// whether it was refused (by the program, or not confirmed on the
+/// host), may have gone through, or was never sent (no node reached, none
+/// connected, or something before the send refused: safe to send again).
+/// A node's outright refusal of the frame (its own code: a bad signature,
+/// a stale anchor) reads as "Not sent: …" until the SDK's failure words
+/// land; Expo calls it "That didn’t go through".
+pub(crate) fn said(answer: Result<Submitted, Error>) -> Result<String, String> {
+    match answer {
+        Ok(Submitted::Applied { output, .. }) => Ok(match abi::decode::<Voted>(&output) {
+            Ok(Voted::Enacted) => "Enacted".to_owned(),
+            Ok(Voted::Counted { votes, needed }) => format!("Vote counted: {votes} of {needed}"),
+            Err(_) => "Voted".to_owned(),
+        }),
+        Ok(Submitted::InDoubt { .. }) => Err(
+            "This may have gone through: no answer came back. What you see is read again from the node."
+                .into(),
+        ),
+        Ok(Submitted::Refused { refusal, .. }) => {
+            Err(format!("That didn’t go through: {}", refusal.message))
+        }
+        Err(refusal) => Err(match refusal.code.as_str() {
+            methods::refusal::CONSENT_REFUSED => {
+                format!("That didn’t go through: {}", refusal.message)
+            }
+            methods::refusal::RPC_CLIENT => {
+                "Not sent: the node can’t be reached. Check the connection, then try again.".into()
+            }
+            methods::refusal::NOT_CONNECTED => "Not sent: not connected to a node.".into(),
+            _ => format!("Not sent: {}", refusal.message),
+        }),
+    }
+}
+
+/// The motions a voter can put on a member, each with its slug and its
+/// label: Demote and Remove a validator, Promote a resident.
+pub(crate) fn motions_on(node: &Node) -> Vec<(&'static str, &'static str, Motion)> {
+    let key = node.key.clone();
+    match node.validator {
+        true => vec![
+            ("demote", "Demote", Motion::Demote { key: key.clone() }),
+            ("remove", "Remove", Motion::Remove { key }),
+        ],
+        false => vec![("promote", "Promote", Motion::Promote { key })],
     }
 }
 
@@ -234,8 +289,10 @@ pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String 
         Motion::Promote { key } => format!("Promote {} to validator", key_words(key)),
         Motion::Demote { key } => format!("Demote {} to resident", key_words(key)),
         Motion::Remove { key } => format!("Remove {} from the network", key_words(key)),
-        Motion::Door { open: true } => "Open the door: anyone enrolls without an invite".into(),
-        Motion::Door { open: false } => "Close the door: enrolling takes an invite".into(),
+        Motion::Door { open } => {
+            let door = crate::words::door(*open);
+            format!("{}: {}", door.label, door.meaning)
+        }
         Motion::Role { role, op } if role == abi::role::PROGRAMS => match abi::decode(op) {
             Ok(programs::Op::Schedule(scheduled)) => {
                 scheduled_words(scheduled.height, &scheduled.change, roster)

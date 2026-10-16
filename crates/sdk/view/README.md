@@ -130,6 +130,13 @@ is the gpui list (`px`, `rems`, `Hsla`, `StyleRefinement`, `Styled`,
 `ElementId`, `SharedString`, the `*Event` types, `Role`, ...).
 `use view::prelude::*` brings in what a gpui view file
 imports: elements, styles, events and the traits whose methods they call.
+A `Styled` method's style crosses whole as the node's style entry, but for
+gpui's debug outlines (a debug build's alone) and a pattern background (the
+host refuses it). Text styling cascades to the text inside, as in gpui:
+colour, family, features, fallbacks, size, line height, weight, slant,
+background, underline, strikethrough, white space, overflow, alignment, line
+clamp and letter spacing (`.letter_spacing(px(0.66))`, in pixels, negative
+to tighten).
 Ours, defined in this crate:
 
 - `App`, `AppContext`, `AsyncApp`, `Context`, `Entity`, `WeakEntity`
@@ -359,9 +366,11 @@ capability is not listed is refused `undeclared_capability`), `TARGETS` (the
 programs it addresses with `op.submit`, `program.query` and `program.changes`,
 by each `Program`'s `NAME`, `&[]` by default: a method naming another is
 refused `undeclared_target`, and a view with `op` or `program` that names
-none does not compile), `MIN_WINDOW_WIDTH` (the narrowest width in px it works at, default 480,
-at least 1 or it does not compile: the app never lays it out narrower, and
-a narrower window scrolls it sideways), `new(window, cx)`, the state on
+none does not compile), `MIN_WINDOW_WIDTH` (the narrowest pointer window in px it works at,
+default 480, at least 1 or it does not compile: on a desk the app never
+lays it out narrower, and a narrower window scrolls it sideways; a touch
+screen seats the view at its own width whatever this says, so it is not
+lowered for phones), `new(window, cx)`, the state on
 first mount (`Default::default()` unless the view says otherwise), and
 `attach(window, cx)`, which runs on every mount, first or restored from a
 snapshot, and starts what the view follows and reads. Subscribe in `attach`,

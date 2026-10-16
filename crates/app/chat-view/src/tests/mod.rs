@@ -104,8 +104,8 @@ fn configure(cx: &mut TestAppContext) {
     // the one agent, eddy's own, answers only him
     cx.host().handle::<Ask<Identity>>(|query| {
         Ok(match query {
-            identity::Query::Audience { number: 8 } => {
-                identity::Reply::Audience(identity::Audience::Manager)
+            identity::Query::Ownership { number: 8 } => {
+                identity::Reply::Ownership(identity::Ownership::Owner)
             }
             query => panic!("unexpected identity query: {query:?}"),
         })

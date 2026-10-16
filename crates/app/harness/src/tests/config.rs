@@ -77,7 +77,7 @@ fn each_model_call_reads_the_configuration_at_the_head_and_its_turn_names_that_s
 fn a_missing_or_malformed_configuration_or_an_unknown_model_is_noticed_once_and_the_agent_waits() {
     let world = world();
     let chain = &world.chain;
-    let path = "/home/ada/agents/later.md";
+    let path = "/home/Ada/agents/later.md";
     scripted(chain, world.agent, path);
     let thread = world.mention("m1", "hello");
     let unread = notices(chain, thread);

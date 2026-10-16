@@ -1,17 +1,21 @@
 //! Account: who the seated key is (its account, its keys, the agents it
 //! manages) and invites to the network, one pane each behind a left menu.
-//! The program is still `settings` (`programs`'s view); only its name
-//! on screen is Account. The node's own status is the Nodes view's, and
-//! the app's preferences the host's gear.
+//! Under a finger it is the Expo app's Account screen instead: the same
+//! panes under a strip, an agent's forms in sheets (`ui/phone/`). The
+//! program is still `settings` (`programs`'s view); only its name on
+//! screen is Account. The node's own status is the Nodes view's, and the
+//! app's preferences the host's gear.
 //!
 //! The state is one struct (`state.rs`). Reads are typed asks of identity
 //! and valset (`queries.rs`), re-read on their live heads (`watch.rs`);
-//! presses land in `actions.rs`; `ui/` draws and never mutates.
+//! presses land in `actions.rs`; `ui/` (the desktop) and `ui/phone/` (the
+//! phone) draw and never mutate, both worded by `words.rs`.
 mod actions;
 mod queries;
 mod state;
 mod ui;
 mod watch;
+mod words;
 
 pub use state::Settings;
 
@@ -47,7 +51,14 @@ impl View for Settings {
 
 impl Render for Settings {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        ui::render(self, window.touch(), cx)
+        // one wasm, two designs, the model shared (owner 2026-10-16: the
+        // phone gets its own screens): a finger gets the Expo app's, a
+        // pointer the desktop's
+        if window.touch() {
+            ui::phone::render(self, cx).into_any_element()
+        } else {
+            ui::render(self, cx).into_any_element()
+        }
     }
 }
 

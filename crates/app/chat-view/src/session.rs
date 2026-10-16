@@ -4,7 +4,7 @@ use chat::Principal;
 use view::prelude::*;
 
 use crate::Chat;
-use crate::queries::{audiences, channels, roster};
+use crate::queries::{channels, ownerships, roster};
 use futures::FutureExt;
 
 /// Why the reader may not write in the open room.
@@ -78,8 +78,8 @@ impl Chat {
         let host = cx.host();
         let names = roster(host.clone()).shared();
         cx.load(self, names.clone(), |chat| &mut chat.names);
-        let answers = async move { audiences(host, &names.await?).await };
-        cx.load(self, answers, |chat| &mut chat.audiences);
+        let answers = async move { ownerships(host, &names.await?).await };
+        cx.load(self, answers, |chat| &mut chat.ownerships);
     }
 
     pub(crate) fn load_channels(&mut self, cx: &mut Context<Self>) {
@@ -140,7 +140,7 @@ impl Chat {
     /// ([`crate::names::unanswered`]).
     pub(crate) fn unanswered(&self, principal: &Principal) -> Option<&'static str> {
         let names = self.names.ready()?;
-        let audiences = self.audiences.ready()?;
-        crate::names::unanswered(names, audiences, principal, self.my_account()?)
+        let ownerships = self.ownerships.ready()?;
+        crate::names::unanswered(names, ownerships, principal, self.my_account()?)
     }
 }

@@ -42,8 +42,20 @@ fn person(number: u64, name: &str) -> identity::Account {
     account(number, name, identity::Control::User { keys: Vec::new() })
 }
 
-fn path_of(name: &str) -> String {
-    format!("/shared/agents/{}.md", name.to_lowercase())
+fn home_of(manager: u64) -> &'static str {
+    match manager {
+        EDDY => "Eddy",
+        ADA => "Ada",
+        other => panic!("no person is account {other}"),
+    }
+}
+
+fn path_of(manager: u64, name: &str) -> String {
+    format!(
+        "/home/{}/agents/{}.md",
+        home_of(manager),
+        name.to_lowercase()
+    )
 }
 
 fn agent(number: u64, name: &str, manager: u64, scripted: bool) -> identity::Account {
@@ -56,7 +68,7 @@ fn agent(number: u64, name: &str, manager: u64, scripted: bool) -> identity::Acc
             life: identity::Life::Active { keys: Vec::new() },
             script: scripted.then(|| identity::Script {
                 calls: harness::PROGRAM.into(),
-                config: path_of(name),
+                config: path_of(manager, name),
             }),
         },
     )
@@ -90,7 +102,7 @@ fn setup(agent: u64, name: &str, manager: u64, window: Window) -> AgentSetup {
         agent,
         manager,
         standing: Standing::Active,
-        path: path_of(name),
+        path: path_of(manager, name),
         configured: Configured::Ready {
             snapshot: SNAPSHOT,
             config: config_of(name),
@@ -353,8 +365,32 @@ fn seated(net: Net, me: u64) -> (TestAppContext, Shared) {
         let net = shared.borrow();
         Ok(match query {
             identity::Query::List { .. } => identity::Reply::Accounts(page(net.accounts.clone())),
-            identity::Query::Audience { .. } => {
-                identity::Reply::Audience(identity::Audience::Manager)
+            identity::Query::Ownership { .. } => {
+                identity::Reply::Ownership(identity::Ownership::Owner)
+            }
+            other => panic!("unexpected query: {other:?}"),
+        })
+    });
+    let shared = net.clone();
+    cx.host().handle::<Query<files::Files>>(move |query| {
+        let net = shared.borrow();
+        Ok(match query {
+            files::Query::Ownership { path, .. } => {
+                let creator = net
+                    .setups
+                    .iter()
+                    .find(|setup| setup.path == path)
+                    .map(|setup| setup.manager);
+                files::Reply::Ownership(files::PathOwnership {
+                    snapshot: Some(SNAPSHOT),
+                    creator,
+                    write: Some(files::Ownership::Owner),
+                    writers: files::Writers::Listed {
+                        path,
+                        creator,
+                        write: files::Ownership::Owner,
+                    },
+                })
             }
             other => panic!("unexpected query: {other:?}"),
         })
@@ -749,7 +785,7 @@ fn files_take(cx: &TestAppContext) {
         .handle::<Submit<files::Files>>(|_| Ok(applied(Vec::new())));
 }
 
-fn commit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -> files::Op {
+fn edit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -> files::Op {
     files::Op::Commit {
         base,
         message,
@@ -759,6 +795,26 @@ fn commit_of(path: &str, config: &Config, base: Option<BlobId>, message: String)
             meta: Default::default(),
             content: files::Content::Inline(config.write().into_bytes()),
         }],
+    }
+}
+
+fn commit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -> files::Op {
+    let files::Op::Commit {
+        base,
+        message,
+        mut changes,
+    } = edit_of(path, config, base, message)
+    else {
+        unreachable!()
+    };
+    changes.push(files::Change::SetOwnership {
+        path: path.into(),
+        write: Some(files::Ownership::Owner),
+    });
+    files::Op::Commit {
+        base,
+        message,
+        changes,
     }
 }
 
@@ -798,7 +854,7 @@ fn the_create_flow_sends_its_ops_in_order() {
     assert_eq!(
         cx.host().requests::<Submit<files::Files>>(),
         [commit_of(
-            "/shared/agents/rover.md",
+            "/home/Eddy/agents/rover.md",
             &rover(),
             None,
             "Configure agent Rover (account 31)".into()
@@ -814,12 +870,12 @@ fn the_create_flow_sends_its_ops_in_order() {
                 account: ROVER,
                 script: Some(identity::Script {
                     calls: harness::PROGRAM.into(),
-                    config: "/shared/agents/rover.md".into(),
+                    config: "/home/Eddy/agents/rover.md".into(),
                 })
             },
-            identity::Op::SetAudience {
+            identity::Op::SetOwnership {
                 account: ROVER,
-                audience: identity::Audience::Anyone
+                ownership: identity::Ownership::Anyone
             },
         ]
     );
@@ -834,7 +890,7 @@ fn a_path_typed_in_the_form_is_the_one_committed_and_scripted() {
     cx.simulate_click("agents-create");
     cx.run_until_parked();
     cx.simulate_input("create-name", "Rover");
-    cx.simulate_input("create-path", "/home/eddy/rover.md");
+    cx.simulate_input("create-path", "/home/Eddy/rover.md");
     fill(&mut cx);
     cx.simulate_input("create-wait", "600");
     cx.simulate_click("create-next");
@@ -846,7 +902,7 @@ fn a_path_typed_in_the_form_is_the_one_committed_and_scripted() {
     assert_eq!(
         cx.host().requests::<Submit<files::Files>>(),
         [commit_of(
-            "/home/eddy/rover.md",
+            "/home/Eddy/rover.md",
             &waits,
             None,
             "Configure agent Rover (account 31)".into()
@@ -858,7 +914,7 @@ fn a_path_typed_in_the_form_is_the_one_committed_and_scripted() {
             account: ROVER,
             script: Some(identity::Script {
                 calls: harness::PROGRAM.into(),
-                config: "/home/eddy/rover.md".into(),
+                config: "/home/Eddy/rover.md".into(),
             })
         })
     );
@@ -941,7 +997,7 @@ fn an_unscripted_agent_continues_at_its_configuration() {
             account: PAGER,
             script: Some(identity::Script {
                 calls: harness::PROGRAM.into(),
-                config: "/shared/agents/pager.md".into(),
+                config: "/home/Eddy/agents/pager.md".into(),
             })
         }]
     );
@@ -965,31 +1021,97 @@ fn edit_commits_a_new_version_of_the_file_and_scripts_only_a_moved_path() {
     };
     assert_eq!(
         cx.host().requests::<Submit<files::Files>>(),
-        [commit_of(
-            "/shared/agents/scout.md",
+        [edit_of(
+            "/home/Eddy/agents/scout.md",
             &smaller,
             Some(SNAPSHOT),
             "Configure agent Scout (account 12)".into()
         )]
     );
     assert!(cx.host().requests::<Submit<Identity>>().is_empty());
-    assert!(cx.has_text("/shared/agents/scout.md"), "{:?}", cx.texts());
+    assert!(
+        cx.has_text("/home/Eddy/agents/scout.md"),
+        "{:?}",
+        cx.texts()
+    );
 
     cx.simulate_click("agent-edit");
     cx.run_until_parked();
-    cx.simulate_input("create-path", "/home/eddy/scout.md");
+    cx.simulate_input("create-path", "/home/Eddy/scout.md");
     cx.simulate_click("create-next");
     cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<Submit<files::Files>>().last(),
+        Some(&commit_of(
+            "/home/Eddy/scout.md",
+            &config_of("Scout"),
+            Some(SNAPSHOT),
+            "Configure agent Scout (account 12)".into()
+        )),
+        "a moved file gets its own list"
+    );
     assert_eq!(
         cx.host().requests::<Submit<Identity>>(),
         [identity::Op::SetScript {
             account: SCOUT,
             script: Some(identity::Script {
                 calls: harness::PROGRAM.into(),
-                config: "/home/eddy/scout.md".into(),
+                config: "/home/Eddy/scout.md".into(),
             })
         }]
     );
+}
+
+#[test]
+fn editing_a_configuration_in_another_accounts_home_shows_the_refusal_files_returns() {
+    let mut net = Net::default();
+    net.setups[0].path = path_of(ADA, "Scout");
+    let (mut cx, _) = seated(net, EDDY);
+    let refusal = "/home/Ada/agents/scout.md is in /home/Ada/, the home of the account named Ada: account 7 is named Eddy and writes under /home/Eddy/ and /shared/";
+    cx.host()
+        .refuse::<Submit<files::Files>>("unauthorized", refusal);
+    cx.simulate_click("agent-12");
+    cx.run_until_parked();
+    cx.simulate_click("agent-edit");
+    cx.run_until_parked();
+    cx.simulate_input("create-max-tokens", "1024");
+    cx.simulate_click("create-next");
+    cx.run_until_parked();
+    let smaller = Config {
+        max_tokens: 1024,
+        ..config_of("Scout")
+    };
+    assert_eq!(
+        cx.host().requests::<Submit<files::Files>>(),
+        [edit_of(
+            "/home/Ada/agents/scout.md",
+            &smaller,
+            Some(SNAPSHOT),
+            "Configure agent Scout (account 12)".into()
+        )]
+    );
+    assert!(cx.has_text(refusal), "{:?}", cx.texts());
+    assert!(cx.host().requests::<Submit<Identity>>().is_empty());
+}
+
+#[test]
+fn with_no_name_read_for_the_reader_no_home_is_proposed_and_a_typed_path_is_asked_for() {
+    let mut net = Net::default();
+    net.accounts.retain(|account| account.number != EDDY);
+    let (mut cx, _) = seated(net, EDDY);
+    identity_takes(&cx);
+    cx.simulate_click("agents-create");
+    cx.run_until_parked();
+    cx.simulate_input("create-name", "Rover");
+    fill(&mut cx);
+    cx.simulate_click("create-next");
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("Your account's name is not read yet, so no home is proposed: type the configuration file's path."),
+        "{:?}",
+        cx.texts()
+    );
+    assert!(cx.host().requests::<Submit<Identity>>().is_empty());
 }
 
 #[test]
@@ -999,7 +1121,7 @@ fn the_agent_shows_its_configuration_model_threads_and_usage() {
     cx.run_until_parked();
     for text in [
         "account 12 · agent · managed by Eddy",
-        "/shared/agents/scout.md",
+        "/home/Eddy/agents/scout.md",
         "snapshot abababababab",
         "sonnet",
         "Anthropic Messages",
@@ -1009,6 +1131,8 @@ fn the_agent_shows_its_configuration_model_threads_and_usage() {
         "4,096 tokens",
         "egress's default",
         "Its manager only",
+        "Who may change it",
+        "Only Eddy",
         "2 · 1 write as Scout",
         "You are Scout.",
         "#general",
@@ -1028,7 +1152,7 @@ fn an_agent_whose_configuration_harness_cannot_run_says_what_is_wrong() {
         malformed: harness::Malformed::NoClosingFence,
     };
     let (mut cx, _) = seated(net, EDDY);
-    let problem = "the agent's configuration /shared/agents/scout.md is malformed: its front matter has no closing +++ line";
+    let problem = "the agent's configuration /home/Eddy/agents/scout.md is malformed: its front matter has no closing +++ line";
     assert!(cx.has_text("Not configured"), "{:?}", cx.texts());
     assert!(cx.has_text(problem), "{:?}", cx.texts());
     cx.simulate_click("agent-12");
