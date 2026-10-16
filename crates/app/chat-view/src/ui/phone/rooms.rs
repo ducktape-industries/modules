@@ -44,7 +44,7 @@ pub(super) fn screen(
     let page = design::page(
         "chat-rooms-page",
         words::CHAT,
-        design::Nav::Root,
+        design::Nav::root(chat.reader_name()),
         ladder,
         theme,
     )

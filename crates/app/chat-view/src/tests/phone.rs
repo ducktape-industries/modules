@@ -148,6 +148,13 @@ fn an_archived_members_only_channel_wears_both_and_a_muted_name() {
 }
 
 #[test]
+fn the_rooms_page_leads_with_the_readers_avatar() {
+    let (cx, view) = phone();
+    view.read(|chat| assert_eq!(chat.reader_name(), "eddy"));
+    assert!(cx.find("chat-rooms-page-account").is_some());
+}
+
+#[test]
 fn the_rooms_page_says_it_is_loading_until_the_channels_land() {
     let mut cx = TestAppContext::new();
     configure(&mut cx);
@@ -726,8 +733,8 @@ fn rich_text_draws_its_quote_code_list_and_divider() {
         chat::parse_message("> a quote\n```rust\nfn main() {}\n```\n- one\n---\n**bold** `code`");
     rows_are(&mut cx, &view, vec![rich]);
     assert!(
-        cx.has_text("RUST"),
-        "the language as the eyebrow: {:?}",
+        cx.has_text("rust"),
+        "the language as written, the eyebrow's capitals the host's: {:?}",
         cx.texts()
     );
     assert!(

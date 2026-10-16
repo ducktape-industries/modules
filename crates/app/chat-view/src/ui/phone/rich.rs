@@ -20,9 +20,9 @@ const QUOTE_INSET: Pixels = px(10.);
 /// A list line's marker column, 22 less the line's inset (mobile
 /// `src/chat/Rich.tsx:26`).
 const MARKER: Pixels = px(16.);
-/// A code block's language: the eyebrow's line at 10 (mobile
-/// `src/chat/Rich.tsx:42`, `src/design/theme.ts:50`).
-const CODE_LANG: design::Type = design::Type::lined(10., 14.);
+/// A code block's language: the eyebrow at 10 (mobile
+/// `src/chat/Rich.tsx:42`).
+const CODE_LANG: Pixels = px(10.);
 /// A code block's line (mobile `src/chat/Rich.tsx:47`).
 const CODE_LINE: Pixels = px(18.);
 
@@ -101,13 +101,13 @@ fn block_view(
 /// raised ground, one line per line, scrolling sideways.
 fn code(id: String, lang: Option<&str>, text: &str, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let lang = lang.filter(|lang| !lang.is_empty()).map(|lang| {
-        div()
+        design::eyebrow(lang.to_owned(), ladder, theme)
+            .text_type(design::Type {
+                size: CODE_LANG,
+                ..ladder.eyebrow
+            })
             .px(design::space::LG)
             .mb(design::space::XXS)
-            .font_family(design::fonts::FAMILY_MONO)
-            .text_type(CODE_LANG)
-            .text_color(theme.muted)
-            .child(lang.to_uppercase())
     });
     let lines = div()
         .id(format!("{id}-scroll"))
