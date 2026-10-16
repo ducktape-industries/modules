@@ -823,6 +823,7 @@ fn files_head(
         .child(
             div()
                 .flex_1()
+                .min_w(px(0.))
                 .font_family(design::fonts::FAMILY_MONO)
                 .text_type(ladder.secondary)
                 .text_color(theme.muted)
@@ -886,15 +887,18 @@ fn file_row(
     let shown = path_text(path);
     let binary = file.hunks.is_empty() && file.content != Content::Text;
     let counted = file.additions > 0 || file.deletions > 0;
-    let state = crate::words::file_status(file.status);
+    let state = words::file_status(file.status);
     let facts = match (binary, counted) {
         (true, _) => parts::caption(format!("{state} · binary"), ladder, theme),
-        (false, true) => parts::caption(String::new(), ladder, theme).child(parts::delta(
-            &format!("{state} · "),
-            file.additions,
-            file.deletions,
-            theme,
-        )),
+        (false, true) => {
+            let delta = parts::delta(
+                &format!("{state} · "),
+                file.additions,
+                file.deletions,
+                theme,
+            );
+            parts::caption(delta, ladder, theme)
+        }
         (false, false) => parts::caption(state, ladder, theme),
     };
     let toggled = path.to_vec();

@@ -59,14 +59,15 @@ const RADIO_DOT: Pixels = px(9.);
 
 // ------------------------------------------------------------------ text
 
-/// One line of caption text, muted (the kit's `Text role="caption"`).
+/// One line of caption text, muted (the kit's `Text role="caption"`):
+/// plain words, or runs of their own (a `+a −d` delta).
 // SDK gap: quiet text at the ladder's sizes, swap when feat/phone-kit lands
-pub(crate) fn caption(text: impl Into<SharedString>, ladder: &Ladder, theme: &Theme) -> Div {
+pub(crate) fn caption(text: impl IntoElement, ladder: &Ladder, theme: &Theme) -> Div {
     div()
         .text_type(ladder.caption)
         .text_color(theme.muted)
         .truncate()
-        .child(text.into())
+        .child(text)
 }
 
 /// `text` then `tail` in muted, one run that truncates as one
@@ -542,6 +543,7 @@ pub(crate) fn notice(
         .child(
             div()
                 .flex_1()
+                .min_w(px(0.))
                 .text_type(ladder.secondary)
                 .text_color(words)
                 .child(text.into()),
@@ -1117,6 +1119,7 @@ pub(crate) fn file_bar(
         .font_family(design::fonts::FAMILY_MONO)
         .text_type(ladder.secondary)
         .child(title.into());
+    let right: SharedString = right.into();
     bar(key, title, caption(right, ladder, theme), ladder, theme)
 }
 

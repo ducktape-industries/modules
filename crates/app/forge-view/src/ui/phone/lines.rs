@@ -634,14 +634,12 @@ fn file_head(
                 .child(path.to_owned()),
         )
         .child(
-            parts::caption(String::new(), ladder, theme)
-                .flex_none()
-                .child(parts::delta(
-                    &format!("{status} · "),
-                    additions,
-                    deletions,
-                    theme,
-                )),
+            parts::caption(
+                parts::delta(&format!("{status} · "), additions, deletions, theme),
+                ladder,
+                theme,
+            )
+            .flex_none(),
         )
 }
 

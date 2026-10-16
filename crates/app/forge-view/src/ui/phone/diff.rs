@@ -229,6 +229,7 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &T
     let said = |text: String| {
         div()
             .flex_1()
+            .min_w(px(0.))
             .text_type(ladder.secondary)
             .text_color(theme.muted)
             .child(text)
