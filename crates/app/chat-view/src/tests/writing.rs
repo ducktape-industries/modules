@@ -175,7 +175,9 @@ fn a_post_the_room_shows_before_its_receipt_is_shown_once() {
     // then the receipt
     cx.simulate_event(wire::Event::Response {
         id: receipt,
-        result: Ok(Submit::<::chat::Chat>::encode_reply(&Vec::new())),
+        result: Ok(Submit::<::chat::Chat>::encode_reply(
+            &view::testing::applied(Vec::new()),
+        )),
         done: true,
     });
     assert!(cx.has_text("on its way") && !greyed(&cx, "message-1"));

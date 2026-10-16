@@ -1,10 +1,11 @@
 //! Packs what `make wasm-modules` builds into a founding: each program with its describe module
-//! and any view embedded, forge's params, and a founding file `ducktape init` reads.
+//! and any view embedded, forge's and halo's params, and a founding file `ducktape init` reads.
 
 use std::borrow::Cow;
 use std::fs;
 use std::path::Path;
 
+use abi::role::halo::{Class, Founded, Genesis};
 use wasm_encoder::{CustomSection, Encode, Section};
 use wasmparser::{Encoding, Parser, Payload, Validator};
 
@@ -14,21 +15,23 @@ pub const VIEW_SECTION: &str = "ducktape.view";
 pub const DESCRIBE_SECTION: &str = "ducktape.describe";
 pub const FOUNDING: &str = include_str!("../founding.toml");
 
-pub const PROGRAMS: [(&str, &str); 5] = [
+pub const PROGRAMS: [(&str, &str); 6] = [
     ("programs", "settings_view"),
     ("valset", "node_view"),
     ("identity", "members_view"),
     ("chat", "chat_view"),
     ("forge", "forge_view"),
+    ("harness", "harness_view"),
 ];
-pub const UNVIEWED: [&str; 7] = [
+pub const UNVIEWED: &[&str] = &[
     "blobs",
     "awaits",
+    "halo",
+    "scheduler",
     "activity",
     "files",
     "egress",
     "attribution",
-    "harness",
 ];
 pub const VIEWS: [&str; 1] = ["explorer_view"];
 
@@ -46,6 +49,28 @@ pub fn forge_bounds() -> forge::Bounds {
         diff_bytes: 32 << 20,
         blob_bytes: 256 << 10,
         record_bytes: 64 << 10,
+    }
+}
+
+/// The lanes halo serves from the first block, given ids in order from 0. blobs' lane is
+/// `Critical`: a node that lags fetches the blobs a block names at that class before it can
+/// apply the block, and it is pinned, so no vote pauses or closes it: a node cut off from
+/// blobs could never apply the block that opened it again. The live relay's lane carries
+/// clients' tracks, so it is served no higher than `Client`, and a vote may pause it.
+pub fn halo_lanes() -> Genesis {
+    Genesis {
+        lanes: vec![
+            Founded {
+                name: "ducktape/blobs".into(),
+                cap: Class::Critical,
+                pinned: true,
+            },
+            Founded {
+                name: "ducktape/live".into(),
+                cap: Class::Client,
+                pinned: false,
+            },
+        ],
     }
 }
 
@@ -70,6 +95,7 @@ pub fn bundle(release: &Path, out: &Path) -> Result<()> {
         fs::write(out.join(format!("{view}.wasm")), bytes)?;
     }
     fs::write(out.join("forge.params"), abi::encode(&forge_bounds()))?;
+    fs::write(out.join("halo.params"), abi::encode(&halo_lanes()))?;
     fs::write(out.join("founding.toml"), FOUNDING)?;
     Ok(())
 }

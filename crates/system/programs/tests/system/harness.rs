@@ -112,11 +112,14 @@ fn a_mentioned_agent_answers_through_elected_nodes_and_writes_as_itself() {
         };
         let agent: u64 =
             abi::decode(&net.apply(&public(ADA), identity::PROGRAM, &create).await).unwrap();
-        let hand = identity::Op::SetRunner {
+        let script = identity::Op::SetScript {
             account: agent,
-            runner: Some(harness::PROGRAM.into()),
+            script: Some(identity::Script {
+                calls: harness::PROGRAM.into(),
+                config: String::new(),
+            }),
         };
-        net.apply(&public(ADA), identity::PROGRAM, &hand).await;
+        net.apply(&public(ADA), identity::PROGRAM, &script).await;
         let hire = Op::Hire {
             agent,
             system: "Keep notes in /shared.".into(),

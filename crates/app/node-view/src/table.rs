@@ -11,6 +11,7 @@ use crate::recent::{Recent, WINDOW};
 use crate::row::{self, QUIET, Row, Status};
 use crate::{Nodes, ui};
 use valset::Motion;
+use view::design::Ladder;
 
 const KEY_W: Pixels = px(104.);
 const ADDRESS_W: Pixels = px(196.);
@@ -85,6 +86,7 @@ pub(crate) fn table(
     nodes: &[Node],
     cx: &Context<Nodes>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Stateful<Div> {
     let head = view.status.ready().map_or(0, |status| status.height);
     let this = view.status.ready().map(|status| status.identity.as_slice());
@@ -120,8 +122,17 @@ pub(crate) fn table(
                 let this = this == Some(node.key.as_slice());
                 let cells = heard.map_or(row::BLANK, |network| row::synced(node, network));
                 let marks = strip(node, head, gap.unwrap_or(GAPS[0]), &view.recent, theme);
-                line(index, node, this, cells, place(marks, column), view, theme)
-                    .children(under(index, node, view, cx, theme))
+                line(
+                    index,
+                    node,
+                    this,
+                    cells,
+                    place(marks, column),
+                    view,
+                    theme,
+                    ladder,
+                )
+                .children(under(index, node, view, cx, theme, ladder))
             })
     };
     let residents = nodes.len() as u64 - validators;
@@ -262,6 +273,10 @@ fn cell(width: Pixels, right: bool) -> Div {
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the ladder rides beside the theme into every sized helper; the phone rework of this view reshapes the row"
+)]
 fn line(
     index: usize,
     node: &Node,
@@ -270,6 +285,7 @@ fn line(
     (beside, below): (Option<(Pixels, Div)>, Option<Div>),
     view: &Nodes,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Stateful<Div> {
     let muted = |text: String| div().text_color(theme.muted).child(text);
     let address = address_fits(view);
@@ -315,6 +331,7 @@ fn line(
             &cells.status,
             view.answering(),
             theme,
+            ladder,
         )));
     let id = ElementId::Name(format!("nodes-row-{index}").into());
     ruled(id, cells, below, theme).text_size(design::text::SECONDARY)
@@ -329,6 +346,7 @@ fn under(
     view: &Nodes,
     cx: &Context<Nodes>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Option<Div> {
     let operator = node.operator.clone().map(|operator| {
         div()
@@ -350,7 +368,7 @@ fn under(
                 view.press(motion.clone(), cx)
             });
             let id = ElementId::Name(format!("nodes-{name}-{index}").into());
-            design::button(id, label, theme, press)
+            design::button(id, label, ladder, theme, press)
                 .kind(design::Kind::Quiet)
                 .enabled(view.voting.pressable())
         })
@@ -401,14 +419,20 @@ fn strip(node: &Node, head: u64, gap: f32, recent: &Recent, theme: &Theme) -> Di
 /// The status as one word in its colours, grey while the node is silent
 /// (the word is what it said then); where a Quiet validator stopped, as a
 /// quiet caption.
-fn status(index: usize, status: &Status, answering: bool, theme: &Theme) -> impl IntoElement {
+fn status(
+    index: usize,
+    status: &Status,
+    answering: bool,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let id = ElementId::named_usize("nodes-status-word", index);
     let badge = |foreground, background| {
         let (foreground, background) = match answering {
             true => (foreground, background),
             false => (theme.muted, theme.surface_raised),
         };
-        design::badge(id.clone(), status.word(), foreground, background).into_any_element()
+        design::badge(id.clone(), status.word(), ladder, foreground, background).into_any_element()
     };
     let caption = |text: String| {
         div()

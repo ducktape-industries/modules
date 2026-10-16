@@ -11,9 +11,13 @@ fn search_finds_heights_hashes_accounts_and_programs() {
     search(&mut cx, &abi::hex(&[0xb2; 32]));
     assert!(cx.has_text("In block 12"), "{:?}", cx.texts());
     search(&mut cx, "#3");
-    assert!(cx.has_text("account 3   Person   1 device"));
+    assert!(cx.has_text("account 3   User   1 device"));
     search(&mut cx, "chat");
-    assert!(cx.has_text("Transactions · chat") && cx.has_text("2 transactions"));
+    assert!(
+        cx.find("explorer-program").is_some() && cx.has_text("reads and writes the clipboard"),
+        "a program name opens its page: {:?}",
+        cx.texts()
+    );
     assert!(!cx.has_text("mystery"), "{:?}", cx.texts());
     // a block hash in the window opens it; one outside is asked of the node
     search(&mut cx, &abi::hex(&[105; 32]));
@@ -169,9 +173,15 @@ fn a_link_opens_the_page_it_names() {
     open(&mut cx, &format!("block/{}", abi::hex(&[105; 32])));
     assert!(cx.has_text(&abi::hex(&[105; 32])), "a block by its hash");
     open(&mut cx, "account/3");
-    assert!(cx.has_text("account 3   Person   1 device"));
-    open(&mut cx, "program/chat");
+    assert!(cx.has_text("account 3   User   1 device"));
+    open(&mut cx, "txs/chat");
     assert!(cx.has_text("Transactions · chat"));
+    open(&mut cx, "program/chat");
+    assert!(
+        cx.find("explorer-program").is_some() && cx.has_text("reads and writes the clipboard"),
+        "{:?}",
+        cx.texts()
+    );
     open(&mut cx, "tx/12/0");
     assert!(cx.has_text("In block 12") && cx.has_text("not a member"));
     open(&mut cx, &format!("tx/{}", abi::hex(&[0xee; 32])));
@@ -230,6 +240,7 @@ fn every_route_reads_back_from_its_path() {
         Route::Accounts,
         Route::Account(3),
         Route::Programs,
+        Route::Program("chat".into()),
     ] {
         assert_eq!(
             Route::from_path(&route.path()),
@@ -245,6 +256,7 @@ fn every_route_reads_back_from_its_path() {
         "tx/11/01",
         "tx/11/4294967296",
         "program/",
+        "txs/",
         "account/-1",
         "blocks/1",
     ] {

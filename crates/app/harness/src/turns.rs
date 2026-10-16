@@ -27,6 +27,8 @@ pub(crate) fn append(ctx: &ExecCtx, thread: &mut ThreadRow, body: Body) {
         time: ctx.env().time,
         body,
     };
+    thread.last_height = frame.height;
+    thread.last_time = frame.time;
     FRAMES.put(ctx, &(thread.id, seq), &frame);
 }
 
@@ -79,8 +81,12 @@ fn serves(ctx: &QueryCtx, service: &str) -> Result<bool, Error> {
     }
 }
 
-async fn request(ctx: &Ctx, request: egress::Request) -> Result<Vec<u8>, Error> {
-    let op = egress::Op::Request(request);
+async fn request(ctx: &Ctx, request: egress::Request, wait: Option<u64>) -> Result<Vec<u8>, Error> {
+    let op = egress::Op::Request {
+        request,
+        delivery: egress::Delivery::Whole,
+        wait,
+    };
     ctx.call_raw(bound(ctx)?, abi::encode(&op)).await
 }
 
@@ -96,7 +102,7 @@ async fn call_model(
         head,
         body: parts,
     };
-    let answer = request(ctx, asked).await;
+    let answer = request(ctx, asked, Some(anthropic::WAIT)).await;
     let bytes =
         answer.map_err(|error| format!("the model was not reached: {}", refusal(&error)))?;
     abi::decode(&bytes).map_err(|_| "the egress answer is not an HTTP response".to_owned())
@@ -636,7 +642,7 @@ fn mark(ctx: &ExecCtx, id: u64, call: &str, state: CallState) -> Result<(), Erro
 
 async fn run_call(ctx: &Ctx, id: u64, call: String) -> Result<(), Error> {
     let note = call.as_bytes().to_vec();
-    let relayed = request(ctx, egress::Request::Relay { note }).await;
+    let relayed = request(ctx, egress::Request::Relay { note }, None).await;
     let (text, failed) = match relayed {
         Ok(_) => perform(ctx, id, &call).await?,
         Err(error) => (format!("the relay failed: {}", refusal(&error)), true),

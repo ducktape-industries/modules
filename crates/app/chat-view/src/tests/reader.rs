@@ -59,7 +59,8 @@ fn a_peers_name_gained_later_replaces_its_numeric_fallback() {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
+    cx.host()
+        .handle::<Submit<::chat::Chat>>(|_| Ok(view::testing::applied(Vec::new())));
 
     let live = cx.host().stream::<Changes<Identity>>();
     let view = cx.open::<Chat>();

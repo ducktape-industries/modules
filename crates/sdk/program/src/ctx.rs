@@ -319,8 +319,9 @@ impl ExecCtx {
     }
 
     /// The account this write acts as ([`sender`](ExecCtx::sender) as a
-    /// number): a person's, an agent's or a program's. The chain itself
-    /// (`Root`) is refused: a row that names an account cannot name it.
+    /// number): a user's, a program account or a system account. The chain
+    /// itself (`Root`) is refused: a row that names an account cannot name
+    /// it.
     pub fn sender_account(&self) -> Result<AccountNumber, Error> {
         self.sender()?
             .account()
@@ -466,6 +467,20 @@ impl ExecCtx {
             frame,
             ticket,
             answer,
+        }) {
+            HostReply::Done => Ok(()),
+            HostReply::Refused(refusal) => Err(crate::kernel::error_from(refusal)),
+            other => protocol("done", other),
+        }
+    }
+
+    /// Binds `program` to `role` in the network's roles table, or unbinds
+    /// the role when `program` is `None`; the validators role's alone, on
+    /// its vote, and never a role in `abi::role::REQUIRED`.
+    pub fn bind(&self, role: impl Into<String>, program: Option<ProgramId>) -> Result<(), Error> {
+        match self.host(HostOp::Bind {
+            role: role.into(),
+            program,
         }) {
             HostReply::Done => Ok(()),
             HostReply::Refused(refusal) => Err(crate::kernel::error_from(refusal)),

@@ -105,7 +105,7 @@ fn forty_rows_of_one_style_send_it_once_and_a_new_row_brings_only_its_own() {
 /// style the table does not hold is a refused frame.
 #[test]
 #[should_panic(
-    expected = "the host refuses this frame: a node names a style its table does not hold"
+    expected = "the host refuses this frame: Text at [40]: a node names a style its table does not hold"
 )]
 fn the_test_host_refuses_a_style_its_table_does_not_hold() {
     let mut cx = TestAppContext::new();
@@ -134,7 +134,7 @@ impl Render for RogueFromTheStart {
 /// written and the host refuses the frame by name, as it does a patch's.
 #[test]
 #[should_panic(
-    expected = "the host refuses this frame: a node names a style its table does not hold"
+    expected = "the host refuses this frame: Text at [0]: a node names a style its table does not hold"
 )]
 fn the_test_host_refuses_a_whole_frame_naming_a_style_its_table_does_not_hold() {
     let mut cx = TestAppContext::new();

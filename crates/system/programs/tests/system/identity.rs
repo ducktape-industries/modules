@@ -37,8 +37,8 @@ const FOUNDED: [&str; 5] = [
     "probe",
 ];
 
-/// The first person's account: the founding programs hold 1..=5.
-const ALICE: AccountNumber = 7;
+/// The first person's account: the founding programs hold 1..=8.
+const ALICE: AccountNumber = 9;
 
 impl Net {
     async fn account(&self, number: AccountNumber) -> identity::Account {
@@ -210,7 +210,7 @@ fn every_program_has_its_account_from_its_admission() {
             let account = net.account(number).await;
             assert_eq!(
                 account.control,
-                identity::Control::Program {
+                identity::Control::System {
                     program: program.into()
                 }
             );
@@ -275,8 +275,8 @@ fn an_agent_acts_until_its_manager_suspends_it() {
         let agent: AccountNumber = abi::decode(&output).unwrap();
         assert_eq!(
             net.account(agent).await.control,
-            identity::Control::Managed {
-                runner: None,
+            identity::Control::Program {
+                script: None,
                 manager: alice,
                 category: identity::Category::Agent,
                 life: identity::Life::Active { keys: Vec::new() },
@@ -363,8 +363,8 @@ fn an_agent_acts_until_its_manager_suspends_it() {
         assert_eq!(account.card.name, "Scout 2");
         assert_eq!(
             account.kind(),
-            identity::Kind::Managed {
-                runner: None,
+            identity::Kind::Program {
+                script: None,
                 manager: alice,
                 category: identity::Category::Agent,
                 standing: identity::Standing::Revoked,
@@ -396,7 +396,7 @@ impl Net {
 }
 
 #[test]
-fn a_program_sends_as_the_agent_its_manager_hands_it_while_the_agent_acts() {
+fn a_program_sends_as_the_agent_whose_script_calls_it_while_the_agent_acts() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
         let mut net = Net::found(context, dir.path()).await;
@@ -409,13 +409,16 @@ fn a_program_sends_as_the_agent_its_manager_hands_it_while_the_agent_acts() {
             abi::decode(&net.apply(&public(1), identity::PROGRAM, &create).await).unwrap();
         assert_eq!(refusal_of(&net.sent_as(agent).await), reason::UNAUTHORIZED);
 
-        let hand = identity::Op::SetRunner {
+        let script = identity::Op::SetScript {
             account: agent,
-            runner: Some("probe".into()),
+            script: Some(identity::Script {
+                calls: "probe".into(),
+                config: String::new(),
+            }),
         };
-        let by_bob = net.refuse(&public(2), identity::PROGRAM, &hand).await;
+        let by_bob = net.refuse(&public(2), identity::PROGRAM, &script).await;
         assert_eq!(by_bob, reason::UNAUTHORIZED);
-        net.apply(&public(1), identity::PROGRAM, &hand).await;
+        net.apply(&public(1), identity::PROGRAM, &script).await;
         let ran = net.sent_as(agent).await;
         let probed: Vec<Probed> = abi::decode(output_of(&ran)).unwrap();
         let [Probed::Env(env)] = probed.as_slice() else {
@@ -427,8 +430,8 @@ fn a_program_sends_as_the_agent_its_manager_hands_it_while_the_agent_acts() {
         let suspend = identity::Op::Suspend { account: agent };
         net.apply(&public(1), identity::PROGRAM, &suspend).await;
         assert_eq!(refusal_of(&net.sent_as(agent).await), reason::UNAUTHORIZED);
-        let person = net.sent_as(ALICE).await;
-        assert_eq!(refusal_of(&person), reason::UNAUTHORIZED);
+        let user = net.sent_as(ALICE).await;
+        assert_eq!(refusal_of(&user), reason::UNAUTHORIZED);
     });
 }
 
@@ -566,9 +569,9 @@ fn account_lists_resume_with_the_answering_height() {
             assert_eq!(
                 numbers,
                 if managed {
-                    vec![10, 11, 12]
+                    (ALICE + 3..=ALICE + 5).collect::<Vec<_>>()
                 } else {
-                    (1..=12).collect::<Vec<_>>()
+                    (1..=ALICE + 5).collect::<Vec<_>>()
                 }
             );
         }

@@ -51,14 +51,14 @@ fn key(key: &[u8], label: &str) -> identity::Key {
 }
 
 fn person(number: u64, name: &str, keys: Vec<identity::Key>) -> identity::Account {
-    account(number, name, identity::Control::Person { keys })
+    account(number, name, identity::Control::User { keys })
 }
 
 fn program(number: u64, name: &str) -> identity::Account {
     account(
         number,
         name,
-        identity::Control::Program {
+        identity::Control::System {
             program: name.into(),
         },
     )
@@ -68,8 +68,8 @@ fn agent(number: u64, name: &str, manager: u64, life: identity::Life) -> identit
     account(
         number,
         name,
-        identity::Control::Managed {
-            runner: None,
+        identity::Control::Program {
+            script: None,
             manager,
             category: identity::Category::Agent,
             life,
@@ -233,7 +233,7 @@ fn the_list_groups_people_then_agents_then_programs_and_chooses_no_one() {
     for text in [
         "5 accounts",
         "you",
-        "Person",
+        "User",
         "Program",
         "Agent · managed by eddy",
         "Agent · managed by eddy · revoked",
@@ -688,8 +688,8 @@ fn a_row_is_named_by_the_member_not_the_avatar() {
         _ => panic!("{key} is a container"),
     };
     for (number, name, description) in [
-        (7, "eddy", "you · Person"),
-        (11, "ada", "Person"),
+        (7, "eddy", "you · User"),
+        (11, "ada", "User"),
         (10, "relay", "Agent · managed by eddy · revoked"),
         (8, "chat", "Program"),
     ] {

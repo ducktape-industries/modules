@@ -1,9 +1,9 @@
 //! `cargo run -p settings-view --example live`: Account in the real app
 //! over a fake node where the dev account manages an agent.
-use view::live;
+use view::rig;
 
 fn main() {
-    live::run("programs", |net| {
+    rig::run("programs", |net| {
         net.person("ada");
         net.submit(
             net.me(),

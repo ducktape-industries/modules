@@ -28,8 +28,10 @@ const STRIP_CLEAR: f32 = 26. + design::spacing::XS as f32;
 const CANCEL_DELETE: &str = "chat-menu-cancel-delete";
 type Press = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
+pub mod card;
 mod picker;
 use picker::{picker_size, reactions};
+use view::design::Ladder;
 
 fn prefix(pane: Pane) -> &'static str {
     match pane {
@@ -48,12 +50,17 @@ pub fn focus_key(pane: Pane, mode: Mode) -> String {
     format!("{}{suffix}", prefix(pane))
 }
 
-pub fn floating(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<AnyElement> {
+pub fn floating(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Option<AnyElement> {
     let menu = chat.menu.as_ref()?;
     let (at, size) = popup_geometry(menu, more_items(chat, menu).len())?;
     // a fixed size where the popup must not jump under the pointer; the
     // delete confirmation sizes to its words and buttons
-    let content = message_menu(chat, menu, cx, theme);
+    let content = message_menu(chat, menu, cx, theme, ladder);
     // the picker's focus key names its search field, which takes the keys
     let id = match menu.mode {
         Mode::Reactions => format!("{}reaction-frame", prefix(menu.pane)),
@@ -75,6 +82,10 @@ pub fn floating(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<An
             .id(id)
             .role(Role::AlertDialog)
             .aria_label("Delete this message?"),
+        // the card's first button takes the keys on open, as the
+        // confirmation's does; the overlay around it is the dialog, named
+        // "Agent profile", as the picker's is
+        Mode::Profile => div().id(format!("{}card-frame", prefix(menu.pane))),
         // the actions are a menu: one stop whose ↑ ↓ walk the items and
         // Enter runs the active one
         _ => {
@@ -140,7 +151,7 @@ fn popup_geometry(menu: &Menu, items: usize) -> Option<(Pair, Option<Pair>)> {
     let size = match menu.mode {
         Mode::More => Some(menu_size(items)),
         Mode::Reactions => Some(picker_size()),
-        Mode::Delete => None,
+        Mode::Delete | Mode::Profile => None,
         Mode::Toolbar | Mode::Editing => return None,
     };
     Some((menu.at, size))
@@ -168,11 +179,18 @@ pub fn editing(chat: &Chat, pane: Pane, cx: &mut Context<Chat>) -> Option<AnyEle
     )
 }
 
-fn message_menu(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+fn message_menu(
+    chat: &Chat,
+    menu: &Menu,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     match menu.mode {
         Mode::Toolbar | Mode::More => actions(chat, menu, cx, theme),
-        Mode::Reactions => reactions(chat, menu, cx, theme),
+        Mode::Reactions => reactions(chat, menu, cx, theme, ladder),
         Mode::Delete => delete(chat, cx, theme),
+        Mode::Profile => card::card(chat, menu, cx, theme, ladder),
         Mode::Editing => div().into_any_element(),
     }
 }
@@ -185,6 +203,7 @@ enum Action {
     Reply,
     React,
     CopyLink,
+    WorkRecord,
     Edit,
     Delete,
 }
@@ -201,6 +220,7 @@ fn more_items(chat: &Chat, menu: &Menu) -> Vec<Action> {
         (Action::Reply, pane == Pane::Timeline && !open),
         (Action::React, writable),
         (Action::CopyLink, chat.message_link(seq).is_some()),
+        (Action::WorkRecord, work_record(chat, pane, seq).is_some()),
         (Action::Edit, writable && chat.wrote(pane, seq)),
         (Action::Delete, writable && chat.may_delete(pane, seq)),
     ]
@@ -254,6 +274,13 @@ fn action_item(
             *theme,
         ),
         Action::CopyLink => Item::new("chat-menu-copy-link", "🔗", "Copy link", press, *theme),
+        Action::WorkRecord => Item::new(
+            "chat-menu-work-record",
+            "📋",
+            "View work record",
+            press,
+            *theme,
+        ),
         Action::Edit => Item::new("chat-menu-edit", "✎", "Edit message", press, *theme),
         Action::Delete => {
             let (fg, bg) = (theme.danger, theme.background);
@@ -287,7 +314,20 @@ fn act(
                 None => cx.host().log("no message link: the session names no chain"),
             }
         }
+        Action::WorkRecord => {
+            let link = work_record(chat, pane, seq);
+            chat.close_menu();
+            if let Some(link) = link {
+                chat.open_link(link, cx);
+            }
+        }
     }
+}
+
+/// Where the agent that wrote the message at `seq` shows its work in this
+/// room ([`Chat::work_record`]).
+fn work_record(chat: &Chat, pane: Pane, seq: u64) -> Option<String> {
+    chat.work_record(&chat.author(pane, seq)?)
 }
 
 fn delete(_chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {

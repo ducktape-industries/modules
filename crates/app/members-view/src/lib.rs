@@ -83,9 +83,12 @@ impl Group {
 
     fn of(kind: &identity::Kind) -> Group {
         match kind {
-            identity::Kind::Person => Group::People,
-            identity::Kind::Managed { .. } => Group::Agents,
-            identity::Kind::Program(_) => Group::Programs,
+            identity::Kind::User => Group::People,
+            identity::Kind::Program {
+                category: identity::Category::Agent,
+                ..
+            } => Group::Agents,
+            identity::Kind::System(_) => Group::Programs,
         }
     }
 }
@@ -111,7 +114,7 @@ impl Row {
 
     fn manager(&self) -> Option<u64> {
         match self.kind {
-            identity::Kind::Managed { manager, .. } => Some(manager),
+            identity::Kind::Program { manager, .. } => Some(manager),
             _ => None,
         }
     }
@@ -175,7 +178,7 @@ impl Render for Members {
         // the pane's width, as the host lays the frame out: the detail
         // docks or floats by it in the frame that shows it
         self.width = window.viewport_size().width.into();
-        ui::render(self, cx)
+        ui::render(self, window.touch(), cx)
     }
 }
 

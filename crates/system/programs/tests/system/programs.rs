@@ -65,19 +65,13 @@ fn a_held_program_is_scheduled_by_the_validators_vote_and_seated_at_its_height()
             }))
             .await;
         assert_eq!(refusal_of(&unheld), reason::NOT_FOUND);
-        // a change at or below the block is refused at the first vote, as
-        // the programs role would refuse it at enactment
+        // a change at or below the block passes its vote, valset reads no
+        // programs op, and the programs refuse it as it is enacted
         let past = programs::Op::Schedule(programs::Scheduled {
             height: net.height,
             change: programs::Change::Set(entry.clone()),
         });
-        let vote = valset::Op::Vote(valset::Motion::Programs {
-            op: abi::encode(&past),
-        });
-        let refused = net
-            .refuse(&public(FOUNDERS[0]), valset::PROGRAM, &vote)
-            .await;
-        assert_eq!(refused, reason::INVALID_INPUT);
+        assert_eq!(refusal_of(&net.govern(&past).await), reason::INVALID_INPUT);
         let lands_at = net.height + 6;
         let scheduled = net
             .govern(&programs::Op::Schedule(programs::Scheduled {
@@ -291,15 +285,7 @@ fn a_schedule_from_a_key_or_another_program_is_refused() {
             panic!()
         };
         assert!(pending.items.is_empty());
-        let enacted = net.govern(&schedule).await;
-        let voted: valset::Voted = abi::decode(output_of(&enacted)).unwrap();
-        assert_eq!(voted, valset::Voted::Enacted);
-        let scheduled = enacted
-            .nested
-            .iter()
-            .find(|receipt| receipt.program == programs::PROGRAM)
-            .unwrap();
-        output_of(scheduled);
+        output_of(&net.govern(&schedule).await);
     });
 }
 

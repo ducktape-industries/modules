@@ -10,6 +10,10 @@ pub(crate) const VERSION: &str = "2023-06-01";
 pub(crate) const COMPACTION_BETA: &str = "compact-2026-09-04";
 pub(crate) const CLOSE: &str = "]}";
 pub(crate) const SUMMARIZE: &str = r#"],"compaction":{"type":"summarize"}}"#;
+// A non-streamed Messages request runs up to 10 minutes (Anthropic's SDKs refuse a longer one).
+// ponytail: 600 blocks is 10 minutes at 1-second blocks; derive it from the network's block time
+// once a program can read it.
+pub(crate) const WAIT: u64 = 600;
 
 pub(crate) fn head(summarized: bool) -> Head {
     let mut headers = vec![

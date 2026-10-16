@@ -8,15 +8,15 @@ use store::{Item, Map, Set};
 
 use crate::{
     Account, AccountNumber, Admission, Audience, CONSENT_NAMESPACE, Card, Category, Consent,
-    Control, Key, Life, Reference, Reply,
+    Control, Key, Life, Reference, Reply, Script,
 };
 
 pub(crate) const ACCOUNTS: Map<AccountNumber, Account> = Map::new("a/");
 pub(crate) const OF_KEY: Map<Vec<u8>, AccountNumber> = Map::new("k/");
 pub(crate) const OF_PROGRAM: Map<ProgramId, AccountNumber> = Map::new("m/");
 const GENERATION: Map<Vec<u8>, u64> = Map::new("g/");
-/// `(manager, managed)`: the agents an account manages, revoked ones too,
-/// so a manager's list keeps what they answered for.
+/// `(manager, managed)`: the program accounts an account manages, revoked
+/// ones too, so a manager's list keeps what they answered for.
 pub(crate) const MANAGED: Set<(AccountNumber, AccountNumber)> = Set::new("d/");
 const NEXT: Item<AccountNumber> = Item::new("next");
 const AUDIENCES: Map<AccountNumber, Audience> = Map::new("u/");
@@ -28,21 +28,21 @@ pub(crate) fn account(ctx: &QueryCtx, number: AccountNumber) -> Result<Account, 
 }
 
 /// The account a frame signed by `key` acts as: refused while it does not
-/// act, so the host rejects the frame. A person and a program always act;
-/// an agent while its manager keeps it active (a revoked one holds no key
-/// to be asked about).
+/// act, so the host rejects the frame. A user and a system account always
+/// act; a program account while its manager keeps it active (a revoked one
+/// holds no key to be asked about).
 pub(crate) fn of_key(ctx: &QueryCtx, key: &Vec<u8>) -> Result<Option<AccountNumber>, Error> {
     let Some(number) = OF_KEY.get(ctx, key)? else {
         return Ok(None);
     };
     match account(ctx, number)?.control {
-        Control::Person { .. }
-        | Control::Program { .. }
-        | Control::Managed {
+        Control::User { .. }
+        | Control::System { .. }
+        | Control::Program {
             life: Life::Active { .. },
             ..
         } => Ok(Some(number)),
-        Control::Managed { .. } => Err(unauthorized(format!("account {number} is suspended"))),
+        Control::Program { .. } => Err(unauthorized(format!("account {number} is suspended"))),
     }
 }
 
@@ -141,7 +141,7 @@ pub(crate) fn register_program(ctx: &ExecCtx, program: ProgramId) -> Result<(), 
     let account = Account {
         number,
         card,
-        control: Control::Program {
+        control: Control::System {
             program: program.clone(),
         },
     };
@@ -168,7 +168,7 @@ pub(crate) fn create(ctx: &ExecCtx, name: String, scheme: Scheme) -> Result<(), 
     let account = Account {
         number,
         card,
-        control: Control::Person { keys: vec![key] },
+        control: Control::User { keys: vec![key] },
     };
     ACCOUNTS.put(ctx, &number, &account);
     ctx.set_return_data(abi::encode(&number));
@@ -182,30 +182,29 @@ fn acting(ctx: &ExecCtx) -> Result<AccountNumber, Error> {
         .ok_or_else(|| unauthorized("the system acts as no account"))
 }
 
-/// `number`'s account, which must be a person's: the one kind that
-/// manages.
-fn person(ctx: &ExecCtx, number: AccountNumber) -> Result<Account, Error> {
+/// `number`'s account, which must be a user's: the one kind that manages.
+fn user(ctx: &ExecCtx, number: AccountNumber) -> Result<Account, Error> {
     let account = account(ctx, number)?;
     match account.control {
-        Control::Person { .. } => Ok(account),
-        Control::Managed { .. } | Control::Program { .. } => Err(unauthorized(format!(
-            "account {number} is not a person's: an agent or a program manages no one"
+        Control::User { .. } => Ok(account),
+        Control::Program { .. } | Control::System { .. } => Err(unauthorized(format!(
+            "account {number} is not a user's: a program or system account manages no one"
         ))),
     }
 }
 
 pub(crate) fn create_agent(ctx: &ExecCtx, name: String) -> Result<(), Error> {
-    let manager = person(ctx, acting(ctx)?)?.number;
+    let manager = user(ctx, acting(ctx)?)?.number;
     let card = card(ctx, name)?;
     let number = next_number(ctx)?;
     let account = Account {
         number,
         card,
-        control: Control::Managed {
+        control: Control::Program {
             manager,
             category: Category::Agent,
             life: Life::Active { keys: Vec::new() },
-            runner: None,
+            script: None,
         },
     };
     ACCOUNTS.put(ctx, &number, &account);
@@ -225,19 +224,20 @@ fn managing(ctx: &ExecCtx, manager: AccountNumber, number: AccountNumber) -> Res
     Ok(())
 }
 
-/// The refusal every op on a revoked agent meets.
+/// The refusal every op on a revoked program account meets.
 fn revoked(number: AccountNumber) -> Error {
     wrong_state(format!("account {number} is revoked for good"))
 }
 
-fn not_an_agent(number: AccountNumber) -> Error {
-    wrong_state(format!("account {number} is no one's agent"))
+fn not_managed(number: AccountNumber) -> Error {
+    wrong_state(format!("account {number} is not a program account"))
 }
 
-/// A person's new key signs the frame and a key already on their account
-/// consents; an agent's manager signs the frame and the new key consents to
-/// itself. Either way the consent proves a key agreed to the admission. A
-/// program's account holds no keys; a revoked agent takes none.
+/// A user's new key signs the frame and a key already on their account
+/// consents; a program account's manager signs the frame and the new key
+/// consents to itself. Either way the consent proves a key agreed to the
+/// admission. A system account holds no keys; a revoked program account
+/// takes none.
 pub(crate) fn add_key(
     ctx: &ExecCtx,
     scheme: Scheme,
@@ -247,7 +247,7 @@ pub(crate) fn add_key(
     let env = ctx.env();
     let mut account = account(ctx, consent.account)?;
     let (keys, key, consenting_scheme) = match &mut account.control {
-        Control::Person { keys } => {
+        Control::User { keys } => {
             let authorizer = keys
                 .iter()
                 .find(|key| key.key == consent.key)
@@ -255,7 +255,7 @@ pub(crate) fn add_key(
             let consenting_scheme = authorizer.scheme;
             (keys, env.signer()?, consenting_scheme)
         }
-        Control::Managed {
+        Control::Program {
             manager,
             life: Life::Active { keys } | Life::Suspended { keys },
             ..
@@ -263,7 +263,7 @@ pub(crate) fn add_key(
             managing(ctx, *manager, consent.account)?;
             (keys, consent.key.clone(), scheme)
         }
-        Control::Managed {
+        Control::Program {
             manager,
             life: Life::Revoked,
             ..
@@ -271,8 +271,8 @@ pub(crate) fn add_key(
             managing(ctx, *manager, consent.account)?;
             return Err(revoked(consent.account));
         }
-        Control::Program { .. } => {
-            return Err(wrong_state("a program's account holds no keys"));
+        Control::System { .. } => {
+            return Err(wrong_state("a system account holds no keys"));
         }
     };
     if env.time > consent.expires_at {
@@ -308,13 +308,13 @@ pub(crate) fn add_key(
     Ok(())
 }
 
-/// A person removes their own keys, never a senior one nor their last; an
-/// agent's manager removes any of its keys.
+/// A user removes their own keys, never a senior one nor their last; a
+/// program account's manager removes any of its keys.
 pub(crate) fn remove_key(ctx: &ExecCtx, number: AccountNumber, key: &Vec<u8>) -> Result<(), Error> {
     let env = ctx.env();
     let mut account = account(ctx, number)?;
     let keys = match &mut account.control {
-        Control::Person { keys } => {
+        Control::User { keys } => {
             let signer = env.signer()?;
             let held = |wanted: &[u8]| keys.iter().find(|held| held.key == wanted);
             let removed = held(key).ok_or_else(|| not_found("that key is not on this account"))?;
@@ -328,7 +328,7 @@ pub(crate) fn remove_key(ctx: &ExecCtx, number: AccountNumber, key: &Vec<u8>) ->
             }
             keys
         }
-        Control::Managed {
+        Control::Program {
             manager,
             life: Life::Active { keys } | Life::Suspended { keys },
             ..
@@ -339,7 +339,7 @@ pub(crate) fn remove_key(ctx: &ExecCtx, number: AccountNumber, key: &Vec<u8>) ->
             }
             keys
         }
-        Control::Managed {
+        Control::Program {
             manager,
             life: Life::Revoked,
             ..
@@ -347,8 +347,8 @@ pub(crate) fn remove_key(ctx: &ExecCtx, number: AccountNumber, key: &Vec<u8>) ->
             managing(ctx, *manager, number)?;
             return Err(revoked(number));
         }
-        Control::Program { .. } => {
-            return Err(wrong_state("a program's account holds no keys"));
+        Control::System { .. } => {
+            return Err(wrong_state("a system account holds no keys"));
         }
     };
     keys.retain(|held| &held.key != key);
@@ -357,18 +357,18 @@ pub(crate) fn remove_key(ctx: &ExecCtx, number: AccountNumber, key: &Vec<u8>) ->
     Ok(())
 }
 
-/// The account whose card the frame may edit: a person's or a program's
-/// own, an agent's by its manager alone.
+/// The account whose card the frame may edit: a user's or a system
+/// account's own, a program account's by its manager alone.
 fn editable(ctx: &ExecCtx, number: AccountNumber) -> Result<Account, Error> {
     let account = account(ctx, number)?;
     let acting = acting(ctx)?;
     let editor = match &account.control {
-        Control::Person { .. } | Control::Program { .. } => number,
-        Control::Managed {
+        Control::User { .. } | Control::System { .. } => number,
+        Control::Program {
             life: Life::Revoked,
             ..
         } => return Err(revoked(number)),
-        Control::Managed { manager, .. } => *manager,
+        Control::Program { manager, .. } => *manager,
     };
     if acting != editor {
         return Err(unauthorized(format!(
@@ -400,16 +400,17 @@ pub(crate) fn set_profile(
     Ok(())
 }
 
-/// The agent `number` as its manager, who signed the frame, changes it:
-/// `change` takes its life and gives the next, or says why not.
+/// The program account `number` as its manager, who signed the frame,
+/// changes it: `change` takes its life and gives the next, or says why
+/// not.
 fn relive(
     ctx: &ExecCtx,
     number: AccountNumber,
     change: impl FnOnce(Life) -> Result<Life, Error>,
 ) -> Result<(), Error> {
     let mut account = account(ctx, number)?;
-    let Control::Managed { manager, life, .. } = &mut account.control else {
-        return Err(not_an_agent(number));
+    let Control::Program { manager, life, .. } = &mut account.control else {
+        return Err(not_managed(number));
     };
     managing(ctx, *manager, number)?;
     let was = std::mem::replace(life, Life::Revoked);
@@ -436,8 +437,8 @@ pub(crate) fn resume(ctx: &ExecCtx, number: AccountNumber) -> Result<(), Error> 
     })
 }
 
-/// Final: the agent's keys are dropped and act as no one; the manager's
-/// list keeps it.
+/// Final: the program account's keys are dropped and act as no one; the
+/// manager's list keeps it.
 pub(crate) fn revoke(ctx: &ExecCtx, number: AccountNumber) -> Result<(), Error> {
     relive(ctx, number, |life| match life {
         Life::Active { keys } | Life::Suspended { keys } => {
@@ -449,31 +450,31 @@ pub(crate) fn revoke(ctx: &ExecCtx, number: AccountNumber) -> Result<(), Error> 
     })
 }
 
-pub(crate) fn set_runner(
+pub(crate) fn set_script(
     ctx: &ExecCtx,
     number: AccountNumber,
-    runner: Option<ProgramId>,
+    script: Option<Script>,
 ) -> Result<(), Error> {
     let mut account = account(ctx, number)?;
-    let Control::Managed {
+    let Control::Program {
         manager,
         life,
-        runner: current,
+        script: current,
         ..
     } = &mut account.control
     else {
-        return Err(not_an_agent(number));
+        return Err(not_managed(number));
     };
     managing(ctx, *manager, number)?;
     if *life == Life::Revoked {
         return Err(revoked(number));
     }
-    if let Some(program) = &runner
-        && !OF_PROGRAM.has(ctx, program)
+    if let Some(Script { calls, .. }) = &script
+        && !OF_PROGRAM.has(ctx, calls)
     {
-        return Err(not_found(format!("program {program} has no account")));
+        return Err(not_found(format!("program {calls} has no account")));
     }
-    *current = runner;
+    *current = script;
     save(ctx, account);
     Ok(())
 }
@@ -484,10 +485,11 @@ pub(crate) fn runs(
     number: AccountNumber,
 ) -> Result<Option<AccountNumber>, Error> {
     let not_run = || unauthorized(format!("{program} does not run account {number}"));
-    let Control::Managed { life, runner, .. } = account(ctx, number)?.control else {
+    let Control::Program { life, script, .. } = account(ctx, number)?.control else {
         return Err(not_run());
     };
-    if runner.as_ref() != Some(program) {
+    let calls_program = script.is_some_and(|script| &script.calls == program);
+    if !calls_program {
         return Err(not_run());
     }
     match life {
@@ -498,8 +500,8 @@ pub(crate) fn runs(
 }
 
 pub(crate) fn audience(ctx: &QueryCtx, number: AccountNumber) -> Result<Audience, Error> {
-    let Control::Managed { .. } = account(ctx, number)?.control else {
-        return Err(not_an_agent(number));
+    let Control::Program { .. } = account(ctx, number)?.control else {
+        return Err(not_managed(number));
     };
     Ok(AUDIENCES.get(ctx, &number)?.unwrap_or_default())
 }
@@ -509,8 +511,8 @@ pub(crate) fn set_audience(
     number: AccountNumber,
     audience: Audience,
 ) -> Result<(), Error> {
-    let Control::Managed { manager, life, .. } = account(ctx, number)?.control else {
-        return Err(not_an_agent(number));
+    let Control::Program { manager, life, .. } = account(ctx, number)?.control else {
+        return Err(not_managed(number));
     };
     managing(ctx, manager, number)?;
     if life == Life::Revoked {

@@ -2,6 +2,8 @@
 //! `PageResponse`; `next` is the cursor of the page after it.
 use chat::view::Names;
 use chat::{ChannelInfo, MemberRow, MessageHits, MsgRow, PageRequest, Principal, ask};
+use identity::Audience;
+use std::collections::BTreeMap;
 use view::prelude::*;
 
 use crate::{PAGE, SPAN, WINDOW};
@@ -37,6 +39,25 @@ pub(crate) async fn roots(
 /// Every account's profile, folded into [`Names`].
 pub(crate) async fn roster(host: Host) -> Result<Names, Error> {
     ::chat::view::roster(move |ask| host.query(ask)).await
+}
+
+/// Whom each agent that acts answers besides its manager, as identity
+/// keeps it: one ask per agent the roster names.
+pub(crate) async fn audiences(host: Host, names: &Names) -> Result<BTreeMap<u64, Audience>, Error> {
+    let agents = names
+        .people()
+        .filter(|number| crate::message::agent(names, &Principal::Account(*number)));
+    let asks = agents.map(|number| {
+        let host = host.clone();
+        async move {
+            let audience = host.query(identity::ask::Audience { number }).await?;
+            Ok::<_, Error>((number, audience))
+        }
+    });
+    Ok(futures::future::try_join_all(asks)
+        .await?
+        .into_iter()
+        .collect())
 }
 
 /// The rows around a landing seq, oldest first.

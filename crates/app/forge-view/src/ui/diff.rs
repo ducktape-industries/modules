@@ -18,6 +18,7 @@ use crate::Forge;
 use crate::ui::components::{PRESS_TARGET, badge, empty_state, id, path_text, quiet};
 use crate::ui::staged;
 use forge::{Content, FileDiff, FileStatus, LineKind, Query, Reply, Side};
+use view::design::Ladder;
 
 /// A route an event of a virtual row takes back into the view.
 pub(crate) type Route<E> = Rc<dyn Fn(&E, &mut Window, &mut App)>;
@@ -491,8 +492,18 @@ pub(crate) fn render(
     reviewable: bool,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
-    let reply = match staged(forge, query, element_id, "Reading the diff…", cx, theme) {
+    let ladder = *ladder;
+    let reply = match staged(
+        forge,
+        query,
+        element_id,
+        "Reading the diff…",
+        cx,
+        theme,
+        &ladder,
+    ) {
         Ok(reply) => reply,
         Err(state) => return state,
     };
@@ -572,7 +583,7 @@ pub(crate) fn render(
         rows.widest.map(|row| notes.index_of(row)),
         Some(&handle),
         move |index| match slots.slot(index) {
-            Slot::Note(note) => note_row(note, composer.as_ref(), &theme),
+            Slot::Note(note) => note_row(note, composer.as_ref(), &theme, &ladder),
             Slot::Row(row) => {
                 let active = active
                     .filter(|(line, _)| *line == row)
@@ -941,7 +952,12 @@ fn line_row(
 
 /// One row of a note box, under the line it is on: the box's edges, and
 /// what this row of it holds.
-fn note_row(note: &NoteRow, composer: Option<&Composer>, theme: &Theme) -> AnyElement {
+fn note_row(
+    note: &NoteRow,
+    composer: Option<&Composer>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let slice = div()
         .flex_1()
         .min_w(px(0.))
@@ -966,6 +982,7 @@ fn note_row(note: &NoteRow, composer: Option<&Composer>, theme: &Theme) -> AnyEl
                 slice.child(badge(
                     id(format!("{}-outdated", note.key)),
                     "outdated",
+                    ladder,
                     theme.warning,
                     theme.warning_soft,
                 ))
@@ -1009,6 +1026,7 @@ fn note_row(note: &NoteRow, composer: Option<&Composer>, theme: &Theme) -> AnyEl
                 .child(crate::ui::components::button(
                     id("forge-comment-cancel"),
                     "Cancel",
+                    ladder,
                     theme,
                     move |_: &ClickEvent, window: &mut Window, app: &mut App| {
                         cancel(&(), window, app)
@@ -1018,6 +1036,7 @@ fn note_row(note: &NoteRow, composer: Option<&Composer>, theme: &Theme) -> AnyEl
                     crate::ui::components::button(
                         id("forge-comment-save"),
                         "Stage",
+                        ladder,
                         theme,
                         move |_: &ClickEvent, window: &mut Window, app: &mut App| {
                             stage(&(), window, app)

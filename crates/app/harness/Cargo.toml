@@ -34,4 +34,5 @@ serde_json = { workspace = true }
 [dev-dependencies]
 egress = { workspace = true }
 awaits = { workspace = true }
+scheduler = { workspace = true }
 valset = { workspace = true }

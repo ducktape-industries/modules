@@ -2,7 +2,7 @@
 
 use ::program::{Error, ExecCtx, Program, QueryCtx};
 
-use crate::rules::{close, expire, overdue, owed, park, resolve, ticket};
+use crate::rules::{close, owed, park, resolve, ticket};
 use crate::{Op, PROGRAM, Query, Reply};
 
 pub struct Awaits;
@@ -21,7 +21,6 @@ impl Program for Awaits {
                 calls,
             } => park(ctx, frame, program, calls),
             Op::Resolve { ticket, answer } => resolve(ctx, ticket, answer),
-            Op::Expire { ticket } => expire(ctx, ticket),
             Op::Close { frame } => close(ctx, frame),
         }
     }
@@ -34,11 +33,6 @@ impl Program for Awaits {
                 after,
                 limit,
             } => Reply::Tickets(owed(ctx, target, after, limit)?),
-            Query::Overdue {
-                height,
-                after,
-                limit,
-            } => Reply::Tickets(overdue(ctx, height, after, limit)?),
         })
     }
 }

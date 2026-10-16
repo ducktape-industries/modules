@@ -144,9 +144,9 @@ fn a_section_is_read_out_of_a_program_and_run() {
     }
     program.push(size as u8);
     program.extend_from_slice(&body);
-    assert_eq!(host::section(&program), Some(&section[..]));
-    assert_eq!(host::section(&module("(module)")), None);
-    assert_eq!(host::section(b"not wasm"), None);
+    assert_eq!(crate::section(&program), Some(&section[..]));
+    assert_eq!(crate::section(&module("(module)")), None);
+    assert_eq!(crate::section(b"not wasm"), None);
 
     let compiled = host::compile(&engine, &section).unwrap();
     let description = host::run(&engine, &compiled, &[1, 2, 3]).unwrap();
