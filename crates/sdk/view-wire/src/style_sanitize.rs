@@ -229,10 +229,7 @@ pub(crate) fn sanitize_text(text: &mut TextStyleRefinement) {
     if let Some(value) = &mut text.line_clamp {
         *value = (*value).max(1);
     }
-    // signed, as a margin is: tighter than the font is a valid value. Its
-    // natural floor, minus a glyph's advance (past it the pen runs
-    // backwards), is known only to the shaper; a refinement carries no
-    // cascaded font size to stand in for it, so this keeps it finite.
+    // signed, as CSS `letter-spacing`: a negative one tightens the line
     if let Some(value) = &mut text.letter_spacing {
         let mut number = f32::from(*value);
         bound(&mut number, true);
@@ -346,6 +343,20 @@ mod tests {
         assert_eq!(shadows[0].spread_radius, px(-1e9));
     }
     #[test]
+    fn letter_spacing_keeps_its_sign_and_is_finite() {
+        for (authored, bounded) in [
+            (-0.22, -0.22),
+            (1.44, 1.44),
+            (f32::NAN, 0.),
+            (f32::INFINITY, f32::MAX),
+            (f32::NEG_INFINITY, f32::MIN),
+        ] {
+            let mut style = StyleRefinement::default().letter_spacing(px(authored));
+            sanitize(&mut style).unwrap();
+            assert_eq!(style.text.letter_spacing, Some(px(bounded)), "{authored}");
+        }
+    }
+    #[test]
     fn gpuis_own_shadows_cross_as_authored() {
         for style in [
             StyleRefinement::default().shadow_sm(),
@@ -377,22 +388,6 @@ mod tests {
             style.grid_location.unwrap().row,
             GridPlacement::Span(1)..GridPlacement::Line(i16::MIN)
         );
-    }
-    /// Letter spacing is signed like a margin: tighter or looser passes as
-    /// authored, and only a non-finite value changes.
-    #[test]
-    fn letter_spacing_keeps_its_sign_and_is_made_finite() {
-        let spaced = |spacing: f32| {
-            let mut style = StyleRefinement::default().letter_spacing(px(spacing));
-            sanitize(&mut style).unwrap();
-            style.text.letter_spacing
-        };
-        assert_eq!(spaced(-0.22), Some(px(-0.22)));
-        assert_eq!(spaced(1.44), Some(px(1.44)));
-        assert_eq!(spaced(-1e9), Some(px(-1e9)));
-        assert_eq!(spaced(f32::NAN), Some(px(0.)));
-        assert_eq!(spaced(f32::INFINITY), Some(px(f32::MAX)));
-        assert_eq!(spaced(f32::NEG_INFINITY), Some(px(f32::MIN)));
     }
     /// A value inside its bound, or a field no bound reads (overflow),
     /// is left as authored; a second pass changes nothing.

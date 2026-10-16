@@ -144,7 +144,7 @@
           },
           "text_align": "Center",
           "line_clamp": 3,
-          "letter_spacing": -0.22
+          "letter_spacing": -0.5
         },
         "mouse_cursor": "PointingHand",
         "opacity": 0.5,

@@ -287,7 +287,6 @@ pub(super) fn gen_native_style(rng: &mut Rng) -> gpui::StyleRefinement {
     style.text.line_height = Some(definite(rng));
     style.text.font_weight = Some(gpui::FontWeight(gen_f32(rng)));
     style.text.line_clamp = Some(rng.next_u64() as usize);
-    style.text.letter_spacing = Some(px(gen_f32(rng)));
     style.text.underline = Some(gpui::UnderlineStyle {
         thickness: px(gen_f32(rng)),
         color: Some(gen_color(rng)),
@@ -297,6 +296,7 @@ pub(super) fn gen_native_style(rng: &mut Rng) -> gpui::StyleRefinement {
         thickness: px(gen_f32(rng)),
         color: Some(gen_color(rng)),
     });
+    style.text.letter_spacing = Some(px(gen_f32(rng)));
     style
 }
 
@@ -364,5 +364,5 @@ fn a_style_entry_is_the_same_bytes_however_the_writer_walks_it() {
         feed(&entry);
     }
     assert_eq!(corpus.len(), 260);
-    assert_eq!(digest, 0xbdf8_9dbc_d947_29c2, "{digest:#018x}");
+    assert_eq!(digest, 0x025d_432c_889f_c584, "{digest:#018x}");
 }

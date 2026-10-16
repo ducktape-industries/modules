@@ -131,6 +131,8 @@ pulldown-cmark = { version = "0.13", default-features = false }
 # duckfs path normalization: NFC so visually-identical names collide instead
 # of coexisting (a consensus-determinism requirement, not cosmetics).
 unicode-normalization = "0.1"
+# harness's agent configuration: the TOML front matter of a file in files.
+toml = { version = "1", default-features = false, features = ["std", "parse", "display", "serde"] }
 
 [patch."https://github.com/ducktape-industries/ducktape"]
 abi = { path = "crates/sdk/abi" }

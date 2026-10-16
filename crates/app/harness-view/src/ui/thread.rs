@@ -1,15 +1,16 @@
 //! One thread, read only: its state, the input held behind its loop, its context and usage,
 //! and the transcript, one row per frame, each tool call opened to show its input and how
-//! far it got. Its manager closes it from here.
-use harness::{Body, CallRow, CallState, Frame, Said, Stop};
+//! far it got, then the reply the model is streaming back as it grows. Its manager closes it
+//! from here.
+use harness::{Body, CallRow, CallState, Flow, Forming, Frame, Partial, Said, Stop};
 use view::design::Ladder;
 use view::design::{fonts, space, text};
 use view::prelude::*;
 use view::{Div, FontWeight};
 
 use super::{
-    asking, back, caption, context_words, meter, no_node, panel, place_label, state_badge,
-    usage_words, waiting,
+    asking, back, caption, context_words, meter, no_node, panel, place_label, snapshot_words,
+    state_badge, usage_words, waiting,
 };
 use crate::read::{self, Roster, Transcript};
 use crate::{Agents, Arm, Screen, State, links, thread_state};
@@ -85,8 +86,15 @@ fn thread(
     let manages = view.me == Some(row.manager);
     let relaying = roster.map_or(1, |roster| roster.relaying);
     let state = match (shown.serving, relaying) {
-        (0, _) | (_, 0) => State::NoNode,
+        (None, _) => State::Unconfigured,
+        (Some(0), _) | (_, 0) => State::NoNode,
         _ => thread_state(row),
+    };
+    let model = shown.model();
+    let window = model.and_then(|model| model.window.tokens());
+    let asks = match model {
+        Some(model) => format!("asks {} ({})", model.id, model.name),
+        None => "asks no model until its configuration is fixed".to_owned(),
     };
     let place = place_label(row, roster);
     let opened = links::place_link(&view.chain, &row.place);
@@ -108,10 +116,8 @@ fn thread(
                 .child(design::heading("thread-place", place, 1, theme))
                 .child(caption(
                     format!(
-                        "thread {id} · opened at block {} · {} · max output {}",
+                        "thread {id} · opened at block {} · {asks}",
                         design::grouped(row.opened),
-                        row.model,
-                        design::grouped(row.max_tokens.into()),
                     ),
                     theme,
                 )),
@@ -187,11 +193,11 @@ fn thread(
                 .flex()
                 .items_center()
                 .gap(space::SM)
-                .children(meter(row.context, shown.window, theme))
+                .children(meter(row.context, window, theme))
                 .child(caption(
                     format!(
                         "Context {} · {}",
-                        context_words(row.context, shown.window),
+                        context_words(row.context, window),
                         design::plural(summaries as u64, "summary", "summaries")
                     ),
                     theme,
@@ -222,13 +228,21 @@ fn thread(
         .child(head)
         .children(closing(view, shown, cx, theme, ladder))
         .child(status)
-        .children(no_node(
-            "thread-no-node",
-            &row.service,
-            shown.serving,
-            relaying,
-            theme,
-        ))
+        .children(model.and_then(|model| {
+            no_node(
+                "thread-no-node",
+                &model.service,
+                shown.serving.unwrap_or_default(),
+                relaying,
+                theme,
+            )
+        }))
+        .children(shown.setup.as_ref().and_then(|setup| {
+            setup.configured.problem(&setup.path).map(|problem| {
+                panel("thread-problem", theme.danger_soft, theme)
+                    .child(div().font_weight(FontWeight::MEDIUM).child(problem))
+            })
+        }))
         .children(stuck(shown, theme))
         .children(held(shown, roster, theme))
         .child(transcript(view, shown, roster, cx, theme, ladder))
@@ -385,6 +399,122 @@ fn transcript(
                 .iter()
                 .map(|frame| frame_row(view, frame, shown, &agent, cx, theme, ladder)),
         )
+        .children(
+            shown
+                .partial
+                .as_ref()
+                .map(|partial| partial_row(partial, &agent, theme, ladder)),
+        )
+}
+
+fn flow_words(partial: &Partial) -> String {
+    let events = design::plural(partial.next_seq, "event", "events");
+    match &partial.flow {
+        Flow::Open => format!("is answering · {events} so far"),
+        Flow::Ended => format!("finished answering · {events}"),
+        Flow::Overflowed => "ran out of context as it answered".to_owned(),
+        Flow::Broken { reason } => format!("the reply broke: {reason}"),
+        Flow::Failed { text } => text.clone(),
+    }
+}
+
+fn partial_row(
+    partial: &Partial,
+    agent: &str,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement + use<> {
+    let forming = match partial.forming {
+        Forming::Kept { .. } => partial.said.len().checked_sub(1),
+        Forming::Nothing | Forming::Skipped { .. } => None,
+    };
+    let failed = matches!(
+        partial.flow,
+        Flow::Broken { .. } | Flow::Failed { .. } | Flow::Overflowed
+    );
+    let blocks = partial.said.iter().enumerate().map(|(index, said)| {
+        let key = format!("partial-{index}");
+        let still_forming = forming == Some(index);
+        partial_block(key, said, still_forming, theme, ladder)
+    });
+    div()
+        .id("thread-partial")
+        .flex()
+        .flex_col()
+        .gap(space::XS)
+        .p(space::SM)
+        .border_1()
+        .border_color(theme.border)
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_baseline()
+                .gap(space::SM)
+                .child(
+                    div()
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(agent.to_owned()),
+                )
+                .child(
+                    caption(flow_words(partial), theme)
+                        .when(failed, |words| words.text_color(theme.danger)),
+                ),
+        )
+        .children(blocks)
+}
+
+fn partial_block(
+    key: String,
+    said: &Said,
+    forming: bool,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
+    match said {
+        Said::Text(text) => div()
+            .id(SharedString::from(key))
+            .child(text.clone())
+            .into_any_element(),
+        Said::Thinking { text, .. } => div()
+            .id(SharedString::from(key))
+            .flex()
+            .flex_col()
+            .child(caption("Thinking", theme))
+            .child(div().text_color(theme.muted).child(text.clone()))
+            .into_any_element(),
+        Said::RedactedThinking(_) => caption("Thinking, redacted", theme).into_any_element(),
+        Said::ToolUse { name, input, .. } => {
+            let (state, foreground, background) = match forming {
+                true => ("Forming", theme.warning, theme.warning_soft),
+                false => ("Formed", theme.muted, theme.surface_raised),
+            };
+            div()
+                .id(SharedString::from(key.clone()))
+                .flex()
+                .flex_col()
+                .gap(space::XS)
+                .p(space::SM)
+                .border_1()
+                .border_color(theme.border)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(space::SM)
+                        .child(design::mono(name.clone()).font_weight(FontWeight::MEDIUM))
+                        .child(design::badge(
+                            SharedString::from(format!("{key}-state")),
+                            state,
+                            ladder,
+                            foreground,
+                            background,
+                        )),
+                )
+                .child(wrapped_mono(input, theme))
+                .into_any_element()
+        }
+    }
 }
 
 fn frame_row(
@@ -450,9 +580,14 @@ fn frame_row(
                 .into_any_element()
         }
         Body::Turn {
-            said, stop, usage, ..
+            said,
+            stop,
+            usage,
+            config,
+            ..
         } => {
-            let mut turn = row(agent.to_owned(), stop_words(*stop).into());
+            let what = format!("{} · {}", stop_words(*stop), snapshot_words(config));
+            let mut turn = row(agent.to_owned(), what);
             for (index, said) in said.iter().enumerate() {
                 let key = format!("thinking-{seq}-{index}");
                 turn = turn.child(said_row(view, key, said, shown, cx, theme, ladder));
