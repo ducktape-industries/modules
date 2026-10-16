@@ -2,7 +2,7 @@
 //! holds it to the touch ladder (SPEC §8).
 use serde::{Deserialize, Serialize};
 
-use crate::design::{self, CAPSULE_CLEARANCE, Pages};
+use crate::design::{self, CAPSULE_CLEARANCE, Nav, Pages};
 use crate::prelude::*;
 use crate::testing::{self, TestAppContext};
 use crate::{BackEvent, Div, Stateful, View, wire};
@@ -33,11 +33,11 @@ impl Render for Phone {
             view.pages.pop();
             cx.notify();
         };
-        let page = design::page("rooms", self.pages.top().clone(), &ladder, &theme)
-            .map(|page| match depth {
-                0 => page.root(),
-                _ => page.back(cx.listener(move |view, _: &ClickEvent, _, cx| pop(view, cx))),
-            })
+        let nav = match depth {
+            0 => Nav::Root,
+            _ => Nav::back(cx.listener(move |view, _: &ClickEvent, _, cx| pop(view, cx))),
+        };
+        let page = design::page("rooms", self.pages.top().clone(), nav, &ladder, &theme)
             .caption(format!("{} deep", depth))
             .leading(div().id("avatar").size(ladder.avatar.side).rounded_full())
             .trailing(design::button(
@@ -179,7 +179,7 @@ fn page_draws_back_by_the_ladder_and_clears_the_capsule_under_touch() {
     assert_eq!(height(&cx), Some(design::TOUCH.header.into()));
 }
 
-/// A pointer draws a root page as any other: `.root()` changes nothing
+/// A pointer draws a root page as any other: `Nav::Root` changes nothing
 /// on the desktop's title row.
 #[test]
 fn under_a_pointer_a_root_page_is_drawn_as_any_page() {
@@ -429,4 +429,92 @@ fn a_root_back_with_nowhere_to_go_does_not_fit_a_phone() {
     let mut cx = TestAppContext::new();
     cx.open::<BackToNothing>();
     testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
+}
+
+// What the sweep trusts. `assert_fits` reads declared sizes only, so each
+// press box below is under 44 on a phone and still passes, measured as
+// the 48 row above it. These pin its limits: a sweep that grows a layout
+// engine fails here first.
+
+/// Holds `press`, under 44 on a phone, to the sweep inside a 48 row.
+fn fits_in_a_tall_row(press: impl IntoElement) {
+    let (tree, styles) = testing::lower(|_: &mut Context<()>| {
+        div()
+            .id("row")
+            .h(px(48.))
+            .child(div().id("chip").child(press))
+    });
+    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+}
+
+/// A press the sweep reads.
+fn press(element: Stateful<Div>) -> Stateful<Div> {
+    element
+        .role(crate::Role::Button)
+        .aria_label("React")
+        .on_click(|_, _, _| {})
+}
+
+#[test]
+fn the_sweep_trusts_a_hit_told_its_parent_is_a_finger_tall() {
+    fits_in_a_tall_row(press(design::hit(
+        "react",
+        px(44.),
+        px(44.),
+        &design::TOUCH,
+    )));
+}
+
+#[test]
+fn the_sweep_trusts_a_box_whose_insets_add_up_to_zero() {
+    fits_in_a_tall_row(press(
+        div().id("react").absolute().top(px(-12.)).bottom(px(12.)),
+    ));
+}
+
+#[test]
+fn the_sweep_trusts_a_box_pinned_by_one_inset() {
+    fits_in_a_tall_row(press(div().id("react").absolute().top(px(-7.))));
+}
+
+#[test]
+fn the_sweep_trusts_a_press_with_no_height_of_its_own() {
+    fits_in_a_tall_row(press(div().id("react")));
+}
+
+#[test]
+fn the_sweep_reads_a_strip_tab_as_its_bar_not_the_bar_less_its_hairline() {
+    let theme = crate::Theme::light();
+    let (tree, styles) = testing::lower(|_: &mut Context<()>| {
+        div()
+            .id("bar")
+            .h(design::TOUCH.strip)
+            .border_b_1()
+            .child(design::item(
+                design::tab("files", "Files", true, &design::TOUCH, &theme, |_, _, _| {}),
+                crate::Role::Tab,
+                true,
+            ))
+    });
+    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+}
+
+/// The other side of reading declared sizes: a hit in a chip that fills
+/// its 48 row by `h_full` fits on screen, but the sweep cannot read the
+/// chip's height, so it refuses it and says what to declare.
+#[test]
+#[should_panic(expected = "declare the parent's height")]
+fn the_sweep_refuses_a_hit_whose_parent_fills_its_row_by_layout() {
+    let (tree, styles) = testing::lower(|_: &mut Context<()>| {
+        div()
+            .id("row")
+            .h(px(48.))
+            .child(div().id("chip").h_full().child(press(design::hit(
+                "react",
+                px(44.),
+                px(30.),
+                &design::TOUCH,
+            ))))
+    });
+    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
 }

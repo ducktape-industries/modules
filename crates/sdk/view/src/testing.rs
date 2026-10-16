@@ -265,11 +265,24 @@ enum Press {
 /// Also a many-line field with an `on_submit` (the software Return is a
 /// newline); the root's `on_back` not exactly when there is somewhere to
 /// go back to (a sheet open, or a Back control drawn: a node named "Back",
-/// as `design::page` names it below the root of a `Pages` stack). Declared
-/// sizes only: the harness has no layout engine, so a width or height left
-/// to layout is not judged here (the qa phone-layout goldens are). A long
-/// press has no wire signal of its own, so its custom-action twin (rule 5)
-/// is the review's.
+/// as `design::page` names it for [`Nav::Back`](crate::design::Nav::Back)).
+/// A long press has no wire signal of its own, so its custom-action twin
+/// (rule 5) is the review's.
+///
+/// It reads declared sizes only: the harness has no layout engine, so a
+/// width or height left to layout is not judged here (the qa phone-layout
+/// goldens are). So it trusts a press box under 44 when the box takes its
+/// height from a declared row above it that is 44 or more:
+/// - a `design::hit` told its parent is 44 or more each way, so it
+///   reaches nowhere;
+/// - a box pinned by insets that add up to zero (`top(-12)`,
+///   `bottom(12)`);
+/// - a box pinned by one inset only;
+/// - a press with no declared height of its own;
+/// - a strip's tab, which is the bar less its hairline (43 in a 44 bar).
+///
+/// And it refuses a `design::hit` whose parent's height is left to
+/// layout (`h_full`, `size_full`) even where the box fits.
 pub fn assert_fits(
     tree: &Node,
     styles: &crate::wire::Styles,
@@ -357,7 +370,7 @@ pub fn assert_fits(
             match press_height(chain) {
                 Press::Declared(height) if height >= hit => {}
                 Press::ReachesPastAnUndeclaredParent => faults.push(format!(
-                    "a press box reaches past a parent that declares no height at {}",
+                    "a press box reaches past a parent that declares no height at {}: declare the parent's height (`.h(..)` or `.min_h(..)`); one left to layout (`h_full`, `size_full`) is not read",
                     path()
                 )),
                 Press::Declared(_) | Press::Undeclared => faults.push(format!(

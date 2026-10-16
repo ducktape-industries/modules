@@ -15,7 +15,7 @@ mod format;
 mod pages;
 pub(crate) use format::set_utc_offset;
 pub use format::{ago, clock, date, day, grouped, initial, local, plural};
-pub use pages::{CAPSULE_CLEARANCE, Page, Pages, page};
+pub use pages::{CAPSULE_CLEARANCE, Nav, Page, Pages, page};
 
 use crate::prelude::*;
 use crate::{AnyElement, Div, FontWeight, Hsla, Pixels, Stateful, StyleRefinement};
@@ -202,7 +202,8 @@ pub struct Ladder {
     pub icon_row: Pixels,
     /// an icon leading a sheet row
     pub icon_sheet: Pixels,
-    /// a view's first page's title
+    /// a view's first page's title (Expo also tracks it -0.22,
+    /// `theme.ts:59`, which a [`Type`] does not carry)
     pub big_title: Type,
     /// a detail head's name
     pub heading: Type,
@@ -411,8 +412,11 @@ pub fn icon(name: &str, size: Pixels) -> crate::Svg {
 /// it is [`Ladder::hit`] each way (an axis already that long gets no
 /// reach); under a pointer it covers the parent exactly. The reach lies
 /// over what sits around the parent, so rows keep their spacing, and the
-/// focus ring is drawn on the whole box. The parent declares its height:
-/// [`assert_fits`](crate::testing::assert_fits) measures the box off it.
+/// focus ring is drawn on the whole box. Where the box reaches past its
+/// parent, [`assert_fits`](crate::testing::assert_fits) measures it off
+/// the parent's declared height, so the parent declares one; a box that
+/// reaches nowhere is measured as any press, off the nearest declared row
+/// above it.
 /// The 44 is our rule, not Expo's: React Native's `hitSlop` is set per
 /// control, and the Expo kit's reaction chips set none. A reaction chip 30
 /// tall and at least 40 wide:
@@ -1083,18 +1087,21 @@ where
 const UNDERLINE: Pixels = px(2.);
 
 /// A tab: quiet text, the chosen one fg, medium and underlined, no fill. It
-/// sits in a bar [`Ladder::strip`] tall (`.h(ladder.strip)`) and may label
-/// a glyph. It is an [`item`] of a `TabList` [`composite`], which holds
-/// the focus and the arrows: the caller wraps it in
-/// `item(.., Role::Tab, active)`. Under a pointer the caller sizes it to
-/// its bar (`h_full`, `flex_1`).
+/// may label a glyph. It is an [`item`] of a `TabList` [`composite`], which
+/// holds the focus and the arrows: the caller wraps it in
+/// `item(.., Role::Tab, active)`.
+///
+/// A tab bar declares `.h(ladder.strip)`. Under a finger a tab has no
+/// height of its own: it fills the bar less its hairline, so in a bar
+/// that declares none it shrinks to one line of text, under a finger's
+/// 44. Under a pointer it is at least [`Ladder::hit`] tall, and the caller
+/// sizes it to its bar (`h_full`, `flex_1`).
 ///
 /// Under a finger it is an item of the Expo kit's `Strip`
-/// (`Choice.tsx:113-140`) and sizes itself: the bar's height less its
-/// hairline, 10 in, `ladder.small` on one line, the chosen one's underline
-/// 10 in from each side; no hover, and a press does not dim (`Strip` sets
-/// no pressed look). A size or text style the caller sets after it
-/// replaces the strip's.
+/// (`Choice.tsx:113-145`): 10 in, `ladder.small` on one line, the chosen
+/// one's underline 10 in from each side; no hover, and a press does not
+/// dim (`Strip` sets no pressed look). A size or text style the caller
+/// sets after it replaces the strip's.
 pub fn tab(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -1857,6 +1864,8 @@ mod tests {
             [
                 t.header,
                 t.row,
+                t.row_tall,
+                t.strip,
                 t.sheet_row,
                 t.control,
                 t.hit,
@@ -1864,7 +1873,7 @@ mod tests {
                 t.icon_row,
                 t.icon_sheet
             ],
-            [56., 48., 52., 44., 44., 22., 18., 20.].map(px)
+            [56., 48., 56., 44., 52., 44., 44., 22., 18., 20.].map(px)
         );
         assert_eq!(
             [

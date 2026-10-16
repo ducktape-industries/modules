@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{Ladder, TextType, heading, space};
+use crate::interactivity::EventListener;
 use crate::prelude::*;
 use crate::{AnyElement, Div, FontWeight, Hsla, Stateful};
 use gpui::SharedString;
@@ -71,33 +72,65 @@ impl<P> Pages<P> {
 /// Back).
 pub const CAPSULE_CLEARANCE: Pixels = px(96.);
 
+/// Where a [`page`] sits in its view's stack, said at every [`page`]
+/// call, so a first page cannot be drawn as a child page by leaving
+/// something out. Chosen from the stack's depth:
+/// `match pages.depth() { 0 => Nav::Root, _ => Nav::back(pop) }`.
+pub enum Nav {
+    /// The view's first page (the Expo kit's `Header` `root`,
+    /// `Header.tsx:19-23`): under a finger its title is
+    /// [`Ladder::big_title`] and its hairline clear (`Header.tsx:41`,
+    /// `:59`). A pointer draws it as a [`Nav::Child`].
+    Root,
+    /// A page under another, and the way back to it: a control
+    /// (`{id}-back`, [`Ladder::hit`] each way, named "Back") that runs the
+    /// listener. Under a finger it is the Expo kit's header `Hit` with the
+    /// Lucide arrow (`Header.tsx:45`); under a pointer a `‹` at the title
+    /// size. The phone's own Back is not this: it is the view root's
+    /// `on_back` (SPEC §9 rule 13), set from the same depth.
+    Back(EventListener<ClickEvent>),
+    /// A page under another with no Back of its own (the Expo `Header`
+    /// with neither `back` nor `root`, `Header.tsx:16`, `:23`): the 17
+    /// title over the hairline.
+    Child,
+}
+
+impl Nav {
+    /// [`Nav::Back`] running `back`.
+    pub fn back(back: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        Self::Back(Box::new(back))
+    }
+}
+
 /// One page's frame: a title row (`{id}-title`, [`Ladder::header`] tall)
-/// with the heading (`{id}-heading`, truncating), what the page adds
-/// beside it ([`Page::back`], [`Page::leading`], [`Page::caption`],
-/// [`Page::trailing`]), over the children, which fill the rest. A view's
-/// first page is [`Page::root`], one under it has [`Page::back`], chosen
-/// from the stack's depth:
-/// `design::page("rooms", top, &ladder, &theme).map(|page| match
-/// pages.depth() { 0 => page.root(), _ => page.back(pop) })`.
+/// with the heading (`{id}-heading`, truncating), its Back by `nav`, what
+/// the page adds beside it ([`Page::leading`], [`Page::caption`],
+/// [`Page::trailing`]), over the children, which fill the rest:
+/// `design::page("rooms", top, match pages.depth() { 0 => Nav::Root, _ =>
+/// Nav::back(pop) }, &ladder, &theme)`.
 ///
 /// Under a finger the row is the Expo kit's `Header` (`Header.tsx:28-73`):
 /// 56 tall, 8 in, 4 between its parts, a hairline under it, the title in
-/// [`Ladder::title`] medium. A page with neither is drawn as one under the
-/// root with no way back: the 17 title over the hairline, and no Back (the
-/// Expo `Header`'s `back` and `root` are independent props,
-/// `Header.tsx:16`, `:23`).
+/// [`Ladder::title`] medium.
 pub fn page(
     id: impl Into<ElementId>,
     title: impl Into<SharedString>,
+    nav: Nav,
     ladder: &Ladder,
     theme: &Theme,
 ) -> Page {
+    let id = id.into();
+    let (root, back) = match nav {
+        Nav::Root => (true, None),
+        Nav::Back(back) => (false, Some(back_control(&id, back, ladder, theme))),
+        Nav::Child => (false, None),
+    };
     Page {
-        id: id.into(),
-        root: false,
+        id,
+        root,
         title: title.into(),
         caption: None,
-        back: None,
+        back,
         leading: Vec::new(),
         trailing: Vec::new(),
         ladder: *ladder,
@@ -106,16 +139,55 @@ pub fn page(
     }
 }
 
+/// A page's Back control ([`Nav::Back`]).
+fn back_control(
+    id: &ElementId,
+    back: EventListener<ClickEvent>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> AnyElement {
+    let theme = *theme;
+    let id = ElementId::Name(format!("{id}-back").into());
+    match ladder.touch {
+        true => super::icon_button(
+            id,
+            super::icon("arrow-left", ladder.icon),
+            "Back",
+            ladder,
+            &theme,
+            back,
+        )
+        .into_any_element(),
+        false => div()
+            .id(id)
+            .min_w(ladder.hit)
+            .min_h(ladder.hit)
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_type(ladder.title)
+            .text_color(theme.muted)
+            .cursor_pointer()
+            .hover(move |style| style.text_color(theme.foreground))
+            .role(Role::Button)
+            .aria_label("Back")
+            .focusable()
+            .on_click(back)
+            .child("‹")
+            .into_any_element(),
+    }
+}
+
 /// A [`page`] being filled: its children go under the title row, in a
 /// column that takes the rest of the page's height. The title row is
 /// built when the page is drawn, so its slots can land after [`page`]:
-/// [`back`](Self::back) and [`leading`](Self::leading) first, the words
+/// its Back and [`leading`](Self::leading) first, the words
 /// (the heading over a [`caption`](Self::caption)) taking the slack and
 /// truncating, then [`trailing`](Self::trailing), before what the row
 /// keeps clear for the capsule under touch.
 pub struct Page {
     id: ElementId,
-    /// the view's first page ([`Page::root`])
+    /// the view's first page ([`Nav::Root`])
     root: bool,
     title: SharedString,
     caption: Option<SharedString>,
@@ -128,53 +200,6 @@ pub struct Page {
 }
 
 impl Page {
-    /// The way back to the page under this one: a control (`{id}-back`,
-    /// [`Ladder::hit`] each way, named "Back") that runs `back`. Under a
-    /// finger it is the Expo kit's header `Hit` with the Lucide arrow
-    /// (`Header.tsx:45`); under a pointer a `‹` at the title size. The
-    /// phone's own Back is not this: it is the view root's `on_back` (SPEC
-    /// §9 rule 13). Set both from the same `pages.depth() > 0`.
-    pub fn back(mut self, back: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        let (ladder, theme) = (self.ladder, self.theme);
-        let id = ElementId::Name(format!("{}-back", self.id).into());
-        self.back = Some(match ladder.touch {
-            true => super::icon_button(
-                id,
-                super::icon("arrow-left", ladder.icon),
-                "Back",
-                &ladder,
-                &theme,
-                back,
-            )
-            .into_any_element(),
-            false => div()
-                .id(id)
-                .min_w(ladder.hit)
-                .min_h(ladder.hit)
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_type(ladder.title)
-                .text_color(theme.muted)
-                .cursor_pointer()
-                .hover(move |style| style.text_color(theme.foreground))
-                .role(Role::Button)
-                .aria_label("Back")
-                .focusable()
-                .on_click(back)
-                .child("‹")
-                .into_any_element(),
-        });
-        self
-    }
-    /// The page is the view's first page (the Expo kit's `Header` `root`,
-    /// `Header.tsx:19-23`): under a finger its title is
-    /// [`Ladder::big_title`] and its hairline clear (`Header.tsx:41`,
-    /// `:59`). A pointer draws it as any other page.
-    pub fn root(mut self) -> Self {
-        self.root = true;
-        self
-    }
     /// A line under the title (`{id}-caption`, [`Ladder::caption`] size,
     /// truncating): a count, a state, who the page is with.
     pub fn caption(mut self, caption: impl Into<SharedString>) -> Self {
