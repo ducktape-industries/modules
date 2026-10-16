@@ -48,9 +48,12 @@ fn did_not_go_through(error: &Error) -> String {
 /// A write the host answered with an error of its own, or passed on the
 /// node's refusal. The host's codes ([`refusal::ALL`]) say it was never
 /// sent (`words.ts:82-84`), but two say it may have run: the node failed,
-/// or no answer came back.
+/// or no answer came back. And a confirm the person cancelled
+/// (`consent_refused`) is a refusal like the program's, as Expo words its
+/// `NOT_CONFIRMED` (`src/kit/Confirm.tsx:28-32`).
 fn unsent(error: &Error) -> String {
     match error.code.as_str() {
+        refusal::CONSENT_REFUSED => did_not_go_through(error),
         refusal::RPC_CLIENT => {
             "Not sent: the node can’t be reached. Check the connection, then try again.".into()
         }
@@ -116,6 +119,13 @@ mod tests {
         assert_eq!(
             said(Err(error(refusal::SESSION_LOCKED, "Unlock a key first."))),
             "Not sent: Unlock a key first."
+        );
+        assert_eq!(
+            said(Err(error(
+                refusal::CONSENT_REFUSED,
+                "the person did not confirm"
+            ))),
+            "That didn’t go through: the person did not confirm"
         );
         assert_eq!(
             said(Err(error(refusal::REQUEST_CLOSED, "closed"))),
