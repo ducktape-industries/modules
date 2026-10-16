@@ -5,7 +5,15 @@
 //! page's list ([`pages::body`]). Reads the session, the root page and the
 //! search field; writes the root page (`go`), the search (`search`) and
 //! whether the field is open.
-use super::*;
+use view::{Div, Stateful};
+use view::design::{CAPSULE_CLEARANCE, space};
+use view::prelude::*;
+
+use crate::{Cx, Explorer, Note, Route};
+use crate::words;
+
+use super::{Look, pages};
+use super::parts::note;
 
 /// The five pages, in the strip's order: each one's key, label and list.
 const PAGES: [(&str, &str, Route); 5] = [
@@ -16,7 +24,7 @@ const PAGES: [(&str, &str, Route); 5] = [
     ("programs", "Programs", Route::Programs),
 ];
 
-pub(super) fn root(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
+pub(super) fn root(view: &Explorer, cx: Cx, k: &Look) -> AnyElement {
     let strip = strip(view, cx, k);
     // a write's outcome on the Programs page sits in its scroll
     // (`programs::programs`)
@@ -56,7 +64,7 @@ fn network_and_me(view: &Explorer) -> Option<String> {
 
 /// The title row: "Explorer", its caption, Search, and on the Programs
 /// page More ([`super::programs::more`]).
-fn titled(view: &Explorer, cx: Cx, k: &Kit) -> design::Page {
+fn titled(view: &Explorer, cx: Cx, k: &Look) -> design::Page {
     let open = cx.listener(|view: &mut Explorer, _: &ClickEvent, window, cx| {
         view.searching = true;
         window.focus("explorer-search");
@@ -93,7 +101,7 @@ fn titled(view: &Explorer, cx: Cx, k: &Kit) -> design::Page {
 
 /// The root while searching (Expo `Header center`): the field in the
 /// title's place and Close search, the page under it.
-fn searching(view: &Explorer, cx: Cx, k: &Kit) -> Stateful<Div> {
+fn searching(view: &Explorer, cx: Cx, k: &Look) -> Stateful<Div> {
     let close = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| {
         view.searching = false;
         view.note = None;
@@ -140,7 +148,7 @@ fn searching(view: &Explorer, cx: Cx, k: &Kit) -> Stateful<Div> {
 /// is the field's own hairline, which the host draws 2 wide in the ink
 /// while it is focused, as Expo's `Field` does (`Field.tsx:38-39`); it
 /// opens focused.
-fn field(view: &Explorer, cx: Cx, k: &Kit) -> Div {
+fn field(view: &Explorer, cx: Cx, k: &Look) -> Div {
     let submit = cx.listener(|view: &mut Explorer, _: &(), _, cx| view.search(cx));
     let input = Input::new("explorer-search", &view.search, words::SEARCH)
         .autocorrect(false)
@@ -172,7 +180,7 @@ fn field(view: &Explorer, cx: Cx, k: &Kit) -> Div {
 // SDK gap: Strip, swap when feat/phone-kit lands
 /// The five pages on a strip that scrolls sideways (Expo `Strip`): one Tab
 /// stop, ← → move through the pages, a press opens a page's list.
-fn strip(view: &Explorer, cx: Cx, k: &Kit) -> Stateful<Div> {
+fn strip(view: &Explorer, cx: Cx, k: &Look) -> Stateful<Div> {
     let shown = view.pages.first().tab();
     let routes = || PAGES.map(|(_, _, route)| route);
     let (moved, pressed) = (routes(), routes());
@@ -213,7 +221,7 @@ fn page_tab(
     route: Route,
     shown: usize,
     cx: Cx,
-    k: &Kit,
+    k: &Look,
 ) -> Stateful<Div> {
     let chosen = shown == route.tab();
     let go =

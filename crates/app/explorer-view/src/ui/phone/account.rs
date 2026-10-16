@@ -3,8 +3,16 @@
 //! last signed, the programs it used, what it signed. Reads the accounts,
 //! what activity recorded for it (`used`, `acted`); writes the route (a
 //! chip, a row).
-use super::*;
-use crate::decode::{scheme, short};
+use view::{Div, FontWeight, Stateful};
+use view::design::{mono, space};
+use view::prelude::*;
+
+use crate::{Cx, Explorer, Route};
+use crate::decode::{grouped, plural, scheme, short};
+use crate::words;
+
+use super::Look;
+use super::parts::{aside, column, copy_link, empty, face, Fact, facts, list_row, over, quiet, refused, scroller, section, tail, title_and_caption, tx_line, Who};
 
 /// A chip of the programs an account used (Expo `src/design/theme.ts:78`
 /// `size.chip`).
@@ -12,7 +20,7 @@ const CHIP_H: Pixels = px(32.);
 /// A chip's count (Expo `src/kit/Choice.tsx:72`).
 const CHIP_COUNT_TEXT: Pixels = px(11.);
 
-pub(super) fn account(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> AnyElement {
+pub(super) fn account(view: &Explorer, number: u64, cx: Cx, k: &Look) -> AnyElement {
     let Some(account) = view.account(number) else {
         return over("explorer-account", format!("Account {number}"), view, cx, k)
             .child(missing(view, number, cx, k))
@@ -43,7 +51,7 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> AnyEleme
 
 /// Open DM (Expo `account/[number].tsx:59,69`): chat opens on the reader's
 /// DM room with this account.
-fn open_dm(link: String, k: &Kit) -> AnyElement {
+fn open_dm(link: String, k: &Look) -> AnyElement {
     design::icon_button(
         "explorer-open-dm",
         design::icon("message-square", k.ladder.icon),
@@ -57,7 +65,7 @@ fn open_dm(link: String, k: &Kit) -> AnyElement {
 
 /// An account not in hand: the accounts being read, refused, or none by
 /// this number.
-fn missing(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> AnyElement {
+fn missing(view: &Explorer, number: u64, cx: Cx, k: &Look) -> AnyElement {
     match &view.accounts {
         Loadable::Ready(_) | Loadable::Reloading(_, _) => empty(
             "explorer-no-account",
@@ -75,7 +83,7 @@ fn missing(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> AnyElement {
 
 /// Its face at the detail size, its name, `account n · what it is · its
 /// devices`.
-fn head(account: &identity::Account, kind: &str, k: &Kit) -> Div {
+fn head(account: &identity::Account, kind: &str, k: &Look) -> Div {
     let about = format!(
         "account {} · {kind} · {}",
         account.number,
@@ -110,7 +118,7 @@ fn head(account: &identity::Account, kind: &str, k: &Kit) -> Div {
 }
 
 /// The transactions activity recorded for it, and its devices.
-fn figures(view: &Explorer, account: &identity::Account, k: &Kit) -> Stateful<Div> {
+fn figures(view: &Explorer, account: &identity::Account, k: &Look) -> Stateful<Div> {
     let total = view.sent_by(account.number);
     facts(
         "explorer-account-facts",
@@ -134,7 +142,7 @@ fn figures(view: &Explorer, account: &identity::Account, k: &Kit) -> Stateful<Di
 
 /// Each key it signs with, under their head: its label, its scheme and
 /// short key, when activity last saw it sign.
-fn devices(view: &Explorer, account: &identity::Account, k: &Kit) -> Vec<AnyElement> {
+fn devices(view: &Explorer, account: &identity::Account, k: &Look) -> Vec<AnyElement> {
     let keys = account.keys();
     let now = view.chain.now();
     let signed = view.acted(account.number).unwrap_or_default();
@@ -168,7 +176,7 @@ fn devices(view: &Explorer, account: &identity::Account, k: &Kit) -> Vec<AnyElem
 
 /// The programs it used, most first, a chip each with its count; a chip
 /// opens the program's transactions (Expo `Chips`). None used, no section.
-fn programs_used(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> Option<Div> {
+fn programs_used(view: &Explorer, number: u64, cx: Cx, k: &Look) -> Option<Div> {
     let used = view.programs_used(number)?;
     if used.is_empty() {
         return None;
@@ -195,7 +203,7 @@ fn programs_used(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> Option<Div> {
 // SDK gap: Chips, the SDK builds it later
 /// One program it used, and how many transactions it sent there; the
 /// press reaches past the chip to `ladder.hit`.
-fn chip(program: String, count: u64, cx: Cx, k: &Kit) -> Div {
+fn chip(program: String, count: u64, cx: Cx, k: &Look) -> Div {
     let route = Route::Transactions(Some(program.clone()));
     let go =
         cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.go(route.clone(), cx));
@@ -237,7 +245,7 @@ fn chip(program: String, count: u64, cx: Cx, k: &Kit) -> Div {
 
 /// What it signed, newest first, under its head (Expo `TxLine
 /// who={false}`).
-fn activity(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> Vec<AnyElement> {
+fn activity(view: &Explorer, number: u64, cx: Cx, k: &Look) -> Vec<AnyElement> {
     let recorded = view.sent_by(number).map(words::recorded);
     let head = section(
         "explorer-activity-heading",

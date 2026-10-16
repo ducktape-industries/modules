@@ -5,14 +5,21 @@
 //! the programs role, the accounts and the tip; writes the fields, the
 //! program or view choice (`add_view`), the send (`submit_form`) and Close
 //! (`close_form`).
-use super::*;
+use view::{Div, FontWeight};
+use view::design::space;
+use view::prelude::*;
+
+use crate::{Cx, Explorer};
 use crate::acting::{Asked, Edit, Form, FormField, Problem, Takes};
+use crate::words;
+
+use super::Look;
 
 // SDK gap: the sheet's inset, swap when feat/phone-kit lands
 /// The form's inset (Expo `programs.tsx:465`).
 const FORM_INSET: Pixels = px(20.);
 
-pub(super) fn sheet(view: &Explorer, cx: Cx, k: &Kit) -> Option<AnyElement> {
+pub(super) fn sheet(view: &Explorer, cx: Cx, k: &Look) -> Option<AnyElement> {
     let form = view.acting.form.as_ref()?;
     let network = view.network.ready()?;
     let tip = view.status.ready().map_or(0, |status| status.height);
@@ -82,7 +89,7 @@ fn account_note(view: &Explorer, form: &Form) -> Option<String> {
 }
 
 /// What its edit asks for, in the Expo form's order.
-fn fields(form: &Form, cx: Cx, k: &Kit) -> Vec<AnyElement> {
+fn fields(form: &Form, cx: Cx, k: &Look) -> Vec<AnyElement> {
     form.asks()
         .into_iter()
         .map(|asked| match asked {
@@ -97,7 +104,7 @@ fn fields(form: &Form, cx: Cx, k: &Kit) -> Vec<AnyElement> {
 /// strong hairline box, the text in the data face, the keys it takes; a
 /// problem that is the field's marks it invalid and says why to assistive
 /// tech.
-fn labelled(form: &Form, field: FormField, k: &Kit) -> AnyElement {
+fn labelled(form: &Form, field: FormField, k: &Look) -> AnyElement {
     let input = Input::new(field.id(), form.text(field), field.label())
         .w_full()
         .font_family(design::fonts::FAMILY_MONO)
@@ -130,7 +137,7 @@ fn labelled(form: &Form, field: FormField, k: &Kit) -> AnyElement {
 }
 
 /// What an Add adds: a program, or a view (Expo `Segmented`).
-fn program_or_view(form: &Form, cx: Cx, k: &Kit) -> AnyElement {
+fn program_or_view(form: &Form, cx: Cx, k: &Look) -> AnyElement {
     let pick =
         cx.processor(|view: &mut Explorer, index: usize, _, cx| view.add_view(index == 1, cx));
     design::segmented(
@@ -157,7 +164,7 @@ fn program_or_view(form: &Form, cx: Cx, k: &Kit) -> AnyElement {
 // SDK gap: the form sheet's Close + primary footer, swap when feat/phone-kit lands
 /// Close, quiet; and Schedule or Propose, the primary, off while a write is
 /// out.
-fn buttons(view: &Explorer, form: &Form, cx: Cx, k: &Kit) -> Div {
+fn buttons(view: &Explorer, form: &Form, cx: Cx, k: &Look) -> Div {
     let send = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.submit_form(cx));
     let close = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.close_form(cx));
     div()

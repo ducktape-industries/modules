@@ -4,22 +4,17 @@
 //! picks this tree once, from the device (`lib.rs`). The stack is the
 //! model's [`Explorer::pages`]: the root ([`explorer`]) is the title row,
 //! the page strip and the page's list; a block, a transaction, an account,
-//! a program or a program's transactions goes over it with Back, and a
-//! sheet over that. Reads the route and the open sheet; writes Back. The
+//! a program or a program's transactions goes over the page it was opened
+//! from, Back popping one, and a sheet over that; a link that opened
+//! nothing is a page of its own. Each file imports what it draws with.
+//! Reads the stack, the open sheet and the note; writes Back. The
 //! desktop's pages (`ui/*.rs`) are the other design: the reads, routes,
 //! writes and words both draw from live outside `ui/`.
-use std::ops::Range;
-
-use view::design::{CAPSULE_CLEARANCE, Face, Ladder, space};
+use view::design::Ladder;
 use view::prelude::*;
-use view::{Div, FontWeight, Stateful};
 
-use crate::chain::{Line, lines};
-use crate::decode::{ago, date, grouped, plural};
 use crate::state::{Linked, Sheet};
-use crate::words::{self, unindexed};
-use crate::{BlockRow, Cx, Explorer, Note, Route, TxRow};
-use design::mono;
+use crate::{Cx, Explorer, Note, Route};
 
 mod account;
 mod block;
@@ -32,18 +27,17 @@ mod programs;
 mod tx;
 mod txs;
 mod unlinked;
-use parts::*;
 
 /// What every piece draws with: the theme, and the touch ladder (the Expo
 /// app's sizes, `design::TOUCH`).
 #[derive(Clone, Copy)]
-struct Kit {
+struct Look {
     theme: Theme,
     ladder: Ladder,
 }
 
 pub(crate) fn render(view: &Explorer, cx: Cx) -> AnyElement {
-    let k = &Kit {
+    let k = &Look {
         theme: *cx.global::<Theme>(),
         ladder: design::TOUCH,
     };

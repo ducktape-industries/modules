@@ -3,10 +3,18 @@
 //! either side, its transactions. Reads the block from the window, or the
 //! one the node was asked for (`opened`), the validators and the head;
 //! writes the route (a step, a row, a link).
-use super::*;
-use crate::decode::short;
+use view::{Div, Stateful};
+use view::design::space;
+use view::prelude::*;
 
-pub(super) fn block(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> AnyElement {
+use crate::{BlockRow, Cx, Explorer, Note, Route, TxRow};
+use crate::decode::{grouped, short};
+use crate::words::{self, unindexed};
+
+use super::Look;
+use super::parts::{aside, column, copy_link, data, empty, gone, key_value, linked, over, Press, quiet, refused, scroller, section, small, time_and_age, tx_line, Who};
+
+pub(super) fn block(view: &Explorer, height: u64, cx: Cx, k: &Look) -> AnyElement {
     let copy = copy_link(view, &Route::Block(height), cx, k);
     let page = over("explorer-block", words::block(height), view, cx, k);
     let page = match copy {
@@ -22,13 +30,13 @@ pub(super) fn block(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> AnyElement
 
 /// A block link's hash that nothing here has (Expo `block/[height].tsx:36-43`
 /// `ByHash`).
-pub(super) fn by_hash(note: &Note, cx: Cx, k: &Kit) -> AnyElement {
+pub(super) fn by_hash(note: &Note, cx: Cx, k: &Look) -> AnyElement {
     gone("explorer-block-unfound", "Block", "search-x", "Not found", note, cx, k)
 }
 
 /// A block not in hand: being read, refused, or not on this node (below
 /// where its archive starts, or never finalized).
-fn missing(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> AnyElement {
+fn missing(view: &Explorer, height: u64, cx: Cx, k: &Look) -> AnyElement {
     match &view.opened {
         Loadable::Ready(None) | Loadable::Reloading(None, _) => {
             let unlisted = view.chain.unlisted_below().filter(|from| height < *from);
@@ -49,7 +57,7 @@ fn missing(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> AnyElement {
     }
 }
 
-fn found(view: &Explorer, block: &BlockRow, txs: &[&TxRow], cx: Cx, k: &Kit) -> AnyElement {
+fn found(view: &Explorer, block: &BlockRow, txs: &[&TxRow], cx: Cx, k: &Look) -> AnyElement {
     let now = view.chain.now();
     let list = if txs.is_empty() {
         quiet("explorer-block-empty", words::NO_BLOCK_TRANSACTIONS, k)
@@ -79,7 +87,7 @@ fn found(view: &Explorer, block: &BlockRow, txs: &[&TxRow], cx: Cx, k: &Kit) -> 
 
 /// The parent's height, a link, then its short id; the first block's
 /// parent is its id alone.
-fn parent(block: &BlockRow, cx: Cx, k: &Kit) -> Div {
+fn parent(block: &BlockRow, cx: Cx, k: &Look) -> Div {
     let id = short(&block.parent);
     // block 0's parent is words, in the body face (Expo
     // `block/[height].tsx:86`)
@@ -105,7 +113,7 @@ fn parent(block: &BlockRow, cx: Cx, k: &Kit) -> Div {
 
 /// Who proposed the block: its place in the validator set, then its key,
 /// faint.
-fn proposer(view: &Explorer, block: &BlockRow, k: &Kit) -> Option<Stateful<Div>> {
+fn proposer(view: &Explorer, block: &BlockRow, k: &Look) -> Option<Stateful<Div>> {
     let key = block.proposer.as_ref()?;
     let place = view
         .validators
@@ -122,7 +130,7 @@ fn proposer(view: &Explorer, block: &BlockRow, k: &Kit) -> Option<Stateful<Div>>
 /// The steps to the blocks either side (Expo's two small outline buttons):
 /// each opens its block in this page's place; off at the first block and
 /// at the head.
-fn steps(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> Div {
+fn steps(view: &Explorer, height: u64, cx: Cx, k: &Look) -> Div {
     let head = view.status.ready().map(|status| status.height);
     let previous = height.checked_sub(1);
     let next = head.filter(|head| height < *head).map(|_| height + 1);

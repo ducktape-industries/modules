@@ -5,18 +5,25 @@
 //! accounts, the status and the reader's grants and voices (`acting`);
 //! writes a Cancel, a Step down or a revoke (`press`), which sheet is open
 //! (`sheet`) and the form a sheet opens (`open_form`).
-use super::*;
-use crate::Network;
-use crate::acting::{self, Edit, Offer, Path};
-use crate::decode::minutes;
-use crate::state::Sheet;
 use ::programs::{Grant, NOTICE, Pending, Scope};
+use view::{Div, FontWeight, Stateful};
+use view::design::{mono, space};
+use view::prelude::*;
+
+use crate::{Cx, Explorer, Network, Note, Route};
+use crate::acting::{self, Edit, Offer, Path};
+use crate::decode::{minutes, plural};
+use crate::state::Sheet;
+use crate::words;
+
+use super::Look;
+use super::parts::{aside, caption, chevron, column, list_row, module_face, note, Press, quiet, refused, scroller, section, small, title_and_caption};
 
 /// The block time Expo words a maintainer's wait in before the node's
 /// status is read (`programs.tsx:94`).
 const UNREAD_BLOCK_MS: u64 = 1000;
 
-pub(super) fn programs(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
+pub(super) fn programs(view: &Explorer, cx: Cx, k: &Look) -> AnyElement {
     let network = match &view.network {
         Loadable::Ready(network) | Loadable::Reloading(network, _) => network,
         Loadable::Failed(refusal) => return refused(&words::refusal(refusal), cx, k),
@@ -51,7 +58,7 @@ pub(super) fn programs(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
 /// More on the root's title row while this page shows (Expo
 /// `ProgramsMenuHit`): there while the reader may add a program by grant
 /// or propose a grant by vote.
-pub(super) fn more(view: &Explorer, page: design::Page, cx: Cx, k: &Kit) -> design::Page {
+pub(super) fn more(view: &Explorer, page: design::Page, cx: Cx, k: &Look) -> design::Page {
     if !(view.adds() || view.acting.votes()) {
         return page;
     }
@@ -115,7 +122,7 @@ fn by_words(view: &Explorer, pending: &Pending) -> String {
 // ---------- the sections ----------
 
 /// What the programs role will fold in, under its head with their count.
-fn scheduled(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElement> {
+fn scheduled(view: &Explorer, network: &Network, cx: Cx, k: &Look) -> Vec<AnyElement> {
     let count = (!network.changes.is_empty()).then(|| aside(network.changes.len().to_string()));
     let head = section("explorer-scheduled-header", "Scheduled", count, k);
     let none = network
@@ -139,7 +146,7 @@ pub(super) fn scheduled_row(
     view: &Explorer,
     network: &Network,
     pending: &Pending,
-    k: &Kit,
+    k: &Look,
 ) -> Stateful<Div> {
     list_row(SharedString::from(format!("explorer-change-{}", change_key(pending))), k)
         .child(design::lead(
@@ -155,7 +162,7 @@ pub(super) fn scheduled_row(
 
 /// Cancel by the grant that made it, or Propose cancel by vote; nothing
 /// where the reader has neither. Off while a write is out.
-fn cancel(view: &Explorer, pending: &Pending, cx: Cx, k: &Kit) -> Option<Stateful<Div>> {
+fn cancel(view: &Explorer, pending: &Pending, cx: Cx, k: &Look) -> Option<Stateful<Div>> {
     let path = view.cancels(pending)?;
     let label = path.cancel_word();
     let op = acting::cancel(pending);
@@ -171,7 +178,7 @@ fn cancel(view: &Explorer, pending: &Pending, cx: Cx, k: &Kit) -> Option<Statefu
 }
 
 /// Each running program, under its head with their count (Expo's Running).
-fn running(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElement> {
+fn running(view: &Explorer, network: &Network, cx: Cx, k: &Look) -> Vec<AnyElement> {
     let head = section(
         "explorer-running-header",
         "Running",
@@ -193,7 +200,7 @@ fn running(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElemen
 }
 
 /// Each view-only entry, under its head; none, no section (Expo's Views).
-fn views(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElement> {
+fn views(view: &Explorer, network: &Network, cx: Cx, k: &Look) -> Vec<AnyElement> {
     if network.views.is_empty() {
         return Vec::new();
     }
@@ -226,7 +233,7 @@ fn entry_row(
     name: &str,
     caption_words: String,
     cx: Cx,
-    k: &Kit,
+    k: &Look,
 ) -> Stateful<Div> {
     let open = {
         let name = name.to_owned();
@@ -261,7 +268,7 @@ fn entry_row(
 }
 
 /// Every grant (Expo's Access), under how long a maintainer's change waits.
-fn access(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElement> {
+fn access(view: &Explorer, network: &Network, cx: Cx, k: &Look) -> Vec<AnyElement> {
     let block_time = view
         .status
         .ready()
@@ -285,7 +292,7 @@ fn access(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElement
 /// One grant: what it covers, who holds it (an agent marked so, a program
 /// not run yet said so); the holder steps down, a reader with voices
 /// proposes the revoke.
-fn grant_row(view: &Explorer, network: &Network, grant: &Grant, cx: Cx, k: &Kit) -> AnyElement {
+fn grant_row(view: &Explorer, network: &Network, grant: &Grant, cx: Cx, k: &Look) -> AnyElement {
     let holder = words::holder(
         &view.name_of(grant.account),
         view.acting.account == Some(grant.account),
@@ -308,7 +315,7 @@ fn grant_row(view: &Explorer, network: &Network, grant: &Grant, cx: Cx, k: &Kit)
 
 /// Step down from one's own grant, or Propose revoke by vote; nothing where
 /// the reader has neither. Off while a write is out.
-fn revoke(view: &Explorer, grant: &Grant, cx: Cx, k: &Kit) -> Option<Stateful<Div>> {
+fn revoke(view: &Explorer, grant: &Grant, cx: Cx, k: &Look) -> Option<Stateful<Div>> {
     let path = view.revokes(grant)?;
     let label = path.revoke_word();
     let op = ::programs::Op::Revoke(grant.clone());
@@ -342,7 +349,7 @@ fn grant_key(grant: &Grant) -> String {
 
 // SDK gap: SheetRow hint, swap when feat/phone-kit lands
 /// A sheet row's hint at its right (Expo `SheetRow hint`).
-fn hint(text: impl Into<SharedString>, k: &Kit) -> Div {
+fn hint(text: impl Into<SharedString>, k: &Look) -> Div {
     div()
         .flex_none()
         .text_type(k.ladder.caption)
@@ -377,7 +384,7 @@ fn closes(cx: Cx) -> impl Fn(&(), &mut Window, &mut App) + 'static {
 
 /// More (Expo's programs `Sheet` of `SheetRow`s): Add a program by grant,
 /// Propose a grant by vote.
-pub(super) fn more_sheet(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
+pub(super) fn more_sheet(view: &Explorer, cx: Cx, k: &Look) -> AnyElement {
     let add = view.adds().then(|| {
         let press = opens_form(Edit::Add, Path::Grant, cx);
         design::sheet_row(
@@ -420,7 +427,7 @@ pub(super) fn more_sheet(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
 /// One program's or view-only entry's sheet (Expo `ProgramSheet`): its
 /// face, name and kind; About, its transactions, and the reader's Upgrade
 /// and Remove.
-pub(super) fn program_sheet(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> Option<AnyElement> {
+pub(super) fn program_sheet(view: &Explorer, name: &str, cx: Cx, k: &Look) -> Option<AnyElement> {
     let network = view.network.ready()?;
     let listed = view.runs(name).is_none();
     let hook = network.is_hook(name);
@@ -477,7 +484,7 @@ pub(super) fn program_sheet(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> Opt
 // SDK gap: the sheet head with a face, the SDK builds it later
 /// What a program's sheet is about: its square face, its name in the data
 /// face, program or view only, and hook.
-fn sheet_head(name: &str, listed: bool, hook: bool, k: &Kit) -> Stateful<Div> {
+fn sheet_head(name: &str, listed: bool, hook: bool, k: &Look) -> Stateful<Div> {
     let kind = words::entry_kind(listed);
     let kind = if hook {
         format!("{kind} · hook")
@@ -507,7 +514,7 @@ fn sheet_head(name: &str, listed: bool, hook: bool, k: &Kit) -> Stateful<Div> {
 
 /// Upgrade or Remove on the reader's path, opening its form; Remove in the
 /// danger tone.
-fn edit_row(offer: Offer, cx: Cx, k: &Kit) -> Stateful<Div> {
+fn edit_row(offer: Offer, cx: Cx, k: &Look) -> Stateful<Div> {
     let id = SharedString::from(offer.edit.press_id());
     let danger = matches!(offer.edit, Edit::Remove { .. });
     let press = opens_form(offer.edit, offer.path, cx);

@@ -4,7 +4,18 @@
 //! ([`txs`]). Reads the window (`chain`), the status, the validators, the
 //! accounts and what activity recorded for each; writes nothing but the
 //! route a row opens.
-use super::*;
+use std::ops::Range;
+
+use view::{Div, Stateful};
+use view::design::space;
+use view::prelude::*;
+
+use crate::{Cx, Explorer, Route, TxRow};
+use crate::decode::{grouped, plural};
+use crate::words::{self, unindexed};
+
+use super::Look;
+use super::parts::{aside, block_lines, caption, chevron, column, face, Fact, facts, list_row, more_link, opens, quiet, refused, scroller, section, tail, title_and_caption, tx_line, Who};
 
 /// The rows each Overview section draws (Expo `pages.tsx:20` `LATEST`).
 const LATEST: usize = 12;
@@ -13,7 +24,7 @@ const LATEST: usize = 12;
 const LIST_ROWS: usize = 50;
 
 /// The root page's list under the strip.
-pub(super) fn body(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
+pub(super) fn body(view: &Explorer, cx: Cx, k: &Look) -> AnyElement {
     match view.pages.first() {
         Route::Blocks => chain_gate(view, cx, k).unwrap_or_else(|| blocks(view, cx, k)),
         Route::Transactions(_) => {
@@ -33,7 +44,7 @@ pub(super) fn body(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
 /// A window page before the window's first page lands (Expo `ChainGate`):
 /// words::READING_CHAIN, or its refusal with Retry; `None` once it holds
 /// a block.
-pub(super) fn chain_gate(view: &Explorer, cx: Cx, k: &Kit) -> Option<AnyElement> {
+pub(super) fn chain_gate(view: &Explorer, cx: Cx, k: &Look) -> Option<AnyElement> {
     if !view.chain.blocks.is_empty() {
         return None;
     }
@@ -50,7 +61,7 @@ fn held(view: &Explorer) -> u64 {
 
 /// The figures, the latest blocks and the latest transactions (Expo
 /// `Overview`).
-fn overview(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
+fn overview(view: &Explorer, cx: Cx, k: &Look) -> AnyElement {
     let txs = if view.chain.txs.is_empty() {
         quiet("explorer-no-txs", words::no_transactions_in(held(view)), k)
     } else {
@@ -147,7 +158,7 @@ fn figures(view: &Explorer) -> Vec<Fact> {
 /// The window's blocks, newest first, each run of empty ones folded (Expo
 /// `Blocks`), and where the node's archive stops when it stops inside the
 /// window.
-fn blocks(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
+fn blocks(view: &Explorer, cx: Cx, k: &Look) -> AnyElement {
     let archive = view
         .chain
         .unlisted_below()
@@ -170,7 +181,7 @@ fn blocks(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
 
 /// The window's transactions, newest first, or those sent to `program`
 /// (Expo `Transactions`).
-pub(super) fn transactions(view: &Explorer, program: Option<&str>, cx: Cx, k: &Kit) -> AnyElement {
+pub(super) fn transactions(view: &Explorer, program: Option<&str>, cx: Cx, k: &Look) -> AnyElement {
     let matching: Vec<&TxRow> = view
         .chain
         .txs
@@ -209,7 +220,7 @@ pub(super) fn transactions(view: &Explorer, program: Option<&str>, cx: Cx, k: &K
 /// Every account identity lists (Expo `Accounts`, a `FlatList`): each with
 /// its face, what it is and its devices, the transactions activity
 /// recorded for it; only the rows on screen are drawn.
-fn accounts(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
+fn accounts(view: &Explorer, cx: Cx, k: &Look) -> AnyElement {
     let listed = match &view.accounts {
         Loadable::Ready(listed) | Loadable::Reloading(listed, _) => listed,
         Loadable::Failed(refusal) => return refused(&words::refusal(refusal), cx, k),
@@ -218,7 +229,7 @@ fn accounts(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
         }
     };
     let count = words::tx_recorded(listed.list.len() as u64);
-    let kit = *k;
+    let look = *k;
     let rows = uniform_list(
         "explorer-accounts-list",
         listed.list.len(),
@@ -228,7 +239,7 @@ fn accounts(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
             };
             range
                 .filter_map(|index| listed.list.get(index))
-                .map(|account| account_line(view, account, cx, &kit))
+                .map(|account| account_line(view, account, cx, &look))
                 .collect()
         }),
     )
@@ -254,7 +265,7 @@ fn accounts(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
 
 /// An account (Expo `Accounts`' row): its face, its name, `#n · what it is
 /// · its devices`, the transactions recorded for it.
-fn account_line(view: &Explorer, account: &identity::Account, cx: Cx, k: &Kit) -> Stateful<Div> {
+fn account_line(view: &Explorer, account: &identity::Account, cx: Cx, k: &Look) -> Stateful<Div> {
     let number = account.number;
     let sent = view.sent_by(number);
     let about = format!(

@@ -5,15 +5,23 @@
 //! the one the node was asked for (`located`), the accounts and the
 //! programs role; asks its program to describe it (`open`); writes the
 //! route (a link).
-use super::*;
-use crate::decode::{amount, clip, preview, short};
+use view::{Div, Stateful};
+use view::design::space;
+use view::prelude::*;
+
+use crate::{Cx, Explorer, Note, Route, TxRow};
+use crate::decode::{amount, clip, date, preview, short};
+use crate::words;
+
+use super::Look;
+use super::parts::{copy_link, data, empty, gone, key_value, linked, over, quiet, refused, scroller, section, time_and_age, title_of, Tone};
 
 /// An operation field's label column (Expo `tx/[hash].tsx:180`).
 const OP_KEY_W: Pixels = px(88.);
 /// How far a nested run steps in, per level (Expo `tx/[hash].tsx:139`).
 const NEST_STEP: Pixels = px(16.);
 
-pub(super) fn tx(view: &Explorer, height: u64, position: u32, cx: Cx, k: &Kit) -> AnyElement {
+pub(super) fn tx(view: &Explorer, height: u64, position: u32, cx: Cx, k: &Look) -> AnyElement {
     let Some(tx) = view.tx_at(height, position) else {
         return over("explorer-tx", "Transaction", view, cx, k)
             .child(missing(view, height, position, cx, k))
@@ -34,7 +42,7 @@ pub(super) fn tx(view: &Explorer, height: u64, position: u32, cx: Cx, k: &Kit) -
 }
 
 /// A transaction link's hash that nothing here has (Expo `tx/[hash].tsx:43`).
-pub(super) fn by_hash(note: &Note, cx: Cx, k: &Kit) -> AnyElement {
+pub(super) fn by_hash(note: &Note, cx: Cx, k: &Look) -> AnyElement {
     let heading = words::NO_TRANSACTION;
     gone("explorer-tx-unfound", "Transaction", "search-x", heading, note, cx, k)
 }
@@ -42,7 +50,7 @@ pub(super) fn by_hash(note: &Note, cx: Cx, k: &Kit) -> AnyElement {
 /// A transaction not in hand: being read, refused, or not at its place.
 /// The words are ours: a transaction opens by its place here, not by a
 /// hash in the window as in the Expo app.
-fn missing(view: &Explorer, height: u64, position: u32, cx: Cx, k: &Kit) -> AnyElement {
+fn missing(view: &Explorer, height: u64, position: u32, cx: Cx, k: &Look) -> AnyElement {
     match &view.located {
         Loadable::Ready(None) | Loadable::Reloading(None, _) => empty(
             "explorer-no-tx",
@@ -59,7 +67,7 @@ fn missing(view: &Explorer, height: u64, position: u32, cx: Cx, k: &Kit) -> AnyE
     }
 }
 
-fn found(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> AnyElement {
+fn found(view: &Explorer, tx: &TxRow, cx: Cx, k: &Look) -> AnyElement {
     let block = linked(
         "explorer-tx-block",
         words::in_block(tx.height),
@@ -100,7 +108,7 @@ fn found(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> AnyElement {
 }
 
 /// Its program, and under it the code that runs it now, faint.
-fn program(view: &Explorer, tx: &TxRow, k: &Kit) -> Div {
+fn program(view: &Explorer, tx: &TxRow, k: &Look) -> Div {
     let code = view.runs(&tx.target).map(|entry| {
         data(format!("code {}", short(entry.code.digest()))).text_color(k.theme.faint)
     });
@@ -113,7 +121,7 @@ fn program(view: &Explorer, tx: &TxRow, k: &Kit) -> Div {
 
 /// A run's outcome as a badge and, where it was refused, the refusal's
 /// sentence and reason under it (Expo `Status`).
-fn status(run: &Receipt, id: &str, k: &Kit) -> Div {
+fn status(run: &Receipt, id: &str, k: &Look) -> Div {
     let refusal = match &run.outcome {
         Outcome::Applied { .. } => None,
         Outcome::Rejected(refusal) => Some(refusal),
@@ -145,7 +153,7 @@ fn status(run: &Receipt, id: &str, k: &Kit) -> Div {
 
 /// The runs a transaction's messages caused, under their head (Expo
 /// `Messages`); none, no section.
-fn messages(tx: &TxRow, k: &Kit) -> Option<Div> {
+fn messages(tx: &TxRow, k: &Look) -> Option<Div> {
     let run = tx.receipt.as_ref().filter(|run| !run.nested.is_empty())?;
     let mut lines = Vec::new();
     nested(&run.nested, 0, "explorer-run", k, &mut lines);
@@ -164,7 +172,7 @@ fn messages(tx: &TxRow, k: &Kit) -> Option<Div> {
 
 /// Each run under the run that sent it, [`NEST_STEP`] further in per level
 /// (Expo `Nested`).
-fn nested(runs: &[Receipt], depth: usize, at: &str, k: &Kit, lines: &mut Vec<AnyElement>) {
+fn nested(runs: &[Receipt], depth: usize, at: &str, k: &Look, lines: &mut Vec<AnyElement>) {
     for (index, run) in runs.iter().enumerate() {
         let id = format!("{at}-{index}");
         lines.push(
@@ -188,7 +196,7 @@ fn nested(runs: &[Receipt], depth: usize, at: &str, k: &Kit, lines: &mut Vec<Any
 
 /// Who signed: the account holding the key and which of its keys, or the
 /// key alone (Expo `From`).
-fn from(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> Div {
+fn from(view: &Explorer, tx: &TxRow, cx: Cx, k: &Look) -> Div {
     let Some((account, at)) = view.holder(&tx.signer) else {
         return data(abi::hex(&tx.signer));
     };
@@ -226,7 +234,7 @@ fn from(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> Div {
 
 /// The op's fields, as its program described them, in a box on the
 /// surface (Expo `Operation`); empty until it has.
-fn operation(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> Stateful<Div> {
+fn operation(view: &Explorer, tx: &TxRow, cx: Cx, k: &Look) -> Stateful<Div> {
     let fields = tx
         .op()
         .map(|op| op.fields.as_slice())
@@ -267,7 +275,7 @@ fn operation(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> Stateful<Div> {
 
 /// One described value as what it is (Expo `Shown`): an account by its
 /// face and name, a running program a link to its page, a hash short.
-fn value(view: &Explorer, shown: &Value, at: &str, cx: Cx, k: &Kit) -> AnyElement {
+fn value(view: &Explorer, shown: &Value, at: &str, cx: Cx, k: &Look) -> AnyElement {
     match shown {
         Value::Text(text) => div().child(clip(text)).into_any_element(),
         Value::Account(number) => account_value(view, *number, at, cx, k),
@@ -307,7 +315,7 @@ fn value(view: &Explorer, shown: &Value, at: &str, cx: Cx, k: &Kit) -> AnyElemen
 
 /// An account as its face and name, a link to its page, and its number
 /// faint (Expo `AccountValue`).
-fn account_value(view: &Explorer, number: u64, at: &str, cx: Cx, k: &Kit) -> AnyElement {
+fn account_value(view: &Explorer, number: u64, at: &str, cx: Cx, k: &Look) -> AnyElement {
     let name = view
         .account(number)
         .map(|account| account.card.name.clone());

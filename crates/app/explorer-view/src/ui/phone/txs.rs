@@ -2,9 +2,14 @@
 //! program's transactions in the window, over the root; the program as the
 //! title, "Transactions" under it. Reads the window; writes the route (a
 //! row).
-use super::*;
+use view::prelude::*;
 
-pub(super) fn transactions(view: &Explorer, program: &str, cx: Cx, k: &Kit) -> AnyElement {
+use crate::{Cx, Explorer};
+
+use super::{Look, pages};
+use super::parts::over;
+
+pub(super) fn transactions(view: &Explorer, program: &str, cx: Cx, k: &Look) -> AnyElement {
     let list = pages::chain_gate(view, cx, k)
         .unwrap_or_else(|| pages::transactions(view, Some(program), cx, k));
     over(

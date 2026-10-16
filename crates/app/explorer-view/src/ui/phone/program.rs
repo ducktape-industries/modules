@@ -5,13 +5,20 @@
 //! it, the way to its transactions. The reader's presses stay on the
 //! Programs page's sheet. Reads the programs role, the code's manifest
 //! (`manifest`), the window; writes the route and the clipboard (Copy).
-use super::*;
-use crate::Network;
-use crate::decode::bytes_preview;
-use crate::state::{Declared, blob_ref};
+use view::{Div, Stateful};
+use view::design::space;
+use view::prelude::*;
 use view::wire::manifest::Manifest;
 
-pub(super) fn program(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> AnyElement {
+use crate::{Cx, Explorer, Network, Route};
+use crate::decode::{bytes_preview, plural};
+use crate::state::{blob_ref, Declared};
+use crate::words;
+
+use super::Look;
+use super::parts::{aside, copy_link, data, empty, key_value, opens, over, Press, quiet, refused, scroller, section, small};
+
+pub(super) fn program(view: &Explorer, name: &str, cx: Cx, k: &Look) -> AnyElement {
     let code = view.code_of(name);
     let copy = copy_link(view, &Route::Program(name.to_owned()), cx, k);
     let page = over("explorer-program", name.to_owned(), view, cx, k);
@@ -50,7 +57,7 @@ fn detail(
     name: &str,
     code: &abi::BlobId,
     cx: Cx,
-    k: &Kit,
+    k: &Look,
 ) -> AnyElement {
     let listed = view.runs(name).is_none();
     scroller("explorer-page")
@@ -64,7 +71,7 @@ fn detail(
 }
 
 /// The hook and the role it fills, as badges; neither, nothing.
-fn standing(network: &Network, name: &str, k: &Kit) -> Option<Div> {
+fn standing(network: &Network, name: &str, k: &Look) -> Option<Div> {
     let hook = network.is_hook(name);
     let role = network.role_of(name);
     if !hook && role.is_none() {
@@ -95,7 +102,7 @@ fn view_manifest(view: &Explorer) -> Option<&Manifest> {
 
 /// What the code's view asks of the host, a row each, under its head with
 /// their count; or why none is shown (Expo `Capabilities`).
-fn capabilities(view: &Explorer, listed: bool, cx: Cx, k: &Kit) -> Vec<AnyElement> {
+fn capabilities(view: &Explorer, listed: bool, cx: Cx, k: &Look) -> Vec<AnyElement> {
     let count = view_manifest(view).map(|manifest| {
         aside(plural(
             manifest.capabilities.len() as u64,
@@ -135,7 +142,7 @@ fn about(
     name: &str,
     code: &abi::BlobId,
     cx: Cx,
-    k: &Kit,
+    k: &Look,
 ) -> Vec<AnyElement> {
     let blob = view.manifest.ready().and_then(Option::as_ref);
     let declared = view_manifest(view);
@@ -184,7 +191,7 @@ fn about(
 }
 
 /// The code id in the data face, and a small Copy beside it.
-fn code_and_copy(code: &abi::BlobId, cx: Cx, k: &Kit) -> Div {
+fn code_and_copy(code: &abi::BlobId, cx: Cx, k: &Look) -> Div {
     let id = blob_ref(code);
     let copy: Press = {
         let id = id.clone();
@@ -248,7 +255,7 @@ fn maintained_by(view: &Explorer, network: &Network, name: &str) -> String {
 
 /// What is scheduled for it, under its head, each row as the Programs
 /// page says it; none, a quiet line.
-fn scheduled(view: &Explorer, network: &Network, name: &str, k: &Kit) -> Vec<AnyElement> {
+fn scheduled(view: &Explorer, network: &Network, name: &str, k: &Look) -> Vec<AnyElement> {
     let head = section("explorer-program-scheduled-header", "Scheduled", None, k);
     let rows: Vec<AnyElement> = network
         .changes
@@ -271,7 +278,7 @@ fn scheduled(view: &Explorer, network: &Network, name: &str, k: &Kit) -> Vec<Any
 
 /// The way to its transactions: how many the window holds, and over how
 /// many blocks.
-fn transactions(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> Stateful<Div> {
+fn transactions(view: &Explorer, name: &str, cx: Cx, k: &Look) -> Stateful<Div> {
     let blocks = view.chain.blocks.len() as u64;
     let title = words::to_transactions(view.sent_to(name), blocks);
     let row = design::row("explorer-program-txs", &k.ladder, &k.theme);

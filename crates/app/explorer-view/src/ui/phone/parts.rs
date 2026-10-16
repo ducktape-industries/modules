@@ -6,8 +6,16 @@
 //! through the model's actions (`go`, `copy`, `read_all`).
 //!
 //! The Expo line numbers below are mobile dev 266633c.
-use super::*;
-use crate::decode::{clip, short, sized};
+use view::{Div, FontWeight, Stateful};
+use view::design::{Face, mono, space};
+use view::prelude::*;
+
+use crate::{BlockRow, Cx, Explorer, Note, Route, TxRow};
+use crate::chain::{Line, lines};
+use crate::decode::{ago, clip, date, grouped, short, sized};
+use crate::words;
+
+use super::{back, Look};
 
 /// A caption's line (Expo `src/design/theme.ts:47`): the box a section
 /// head's link draws in.
@@ -83,7 +91,7 @@ pub(super) fn over(
     title: impl Into<SharedString>,
     view: &Explorer,
     cx: Cx,
-    k: &Kit,
+    k: &Look,
 ) -> design::Page {
     let page = design::page(id, title, design::Nav::back(back(cx)), &k.ladder, &k.theme);
     match note(view, cx, k) {
@@ -102,7 +110,7 @@ pub(super) fn gone(
     heading: &'static str,
     note: &Note,
     cx: Cx,
-    k: &Kit,
+    k: &Look,
 ) -> AnyElement {
     let dismiss = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.dismiss_note(cx));
     design::page(id, title, design::Nav::back(dismiss), &k.ladder, &k.theme)
@@ -112,7 +120,7 @@ pub(super) fn gone(
 
 /// Copy link in a page's title row (Expo `CopyLink`): absent while the
 /// session names no chain to mint the link in.
-pub(super) fn copy_link(view: &Explorer, route: &Route, cx: Cx, k: &Kit) -> Option<AnyElement> {
+pub(super) fn copy_link(view: &Explorer, route: &Route, cx: Cx, k: &Look) -> Option<AnyElement> {
     let link = view.link(route)?;
     let copy = cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| {
         view.copy(link.clone(), words::LINK, cx)
@@ -140,7 +148,7 @@ pub(super) fn reach(
     id: impl Into<ElementId>,
     height: Pixels,
     side: Pixels,
-    k: &Kit,
+    k: &Look,
 ) -> Stateful<Div> {
     let to_hit = px(((f32::from(k.ladder.hit) - f32::from(height)) / 2.).max(0.));
     let y = to_hit.max(side);
@@ -196,7 +204,7 @@ impl Tone {
 /// What a search, a link, a copy or a write came to, under the title row
 /// (Expo `Notice` with Dismiss): a write that went through in success,
 /// one that did not in danger, the rest quiet.
-pub(super) fn note(view: &Explorer, cx: Cx, k: &Kit) -> Option<Stateful<Div>> {
+pub(super) fn note(view: &Explorer, cx: Cx, k: &Look) -> Option<Stateful<Div>> {
     let note = view.note.as_ref()?;
     let tone = match note {
         Note::Sent(_) => Tone::Success,
@@ -230,7 +238,7 @@ pub(super) fn notice(
     text: impl Into<SharedString>,
     tone: Tone,
     action: Option<Act>,
-    k: &Kit,
+    k: &Look,
 ) -> Stateful<Div> {
     let (theme, ladder) = (&k.theme, &k.ladder);
     let (ground, ink) = (tone.ground(theme), tone.ink(theme));
@@ -280,7 +288,7 @@ pub(super) fn notice(
 // SDK gap: Refused (a danger Notice with Retry), swap when feat/phone-kit lands
 /// A refused read (Expo `Refused`): its sentence as a danger notice, and
 /// Retry, which reads the view's data again.
-pub(super) fn refused(sentence: &str, cx: Cx, k: &Kit) -> AnyElement {
+pub(super) fn refused(sentence: &str, cx: Cx, k: &Look) -> AnyElement {
     let retry = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.read_all(cx));
     let retry = Act {
         id: "explorer-refused-retry",
@@ -293,7 +301,7 @@ pub(super) fn refused(sentence: &str, cx: Cx, k: &Kit) -> AnyElement {
 
 // SDK gap: Quiet at the ladder's sizes, the SDK builds it later
 /// One muted status line, the gutter in (Expo `Quiet`).
-pub(super) fn quiet(id: &'static str, text: impl Into<SharedString>, k: &Kit) -> AnyElement {
+pub(super) fn quiet(id: &'static str, text: impl Into<SharedString>, k: &Look) -> AnyElement {
     design::quiet(text, &k.theme)
         .id(id)
         .text_type(k.ladder.secondary)
@@ -308,7 +316,7 @@ pub(super) fn empty(
     icon: &str,
     title: impl Into<SharedString>,
     body: impl Into<SharedString>,
-    k: &Kit,
+    k: &Look,
 ) -> AnyElement {
     div()
         .id(id)
@@ -346,7 +354,7 @@ pub(super) fn section(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     aside: Option<AnyElement>,
-    k: &Kit,
+    k: &Look,
 ) -> Stateful<Div> {
     design::section_head(id, label, &k.ladder, &k.theme)
         .flex_none()
@@ -365,7 +373,7 @@ pub(super) fn more_link(
     label: &'static str,
     route: Route,
     cx: Cx,
-    k: &Kit,
+    k: &Look,
 ) -> AnyElement {
     let go =
         cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.go(route.clone(), cx));
@@ -398,7 +406,7 @@ pub(super) struct Fact {
 // SDK gap: Facts, the SDK builds it later
 /// Two columns of figures (Expo `Facts`): half the width each, hairlines
 /// between.
-pub(super) fn facts(id: &'static str, facts: Vec<Fact>, k: &Kit) -> Stateful<Div> {
+pub(super) fn facts(id: &'static str, facts: Vec<Fact>, k: &Look) -> Stateful<Div> {
     div().id(id).flex_none().flex().flex_wrap().children(
         facts
             .into_iter()
@@ -409,7 +417,7 @@ pub(super) fn facts(id: &'static str, facts: Vec<Fact>, k: &Kit) -> Stateful<Div
 
 /// One figure: its eyebrow in the data face, uppercase, its value in the
 /// heading role, its note; the left column draws the hairline between.
-fn figure(id: &str, index: usize, fact: Fact, k: &Kit) -> Stateful<Div> {
+fn figure(id: &str, index: usize, fact: Fact, k: &Look) -> Stateful<Div> {
     let (theme, ladder) = (&k.theme, &k.ladder);
     let left = index.is_multiple_of(2);
     div()
@@ -452,7 +460,7 @@ pub(super) fn key_value(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
     value: impl IntoElement,
-    k: &Kit,
+    k: &Look,
 ) -> Stateful<Div> {
     let label: SharedString = label.into();
     div()
@@ -493,7 +501,7 @@ pub(super) fn data(text: impl Into<SharedString>) -> Div {
 
 /// A date in the data face, and how long ago it was, faint (Expo's Time
 /// rows).
-pub(super) fn time_and_age(time: u64, now: u64, k: &Kit) -> Div {
+pub(super) fn time_and_age(time: u64, now: u64, k: &Look) -> Div {
     div()
         .flex()
         .flex_wrap()
@@ -510,7 +518,7 @@ pub(super) fn linked(
     text: impl Into<SharedString>,
     route: Route,
     cx: Cx,
-    k: &Kit,
+    k: &Look,
 ) -> Div {
     let text = text.into();
     let go =
@@ -539,7 +547,7 @@ pub(super) fn linked(
 
 /// A list row with a caption under its title (Expo `Row`): the kit's frame
 /// at `rowTall`.
-pub(super) fn list_row(id: impl Into<ElementId>, k: &Kit) -> Stateful<Div> {
+pub(super) fn list_row(id: impl Into<ElementId>, k: &Look) -> Stateful<Div> {
     design::row(id, &k.ladder, &k.theme).min_h(k.ladder.row_tall)
 }
 
@@ -550,7 +558,7 @@ pub(super) fn opens(
     label: impl Into<SharedString>,
     route: Route,
     cx: Cx,
-    k: &Kit,
+    k: &Look,
 ) -> Stateful<Div> {
     let go =
         cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.go(route.clone(), cx));
@@ -576,7 +584,7 @@ pub(super) fn title_and_caption(title: impl IntoElement, caption: impl IntoEleme
 
 // SDK gap: the Row's caption, swap when feat/phone-kit lands
 /// A caption under a row's title, muted, cut short where it runs out.
-pub(super) fn caption(text: impl Into<SharedString>, k: &Kit) -> Div {
+pub(super) fn caption(text: impl Into<SharedString>, k: &Look) -> Div {
     div()
         .truncate()
         .text_type(k.ladder.caption)
@@ -586,13 +594,13 @@ pub(super) fn caption(text: impl Into<SharedString>, k: &Kit) -> Div {
 
 // SDK gap: the Row's chevron, swap when feat/phone-kit lands
 /// The chevron a row that opens a page ends with (Expo `Row chevron`).
-pub(super) fn chevron(k: &Kit) -> impl IntoElement {
+pub(super) fn chevron(k: &Look) -> impl IntoElement {
     design::icon("chevron-right", k.ladder.icon_row).text_color(k.theme.faint)
 }
 
 // SDK gap: the Row's tail in the data face, the SDK builds it later
 /// What ends a row (Expo `Row tail`): a caption in the data face, muted.
-pub(super) fn tail(text: impl Into<SharedString>, k: &Kit) -> Div {
+pub(super) fn tail(text: impl Into<SharedString>, k: &Look) -> Div {
     mono(text)
         .text_type(k.ladder.caption)
         .text_color(k.theme.muted)
@@ -613,7 +621,7 @@ pub(super) fn small(
     label: impl Into<SharedString>,
     kind: design::Kind,
     press: Option<Press>,
-    k: &Kit,
+    k: &Look,
 ) -> Stateful<Div> {
     let theme = &k.theme;
     let (id, label) = (id.into(), label.into());
@@ -654,7 +662,7 @@ pub(super) fn small(
 /// An account's face (Expo `Avatar` with `words.ts` `faceOf`): a system
 /// program's is square with a mono letter, a managed account's in the
 /// agent tint, a suspended or revoked one at half strength.
-pub(super) fn face(account: &identity::Account, size: Face, k: &Kit) -> Div {
+pub(super) fn face(account: &identity::Account, size: Face, k: &Look) -> Div {
     let kind = account.kind();
     let off = kind.note().is_some();
     let avatar = match kind {
@@ -670,7 +678,7 @@ pub(super) fn face(account: &identity::Account, size: Face, k: &Kit) -> Div {
 
 // SDK gap: Avatar module, the SDK builds it later
 /// A program's face: square, a mono letter (Expo `Avatar module`).
-pub(super) fn module_face(name: &str, size: Face, k: &Kit) -> Div {
+pub(super) fn module_face(name: &str, size: Face, k: &Look) -> Div {
     design::avatar(name, size, &k.theme)
         .rounded(px(0.))
         .font_family(design::fonts::FAMILY_MONO)
@@ -680,7 +688,7 @@ pub(super) fn module_face(name: &str, size: Face, k: &Kit) -> Div {
 
 /// Up to `most` lines of the window, newest first (Expo `BlockLines`): a
 /// block, or a run of empty ones folded.
-pub(super) fn block_lines(view: &Explorer, most: usize, cx: Cx, k: &Kit) -> Vec<Stateful<Div>> {
+pub(super) fn block_lines(view: &Explorer, most: usize, cx: Cx, k: &Look) -> Vec<Stateful<Div>> {
     let now = view.chain.now();
     lines(&view.chain.blocks, most)
         .into_iter()
@@ -693,7 +701,7 @@ pub(super) fn block_lines(view: &Explorer, most: usize, cx: Cx, k: &Kit) -> Vec<
 
 /// A block (Expo `BlockLine`): its height, medium when it carries
 /// transactions and faint when not, its short id, its count and age.
-fn block_line(block: &BlockRow, now: u64, cx: Cx, k: &Kit) -> Stateful<Div> {
+fn block_line(block: &BlockRow, now: u64, cx: Cx, k: &Look) -> Stateful<Div> {
     let height = block.height;
     let carries = block.txs > 0;
     let row = list_row(SharedString::from(format!("explorer-block-{height}")), k);
@@ -721,7 +729,7 @@ fn block_line(block: &BlockRow, now: u64, cx: Cx, k: &Kit) -> Stateful<Div> {
 }
 
 /// A run of empty blocks folded into one quiet line (Expo `EmptyRun`).
-fn empty_run(newest: u64, oldest: u64, k: &Kit) -> Stateful<Div> {
+fn empty_run(newest: u64, oldest: u64, k: &Look) -> Stateful<Div> {
     div()
         .id(SharedString::from(format!("explorer-empty-{newest}")))
         .flex_none()
@@ -740,7 +748,7 @@ fn empty_run(newest: u64, oldest: u64, k: &Kit) -> Stateful<Div> {
 
 /// How a run ended, as the mark in a row's lead (Expo `Mark`): success,
 /// danger, an empty lead where the node kept no receipt.
-fn mark(applied: Option<bool>, k: &Kit) -> Div {
+fn mark(applied: Option<bool>, k: &Look) -> Div {
     design::lead(
         div().children(
             applied.map(|applied| div().size(MARK).bg(Tone::of_run(applied).ink(&k.theme))),
@@ -778,7 +786,7 @@ pub(super) enum Who {
 /// A transaction (Expo `TxLine`): its mark, its program and its op's
 /// title, its hash and its signer or block, its age. Drawing it asks its
 /// program to describe it, once.
-pub(super) fn tx_line(view: &Explorer, tx: &TxRow, who: Who, cx: Cx, k: &Kit) -> Stateful<Div> {
+pub(super) fn tx_line(view: &Explorer, tx: &TxRow, who: Who, cx: Cx, k: &Look) -> Stateful<Div> {
     view.describe(tx, cx);
     let (height, position) = (tx.height, tx.index);
     let applied = tx
