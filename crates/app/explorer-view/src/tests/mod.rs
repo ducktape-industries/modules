@@ -496,6 +496,7 @@ pub(crate) fn programs_granting(
                 (abi::role::BLOBS, "blobs"),
                 (abi::role::AWAITS, "awaits"),
                 (abi::role::EGRESS, "egress"),
+                (abi::role::HALO, "halo"),
             ])),
             other => panic!("unexpected query: {other:?}"),
         })

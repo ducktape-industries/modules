@@ -1,10 +1,10 @@
 //! `cargo run -p chat-view --example live`: Chat in the real app over a
 //! fake node seeded with a channel, a dm and a few messages.
 use chat::{Block, Op, PostPolicy};
-use view::live::{self, Network, now_ms};
+use view::rig::{self, Network, now_ms};
 
 fn main() {
-    live::run("chat", |net| {
+    rig::run("chat", |net| {
         net.seat::<chat::Chat>(chat::PROGRAM);
         let me = net.me();
         let ada = net.person("ada");
@@ -65,7 +65,7 @@ fn main() {
     })
 }
 
-fn post(net: &Network, who: u64, channel: &str, id: &str, text: &str) -> Result<(), live::Error> {
+fn post(net: &Network, who: u64, channel: &str, id: &str, text: &str) -> Result<(), rig::Error> {
     net.submit(
         who,
         chat::PROGRAM,

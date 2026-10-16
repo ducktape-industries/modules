@@ -18,6 +18,6 @@ sha2 = { version = "0.10", default-features = false }
 
 [dev-dependencies]
 # `examples/live.rs`: the view in the real app over the fake node
-view = { workspace = true, features = ["live"] }
+view = { workspace = true, features = ["rig"] }
 # the screen export writes the fixtures as JSON
 serde_json.workspace = true

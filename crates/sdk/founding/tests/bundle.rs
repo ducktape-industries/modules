@@ -122,6 +122,16 @@ fn the_bundle_names_every_file_it_holds_and_packs_each_program_with_its_own_view
         abi::decode::<forge::Bounds>(&params).unwrap(),
         founding::forge_bounds()
     );
+    let params = fs::read(out.path().join("halo.params")).unwrap();
+    let lanes = abi::decode::<abi::role::halo::Genesis>(&params).unwrap();
+    assert_eq!(lanes, founding::halo_lanes());
+    // a node applies blocks over the blobs lane: no vote may take it away
+    let pinned: Vec<(&str, bool)> = lanes
+        .lanes
+        .iter()
+        .map(|lane| (lane.name.as_str(), lane.pinned))
+        .collect();
+    assert_eq!(pinned, [("ducktape/blobs", true), ("ducktape/live", false)]);
 
     let text = fs::read_to_string(out.path().join("founding.toml")).unwrap();
     let file: toml::Table = toml::from_str(&text).unwrap();

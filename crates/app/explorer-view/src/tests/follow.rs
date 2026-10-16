@@ -212,6 +212,7 @@ fn a_change_reached_by_the_head_is_running_not_scheduled() {
                 (abi::role::BLOBS, "blobs"),
                 (abi::role::AWAITS, "awaits"),
                 (abi::role::EGRESS, "egress"),
+                (abi::role::HALO, "halo"),
             ])),
             other => panic!("unexpected query: {other:?}"),
         })
