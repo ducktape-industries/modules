@@ -27,26 +27,28 @@ pub fn sentence(error: &Error) -> String {
 pub fn failure(answer: &Result<Submitted, Error>) -> Option<String> {
     match answer {
         Ok(Submitted::Applied { .. }) => None,
-        Ok(Submitted::Refused { refusal, .. }) => Some(refused(refusal)),
+        Ok(Submitted::Refused { refusal, .. }) => Some(did_not_go_through(refusal)),
         Ok(Submitted::InDoubt { .. }) => Some(IN_DOUBT.into()),
         Err(error) => Some(unsent(error)),
     }
 }
 
-/// A write in doubt. The Expo app follows the colon with the transport's
-/// own words (`words.ts:80`); `Submitted::InDoubt` carries none, so it says
-/// what is known: no answer came back.
-const IN_DOUBT: &str = "This may have gone through: no answer came back.";
+/// A write in doubt (`words.ts:80`). The Expo app puts the transport's own
+/// words after the colon; `Submitted::InDoubt` carries none, so it says
+/// what is known: no answer came back. What follows holds because a view
+/// settles a write in doubt by reading the chain for it (`InDoubt`'s doc).
+const IN_DOUBT: &str =
+    "This may have gone through: no answer came back. What you see is read again from the node.";
 
 /// A write the program or the node refused (`words.ts:79`).
-fn refused(error: &Error) -> String {
+fn did_not_go_through(error: &Error) -> String {
     format!("That didn’t go through: {}", sentence(error))
 }
 
 /// A write the host answered with an error of its own, or passed on the
-/// node's refusal. The host's codes ([`refusal`]) say it was never sent
-/// (`words.ts:82-84`), but two say it may have run: the node failed, or no
-/// answer came back.
+/// node's refusal. The host's codes ([`refusal::ALL`]) say it was never
+/// sent (`words.ts:82-84`), but two say it may have run: the node failed,
+/// or no answer came back.
 fn unsent(error: &Error) -> String {
     match error.code.as_str() {
         refusal::RPC_CLIENT => {
@@ -54,29 +56,10 @@ fn unsent(error: &Error) -> String {
         }
         refusal::NOT_CONNECTED => "Not sent: not connected to a node.".into(),
         refusal::NODE_FAILED | refusal::REQUEST_CLOSED => IN_DOUBT.into(),
-        code if HOST.contains(&code) => format!("Not sent: {}", sentence(error)),
-        _ => refused(error),
+        code if refusal::ALL.contains(&code) => format!("Not sent: {}", sentence(error)),
+        _ => did_not_go_through(error),
     }
 }
-
-/// The host's own refusals that leave a write unsent ([`refusal`]). A
-/// hand copy: `refusal` lists no set to walk, so a code added there must be
-/// added here, or a write it refuses is worded as the program's refusal.
-const HOST: [&str; 13] = [
-    refusal::UNKNOWN_REQUEST,
-    refusal::UNDECLARED_CAPABILITY,
-    refusal::UNDECLARED_TARGET,
-    refusal::CONSENT_REFUSED,
-    refusal::MALFORMED_REQUEST,
-    refusal::STALE_CONNECTION,
-    refusal::SESSION_LOCKED,
-    refusal::HOST_FAULT,
-    refusal::INVALID_WIDGET_COMMAND,
-    refusal::WIDGET_COMMAND_FAILED,
-    refusal::WIDGET_UNMOUNTED,
-    refusal::NEEDS_GESTURE,
-    refusal::INVITE_UNSUPPORTED,
-];
 
 #[cfg(test)]
 mod tests {
@@ -120,7 +103,7 @@ mod tests {
         );
         assert_eq!(
             said(Ok(Submitted::InDoubt { frame, until: 9 })),
-            "This may have gone through: no answer came back."
+            "This may have gone through: no answer came back. What you see is read again from the node."
         );
         assert_eq!(
             said(Err(error(refusal::RPC_CLIENT, "connection refused"))),
@@ -136,7 +119,7 @@ mod tests {
         );
         assert_eq!(
             said(Err(error(refusal::REQUEST_CLOSED, "closed"))),
-            "This may have gone through: no answer came back."
+            "This may have gone through: no answer came back. What you see is read again from the node."
         );
         assert_eq!(
             said(Err(error("unknown_program", "activity"))),

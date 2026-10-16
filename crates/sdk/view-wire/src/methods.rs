@@ -764,6 +764,28 @@ pub mod refusal {
     /// The host closed the request with no answer; written on the view's
     /// side, by the SDK.
     pub const REQUEST_CLOSED: &str = "request_closed";
+
+    /// Every code above: what a view tells apart from a node's or a
+    /// program's refusal (`design::failure` words these as the host's).
+    pub const ALL: [&str; 17] = [
+        UNKNOWN_REQUEST,
+        UNDECLARED_CAPABILITY,
+        UNDECLARED_TARGET,
+        CONSENT_REFUSED,
+        MALFORMED_REQUEST,
+        NOT_CONNECTED,
+        STALE_CONNECTION,
+        SESSION_LOCKED,
+        RPC_CLIENT,
+        NODE_FAILED,
+        HOST_FAULT,
+        INVALID_WIDGET_COMMAND,
+        WIDGET_COMMAND_FAILED,
+        WIDGET_UNMOUNTED,
+        NEEDS_GESTURE,
+        INVITE_UNSUPPORTED,
+        REQUEST_CLOSED,
+    ];
 }
 
 #[cfg(test)]
@@ -871,5 +893,7 @@ mod tests {
         for (code, wire) in codes {
             assert_eq!(code, wire);
         }
+        // `refusal::ALL` lists every code, once
+        assert_eq!(refusal::ALL, codes.map(|(_, wire)| wire));
     }
 }

@@ -11,6 +11,19 @@
 //! a Compact layout is made of, and the sheet ([`sheet`]). The words
 //! every view says of a refusal and of a write that did not land
 //! ([`sentence`], [`failure`]) sit here too.
+//!
+//! The kit a phone page reaches for, each piece as the Expo app's kit
+//! draws it under a finger and as the desktop always has under a pointer
+//! (pick the ladder first: `design::ladder(window.touch())`):
+//! - a list: [`row`], its words ([`row_words`], [`row_title`],
+//!   [`row_caption`]), [`lead`], [`chevron`], [`section_head`]
+//! - a form: [`field`], [`button`] (`.small()`, `.busy(..)`), [`form_verbs`]
+//! - a sheet: [`sheet`], [`sheet_head`], [`sheet_title`], [`sheet_row`],
+//!   [`SHEET_INSET`]
+//! - a choice: [`strip`] of [`tab`]s, [`segmented`], [`switch`]
+//! - a state: [`empty_state`], [`refused`], [`quiet`]
+//! - a press: [`pressed`], and [`hit`] for a control smaller than a finger
+//! - words: [`sentence`], [`failure`], [`fingerprint`], [`short_hex`]
 pub use ::design::*;
 
 mod format;
@@ -24,6 +37,7 @@ pub use words::{failure, sentence};
 use crate::prelude::*;
 use crate::{AnyElement, Div, FontWeight, Hsla, Pixels, Stateful, StyleRefinement};
 pub use gpui::Orientation;
+use control::Control as _;
 use gpui::{BoxShadow, ScrollStrategy};
 
 /// [`type_scale`] as sizes an element takes.
@@ -366,9 +380,11 @@ pub fn sheet_title(
 }
 
 /// A form sheet's foot (`Agents.tsx:224-232`, `programs.tsx:506-509`):
-/// `cancel` as a quiet [`button`] (Cancel, Close), then `verb` as the
-/// primary one, taking the rest of the row, 8 apart. The verb's busy
-/// label and whether it is enabled are the caller's.
+/// `cancel`, then `verb` taking the rest of the row, 8 apart. The buttons
+/// are the caller's as built; Expo's are a quiet Cancel and the primary
+/// verb: `design::form_verbs(design::button("add-cancel", "Cancel",
+/// &ladder, &theme, cancel).kind(Kind::Quiet), design::button("add",
+/// "Add", &ladder, &theme, add).kind(Kind::Primary).busy(adding))`.
 pub fn form_verbs<C, V>(cancel: Button<C>, verb: Button<V>) -> Div
 where
     C: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -377,15 +393,9 @@ where
     div()
         .flex()
         .gap(space::SM)
-        .child(cancel.kind(Kind::Quiet))
+        .child(cancel)
         // a column stretches the button it holds across its width
-        .child(
-            div()
-                .flex_1()
-                .flex()
-                .flex_col()
-                .child(verb.kind(Kind::Primary)),
-        )
+        .child(div().flex_1().flex().flex_col().child(verb))
 }
 
 /// One action of a sheet (the Expo kit's `SheetRow`, `Sheet.tsx:154-175`):
@@ -450,6 +460,11 @@ where
         self.danger = true;
         self
     }
+}
+
+impl<F> gpui::prelude::FluentBuilder for SheetRow<F> where
+    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static
+{
 }
 
 impl<F> IntoElement for SheetRow<F>
@@ -583,43 +598,57 @@ pub fn pressed<E: StatefulInteractiveElement>(element: E, ladder: &Ladder) -> E 
 }
 
 /// What a [`field`] holds: a one-line [`Input`](crate::Input) or a
-/// many-line [`Textarea`](crate::Textarea).
-pub trait FieldControl: Styled + IntoElement {
-    /// The value will not do, and `problem` says why: the control is
-    /// invalid and the problem its description, so a screen reader hears
-    /// what the eye reads (rule 18).
-    fn refused(self, problem: SharedString) -> Self;
-    /// The words a screen reader reads after the control's name.
-    fn described(self, caption: SharedString) -> Self;
-    /// The text's inset inside an edge `thicker` than a hairline: 12 in,
-    /// less that (`Field.tsx:52`), and for many lines 10 over and under,
-    /// less the same (`Field.tsx:79`), so the text stays put.
-    fn text_inset(self, thicker: Pixels) -> Self;
-}
+/// many-line [`Textarea`](crate::Textarea). Sealed: what the field does to
+/// its control is the field's own.
+pub trait FieldControl: control::Control {}
 
-impl FieldControl for crate::Input {
-    fn refused(self, problem: SharedString) -> Self {
-        self.invalid(gpui::accesskit::Invalid::True)
-            .description(problem)
-    }
-    fn described(self, caption: SharedString) -> Self {
-        self.description(caption)
-    }
-    fn text_inset(self, thicker: Pixels) -> Self {
-        self.px(space::LG - thicker)
-    }
-}
+impl FieldControl for crate::Input {}
 
-impl FieldControl for crate::Textarea {
-    fn refused(self, problem: SharedString) -> Self {
-        self.invalid(gpui::accesskit::Invalid::True)
-            .description(problem)
+impl FieldControl for crate::Textarea {}
+
+/// What [`field`] sets on its control; private, so a view sets it through
+/// the field alone.
+mod control {
+    use super::space;
+    use crate::prelude::*;
+
+    pub trait Control: Styled + IntoElement {
+        /// The value will not do, and `problem` says why: the control is
+        /// invalid and the problem its description, so a screen reader
+        /// hears what the eye reads (rule 18).
+        fn refused(self, problem: SharedString) -> Self;
+        /// The words a screen reader reads after the control's name.
+        fn described(self, caption: SharedString) -> Self;
+        /// The text's inset inside an edge `thicker` than a hairline: 12
+        /// in, less that (`Field.tsx:52`), and for many lines 10 over and
+        /// under, less the same (`Field.tsx:79`), so the text stays put.
+        fn text_inset(self, thicker: Pixels) -> Self;
     }
-    fn described(self, caption: SharedString) -> Self {
-        self.description(caption)
+
+    impl Control for crate::Input {
+        fn refused(self, problem: SharedString) -> Self {
+            self.invalid(gpui::accesskit::Invalid::True)
+                .description(problem)
+        }
+        fn described(self, caption: SharedString) -> Self {
+            self.description(caption)
+        }
+        fn text_inset(self, thicker: Pixels) -> Self {
+            self.px(space::LG - thicker)
+        }
     }
-    fn text_inset(self, thicker: Pixels) -> Self {
-        self.px(space::LG - thicker).py(space::MD - thicker)
+
+    impl Control for crate::Textarea {
+        fn refused(self, problem: SharedString) -> Self {
+            self.invalid(gpui::accesskit::Invalid::True)
+                .description(problem)
+        }
+        fn described(self, caption: SharedString) -> Self {
+            self.description(caption)
+        }
+        fn text_inset(self, thicker: Pixels) -> Self {
+            self.px(space::LG - thicker).py(space::MD - thicker)
+        }
     }
 }
 
@@ -820,9 +849,13 @@ const TITLE_GAP: Pixels = px(1.);
 
 /// A [`row`]'s words (the Expo kit's `Row`, `Row.tsx:58-73`): a column
 /// taking the row's slack, `title` on top (a [`row_title`]) and, 1 under
-/// it, what the caller adds: a [`row_caption`], the row then
-/// `.min_h(ladder.row_tall)` (`Row.tsx:44`).
-pub fn title_and_caption(title: impl IntoElement) -> Div {
+/// it, a caption the caller adds as a child (a [`row_caption`]). A row
+/// with a caption is [`Ladder::row_tall`] (`Row.tsx:44`):
+/// `design::row("ada", &ladder, &theme).min_h(ladder.row_tall)
+/// .child(design::row_words(design::row_title("Ada", &ladder, &theme))
+/// .child(design::row_caption("#42", &ladder, &theme)))
+/// .child(design::chevron(&ladder, &theme))`.
+pub fn row_words(title: impl IntoElement) -> Div {
     div()
         .flex_1()
         .min_w_0()
@@ -1020,12 +1053,17 @@ pub fn refused(
 /// under (`Notice.tsx:60-61`).
 const NOTICE_ACTION: Pixels = px(30.);
 
+/// How far a `Notice`'s action presses past itself on every side: Expo's
+/// `hitSlop` (`Notice.tsx:60`).
+const NOTICE_SLOP: Pixels = px(8.);
+
 /// A refused read under a finger (`Notice.tsx:15-77`): a full-width strip
 /// on `danger_soft`, 10 over and under, 16 in, 10 apart, the sentence in
 /// `ladder.secondary` danger taking the slack, then Retry, medium, 8 in
-/// from its left; an alert a screen reader says at once. Retry presses
-/// through a [`hit`] reaching to [`Ladder::hit`] (Expo's `hitSlop` is 8,
-/// `Notice.tsx:60`), and is at least as wide.
+/// from its left; an alert a screen reader says at once. Retry's press
+/// reaches 8 past it on every side, as Expo's does: the press box is
+/// padded by the reach and a negative margin hands the room back, so the
+/// word sits where Expo's does.
 fn notice_refused(
     id: ElementId,
     retry_id: ElementId,
@@ -1034,11 +1072,20 @@ fn notice_refused(
     theme: &Theme,
     retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
-    let press = hit(retry_id, ladder.hit, NOTICE_ACTION, px(0.), ladder)
+    let press = div()
+        .id(retry_id)
+        .flex_none()
+        .h(NOTICE_ACTION + NOTICE_SLOP * 2.)
+        .flex()
+        .items_center()
+        .pl(space::SM + NOTICE_SLOP)
+        .pr(NOTICE_SLOP)
+        .m(-NOTICE_SLOP)
+        .font_weight(FontWeight::MEDIUM)
         .role(Role::Button)
-        .aria_label("Retry")
         .focusable()
-        .on_click(retry);
+        .on_click(retry)
+        .child("Retry");
     div()
         .id(id)
         .flex()
@@ -1052,19 +1099,7 @@ fn notice_refused(
         .role(Role::Alert)
         .aria_live(gpui::accesskit::Live::Assertive)
         .child(div().flex_1().min_w_0().child(sentence))
-        .child(
-            div()
-                .relative()
-                .flex_none()
-                .h(NOTICE_ACTION)
-                .min_w(ladder.hit)
-                .flex()
-                .items_center()
-                .pl(space::SM)
-                .font_weight(FontWeight::MEDIUM)
-                .child("Retry")
-                .child(press),
-        )
+        .child(press)
 }
 
 /// One muted line of status text.
@@ -1241,9 +1276,11 @@ where
         self
     }
     /// The small button (`Button.tsx:16`): under a finger 36 tall
-    /// (`theme.ts:76`), 12 in, the label in [`Ladder::secondary`]; it still
-    /// presses at [`Ladder::hit`], through a [`hit`] over it. A pointer has
-    /// one button size, so under a pointer it changes nothing.
+    /// (`theme.ts:76`), 12 in, the label in [`Ladder::secondary`], and at
+    /// least [`Ladder::hit`] wide. It still presses at [`Ladder::hit`]
+    /// tall, which is our rule: Expo's small button sets no `hitSlop`, so
+    /// its press is the 36. A pointer has one button size, so under a
+    /// pointer it changes nothing.
     pub fn small(mut self) -> Self {
         self.small = true;
         self
@@ -1362,8 +1399,8 @@ where
     /// small), medium but for a quiet one. A plain and an outline button
     /// draw the kit's outline (it has no grey fill); a disabled one goes
     /// faint on a quiet edge, a busy one keeps its look. No hover: a press
-    /// dims it. A small button presses through a [`hit`] over it, which
-    /// draws nothing, so a press does not dim it.
+    /// dims it. A small button's press is a box [`Ladder::hit`] tall round
+    /// its face, and dims the face too.
     fn touched(self) -> AnyElement {
         let Self {
             id,
@@ -1434,19 +1471,35 @@ where
             busy,
             item,
         };
+        let live = enabled && !busy;
         if !small {
             let face = face.id(id);
-            let face = match (enabled && !busy, kind) {
+            let face = match (live, kind) {
                 (true, Kind::Primary) => focus_shown_on_ink(pressed(face, &ladder), &theme),
                 (true, _) => pressed(face, &ladder),
                 (false, _) => face,
             };
             return press.takes(face, click).into_any_element();
         }
-        let hit = hit(id, ladder.hit, height, HAIRLINE, &ladder).aria_label(label);
-        face.relative()
-            .min_w(ladder.hit)
-            .child(press.takes(hit, click))
+        // The press box is the face's parent, so a press anywhere on it
+        // dims the face: [`Ladder::hit`] tall, a negative margin handing
+        // back what it reaches past the 36 face. The 44 is our rule; Expo's
+        // small button sets no `hitSlop`.
+        let reach = (ladder.hit - height) / 2.;
+        let press_box = div()
+            .id(id)
+            .h(ladder.hit)
+            .my(-reach)
+            .flex()
+            .flex_col()
+            .justify_center();
+        let press_box = match live {
+            true => pressed(press_box, &ladder),
+            false => press_box,
+        };
+        press
+            .takes(press_box, click)
+            .child(face.min_w(ladder.hit))
             .into_any_element()
     }
 }
