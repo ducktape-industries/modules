@@ -20,10 +20,10 @@ pub const SETTINGS_MICROPHONE: &str = "system-settings:microphone";
 /// host when the node's `revision` moves.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MicCommand {
-    /// Record `seconds` from the microphone, then play the recording on the
-    /// piece's `output`: the person hears themselves after they stop
-    /// talking, with no feedback through the speakers. A recording or
-    /// playback under way is replaced.
+    /// Record `seconds` from the microphone (`0` records one, as `1`
+    /// does), then play the recording on the piece's `output`: the person
+    /// hears themselves after they stop talking, with no feedback through
+    /// the speakers. A recording or playback under way is replaced.
     Record { seconds: u8 },
     /// Ends a recording or its playback.
     Stop,

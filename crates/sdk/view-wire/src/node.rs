@@ -337,18 +337,22 @@ pub enum Node {
     /// A camera's picture, drawn by the host in the node's box as an
     /// image's is by `object_fit` (`Contain`: the whole picture, centred,
     /// the box's background on the sides it does not fill; `Cover`: the box
-    /// covered, the picture cut centred), flipped left to right when
-    /// `mirror` (a person checking themselves expects a mirror). No picture crosses to the view. Only a view whose
-    /// manifest declares the `camera` capability may send one; a host
-    /// refuses the frame of any other ([`Frame::undeclared`]).
+    /// covered, the picture cut centred), turned upright for the display's
+    /// orientation, and flipped left to right when `mirror` (a person
+    /// checking themselves expects a mirror). No picture crosses to the
+    /// view. Only a view whose manifest declares the `camera` capability
+    /// may send one; a host refuses the frame of any other
+    /// ([`Frame::undeclared`]).
     ///
     /// The camera opens when the host first sees the node (under its
     /// path), the system's permission asked first where it asks; it opens
     /// again when `device` changes (`None`: the system's default camera,
-    /// else an id `camera.devices` listed), and is released (its light
-    /// off) when a frame no longer has the node or its window closes. A
-    /// view turns its camera off by not placing the piece. `on_state`
-    /// hears where the camera is as [`Event::Media`].
+    /// else an id `camera.devices` listed: the host opens only an id it
+    /// listed, and a piece naming another reports
+    /// [`crate::MediaStatus::NoDevice`]), and is released (its light off)
+    /// when a frame no longer has the node or its window closes. A view
+    /// turns its camera off by not placing the piece. `on_state` hears
+    /// where the camera is as [`Event::Media`].
     Camera {
         id: ElementIdWire,
         style: StyleId,
