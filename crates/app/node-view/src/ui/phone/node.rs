@@ -10,7 +10,7 @@
 //! `Nodes::open` (the page's Back) and a vote through `Nodes::press`.
 use abi::hex;
 use std::ops::RangeInclusive;
-use view::design::{Page, space};
+use view::design::{Nav, Page, space};
 use view::prelude::*;
 use view::{Div, Stateful};
 
@@ -37,7 +37,7 @@ pub(super) fn render(view: &Nodes, key: &[u8], cx: &mut Context<Nodes>, theme: &
     });
     let nodes = view.nodes.ready();
     let Some(node) = nodes.and_then(|nodes| nodes.iter().find(|node| node.key == key)) else {
-        let page = design::page("nodes-node", "Node", Some(back), &LADDER, theme);
+        let page = design::page("nodes-node", "Node", Nav::back(back), &LADDER, theme);
         return page.child(missing(view, theme));
     };
     let body = div()
@@ -50,7 +50,7 @@ pub(super) fn render(view: &Nodes, key: &[u8], cx: &mut Context<Nodes>, theme: &
     design::page(
         "nodes-node",
         design::short_hex(&hex(&node.key)),
-        Some(back),
+        Nav::back(back),
         &LADDER,
         theme,
     )
@@ -177,8 +177,7 @@ fn span(view: &Nodes) -> Option<RangeInclusive<u64>> {
 /// `Proposed`, and at its right which blocks the strip spans.
 fn proposed_head(view: &Nodes, theme: &Theme) -> impl IntoElement {
     let range = span(view).map(|span| words::span(&span));
-    design::section_head("nodes-node-proposed", words::PROPOSED, None, &LADDER, theme)
-        .children(range)
+    design::section_head("nodes-node-proposed", words::PROPOSED, &LADDER, theme).children(range)
 }
 
 /// What the member proposed: a validator's strip once the tip is known; a
