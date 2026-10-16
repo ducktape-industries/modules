@@ -522,37 +522,33 @@ const SECTION_HEAD: Pixels = px(40.);
 
 /// A list's section head (the Expo kit's `SectionHead`, `Row.tsx:80-107`):
 /// at least 40 tall, 12 over and 4 under, 16 in; `label` in caption
-/// medium and muted, taking the slack. What the caller adds sits after it
-/// at the right, 8 apart, in the head's caption muted, as Expo's one
-/// `right` does: a count, or "3 · newest first":
+/// medium and muted. What the caller adds sits after it at the right, in
+/// the head's caption muted, as Expo's one `right` does: a count, or
+/// "3 · newest first":
 /// `design::section_head("keys", "Keys", &ladder, &theme)
-/// .child(count.to_string())`.
+/// .child(count.to_string())`. Under a finger the label takes the slack
+/// and what follows sits 8 after it; under a pointer the two sit at the
+/// head's ends, as the desktop has always drawn them.
 pub fn section_head(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     ladder: &Ladder,
     theme: &Theme,
 ) -> Stateful<Div> {
-    div()
-        .id(id)
-        .min_h(SECTION_HEAD)
-        .flex()
-        .items_center()
-        .gap(space::SM)
-        .pt(space::LG)
+    let head = div().id(id).min_h(SECTION_HEAD).flex().items_center();
+    let label = div().font_weight(FontWeight::MEDIUM).child(label.into());
+    let (head, label) = match ladder.touch {
+        true => (head.gap(space::SM), label.flex_1().min_w_0()),
+        false => (head.justify_between(), label),
+    };
+    head.pt(space::LG)
         .pb(space::XXS)
         .px(space::BLOCK)
         .text_type(ladder.caption)
         .text_color(theme.muted)
         .role(Role::Heading)
         .aria_level(2)
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .font_weight(FontWeight::MEDIUM)
-                .child(label.into()),
-        )
+        .child(label)
 }
 
 /// Nothing to show yet: what is missing, then what would fill it.
@@ -2303,7 +2299,8 @@ mod tests {
     }
 
     /// What a caller adds to a section head sits after its label, at the
-    /// right, in the head's caption muted: the label takes the slack.
+    /// right, in the head's caption muted: under a finger the label takes
+    /// the slack; under a pointer the two sit at the head's ends.
     #[test]
     fn a_section_heads_trailing_child_sits_after_its_label() {
         let theme = Theme::light();
@@ -2322,6 +2319,13 @@ mod tests {
         assert!(
             matches!(count, wire::Node::Text(wire::TextNode { content, .. }) if content.as_str() == "3"),
             "{count:?}"
+        );
+        // under a pointer the two sit at the head's ends, as on the desktop
+        let (head, styles) =
+            lower_styled(section_head("keys", "Keys", &POINTER, &theme).child("3"));
+        assert_eq!(
+            styles[head.style().expect("a styled head")].justify_content,
+            Some(gpui::JustifyContent::SpaceBetween)
         );
     }
 
