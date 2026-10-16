@@ -98,7 +98,10 @@ async fn title(host: &Host, frame: &Frame) -> Result<Option<String>, Error> {
         return Ok(None);
     };
     let described = match tx.payload {
-        Some(payload) => host.ask::<ProgramDescribe>((tx.target.clone(), payload)).await,
+        Some(payload) => {
+            host.ask::<ProgramDescribe>((tx.target.clone(), payload))
+                .await
+        }
         None => Ok(None),
     };
     // a describe that cannot read the bytes leaves the size, as Expo's does
