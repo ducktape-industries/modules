@@ -1,6 +1,7 @@
 //! Message menus at the pointer and the edit composer under its stream.
 use crate::emoji;
-use crate::{Chat, Menu, Mode, Pane};
+use crate::words;
+use crate::{CANCEL_DELETE, CONFIRM_DELETE, Chat, Menu, Mode, Pane};
 use view::prelude::*;
 use view::{Anchor, AnchoredPositionMode, Edges, Point};
 
@@ -24,8 +25,6 @@ const STACK_GAP: f32 = design::spacing::XS as f32;
 /// From a press on the action strip to past its edge, either way: the
 /// strip is 26 tall, and a gap keeps the menu off it.
 const STRIP_CLEAR: f32 = 26. + design::spacing::XS as f32;
-/// The delete confirmation's Cancel, the button that takes the keys on open.
-const CANCEL_DELETE: &str = "chat-menu-cancel-delete";
 type Press = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 pub mod card;
@@ -81,7 +80,7 @@ pub fn floating(
         Mode::Delete => div()
             .id(id)
             .role(Role::AlertDialog)
-            .aria_label("Delete this message?"),
+            .aria_label(words::DELETE_QUESTION),
         // the card's first button takes the keys on open, as the
         // confirmation's does; the overlay around it is the dialog, named
         // "Agent profile", as the picker's is
@@ -92,7 +91,7 @@ pub fn floating(
             let items = more_items(chat, menu);
             let (pane, seq, rev) = (menu.pane, menu.seq, menu.rev);
             let run = items.clone();
-            design::composite(id, Role::Menu, "Message actions")
+            design::composite(id, Role::Menu, words::MESSAGE_ACTIONS)
                 .active(
                     chat.menu_cursor.min(items.len().saturating_sub(1)),
                     items.len(),
@@ -171,7 +170,7 @@ pub fn editing(chat: &Chat, pane: Pane, cx: &mut Context<Chat>) -> Option<AnyEle
             .child(crate::ui::room::composer(
                 chat,
                 target,
-                "Edit message",
+                words::EDIT_MESSAGE,
                 true,
                 cx,
             ))
@@ -265,15 +264,21 @@ fn action_item(
         })) as Press,
     );
     match action {
-        Action::Reply => Item::new("chat-menu-reply", "↩", "Reply in thread", press, *theme),
-        Action::React => Item::new(
-            "chat-menu-add-reaction",
-            "😀",
-            "Add reaction",
+        Action::Reply => Item::new(
+            "chat-menu-reply",
+            "↩",
+            words::REPLY_IN_THREAD,
             press,
             *theme,
         ),
-        Action::CopyLink => Item::new("chat-menu-copy-link", "🔗", "Copy link", press, *theme),
+        Action::React => Item::new(
+            "chat-menu-add-reaction",
+            "😀",
+            words::ADD_REACTION,
+            press,
+            *theme,
+        ),
+        Action::CopyLink => Item::new("chat-menu-copy-link", "🔗", words::COPY_LINK, press, *theme),
         Action::WorkRecord => Item::new(
             "chat-menu-work-record",
             "📋",
@@ -281,10 +286,18 @@ fn action_item(
             press,
             *theme,
         ),
-        Action::Edit => Item::new("chat-menu-edit", "✎", "Edit message", press, *theme),
+        Action::Edit => Item::new("chat-menu-edit", "✎", words::EDIT_MESSAGE, press, *theme),
         Action::Delete => {
             let (fg, bg) = (theme.danger, theme.background);
-            Item::toned("chat-menu-delete", "Delete message", press, *theme, fg, bg).glyph("🗑")
+            Item::toned(
+                "chat-menu-delete",
+                words::DELETE_MESSAGE,
+                press,
+                *theme,
+                fg,
+                bg,
+            )
+            .glyph("🗑")
         }
     }
 }
@@ -302,7 +315,7 @@ fn act(
     cx: &mut Context<Chat>,
 ) {
     match action {
-        Action::Reply => chat.open_thread(seq, cx),
+        Action::Reply => chat.reply_in_thread(seq, cx),
         Action::React => chat.open_menu(pane, seq, rev, Mode::Reactions, window, cx),
         Action::Edit => chat.open_menu(pane, seq, rev, Mode::Editing, window, cx),
         Action::Delete => chat.open_menu(pane, seq, rev, Mode::Delete, window, cx),
@@ -310,7 +323,7 @@ fn act(
             let link = chat.message_link(seq);
             chat.close_menu();
             match link {
-                Some(link) => chat.copy_text(link, "message link", cx),
+                Some(link) => chat.copy_text(link, words::MESSAGE_LINK, cx),
                 None => cx.host().log("no message link: the session names no chain"),
             }
         }
@@ -349,7 +362,7 @@ fn delete(_chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
         .child(
             div()
                 .text_size(design::text::BODY)
-                .child("Delete this message?"),
+                .child(words::DELETE_QUESTION),
         )
         .child(
             div()
@@ -364,13 +377,13 @@ fn delete(_chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
                 .gap_2()
                 .child(Item::text(
                     CANCEL_DELETE,
-                    "Cancel",
+                    words::CANCEL,
                     Some(Box::new(cancel)),
                     *theme,
                 ))
                 .child(Item::toned(
-                    "chat-menu-confirm-delete",
-                    "Delete",
+                    CONFIRM_DELETE,
+                    words::DELETE,
                     confirm,
                     *theme,
                     theme.danger,

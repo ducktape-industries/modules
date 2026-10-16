@@ -1,3 +1,4 @@
+use crate::methods::Capability;
 use crate::*;
 use serde::{Deserialize, Serialize};
 
@@ -253,6 +254,13 @@ pub enum Event {
         handler: u32,
         state: crate::WebState,
     },
+    /// Where a [`Node::Camera`]'s or [`Node::Microphone`]'s device is (and
+    /// a microphone's recording), to the node's `on_state`: sent when the
+    /// piece first reports, and whenever any of it changes after.
+    Media {
+        handler: u32,
+        state: crate::MediaState,
+    },
 }
 
 /// Why a request failed, as the view gets it: the one [`Error`] — a stable
@@ -309,6 +317,40 @@ pub struct Frame {
     /// yields more than one tick runs, a handler chain longer than one
     /// round — and wants the next tick now, not at the next event or answer.
     pub busy: bool,
+}
+
+impl Frame {
+    /// A capability that a node the frame carries needs ([`Node::capability`])
+    /// and `declared` leaves out, looked for in the tree, in every patch and
+    /// in every tooltip's content; `None` when the view declared each. A
+    /// host refuses such a frame and ends the view: sent again, it would be
+    /// refused again.
+    pub fn undeclared(&self, declared: &[Capability]) -> Option<Capability> {
+        fn find(node: &Node, declared: &[Capability]) -> Option<Capability> {
+            node.capability()
+                .filter(|capability| !declared.contains(capability))
+                .or_else(|| {
+                    node.children()
+                        .iter()
+                        .find_map(|child| find(child, declared))
+                })
+        }
+        let patched = self.patches.iter().filter_map(|patch| match patch {
+            Patch::Replace { node, .. }
+            | Patch::Props { node, .. }
+            | Patch::Insert { node, .. } => Some(node),
+            Patch::Remove { .. } | Patch::Move { .. } => None,
+        });
+        let tooltips = self
+            .tooltip_responses
+            .iter()
+            .filter_map(|response| response.content.as_deref());
+        self.root
+            .iter()
+            .chain(patched)
+            .chain(tooltips)
+            .find_map(|node| find(node, declared))
+    }
 }
 
 /// Copied input accessibility and native layout options.

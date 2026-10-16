@@ -32,6 +32,8 @@ pub enum AnchoredPositionMode {
     Local,
 }
 
+/// How a picture fills its box, an image's ([`ImageStyle`]) or a
+/// camera's ([`Node::Camera`]): gpui's `ObjectFit`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ImageObjectFit {
     Fill,
@@ -39,6 +41,18 @@ pub enum ImageObjectFit {
     Cover,
     ScaleDown,
     None,
+}
+
+impl From<gpui::ObjectFit> for ImageObjectFit {
+    fn from(fit: gpui::ObjectFit) -> Self {
+        match fit {
+            gpui::ObjectFit::Fill => Self::Fill,
+            gpui::ObjectFit::Contain => Self::Contain,
+            gpui::ObjectFit::Cover => Self::Cover,
+            gpui::ObjectFit::ScaleDown => Self::ScaleDown,
+            gpui::ObjectFit::None => Self::None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -299,7 +313,7 @@ pub enum Node {
     /// (deliberate; an accessible name can come later with the page's own
     /// accessibility tree). Only a view whose manifest declares the `web`
     /// capability may send one; a host refuses the frame of any other
-    /// ([`crate::web::carries_web`]).
+    /// ([`Frame::undeclared`]).
     ///
     /// The page opens on `url` when the host first sees the node (under its
     /// path) and is closed when a frame no longer has it. The view moves it
@@ -320,6 +334,63 @@ pub enum Node {
         style: StyleId,
         revision: u64,
         commands: Vec<crate::web::WebCommand>,
+        on_state: Option<u32>,
+    },
+    /// A camera's picture, drawn by the host in the node's box as an
+    /// image's is by `object_fit` (`Contain`: the whole picture, centred,
+    /// the box's background on the sides it does not fill; `Cover`: the box
+    /// covered, the picture cut centred), turned upright for the display's
+    /// orientation, and flipped left to right when `mirror` (a person
+    /// checking themselves expects a mirror). No picture crosses to the
+    /// view. Only a view whose manifest declares the `camera` capability
+    /// may send one; a host refuses the frame of any other
+    /// ([`Frame::undeclared`]).
+    ///
+    /// The camera opens when the host first sees the node (under its
+    /// path), the system's permission asked first where it asks; it opens
+    /// again when `device` changes (`None`: the system's default camera,
+    /// else an id `camera.devices` listed: the host opens only an id it
+    /// listed, and a piece naming another reports
+    /// [`crate::MediaStatus::NoDevice`]), and is released (its light off)
+    /// when a frame no longer has the node or its window closes. A view
+    /// turns its camera off by not placing the piece. `on_state` hears
+    /// where the camera is as [`Event::Media`].
+    Camera {
+        id: ElementIdWire,
+        style: StyleId,
+        device: Option<String>,
+        mirror: bool,
+        object_fit: ImageObjectFit,
+        on_state: Option<u32>,
+    },
+    /// A microphone's level, drawn by the host as a meter in the node's
+    /// box: a bar from the left in the style's text colour over its
+    /// background. The level never crosses: it moves faster than a view
+    /// should draw. Only a view whose manifest declares the `microphone`
+    /// capability may send one; a host refuses the frame of any other
+    /// ([`Frame::undeclared`]).
+    ///
+    /// The microphone opens as a [`Node::Camera`]'s camera does, by
+    /// `device` (an input `microphone.devices` listed), and is released
+    /// when a frame no longer has the node; a view mutes by not placing
+    /// it. `output` is the speaker (an output `microphone.devices` listed;
+    /// `None`: the default) a recording plays on and the monitor loops to.
+    /// `monitor` plays what the microphone hears straight back while set:
+    /// through a speaker ([`crate::methods::AudioKind::Speaker`]) it howls,
+    /// so a view sets it only on the person's explicit choice, with
+    /// headphones on. `commands`
+    /// apply in order, once, when `revision` moves (a [`Node::List`]'s
+    /// pattern): [`crate::MicCommand::Record`] records, then plays back.
+    /// `on_state` hears the microphone and the recording as
+    /// [`Event::Media`].
+    Microphone {
+        id: ElementIdWire,
+        style: StyleId,
+        device: Option<String>,
+        output: Option<String>,
+        monitor: bool,
+        revision: u64,
+        commands: Vec<crate::media::MicCommand>,
         on_state: Option<u32>,
     },
 }

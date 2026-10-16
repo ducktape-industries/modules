@@ -10,7 +10,7 @@ use view::{ElementId, Modifiers, TextField, Window, wire};
 use wire::keyboard::{Key, Named};
 
 /// The id of the editor [`view`](super::view) draws for the draft `key`.
-pub(super) fn editor_id(key: &str) -> String {
+pub(crate) fn editor_id(key: &str) -> String {
     format!("{key}/editor")
 }
 
