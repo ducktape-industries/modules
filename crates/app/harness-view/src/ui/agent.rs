@@ -1,5 +1,8 @@
-//! One agent: who it is, what it was hired with, who it answers, its threads by place and
-//! what its turns used. Its manager hires it again from here, or dismisses it.
+//! One agent: who it is, its configuration file and what harness resolves from it (the
+//! configuration and its model, or what is wrong), who it answers, its threads by place and
+//! what its turns used. Its manager edits its configuration from here, or takes it back from
+//! harness.
+use harness::{AgentSetup, Configured};
 use identity::Audience;
 use view::FontWeight;
 use view::design::Ladder;
@@ -8,7 +11,7 @@ use view::prelude::*;
 
 use super::{
     agent_state, asking, back, caption, context_words, fact, no_node, panel, place_label,
-    state_badge, usage_words, waiting,
+    snapshot_words, state_badge, usage_words, waiting, window_words,
 };
 use crate::read::{self, Roster};
 use crate::{Agents, Arm, Screen, State, thread_state};
@@ -50,31 +53,36 @@ fn detail(
     let (Some(detail), Some(roster)) = (view.detail.ready(), view.roster.ready()) else {
         return div().into_any_element();
     };
-    let Some(row) = detail.agent.clone() else {
+    let Some(setup) = detail.setup.clone() else {
         return design::empty_state(
-            "agent-gone", "bot-off",
-            "Not hired",
-            format!("Harness runs no agent as account {agent}: its manager dismissed it, or never hired it."), ladder,
+            "agent-gone",
+            "bot-off",
+            "Not run by harness",
+            format!(
+                "Account {agent} has no script that calls harness: its manager took it back, or never handed it over."
+            ),
+            ladder,
             theme,
         )
         .into_any_element();
     };
-    let manages = view.me == Some(row.manager);
+    let name = roster.name(agent);
+    let manages = view.me == Some(setup.manager);
     let card = roster.card(agent);
     let state = card.map_or(State::Idle, |card| agent_state(card, roster));
-    let serving = card.map_or(0, |card| card.serving);
     let note = card.and_then(|card| card.note);
-    let edit_row = row.clone();
-    let edit =
-        cx.listener(move |view: &mut Agents, _: &ClickEvent, _, cx| view.edit(&edit_row, cx));
+    let edit_setup = setup.clone();
+    let edit_name = name.clone();
+    let edit = cx.listener(move |view: &mut Agents, _: &ClickEvent, _, cx| {
+        view.edit(&edit_setup, &edit_name, cx)
+    });
     let arm = cx.listener(move |view: &mut Agents, _: &ClickEvent, _, cx| {
-        view.arming = Some(Arm::Dismiss(agent));
+        view.arming = Some(Arm::Remove(agent));
         cx.notify();
     });
     let mut sub = format!(
-        "account {agent} · agent · managed by {} · hired at block {}",
-        roster.name(row.manager),
-        design::grouped(row.hired)
+        "account {agent} · agent · managed by {}",
+        roster.name(setup.manager)
     );
     if let Some(note) = note {
         sub.push_str(&format!(" · {note}"));
@@ -85,7 +93,7 @@ fn detail(
         .items_center()
         .gap(space::LG)
         .child(
-            design::avatar(&row.name, size::AVATAR_LG * 1.5, theme)
+            design::avatar(&name, size::AVATAR_LG * 1.5, theme)
                 .bg(theme.agent_soft)
                 .text_color(theme.agent),
         )
@@ -100,7 +108,7 @@ fn detail(
                         .flex()
                         .items_center()
                         .gap(space::SM)
-                        .child(design::heading("agent-name", row.name.clone(), 1, theme))
+                        .child(design::heading("agent-name", name.clone(), 1, theme))
                         .child(state_badge("agent-state", state, theme, ladder)),
                 )
                 .child(caption(sub, theme)),
@@ -108,73 +116,33 @@ fn detail(
         .when(manages, |head| {
             head.child(design::button("agent-edit", "Edit…", ladder, theme, edit))
                 .child(design::button(
-                    "agent-dismiss",
-                    "Dismiss…",
+                    "agent-remove",
+                    "Take back…",
                     ladder,
                     theme,
                     arm,
                 ))
         });
-    let writes = detail.tools.iter().filter(|tool| tool.writes).count();
-    let facts = div()
-        .flex()
-        .flex_wrap()
-        .gap(space::XL)
-        .child(fact("Model", row.model.clone(), theme))
-        .child(fact(
-            "Service",
-            format!("{} · {serving} serving", row.service),
-            theme,
-        ))
-        .child(fact(
-            "Max output",
-            format!("{} tokens", design::grouped(row.max_tokens.into())),
-            theme,
-        ))
-        .child(fact("Answers", answers(&detail.audience, roster), theme))
-        .child(fact(
-            "Tools",
-            format!("{} · {writes} write as {}", detail.tools.len(), row.name),
-            theme,
-        ));
-    let total = read::sum(detail.threads.iter().map(|(_, usage, _)| usage));
+    let total = read::sum(detail.threads.iter().map(|(_, usage)| usage));
+    let window = setup.configured.model().map(|model| model.window.tokens());
     div()
         .flex()
         .flex_col()
         .gap(space::BLOCK)
         .child(head)
-        .children(dismissing(view, &row.name, agent, cx, theme, ladder))
-        .child(facts)
-        .children(no_node(
-            "agent-no-node",
-            &row.service,
-            serving,
-            roster.relaying,
-            theme,
-        ))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(space::XS)
-                .child(design::heading("agent-system", "System prompt", 2, theme))
-                .child(
-                    div()
-                        .p(space::LG)
-                        .border_1()
-                        .border_color(theme.border)
-                        .bg(theme.surface)
-                        .child(match row.system.is_empty() {
-                            true => "No system prompt: harness's preamble alone.".to_owned(),
-                            false => row.system.clone(),
-                        }),
-                )
-                .child(caption(
-                    "Edits do not reach open threads: system, model, service and max_tokens are fixed when a thread opens.",
-                    theme,
-                )),
-        )
-        .child(threads(detail, roster, cx, theme, ladder))
+        .children(removing(view, &name, agent, cx, theme, ladder))
+        .child(configuration(&setup, detail, roster, &name, theme))
+        .children(setup.configured.model().and_then(|model| {
+            no_node(
+                "agent-no-node",
+                &model.service,
+                card.and_then(|card| card.serving).unwrap_or_default(),
+                roster.relaying,
+                theme,
+            )
+        }))
+        .child(system_prompt(&setup, theme))
+        .child(threads(detail, roster, window.flatten(), cx, theme, ladder))
         .child(
             div()
                 .flex()
@@ -190,6 +158,109 @@ fn detail(
         .into_any_element()
 }
 
+fn configuration(
+    setup: &AgentSetup,
+    detail: &read::Detail,
+    roster: &Roster,
+    name: &str,
+    theme: &Theme,
+) -> impl IntoElement + use<> {
+    let writes = detail.tools.iter().filter(|tool| tool.writes).count();
+    let serving = roster
+        .card(setup.agent)
+        .and_then(|card| card.serving)
+        .unwrap_or_default();
+    let mut facts = div().flex().flex_wrap().gap(space::XL).child(fact(
+        "Configuration",
+        setup.path.clone(),
+        theme,
+    ));
+    if let Some((snapshot, config)) = setup.configured.config() {
+        let wait = config.wait.map_or_else(
+            || "egress's default".to_owned(),
+            |wait| design::plural(wait, "block", "blocks"),
+        );
+        facts = facts
+            .child(fact("Read at", snapshot_words(&snapshot), theme))
+            .child(fact("Model", config.model.clone(), theme))
+            .child(fact(
+                "Max output",
+                format!("{} tokens", design::grouped(config.max_tokens.into())),
+                theme,
+            ))
+            .child(fact("Wait", wait, theme));
+    }
+    if let Some(model) = setup.configured.model() {
+        facts = facts
+            .child(fact("Wire", model.wire.label(), theme))
+            .child(fact(
+                "Service",
+                format!("{} · {serving} serving", model.service),
+                theme,
+            ))
+            .child(fact("Vendor's name", model.name.clone(), theme))
+            .child(fact("Window", window_words(model.window), theme));
+    }
+    facts = facts
+        .child(fact("Answers", answers(&detail.audience, roster), theme))
+        .child(fact(
+            "Tools",
+            format!("{} · {writes} write as {name}", detail.tools.len()),
+            theme,
+        ));
+    let problem = setup.configured.problem(&setup.path).map(|problem| {
+        panel("agent-problem", theme.danger_soft, theme)
+            .child(div().font_weight(FontWeight::MEDIUM).child(problem))
+            .child(caption(
+                "Harness says so in a thread once for each message that reaches the agent, and asks no model until the file is fixed.",
+                theme,
+            ))
+    });
+    div()
+        .flex()
+        .flex_col()
+        .gap(space::SM)
+        .child(design::heading(
+            "agent-configuration",
+            "Configuration",
+            2,
+            theme,
+        ))
+        .children(problem)
+        .child(facts)
+        .child(caption(
+            "Harness reads the file at each model call, so an edit holds from the next call; each turn names the snapshot it read.",
+            theme,
+        ))
+}
+
+fn system_prompt(setup: &AgentSetup, theme: &Theme) -> impl IntoElement + use<> {
+    let text = match &setup.configured {
+        Configured::Ready { config, .. } | Configured::UnknownModel { config, .. } => {
+            match config.system.is_empty() {
+                true => "No system prompt: harness's preamble alone.".to_owned(),
+                false => config.system.clone(),
+            }
+        }
+        Configured::Unreadable { .. } | Configured::Malformed { .. } => {
+            "No system prompt is read until the file is fixed.".to_owned()
+        }
+    };
+    div()
+        .flex()
+        .flex_col()
+        .gap(space::XS)
+        .child(design::heading("agent-system", "System prompt", 2, theme))
+        .child(
+            div()
+                .p(space::LG)
+                .border_1()
+                .border_color(theme.border)
+                .bg(theme.surface)
+                .child(text),
+        )
+}
+
 fn answers(audience: &Audience, roster: &Roster) -> String {
     match audience {
         Audience::Manager => "Its manager only".into(),
@@ -201,8 +272,8 @@ fn answers(audience: &Audience, roster: &Roster) -> String {
     }
 }
 
-/// Dismiss's second press, and what it costs.
-fn dismissing(
+/// Take back's second press, and what it costs.
+fn removing(
     view: &Agents,
     name: &str,
     agent: u64,
@@ -210,34 +281,33 @@ fn dismissing(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Option<impl IntoElement + use<>> {
-    if view.arming != Some(Arm::Dismiss(agent)) {
+    if view.arming != Some(Arm::Remove(agent)) {
         return None;
     }
-    let confirm = cx.listener(move |view: &mut Agents, _: &ClickEvent, _, cx| {
-        view.act(Arm::Dismiss(agent), cx)
-    });
+    let confirm = cx
+        .listener(move |view: &mut Agents, _: &ClickEvent, _, cx| view.act(Arm::Remove(agent), cx));
     let cancel = cx.listener(|view: &mut Agents, _: &ClickEvent, _, cx| {
         view.arming = None;
         cx.notify();
     });
     Some(
-        panel("agent-dismissing", theme.danger_soft, theme)
+        panel("agent-removing", theme.danger_soft, theme)
             .child(format!(
-                "Dismiss {name}? Harness stops answering for it. Its threads stay here to read."
+                "Take {name} back from harness? Its script is cleared, so harness stops answering for it. Its threads and its configuration file stay."
             ))
             .child(
                 div()
                     .flex()
                     .gap(space::SM)
                     .child(design::button(
-                        "agent-dismiss-cancel",
+                        "agent-remove-cancel",
                         "Cancel",
                         ladder,
                         theme,
                         cancel,
                     ))
                     .child(
-                        design::button("agent-dismiss-confirm", "Dismiss", ladder, theme, confirm)
+                        design::button("agent-remove-confirm", "Take back", ladder, theme, confirm)
                             .kind(design::Kind::Primary)
                             .enabled(view.acting.is_none()),
                     ),
@@ -248,17 +318,18 @@ fn dismissing(
 fn threads(
     detail: &crate::read::Detail,
     roster: &Roster,
+    window: Option<u64>,
     cx: &mut Context<Agents>,
     theme: &Theme,
     ladder: &Ladder,
 ) -> impl IntoElement + use<> {
-    let rows = detail.threads.iter().map(|(thread, usage, window)| {
+    let rows = detail.threads.iter().map(|(thread, usage)| {
         let id = thread.id;
         let state = match thread.closed {
             true => "Closed".to_owned(),
             false => asking(thread.asking),
         };
-        let context = context_words(thread.context, *window);
+        let context = context_words(thread.context, window);
         let used = usage.input + usage.output + usage.cache_read + usage.cache_write;
         let theme = *theme;
         div()

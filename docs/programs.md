@@ -106,8 +106,8 @@ the enums so a view renders what the program keeps.
 
 ## 3. State: tables over `store`
 
-A program's state is its own key space of bytes; nothing reads another
-program's keys (section 6 is how you ask). `store` puts typed tables over
+A program's state is its own key space of bytes; no other program reads
+its keys (section 6 is how you ask). `store` puts typed tables over
 it, declared once as `const`s in `rules.rs`:
 
 ```rust
@@ -123,6 +123,9 @@ pub(crate) const VOTERS: Set<(String, AccountNumber)> = Set::new("voter/");
 - **Prefixes.** Every key of a table starts with its prefix, and two
   prefixes must not be prefixes of each other (`"m/"` beside `"m/x/"` would
   read each other's rows). One word and a slash is the convention.
+- **`live/` is reserved.** It holds the room grants the node reads
+  (`program::live::grant`, `abi::live`): who may publish and subscribe to
+  the live tracks of the program's rooms. No table may use it.
 - **Keys** encode through `store::KeyCodec` so byte order is value order:
   integers big-endian, strings and byte vectors NUL-terminated (a shorter
   name sorts before its extensions), `Principal` as its borsh, tuples
@@ -256,7 +259,7 @@ view shows beside a name.
 
 `Env::authority()` admits only a message from the program bound to the
 validators role, which sends one when its validators' vote passes a
-`Motion::Programs`; the programs role admits it, or a maintainer's signed frame
+`Motion::Role` for the programs role; the programs role admits it, or a maintainer's signed frame
 by its grant ([roles.md](roles.md), "Updating a program"), before scheduling
 or cancelling a change.
 
@@ -312,6 +315,16 @@ the message, which `reply` then handles like any refusal. A call acts as an
 account the same way (`ctx.call_as`, `call_raw_as`, below), and the refusal
 is the call's answer. harness writes as the agents it runs with
 `call_raw_as`, so chat and files judge the agent's account, not harness's.
+
+The same script routes `attribution`. A program sends attribution
+`Register { deliver }` once (harness does in its `init`, which founding runs
+like any frame, so what `init` emits is delivered); `deliver` is the prefix
+attribution puts before each change it hands that program, the encoding of
+the program's own op variant. A change about an active program account whose
+script calls a registered program goes to that program alone, as
+`deliver ++ borsh(change)`; a change about a user, a suspended account, or an
+account whose script calls a program that never registered is recorded and
+handed to no one.
 
 A reply names only the message's id. A program that wants to know *what* it
 was waiting for keeps that itself:
@@ -389,11 +402,24 @@ the awaits program (`chain.seat::<awaits::Awaits>("awaits")`) and the
 awaiting program with `chain.seat_awaiting`.
 
 The program bound to the egress role is called this way:
-`ctx.call_raw(egress, abi::encode(&abi::role::egress::Op::Request { request, wait: None }))`,
-with `egress` read from `ctx.env().roles.get(abi::role::EGRESS)`, answers the elected node's
-output, in a later block, or a refusal when the node reports a failure or
-the request expires, `wait` blocks after it was made (`DEFAULT_WAIT`, 64,
-for `None`).
+
+```rust
+use abi::role::egress::{Delivery, Op};
+let egress = ctx.env().role(abi::role::EGRESS)?.clone();
+let asked = Op::Request { request, delivery: Delivery::Whole, wait: None };
+let answer = ctx.call_raw(egress, abi::encode(&asked)).await;
+```
+
+It answers the elected node's output, in a later block (an `Http` request's
+is an encoded `http::Response`), or a refusal when the node reports a failure
+or the request expires, `wait` blocks after it was made (`DEFAULT_WAIT`, 64,
+for `None`). `Delivery::Events { deliver }` hears a `text/event-stream` reply
+event by event instead ([roles.md](roles.md), the egress row). harness asks
+a model's turn this way: `deliver` is `harness::streamed_as(thread)`, the
+encoding of its `Op::Streamed { thread, event }` up to the event, so each
+event arrives as that op. It checks the sender is the program bound to the
+egress role, and checks `seq` itself, because egress does not. The call's
+answer, an empty-bodied `http::Response`, says the stream ended.
 
 **A run for a later block.** `ctx.schedule(height, target, &op).await`
 asks the program bound to the scheduler role to run `target` with `op` at
@@ -514,8 +540,8 @@ line fails the close whole.
 `crates/app/forge/tests/common/sandbox.rs` is a larger harness on the same
 chain (forge and chat, agents, heights).
 
-**`conformance`: a role.** A program bound to `programs`, `validators` or
-`identity` at genesis speaks that role's bytes: the role's `Op`, `Query`
+**`conformance`: a role.** A program bound to `programs`, `validators`,
+`identity`, `awaits` or `halo` at genesis speaks that role's bytes: the role's `Op`, `Query`
 and `Reply` variants are your enums' first, in order, with the same
 fields. Take `conformance` as a dev-dependency, implement the role's
 `Fixture` (the few things the role leaves to your own ops) and call
@@ -560,7 +586,7 @@ and `make wasm-publish` releases the result as `founding.tar.gz`, which
    or `"poll"` in `UNVIEWED` for a program with no screen of its own.
 2. `crates/sdk/founding/founding.toml`: a `[[programs]]` entry,
    `id = "poll"`, `code = "poll.wasm"` (and `params = …` if `init` takes
-   any). The five `[roles]` stay bound to the boot set.
+   any). The `[roles]` stay bound as they are.
 3. qa's `founding.toml`: the same entry with `code = "@PROGRAMS@/poll.wasm"`.
    `kit up NAME` founds a fresh network with the program admitted at
    genesis and its account registered with identity.

@@ -36,8 +36,8 @@ pub use words::{failure, sentence};
 
 use crate::prelude::*;
 use crate::{AnyElement, Div, FontWeight, Hsla, Pixels, Stateful, StyleRefinement};
-pub use gpui::Orientation;
 use control::Control as _;
+pub use gpui::Orientation;
 use gpui::{BoxShadow, ScrollStrategy};
 
 /// [`type_scale`] as sizes an element takes.

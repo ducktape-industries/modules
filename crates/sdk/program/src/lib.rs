@@ -49,6 +49,7 @@ mod chain;
 mod ctx;
 mod identity;
 pub mod kernel;
+pub mod live;
 #[cfg(not(target_arch = "wasm32"))]
 mod mock;
 mod origin;

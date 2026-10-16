@@ -208,7 +208,8 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) -> Result<(), &'static str> 
     Ok(())
 }
 
-/// A text style's own bounds: colours, sizes, font lookup lists, ellipsis.
+/// A text style's own bounds: colours, sizes, letter spacing, font lookup
+/// lists, ellipsis.
 pub(crate) fn sanitize_text(text: &mut TextStyleRefinement) {
     if let Some(value) = &mut text.color {
         sanitize_hsla(value);
@@ -227,6 +228,12 @@ pub(crate) fn sanitize_text(text: &mut TextStyleRefinement) {
     }
     if let Some(value) = &mut text.line_clamp {
         *value = (*value).max(1);
+    }
+    // signed, as CSS `letter-spacing`: a negative one tightens the line
+    if let Some(value) = &mut text.letter_spacing {
+        let mut number = f32::from(*value);
+        bound(&mut number, true);
+        *value = px(number);
     }
     if let Some(features) = &mut text.font_features {
         let features = std::sync::Arc::make_mut(&mut features.0);
@@ -334,6 +341,20 @@ mod tests {
         assert_eq!(shadows[0].offset.x, px(0.));
         assert_eq!(shadows[0].offset.y, px(1000.));
         assert_eq!(shadows[0].spread_radius, px(-1e9));
+    }
+    #[test]
+    fn letter_spacing_keeps_its_sign_and_is_finite() {
+        for (authored, bounded) in [
+            (-0.22, -0.22),
+            (1.44, 1.44),
+            (f32::NAN, 0.),
+            (f32::INFINITY, f32::MAX),
+            (f32::NEG_INFINITY, f32::MIN),
+        ] {
+            let mut style = StyleRefinement::default().letter_spacing(px(authored));
+            sanitize(&mut style).unwrap();
+            assert_eq!(style.text.letter_spacing, Some(px(bounded)), "{authored}");
+        }
     }
     #[test]
     fn gpuis_own_shadows_cross_as_authored() {

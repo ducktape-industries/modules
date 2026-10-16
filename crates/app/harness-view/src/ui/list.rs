@@ -5,7 +5,7 @@ use view::prelude::*;
 use view::{FontWeight, Stateful};
 
 use super::{agent_state, asking, caption, place_label, state_badge, waiting};
-use crate::read::{Card, Roster, Unhired};
+use crate::read::{Card, Roster, Unscripted};
 use crate::{Agents, Screen, State, thread_state};
 
 pub(super) fn render(
@@ -15,6 +15,8 @@ pub(super) fn render(
     ladder: &Ladder,
 ) -> AnyElement {
     let create = cx.listener(|view: &mut Agents, _: &ClickEvent, _, cx| view.start_create(cx));
+    let models =
+        cx.listener(|view: &mut Agents, _: &ClickEvent, _, cx| view.go(Screen::Models, cx));
     let head = div()
         .flex()
         .flex_wrap()
@@ -28,7 +30,7 @@ pub(super) fn render(
                 .gap(space::HAIR)
                 .child(design::heading("agents-title", "Agents", 1, theme))
                 .child(caption(
-                    "The agents harness runs. A mention or a direct message opens a thread for its channel.",
+                    "The accounts whose script calls harness. A mention or a direct message opens a thread for its channel.",
                     theme,
                 )),
         )
@@ -38,6 +40,7 @@ pub(super) fn render(
                 theme,
             )
         }))
+        .child(design::button("agents-models", "Models", ladder, theme, models))
         .children(view.me.map(|_| {
             design::button("agents-create", "Create an agent…", ladder, theme, create)
                 .kind(design::Kind::Primary)
@@ -59,7 +62,7 @@ fn rows(view: &Agents, cx: &mut Context<Agents>, theme: &Theme, ladder: &Ladder)
     let Some(roster) = view.roster.ready() else {
         return div().into_any_element();
     };
-    if roster.agents.is_empty() && roster.unhired.is_empty() {
+    if roster.agents.is_empty() && roster.unscripted.is_empty() {
         return design::empty_state(
             "agents-empty",
             "bot",
@@ -73,20 +76,24 @@ fn rows(view: &Agents, cx: &mut Context<Agents>, theme: &Theme, ladder: &Ladder)
     let (mine, others): (Vec<&Card>, Vec<&Card>) = roster
         .agents
         .iter()
-        .partition(|card| Some(card.row.manager) == view.me);
+        .partition(|card| Some(card.setup.manager) == view.me);
     let mut list = div().flex().flex_col();
-    if !mine.is_empty() || !roster.unhired.is_empty() {
+    if !mine.is_empty() || !roster.unscripted.is_empty() {
         list = list
-            .child(group("My agents", mine.len() + roster.unhired.len(), theme))
+            .child(group(
+                "My agents",
+                mine.len() + roster.unscripted.len(),
+                theme,
+            ))
             .children(
                 mine.iter()
                     .map(|card| row(card, roster, view.me, cx, theme, ladder)),
             )
             .children(
                 roster
-                    .unhired
+                    .unscripted
                     .iter()
-                    .map(|unhired| unhired_row(unhired, cx, theme, ladder)),
+                    .map(|unscripted| unscripted_row(unscripted, cx, theme, ladder)),
             );
     }
     if !others.is_empty() {
@@ -161,7 +168,7 @@ fn row(
     theme: &Theme,
     ladder: &Ladder,
 ) -> impl IntoElement + use<> {
-    let agent = card.row.agent;
+    let agent = card.setup.agent;
     let state = agent_state(card, roster);
     let open: Vec<_> = card
         .threads
@@ -177,23 +184,35 @@ fn row(
                 .copied()
                 .find(|thread| thread_state(thread) == State::Working)
         });
-    let summary = match (state, busiest) {
-        (State::NoNode, _) if card.serving == 0 => {
-            format!("No member node serves {}", card.row.service)
+    let model = card.setup.configured.model();
+    let unserved = card.serving == Some(0);
+    let summary = match (state, busiest, model, unserved) {
+        (State::Unconfigured, _, _, _) => card
+            .setup
+            .configured
+            .problem(&card.setup.path)
+            .unwrap_or_default(),
+        (State::NoNode, _, Some(model), true) => {
+            format!("No member node serves {}", model.service)
         }
-        (State::NoNode, _) => "No member node serves relay".to_owned(),
-        (_, Some(thread)) => format!(
+        (State::NoNode, _, _, _) => "No member node serves relay".to_owned(),
+        (_, Some(thread), _, _) => format!(
             "{} · {}",
             place_label(thread, Some(roster)),
             asking(thread.asking)
         ),
-        (_, None) => design::plural(open.len() as u64, "open thread", "open threads"),
+        (_, None, _, _) => design::plural(open.len() as u64, "open thread", "open threads"),
     };
     let held: u64 = open.iter().map(|thread| thread.held).sum();
-    let manager = match Some(card.row.manager) == me {
-        true => format!("{} (you)", roster.name(card.row.manager)),
-        false => roster.name(card.row.manager),
+    let manager = match Some(card.setup.manager) == me {
+        true => format!("{} (you)", roster.name(card.setup.manager)),
+        false => roster.name(card.setup.manager),
     };
+    let model_id = card
+        .setup
+        .configured
+        .config()
+        .map_or_else(|| "—".to_owned(), |(_, config)| config.model.clone());
     let below = match card.note {
         Some(note) => format!("account {agent} · {note}"),
         None => format!("account {agent}"),
@@ -205,9 +224,9 @@ fn row(
                 view.go(Screen::Agent(agent), cx)
             }),
         )
-        .child(who(card.row.name.clone(), below, theme))
+        .child(who(card.name.clone(), below, theme))
         .child(div().w(px(140.)).child(manager))
-        .child(design::mono(card.row.model.clone()).w(px(160.)))
+        .child(design::mono(model_id).w(px(160.)))
         .child(
             div()
                 .flex_1()
@@ -229,16 +248,17 @@ fn row(
         .child(caption(format!("{held} waiting"), theme))
 }
 
-/// An agent of the reader's handed to harness but not hired: Continue picks up the form.
-fn unhired_row(
-    unhired: &Unhired,
+/// An agent account of the reader's that no script hands to harness: Continue picks up the
+/// form at its configuration.
+fn unscripted_row(
+    unscripted: &Unscripted,
     cx: &mut Context<Agents>,
     theme: &Theme,
     ladder: &Ladder,
 ) -> impl IntoElement + use<> {
-    let (agent, name) = (unhired.number, unhired.name.clone());
+    let (agent, name) = (unscripted.number, unscripted.name.clone());
     let resume = name.clone();
-    pressable(format!("unhired-{agent}"), theme)
+    pressable(format!("unscripted-{agent}"), theme)
         .on_click(
             cx.listener(move |view: &mut Agents, _: &ClickEvent, _, cx| {
                 view.resume(agent, &resume, cx)
@@ -246,14 +266,14 @@ fn unhired_row(
         )
         .child(who(name, format!("account {agent}"), theme))
         .child(design::badge(
-            format!("unhired-{agent}-state"),
-            "Not hired",
+            format!("unscripted-{agent}-state"),
+            "Not handed to harness",
             ladder,
             theme.muted,
             theme.surface_raised,
         ))
         .child(caption(
-            "Handed to harness, not hired yet. Continue to hire it.",
+            "No script hands it to harness yet. Continue to configure it.",
             theme,
         ))
 }

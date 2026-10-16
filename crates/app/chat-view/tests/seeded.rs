@@ -4,8 +4,8 @@
 //! chain as the signed-in account.
 use chat::{Block, Op, PostPolicy, Query, Reply};
 use chat_view::Chat;
-use view::live::Network;
 use view::methods::{HostId, HostSession, HostVisible, StoreGet};
+use view::rig::Network;
 use view::testing::TestAppContext;
 
 fn post(net: &Network, who: u64, id: &str, text: &str) {

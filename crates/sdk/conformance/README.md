@@ -1,7 +1,7 @@
 # conformance
 
 Proof that a program fills a role the kernel calls: `programs`,
-`validators`, `identity`, `awaits` or `scheduler` (`abi::role`). The suite runs your program's
+`validators`, `identity`, `awaits`, `halo` or `scheduler` (`abi::role`). The suite runs your program's
 native `program::Program` over `MockHost` and speaks only the role's bytes:
 it encodes `abi::role` values, hands them to your program's own decoding,
 and reads the answers back as the role's replies. It checks the contract,
@@ -49,7 +49,7 @@ fn fills_the_identity_role() {
 
 `conformance::env(program, height, origin, sender)` builds the env your
 fixture's ops run in. `tests/reference.rs` has the fixtures of the five
-reference programs (`identity`, `valset`, `programs`, `awaits`, `scheduler`).
+reference programs (`identity`, `valset`, `programs`, `awaits`, `halo`, `scheduler`).
 
 ## What each role is held to
 
@@ -117,3 +117,18 @@ entry keeps the receipt and leaves `Due`, and a second `Ran` is refused;
 `Due` lists one height's entries in the order they were made, every one
 with no limit, and pages by `limit` and `after`. The fixture is only the
 founded host.
+
+**halo**: the role's `Op`, `Query` and `Reply` are the program's first
+variants, byte for byte; init with the role's `Genesis` lists its lanes in
+its order from id 0, each served and from block 0; `Lanes` answers in id
+order and `Lane` by name (`None` for an unlisted one); an op from a signed
+frame, the kernel or any program but the one bound to the validators role
+is refused `unauthorized` and changes nothing; `Open` lists a name at the
+next id, served, from the block that opened it, and refuses a listed name;
+`Set` changes the cap and whether the lane is served under the same id, a
+paused lane staying listed with `enabled: false`, and refuses an unlisted
+name; `Close` unlists a lane and its id is spent: the name opened again
+takes the next id; a lane the genesis pins is never paused or closed (both
+refused `invalid_input`), while a `Set` that keeps it served moves its cap;
+`Open` lists a lane unpinned. The fixture is only the host: the role leaves
+nothing to the program's own ops.

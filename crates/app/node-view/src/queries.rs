@@ -20,6 +20,13 @@ pub struct Node {
     pub operator: Option<String>,
 }
 
+impl Node {
+    /// Its address, or the dash where valset holds none.
+    pub fn shown_address(&self) -> &str {
+        self.address.as_deref().unwrap_or(crate::words::NO_VALUE)
+    }
+}
+
 /// The consensus keys and the memberships, as one list: validators in seat
 /// order, then residents in the order valset keeps them. Each key once.
 pub fn fold(validators: &[Vec<u8>], members: Vec<Membership>) -> Vec<Node> {
@@ -157,7 +164,7 @@ pub(crate) async fn motions(host: Host) -> Result<Motions, Error> {
         .items
         .iter()
         .filter_map(|pending| match &pending.motion {
-            Motion::Programs { op } => match abi::decode(op) {
+            Motion::Role { role, op } if role == abi::role::PROGRAMS => match abi::decode(op) {
                 Ok(programs::Op::Grant(grant) | programs::Op::Revoke(grant)) => Some(grant.account),
                 _ => None,
             },

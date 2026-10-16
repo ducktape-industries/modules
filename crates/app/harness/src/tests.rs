@@ -1,7 +1,12 @@
 //! The agents on a `MockChain` with identity, attribution, awaits, scheduler, chat, files, egress
-//! and valset seated: a mention or a direct message reaches a hired agent, the node serving the
-//! model's egress service answers as the model would, and every tool call runs once its relay
-//! comes back, as the agent.
+//! and valset seated: an agent is a program account whose script calls harness and names its
+//! configuration in files; a mention or a direct message reaches it, the node serving its model's
+//! egress service answers as the model would, whole or one streamed event at a time, and every
+//! tool call runs once its relay comes back, as the agent.
+mod config;
+mod models;
+mod streams;
+
 use ::program::{Error, MockChain, Origin, Principal, code};
 use egress::{Answer, Egress, RELAY, Request, RequestRow, http};
 use serde_json::{Value, json};
@@ -14,6 +19,8 @@ const WINDOW: u64 = 200_000;
 const SERVICE: &str = "ccs";
 const ADA: &[u8] = b"ada-key";
 const BO: &[u8] = b"bo-key";
+const MODEL: &str = "claude-test";
+const CONFIG: &str = "/home/ada/agents/scout.md";
 
 struct World {
     chain: MockChain,
@@ -34,14 +41,51 @@ fn identity_op(chain: &MockChain, key: &[u8], op: identity::Op) -> Result<Vec<u8
     chain.submit(signed(key), identity::PROGRAM, &op)
 }
 
-fn hire(agent: AccountNumber) -> Op {
-    Op::Hire {
-        agent,
-        system: "Keep notes in /shared.".into(),
-        model: "claude-test".into(),
+fn set_model(id: &str, name: &str) -> Op {
+    Op::SetModel {
+        id: id.into(),
+        wire: Wire::AnthropicMessages,
         service: SERVICE.into(),
-        max_tokens: 1024,
+        name: name.into(),
     }
+}
+
+fn scout() -> Config {
+    Config {
+        model: MODEL.into(),
+        max_tokens: 1024,
+        wait: None,
+        system: "Keep notes in /shared.".into(),
+    }
+}
+
+fn commit(chain: &MockChain, key: &[u8], path: &str, text: &str) -> BlobId {
+    let base = match chain.query(files::PROGRAM, &files::Query::Head).unwrap() {
+        files::Reply::Head(head) => head.map(|row| row.id),
+        other => panic!("{other:?}"),
+    };
+    let commit = files::Op::Commit {
+        base,
+        message: "configure".into(),
+        changes: vec![files::Change::Put {
+            path: path.into(),
+            exec: false,
+            meta: Default::default(),
+            content: files::Content::Inline(text.as_bytes().to_vec()),
+        }],
+    };
+    abi::decode(&chain.submit(signed(key), files::PROGRAM, &commit).unwrap()).unwrap()
+}
+
+fn scripted(chain: &MockChain, agent: AccountNumber, path: &str) {
+    let script = identity::Op::SetScript {
+        account: agent,
+        script: Some(identity::Script {
+            calls: PROGRAM.into(),
+            config: path.into(),
+        }),
+    };
+    identity_op(chain, ADA, script).unwrap();
 }
 
 fn world() -> World {
@@ -79,6 +123,7 @@ fn world() -> World {
         member_cap: 8,
     };
     chain.init("valset", &genesis).unwrap();
+    chain.init(PROGRAM, &()).unwrap();
     let serve = egress::Op::Serve {
         services: vec![SERVICE.into(), RELAY.into()],
     };
@@ -108,15 +153,11 @@ fn world() -> World {
         name: "Scout".into(),
     };
     let agent = number(identity_op(&chain, ADA, create).unwrap());
-    let script = identity::Op::SetScript {
-        account: agent,
-        script: Some(identity::Script {
-            calls: PROGRAM.into(),
-            config: String::new(),
-        }),
-    };
-    identity_op(&chain, ADA, script).unwrap();
-    chain.submit(signed(ADA), PROGRAM, &hire(agent)).unwrap();
+    chain
+        .submit(signed(ADA), PROGRAM, &set_model(MODEL, MODEL))
+        .unwrap();
+    commit(&chain, ADA, CONFIG, &scout().write());
+    scripted(&chain, agent, CONFIG);
     let general = chat::Op::CreateChannel {
         channel_id: "general".into(),
         name: "general".into(),
@@ -421,48 +462,35 @@ fn a_direct_message_reaches_the_agent_and_only_its_audience_is_heard() {
 }
 
 #[test]
-fn only_its_manager_hires_an_agent_whose_script_calls_harness_and_a_dismissed_one_hears_nothing() {
+fn an_agent_taken_back_from_harness_or_suspended_hears_nothing() {
     let world = world();
     let chain = &world.chain;
-    let stranger = chain.submit(signed(BO), PROGRAM, &hire(world.agent));
-    assert_eq!(stranger.unwrap_err().code, code::UNAUTHORIZED);
-    let user = chain.submit(signed(ADA), PROGRAM, &hire(world.bo));
-    assert_eq!(user.unwrap_err().code, code::WRONG_STATE);
-    let create = identity::Op::CreateAgent {
-        name: "Idle".into(),
+    let suspend = identity::Op::Suspend {
+        account: world.agent,
     };
-    let idle = number(identity_op(chain, ADA, create).unwrap());
-    let no_script = chain.submit(signed(ADA), PROGRAM, &hire(idle));
-    assert_eq!(no_script.unwrap_err().code, code::WRONG_STATE);
-    for service in egress::RESERVED {
-        let Op::Hire {
-            agent,
-            system,
-            model,
-            max_tokens,
-            ..
-        } = hire(world.agent)
-        else {
-            panic!()
-        };
-        let reserved = Op::Hire {
-            agent,
-            system,
-            model,
-            service: service.into(),
-            max_tokens,
-        };
-        let refused = chain.submit(signed(ADA), PROGRAM, &reserved).unwrap_err();
-        assert_eq!(refused.code, code::INVALID_INPUT, "{service}");
-    }
-
-    let dismissed = chain.submit(signed(BO), PROGRAM, &Op::Dismiss { agent: world.agent });
-    assert_eq!(dismissed.unwrap_err().code, code::UNAUTHORIZED);
-    chain
-        .submit(signed(ADA), PROGRAM, &Op::Dismiss { agent: world.agent })
-        .unwrap();
+    identity_op(chain, ADA, suspend).unwrap();
     world.post(ADA, "general", "m1", &format!("<@{}> hello?", world.agent));
-    assert!(world.threads().is_empty());
+    assert!(
+        world.threads().is_empty(),
+        "a suspended agent hears nothing"
+    );
+    let resume = identity::Op::Resume {
+        account: world.agent,
+    };
+    identity_op(chain, ADA, resume).unwrap();
+    let taken_back = identity::Op::SetScript {
+        account: world.agent,
+        script: None,
+    };
+    identity_op(chain, ADA, taken_back).unwrap();
+    world.post(ADA, "general", "m2", &format!("<@{}> hello?", world.agent));
+    assert!(
+        world.threads().is_empty(),
+        "an agent with no script hears nothing"
+    );
+    scripted(chain, world.agent, CONFIG);
+    world.post(ADA, "general", "m3", &format!("<@{}> hello?", world.agent));
+    assert_eq!(world.threads().len(), 1);
 }
 
 #[test]
@@ -610,7 +638,7 @@ fn a_call_whose_relay_fails_fails_once_and_the_model_hears_it() {
 }
 
 #[test]
-fn a_call_in_flight_when_its_agent_is_dismissed_does_not_run() {
+fn a_call_in_flight_when_its_agent_is_taken_back_does_not_run() {
     let world = world();
     let chain = &world.chain;
     let thread = world.opened("m1", "write", Some(WINDOW));
@@ -621,13 +649,15 @@ fn a_call_in_flight_when_its_agent_is_dismissed_does_not_run() {
         json!({ "path": "/shared/late.md", "content": "x" }),
     );
     model_says(chain, json!([write]), "tool_use");
-    chain
-        .submit(signed(ADA), PROGRAM, &Op::Dismiss { agent: world.agent })
-        .unwrap();
+    let taken_back = identity::Op::SetScript {
+        account: world.agent,
+        script: None,
+    };
+    identity_op(chain, ADA, taken_back).unwrap();
     chain.at(4, 0);
     relay_back(chain, "toolu_w");
     let (text, failed) = result_of(chain, thread, "toolu_w");
-    assert!(failed && text.contains("dismissed"), "{text}");
+    assert!(failed && text.contains("stopped running here"), "{text}");
     let asked = files::Query::Stat {
         path: "/shared/late.md".into(),
         at: None,
@@ -635,7 +665,7 @@ fn a_call_in_flight_when_its_agent_is_dismissed_does_not_run() {
     let files::Reply::Stat { entry, .. } = chain.query(files::PROGRAM, &asked).unwrap() else {
         panic!()
     };
-    assert_eq!(entry, None, "the dismissed agent wrote nothing");
+    assert_eq!(entry, None, "the agent taken back wrote nothing");
     assert!(assigned(chain, SERVICE).is_empty());
     assert_eq!(chain.frames(), 0);
 }
@@ -703,7 +733,7 @@ fn a_write_is_the_agents_and_reaches_only_where_the_agent_may_write() {
     chain.at(6, 0);
     relay_back(chain, "toolu_q");
     let (taken, failed) = result_of(chain, thread, "toolu_q");
-    assert!(failed && taken.starts_with(code::UNAUTHORIZED), "{taken}");
+    assert!(failed && taken.contains("stopped running here"), "{taken}");
 }
 
 fn notices(chain: &MockChain, thread: u64) -> Vec<String> {
@@ -742,25 +772,27 @@ fn a_failed_model_call_is_noticed_once_and_the_next_input_asks_again() {
 }
 
 #[test]
-fn a_model_call_that_expires_ends_the_turn_with_the_expired_error() {
+fn a_model_call_waits_the_blocks_its_configuration_names_then_ends_with_the_expired_error() {
     let world = world();
     let chain = &world.chain;
+    const WAIT: u64 = 30;
+    let waits = Config {
+        wait: Some(WAIT),
+        ..scout()
+    };
+    commit(chain, ADA, CONFIG, &waits.write());
     let thread = world.opened("m1", "hello", Some(WINDOW));
     let (request, head) = open_request(chain);
     assert_eq!(path(&head), "/v1/messages");
-    chain.at(request.made + anthropic::WAIT, 0);
+    chain.at(request.made + WAIT, 0);
     assert!(notices(chain, thread).is_empty());
-    chain.at(request.made + anthropic::WAIT + 1, 0);
+    chain.at(request.made + WAIT + 1, 0);
     assert!(
         assigned(chain, SERVICE).is_empty(),
         "an expired call is not repeated"
     );
     let told = notices(chain, thread);
-    let expired = format!(
-        "request {} expired after {} blocks",
-        request.id,
-        anthropic::WAIT
-    );
+    let expired = format!("request {} expired after {WAIT} blocks", request.id);
     assert_eq!(told.len(), 1);
     assert!(told[0].contains(&expired), "{}", told[0]);
     let late = egress::Op::Answer {
@@ -810,7 +842,7 @@ fn sent_messages(chain: &MockChain) -> Vec<Value> {
 
 fn summarized(chain: &MockChain, summary: &str) {
     let (request, head) = open_request(chain);
-    assert_eq!(beta(&head), Some(anthropic::COMPACTION_BETA));
+    assert_eq!(beta(&head), Some(wire::anthropic::COMPACTION_BETA));
     let body = json!({
         "type": "message",
         "role": "assistant",
@@ -844,7 +876,7 @@ fn a_thread_whose_next_answer_would_not_fit_the_window_is_summarized_first() {
     );
     world.mention("m2", "and now?");
     let (request, head) = open_request(chain);
-    assert_eq!(beta(&head), Some(anthropic::COMPACTION_BETA));
+    assert_eq!(beta(&head), Some(wire::anthropic::COMPACTION_BETA));
     let sent = body(chain, &request);
     assert_eq!(sent["compaction"], json!({ "type": "summarize" }));
     let messages = sent["messages"].as_array().unwrap();
@@ -867,11 +899,11 @@ fn a_thread_whose_next_answer_would_not_fit_the_window_is_summarized_first() {
     let summary = row.summary.expect("the thread keeps its summary");
     assert!(matches!(
         &frames(chain, thread)[summary as usize - 1],
-        Body::Compaction { block } if block.contains("Ada set out the plan.")
+        Body::Compaction { block, .. } if block.contains("Ada set out the plan.")
     ));
     let (request, head) = open_request(chain);
     assert_eq!(path(&head), "/v1/messages");
-    assert_eq!(beta(&head), Some(anthropic::COMPACTION_BETA));
+    assert_eq!(beta(&head), Some(wire::anthropic::COMPACTION_BETA));
     let sent = body(chain, &request);
     assert!(sent.get("compaction").is_none());
     let messages = sent["messages"].as_array().unwrap();
@@ -1277,22 +1309,20 @@ fn a_place_resolves_to_its_thread_a_model_to_its_window_and_a_thread_says_when_i
     let world = world();
     let chain = &world.chain;
     let window = || {
-        let asked = Query::Window {
-            model: "claude-test".into(),
-        };
-        let Reply::Window(window) = chain.query(PROGRAM, &asked).unwrap() else {
+        let asked = Query::Model { id: MODEL.into() };
+        let Reply::Model(Some(row)) = chain.query(PROGRAM, &asked).unwrap() else {
             panic!()
         };
-        window
+        row.window
     };
     chain.at(1, 10);
     let thread = world.mention("m1", "hello");
-    assert_eq!(window(), None, "not learned yet");
+    assert_eq!(window(), Window::Unasked, "not learned yet");
     let row = thread_row(chain, thread);
     assert_eq!((row.last_height, row.last_time), (1, 10));
     chain.at(2, 20);
     learn(chain, Some(WINDOW));
-    assert_eq!(window(), Some(Some(WINDOW)));
+    assert_eq!(window(), Window::Tokens(WINDOW));
     assert_eq!(
         thread_row(chain, thread).last_height,
         1,
