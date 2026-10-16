@@ -12,7 +12,7 @@
 use view::design::Ladder;
 use view::prelude::*;
 
-use crate::{Nodes, Page};
+use crate::{Nodes, Screen};
 
 mod node;
 mod nodes;
@@ -26,15 +26,15 @@ const LADDER: Ladder = design::TOUCH;
 /// drawn or a member's page is open (rule 13; the host leaves the program
 /// else): both read off what this frame draws.
 pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement {
-    let theme = &cx.global::<Theme>().clone();
+    let theme = *cx.global::<Theme>();
     let pages = view.pages();
     let page = match pages.top() {
-        Page::Nodes => nodes::render(view, cx, theme).into_any_element(),
-        Page::Node(key) => node::render(view, key, cx, theme).into_any_element(),
+        Screen::Nodes => nodes::render(view, cx, &theme).into_any_element(),
+        Screen::Node(key) => node::render(view, key, cx, &theme).into_any_element(),
     };
-    let sheets: Vec<AnyElement> = nodes::door(view, cx, theme)
+    let sheets: Vec<AnyElement> = nodes::door(view, cx, &theme)
         .into_iter()
-        .chain(parts::confirm(view, cx, theme))
+        .chain(parts::confirm(view, cx, &theme))
         .collect();
     let back = (pages.depth() > 0 || !sheets.is_empty())
         .then(|| cx.listener(|view: &mut Nodes, _: &BackEvent, _, cx| view.back(cx)));

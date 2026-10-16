@@ -75,9 +75,9 @@ pub struct Nodes {
     pub(crate) voting: Voting,
 }
 
-/// A page of the view's [`Pages`]: the list, or one member's.
+/// A screen of the view's [`Pages`]: the list, or one member's page.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Page {
+pub(crate) enum Screen {
     Nodes,
     Node(Vec<u8>),
 }
@@ -274,17 +274,22 @@ impl Nodes {
     /// over it; read off `open`, so the stack and the data cannot disagree.
     /// The phone draws the top page alone; the desktop has every member in
     /// its table and draws no page.
-    pub(crate) fn pages(&self) -> Pages<Page> {
-        let mut pages = Pages::root(Page::Nodes);
+    pub(crate) fn pages(&self) -> Pages<Screen> {
+        let mut pages = Pages::root(Screen::Nodes);
         if let Some(key) = &self.open {
-            pages.push(Page::Node(key.clone()));
+            pages.push(Screen::Node(key.clone()));
         }
         pages
     }
 
-    /// The phone's Back: a sheet closes first, then the member's page.
+    /// The phone's Back: the confirm sheet closes first, then the door's,
+    /// then the member's page.
     pub(crate) fn back(&mut self, cx: &mut Context<Self>) {
-        if self.voting.confirming.take().is_none() && !std::mem::take(&mut self.door) {
+        if self.voting.confirming.is_some() {
+            self.voting.confirming = None;
+        } else if self.door {
+            self.door = false;
+        } else {
             self.open = None;
         }
         cx.notify();

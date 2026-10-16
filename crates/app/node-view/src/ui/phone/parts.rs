@@ -13,6 +13,7 @@ use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
 use super::LADDER;
+use crate::row::Status;
 use crate::{Nodes, words};
 
 // SDK gap: the sheet's inset (`design::SHEET_INSET`), swap when feat/phone-kit lands
@@ -91,19 +92,19 @@ pub(super) fn last_answer(view: &Nodes, id: &'static str, theme: &Theme) -> Opti
 /// enact, and who signs.
 pub(super) fn confirm(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Option<AnyElement> {
     let motion = view.voting.confirming.as_ref()?;
-    let words = view.voting.words(motion);
+    let title = view.voting.words(motion);
     let hold = cx.listener(|view: &mut Nodes, _: &(), _, cx| view.hold(cx));
     Some(
-        design::sheet("nodes-confirm-sheet", words.clone(), &LADDER, theme)
+        design::sheet("nodes-confirm-sheet", title.clone(), &LADDER, theme)
             .on_dismiss(hold)
-            .child(confirm_card(words, cx, theme))
+            .child(confirm_card(title, cx, theme))
             .into_any_element(),
     )
 }
 
 /// The confirm card (Expo `Confirm.tsx:62-92`): the title, the warning,
 /// the hold and the verb sharing the row one to two, the caption.
-fn confirm_card(words: String, cx: &mut Context<Nodes>, theme: &Theme) -> Stateful<Div> {
+fn confirm_card(title: String, cx: &mut Context<Nodes>, theme: &Theme) -> Stateful<Div> {
     let no = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.hold(cx));
     let yes = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.confirm(cx));
     let not_now = design::button("nodes-confirm/cancel", words::NOT_NOW, &LADDER, theme, no)
@@ -128,7 +129,7 @@ fn confirm_card(words: String, cx: &mut Context<Nodes>, theme: &Theme) -> Statef
                 .pb(space::MD)
                 .text_type(LADDER.title)
                 .font_weight(FontWeight::MEDIUM)
-                .child(words),
+                .child(title),
         )
         .child(
             div()
@@ -144,8 +145,8 @@ fn confirm_card(words: String, cx: &mut Context<Nodes>, theme: &Theme) -> Statef
                 .gap(space::SM)
                 .px(SHEET_INSET)
                 .pt(space::BLOCK)
-                .child(share(1., not_now))
-                .child(share(2., enact)),
+                .child(share(1.).flex().flex_col().child(not_now))
+                .child(share(2.).flex().flex_col().child(enact)),
         )
         .child(
             div()
@@ -157,12 +158,25 @@ fn confirm_card(words: String, cx: &mut Context<Nodes>, theme: &Theme) -> Statef
         )
 }
 
-/// A column taking `parts` of its row's width, its button stretched
-/// across it (Expo's `flex: 1` / `flex: 2`).
-fn share(parts: f32, button: impl IntoElement) -> Div {
-    let mut column = div().flex().flex_col().flex_basis(px(0.)).child(button);
-    column.style().flex_grow = Some(parts);
-    column
+// SDK gap: no `flex_grow(n)` (or `relative()`) on an element, so the
+// style field is written; the SDK builds it later
+/// A box taking `parts` of its row's room (Expo's `flex: n`).
+pub(super) fn share(parts: f32) -> Div {
+    let mut part = div().flex_basis(px(0.));
+    part.style().flex_grow = Some(parts);
+    part
+}
+
+/// A validator's status in colour (Expo `src/network/voting.tsx` `tintOf`,
+/// `index.tsx:110,134`): its tone and its soft ground; plain, muted on the
+/// raised surface, while the node is silent or the status unknown.
+pub(super) fn tint(status: &Status, live: bool, theme: &Theme) -> (Hsla, Hsla) {
+    match (live, status) {
+        (true, Status::InSync) => (theme.success, theme.success_soft),
+        (true, Status::Behind(_)) => (theme.warning, theme.warning_soft),
+        (true, Status::Quiet { .. }) => (theme.danger, theme.danger_soft),
+        _ => (theme.muted, theme.surface_raised),
+    }
 }
 
 // SDK gap: the refused strip (`design::refused` under a finger), swap when feat/phone-kit lands
@@ -197,7 +211,7 @@ fn alert(strip: Stateful<Div>) -> Stateful<Div> {
 
 /// The kit's `Notice`: a full-width strip of secondary text in `tone` on
 /// `ground`, 16 in and 10 over and under; its one action goes after.
-fn notice(id: impl Into<ElementId>, ground: Hsla, tone: Hsla, words: &str) -> Stateful<Div> {
+fn notice(id: impl Into<ElementId>, ground: Hsla, tone: Hsla, sentence: &str) -> Stateful<Div> {
     div()
         .id(id)
         .flex()
@@ -208,7 +222,7 @@ fn notice(id: impl Into<ElementId>, ground: Hsla, tone: Hsla, words: &str) -> St
         .bg(ground)
         .text_type(LADDER.secondary)
         .text_color(tone)
-        .child(div().flex_1().child(words.to_owned()))
+        .child(div().flex_1().child(sentence.to_owned()))
 }
 
 /// A notice's action: its word in the strip's tone, medium, 8 from the

@@ -17,7 +17,9 @@ use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
 use super::LADDER;
-use super::parts::{empty, last_answer, outcome, press, quiet, refused, scroller, small_button};
+use super::parts::{
+    empty, last_answer, outcome, press, quiet, refused, scroller, share, small_button, tint,
+};
 use crate::queries::{Motions, Node, Schedule};
 use crate::row::Status;
 use crate::words::{self, EpochPlace};
@@ -229,11 +231,7 @@ fn epoch(place: &EpochPlace, theme: &Theme) -> Stateful<Div> {
 /// The epoch's bar: ink for the blocks gone, the hairline's grey for those
 /// to come, sharing its width as the epoch does.
 fn epoch_bar(place: &EpochPlace, theme: &Theme) -> Div {
-    let part = |blocks: u64, fill: Hsla| {
-        let mut part = div().h_full().flex_basis(px(0.)).bg(fill);
-        part.style().flex_grow = Some(blocks as f32);
-        part
-    };
+    let part = |blocks: u64, fill: Hsla| share(blocks as f32).h_full().bg(fill);
     div()
         .flex()
         .h(EPOCH_BAR)
@@ -282,31 +280,23 @@ fn roster(view: &Nodes, nodes: &[Node], cx: &Context<Nodes>, theme: &Theme) -> S
         .id("nodes-members")
         .children(unheard.map(|why| quiet("nodes-unheard", why, theme)))
         .children(last_answer(view, "nodes-last-answer", theme))
-        .child(count_head(
+        .child(design::section_head(
             "nodes-validators",
             words::VALIDATORS,
-            seats.len(),
+            Some(seats.len()),
+            &LADDER,
             theme,
         ))
         .children(seats)
-        .child(count_head(
+        .child(design::section_head(
             "nodes-residents",
             words::RESIDENTS,
-            residents.len(),
+            Some(residents.len()),
+            &LADDER,
             theme,
         ))
         .children(residents)
         .children(footnote.map(|footnote| quiet("nodes-footnote", footnote, theme)))
-}
-
-/// A section head with how many rows it heads at its right.
-fn count_head(
-    id: &'static str,
-    label: &'static str,
-    count: usize,
-    theme: &Theme,
-) -> impl IntoElement {
-    design::section_head(id, label, Some(count), &LADDER, theme)
 }
 
 /// A member as the kit's tall `Row`: its dot, its key (and who operates
@@ -320,7 +310,12 @@ fn member_row(
     theme: &Theme,
 ) -> Stateful<Div> {
     let status = view.cells(node).status;
-    let (dot, tone) = tones(node, &status, view.answering(), theme);
+    let live = view.answering();
+    let (tone, _) = tint(&status, live, theme);
+    // a resident's state is not reported, and a blank one is not known yet
+    // (Expo `index.tsx:110`)
+    let unknown = !node.validator || (live && status == Status::Blank);
+    let dot = if unknown { theme.faint } else { tone };
     let key = node.key.clone();
     let open = cx.listener(move |view: &mut Nodes, _: &ClickEvent, _, cx| {
         view.open = Some(key.clone());
@@ -349,23 +344,6 @@ fn member_row(
     }))
     // SDK gap: the row's chevron (`design::chevron`), swap when feat/phone-kit lands
     .child(design::icon("chevron-right", LADDER.icon_row).text_color(theme.faint))
-}
-
-/// A member's tones: its dot's, and its status word's. A resident's state
-/// is not reported; a silent node's are all muted.
-fn tones(node: &Node, status: &Status, live: bool, theme: &Theme) -> (Hsla, Hsla) {
-    if !node.validator {
-        return (theme.faint, theme.muted);
-    }
-    if !live {
-        return (theme.muted, theme.muted);
-    }
-    match status {
-        Status::InSync => (theme.success, theme.success),
-        Status::Behind(_) => (theme.warning, theme.warning),
-        Status::Quiet { .. } => (theme.danger, theme.danger),
-        Status::Blank => (theme.faint, theme.muted),
-    }
 }
 
 /// A member's title: its short key in the data face, then who operates
@@ -495,7 +473,7 @@ fn motion_row(
         )
         .into_any_element(),
     };
-    line(
+    vote_row(
         ElementId::Name(format!("nodes-motion-{index}").into()),
         voting.words(&pending.motion),
         words::pending_caption(voting, pending, motions.needed),
@@ -548,7 +526,7 @@ fn scheduled_row(
         theme,
         press(cx, voting::cancel(change)),
     );
-    line(
+    vote_row(
         ElementId::Name(format!("nodes-scheduled-{index}").into()),
         voting::scheduled_words(change.height, &change.change, voting.entries()),
         words::scheduled_caption(change, schedule, view.status.ready()),
@@ -557,16 +535,16 @@ fn scheduled_row(
     )
 }
 
-/// A row of the vote (the kit's `Row` with a caption): the words, its
-/// caption under them, its press at the right.
-fn line(
+/// A row of the vote (the kit's `Row` with a caption): what it is, its
+/// caption under it, its press at the right.
+fn vote_row(
     id: ElementId,
-    words: String,
+    title: String,
     caption: String,
     tail: AnyElement,
     theme: &Theme,
 ) -> Stateful<Div> {
-    let words = div().text_type(LADDER.body).truncate().child(words);
+    let title = div().text_type(LADDER.body).truncate().child(title);
     // SDK gap: the row's caption (`design::row_caption`), swap when feat/phone-kit lands
     let caption = div()
         .text_type(LADDER.caption)
@@ -575,7 +553,7 @@ fn line(
         .child(caption);
     design::row(id, &LADDER, theme)
         .min_h(ROW_TALL)
-        .child(row_lines(words, caption))
+        .child(row_lines(title, caption))
         .child(div().flex().items_center().gap(space::SM).child(tail))
 }
 

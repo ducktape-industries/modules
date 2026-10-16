@@ -15,10 +15,10 @@ use view::prelude::*;
 use view::{Div, Stateful};
 
 use super::LADDER;
-use super::parts::{empty, last_answer, outcome, press, quiet, scroller, small_button};
+use super::parts::{empty, last_answer, outcome, press, quiet, scroller, small_button, tint};
 use crate::queries::Node;
 use crate::recent::Recent;
-use crate::row::{self, Status};
+use crate::row;
 use crate::{Nodes, voting, words};
 
 // SDK gap: the kit's `KeyValue` (with `key_value`); the SDK builds it later
@@ -122,17 +122,6 @@ fn vote_facts(view: &Nodes, node: &Node, theme: &Theme) -> Div {
         .child(key_value("height", words::HEIGHT, mono(height), theme))
         .child(key_value("behind", words::BEHIND, mono(behind), theme))
         .child(key_value("status", words::STATUS, badge, theme))
-}
-
-/// A status badge's tint (Expo `src/network/voting.tsx` `tintOf`): plain
-/// while the node is silent, else its state's.
-fn tint(status: &Status, live: bool, theme: &Theme) -> (Hsla, Hsla) {
-    match (live, status) {
-        (true, Status::InSync) => (theme.success, theme.success_soft),
-        (true, Status::Behind(_)) => (theme.warning, theme.warning_soft),
-        (true, Status::Quiet { .. }) => (theme.danger, theme.danger_soft),
-        _ => (theme.muted, theme.surface_raised),
-    }
 }
 
 /// The kit's `KeyValue` (Expo `src/kit/Facts.tsx:50-75`): at least a
