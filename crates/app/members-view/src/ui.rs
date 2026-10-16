@@ -431,9 +431,7 @@ fn head(
         identity::Kind::System(_) => caption.push(vec![text(
             row.kind.badge(|_| String::new()).unwrap_or_default(),
         )]),
-        identity::Kind::Program {
-            manager, standing, ..
-        } => {
+        identity::Kind::Program { manager, .. } => {
             // the badge with the manager's name left out, and the name as
             // a link that chooses the manager here
             let what = row.kind.badge(|_| String::new()).unwrap_or_default();
@@ -450,10 +448,10 @@ fn head(
                 .child(label)
                 .into_any_element();
             caption.push(vec![text(what.trim_end().to_owned()), link]);
-            caption.push(vec![
-                standing_badge("members-standing", row, *standing, ladder, theme)
-                    .into_any_element(),
-            ]);
+            caption.extend(
+                standing_badge("members-standing", row, ladder, theme)
+                    .map(|badge| vec![badge.into_any_element()]),
+            );
         }
     }
     if row.group() != Group::Programs {
@@ -695,7 +693,6 @@ fn manages(
         .filter_map(|agent| {
             let identity::Kind::Program {
                 category: identity::Category::Agent,
-                standing,
                 ..
             } = agent.kind
             else {
@@ -732,10 +729,9 @@ fn manages(
                         .text_size(text::CAPTION)
                         .text_color(theme.muted),
                 )
-                .child(div().ml_auto().child(standing_badge(
+                .child(div().ml_auto().children(standing_badge(
                     "members-manages-standing",
                     agent,
-                    standing,
                     ladder,
                     &theme,
                 )));

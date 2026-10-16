@@ -191,6 +191,15 @@ impl Row {
         }
     }
 
+    /// An agent's standing: active, suspended or revoked. `None` for a
+    /// person or a program, which have none.
+    fn standing(&self) -> Option<identity::Standing> {
+        match self.kind {
+            identity::Kind::Program { standing, .. } => Some(standing),
+            identity::Kind::User | identity::Kind::System(_) => None,
+        }
+    }
+
     /// An agent's standing word: `active`, else why it no longer acts.
     fn life(&self) -> &'static str {
         self.kind.note().unwrap_or(words::ACTIVE)
@@ -220,20 +229,25 @@ impl Device {
 
 /// An agent's standing as a badge: its word, active in the success
 /// colours, suspended in the warning ones, revoked in danger
-/// (`[number].tsx:141`).
+/// (`[number].tsx:141`). `None` for a person or a program.
 fn standing_badge(
     id: &'static str,
-    agent: &Row,
-    standing: identity::Standing,
+    row: &Row,
     ladder: &Ladder,
     theme: &Theme,
-) -> Stateful<Div> {
-    let (foreground, background) = match standing {
+) -> Option<Stateful<Div>> {
+    let (foreground, background) = match row.standing()? {
         identity::Standing::Active => (theme.success, theme.success_soft),
         identity::Standing::Suspended => (theme.warning, theme.warning_soft),
         identity::Standing::Revoked => (theme.danger, theme.danger_soft),
     };
-    design::badge(id, agent.life(), ladder, foreground, background)
+    Some(design::badge(
+        id,
+        row.life(),
+        ladder,
+        foreground,
+        background,
+    ))
 }
 
 /// A key's valset seat as a badge: a validator in the success colours, a

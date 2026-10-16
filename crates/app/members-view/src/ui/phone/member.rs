@@ -205,16 +205,7 @@ fn what(
 /// An agent's standing, and the valset standing of a key the account
 /// holds (`Validator`, `Resident`), wrapping.
 fn badges(row: &Row, theme: &Theme, ladder: &Ladder) -> Div {
-    let standing = match row.kind {
-        identity::Kind::Program { standing, .. } => Some(standing_badge(
-            "members-standing",
-            row,
-            standing,
-            ladder,
-            theme,
-        )),
-        _ => None,
-    };
+    let standing = standing_badge("members-standing", row, ladder, theme);
     div()
         .flex()
         .flex_wrap()
@@ -336,7 +327,7 @@ fn manages(
     );
     let rows = managed
         .iter()
-        .filter_map(|agent| managed_row(agent, cx, theme, ladder));
+        .map(|agent| managed_row(agent, cx, theme, ladder));
     std::iter::once(head.into_any_element())
         .chain(rows)
         .collect()
@@ -349,10 +340,7 @@ fn managed_row(
     cx: &mut Context<Members>,
     theme: &Theme,
     ladder: &Ladder,
-) -> Option<AnyElement> {
-    let identity::Kind::Program { standing, .. } = agent.kind else {
-        return None;
-    };
+) -> AnyElement {
     let number = agent.number;
     let about = words::agent(number);
     let life = agent.life();
@@ -369,15 +357,14 @@ fn managed_row(
             div().truncate().child(agent.name.clone()),
             Some(caption(about, theme, ladder)),
         ))
-        .child(standing_badge(
+        .children(standing_badge(
             "members-manages-standing",
             agent,
-            standing,
             ladder,
             theme,
         ))
         .child(chevron(theme, ladder));
-    Some(row.into_any_element())
+    row.into_any_element()
 }
 
 /// Recent activity: what the account's keys signed lately, newest first,

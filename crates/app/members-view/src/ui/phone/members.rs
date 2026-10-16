@@ -308,24 +308,18 @@ fn member_row(
     let managed_by = row
         .manager()
         .map(|manager| format!("{} {}", words::MANAGED_BY, name_or_number(all, manager)));
-    let (tail, what) = match &row.kind {
-        identity::Kind::Program { standing, .. } => (
-            standing_badge("members-row-standing", row, *standing, ladder, theme)
-                .into_any_element(),
-            row.life(),
-        ),
-        identity::Kind::System(_) => (
-            caption(words::PROGRAM, theme, ladder)
-                .flex_none()
-                .into_any_element(),
-            words::PROGRAM,
-        ),
-        identity::Kind::User => (
-            caption(words::PHONE_PERSON, theme, ladder)
-                .flex_none()
-                .into_any_element(),
-            words::PHONE_PERSON,
-        ),
+    // an agent's standing, else what the account is (`index.tsx:64-71`)
+    let (tail, what) = match standing_badge("members-row-standing", row, ladder, theme) {
+        Some(badge) => (badge.into_any_element(), row.life()),
+        // a person or a program: no standing
+        None => {
+            let word = match row.kind {
+                identity::Kind::System(_) => words::PROGRAM,
+                _ => words::PHONE_PERSON,
+            };
+            let tail = caption(word, theme, ladder).flex_none();
+            (tail.into_any_element(), word)
+        }
     };
     let description = [me.then_some(words::YOU), managed_by.as_deref(), Some(what)]
         .into_iter()
