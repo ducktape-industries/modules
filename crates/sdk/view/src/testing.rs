@@ -278,8 +278,7 @@ enum Press {
 /// - a box pinned by insets that add up to zero (`top(-12)`,
 ///   `bottom(12)`);
 /// - a box pinned by one inset only;
-/// - a press with no declared height of its own;
-/// - a strip's tab, which is the bar less its hairline (43 in a 44 bar).
+/// - a press with no declared height of its own.
 ///
 /// And it refuses a `design::hit` whose parent's height is left to
 /// layout (`h_full`, `size_full`) even where the box fits.

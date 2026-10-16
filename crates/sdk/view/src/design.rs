@@ -1086,22 +1086,26 @@ where
 /// (`Choice.tsx:138`).
 const UNDERLINE: Pixels = px(2.);
 
+/// A strip's hairline under its tabs (`Choice.tsx:117`, `size.hairline`).
+const HAIRLINE: Pixels = px(1.);
+
 /// A tab: quiet text, the chosen one fg, medium and underlined, no fill. It
 /// may label a glyph. It is an [`item`] of a `TabList` [`composite`], which
 /// holds the focus and the arrows: the caller wraps it in
 /// `item(.., Role::Tab, active)`.
 ///
-/// A tab bar declares `.h(ladder.strip)`. Under a finger a tab has no
-/// height of its own: it fills the bar less its hairline, so in a bar
-/// that declares none it shrinks to one line of text, under a finger's
-/// 44. Under a pointer it is at least [`Ladder::hit`] tall, and the caller
-/// sizes it to its bar (`h_full`, `flex_1`).
+/// A tab bar declares `.h(ladder.strip)`, its hairline included. Under a
+/// pointer a tab is at least [`Ladder::hit`] tall, and the caller sizes
+/// it to its bar (`h_full`, `flex_1`).
 ///
 /// Under a finger it is an item of the Expo kit's `Strip`
-/// (`Choice.tsx:113-145`): 10 in, `ladder.small` on one line, the chosen
-/// one's underline 10 in from each side; no hover, and a press does not
-/// dim (`Strip` sets no pressed look). A size or text style the caller
-/// sets after it replaces the strip's.
+/// (`Choice.tsx:113-145`): drawn in the bar less its hairline
+/// (`Choice.tsx:127`), 10 in, `ladder.small` on one line, the chosen one's
+/// underline 10 in from each side just above the hairline; no hover, and a
+/// press does not dim (`Strip` sets no pressed look). Its own box is the
+/// strip's whole [`Ladder::strip`], reaching over the bar's hairline, so
+/// the press is a finger tall where Expo's is 43, and nothing drawn moves.
+/// A size or text style the caller sets after it replaces the strip's.
 pub fn tab(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -1126,9 +1130,12 @@ pub fn tab(
         .on_click(click)
         .child(label.into());
     match ladder.touch {
+        // the press is the whole strip: the box reaches over the bar's
+        // hairline, and its label and underline keep to the bar above it
         true => tab
             .relative()
-            .h_full()
+            .h(ladder.strip)
+            .pb(HAIRLINE)
             .px(space::MD)
             .text_type(ladder.small)
             .whitespace_nowrap()
@@ -1138,7 +1145,7 @@ pub fn tab(
                         .absolute()
                         .left(space::MD)
                         .right(space::MD)
-                        .bottom_0()
+                        .bottom(HAIRLINE)
                         .h(UNDERLINE)
                         .bg(theme.foreground),
                 )
@@ -2197,7 +2204,7 @@ mod tests {
     /// over a 2 underline 10 in from each side; no hover, no dim. It fits a
     /// phone on the bar's 44.
     #[test]
-    fn under_touch_a_tab_fills_its_bar_and_underlines_the_chosen_one() {
+    fn under_touch_a_tab_spans_its_strip_and_underlines_the_chosen_one_above_the_hairline() {
         let theme = Theme::light();
         let strip = |chosen: bool| {
             let tab = item(
@@ -2217,7 +2224,8 @@ mod tests {
         crate::testing::assert_fits(&bar, &styles, 360., &TOUCH);
         let tab = &bar.children()[0];
         let look = &styles[tab.style().expect("a styled tab")];
-        assert_eq!(look.min_size.height, None);
+        assert_eq!(look.size.height, Some(px(44.).into()));
+        assert_eq!(look.padding.bottom, Some(px(1.).into()));
         assert_eq!(look.padding.left, Some(px(10.).into()));
         assert_eq!(look.text.font_size, Some(px(14.).into()));
         assert_eq!(look.text.font_weight, Some(FontWeight::MEDIUM));
@@ -2236,7 +2244,7 @@ mod tests {
             (
                 Some(px(10.).into()),
                 Some(px(10.).into()),
-                Some(px(0.).into())
+                Some(px(1.).into())
             )
         );
         assert_eq!(underline.size.height, Some(px(2.).into()));

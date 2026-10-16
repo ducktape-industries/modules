@@ -482,8 +482,11 @@ fn the_sweep_trusts_a_press_with_no_height_of_its_own() {
     fits_in_a_tall_row(press(div().id("react")));
 }
 
+/// A strip tab draws in the bar less its hairline, as Expo's (43), but its
+/// own box, which is the press, is the whole strip: the sweep reads a true
+/// 44 off the tab itself.
 #[test]
-fn the_sweep_reads_a_strip_tab_as_its_bar_not_the_bar_less_its_hairline() {
+fn under_touch_a_strip_tabs_press_is_the_whole_strip_over_its_hairline() {
     let theme = crate::Theme::light();
     let (tree, styles) = testing::lower(|_: &mut Context<()>| {
         div()
@@ -496,6 +499,10 @@ fn the_sweep_reads_a_strip_tab_as_its_bar_not_the_bar_less_its_hairline() {
                 true,
             ))
     });
+    let tab = &tree.children()[0];
+    let look = &styles[tab.style().expect("a styled tab")];
+    assert_eq!(look.size.height, Some(px(44.).into()));
+    assert_eq!(look.padding.bottom, Some(px(1.).into()));
     testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
 }
 
