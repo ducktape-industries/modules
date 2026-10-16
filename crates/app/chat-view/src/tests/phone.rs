@@ -251,6 +251,23 @@ fn search_asks_on_the_search_key_and_a_hit_opens_its_room_over_the_page() {
 }
 
 #[test]
+fn a_search_field_is_one_box_with_its_magnifier_in_it() {
+    let (mut cx, _view) = phone();
+    cx.simulate_click("chat-rooms-search");
+    cx.run_until_parked();
+    // the field's own hairline is its edge (the host draws the focused
+    // one); the box around it draws none, so no edge is doubled
+    let hairline = view::StyleRefinement::default().border_1();
+    assert_eq!(
+        cx.style("search").border_widths.left,
+        hairline.border_widths.left
+    );
+    let around = parent(cx.root(), "search").expect("the field's box");
+    let around = around.style().map(|style| &cx.styles()[style]);
+    assert!(around.is_none_or(|style| style.border_widths.left.is_none()));
+}
+
+#[test]
 fn clear_empties_the_field_and_the_hits() {
     let (mut cx, view) = phone();
     cx.simulate_click("Search");
@@ -1006,4 +1023,14 @@ fn a_finger_draws_the_phone_tree_and_a_pointer_the_desktop() {
     assert!(cx.find("chat-rooms-page").is_some() && cx.find("chat-sidebar").is_none());
     cx.simulate_touch(false);
     assert!(cx.find("chat-sidebar").is_some() && cx.find("chat-rooms-page").is_none());
+}
+
+/// The node whose child `key` is.
+fn parent<'a>(node: &'a wire::Node, key: &str) -> Option<&'a wire::Node> {
+    node.children()
+        .iter()
+        .find_map(|child| match child.key() == Some(key) {
+            true => Some(node),
+            false => parent(child, key),
+        })
 }
