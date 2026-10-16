@@ -41,6 +41,41 @@ fn scout() -> identity::Account {
         },
     )
 }
+/// From here on identity reads Scout (12) in `life`: its manager's view
+/// after a suspend, a resume or a revoke lands.
+fn scout_is(cx: &TestAppContext, life: identity::Life) {
+    cx.host().handle::<Query<Identity>>(move |q| {
+        let life = life.clone();
+        Ok(match q {
+            identity::Query::Get { number } => {
+                identity::Reply::Account(Some(maya(number, "Laptop key")))
+            }
+            identity::Query::Managed { by: 7, .. } => {
+                let identity::Control::Program {
+                    manager, category, ..
+                } = scout().control
+                else {
+                    panic!()
+                };
+                let control = identity::Control::Program {
+                    script: None,
+                    manager,
+                    category,
+                    life,
+                };
+                identity::Reply::Accounts(identity::PageResponse {
+                    height: 42,
+                    items: vec![identity::Account { control, ..scout() }],
+                    next: None,
+                })
+            }
+            identity::Query::Audience { number: 12 } => {
+                identity::Reply::Audience(identity::Audience::Manager)
+            }
+            q => panic!("unexpected query: {q:?}"),
+        })
+    });
+}
 fn respond(cx: &TestAppContext) {
     cx.host().handle::<Query<Identity>>(|q| {
         Ok(match q {
@@ -623,40 +658,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
         assert_eq!(op, identity::Op::Suspend { account: 12 });
         Ok(view::testing::applied(Vec::new()))
     });
-    let suspended = |cx: &TestAppContext, life: identity::Life| {
-        cx.host().handle::<Query<Identity>>(move |q| {
-            let life = life.clone();
-            Ok(match q {
-                identity::Query::Get { number } => {
-                    identity::Reply::Account(Some(maya(number, "Laptop key")))
-                }
-                identity::Query::Managed { by: 7, .. } => {
-                    let identity::Control::Program {
-                        manager, category, ..
-                    } = scout().control
-                    else {
-                        panic!()
-                    };
-                    let control = identity::Control::Program {
-                        script: None,
-                        manager,
-                        category,
-                        life,
-                    };
-                    identity::Reply::Accounts(identity::PageResponse {
-                        height: 42,
-                        items: vec![identity::Account { control, ..scout() }],
-                        next: None,
-                    })
-                }
-                identity::Query::Audience { number: 12 } => {
-                    identity::Reply::Audience(identity::Audience::Manager)
-                }
-                q => panic!("unexpected query: {q:?}"),
-            })
-        });
-    };
-    suspended(&cx, identity::Life::Suspended { keys: Vec::new() });
+    scout_is(&cx, identity::Life::Suspended { keys: Vec::new() });
     cx.simulate_click("settings/agents/12/suspend");
     cx.run_until_parked();
     assert_eq!(sent(&cx), 2);
@@ -670,7 +672,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     });
     cx.simulate_click("settings/agents/12/resume");
     cx.run_until_parked();
-    suspended(&cx, identity::Life::Revoked);
+    scout_is(&cx, identity::Life::Revoked);
     cx.simulate_click("settings/agents/12/revoke");
     cx.run_until_parked();
     assert!(
@@ -974,3 +976,5 @@ fn a_refused_choice_shows_in_its_agents_row() {
     );
     assert!(cx.has_text("That didn’t go through: account 7 does not manage account 12"));
 }
+
+mod phone;

@@ -4,7 +4,7 @@ use view::methods::Submitted;
 use view::prelude::*;
 
 use crate::queries::Found;
-use crate::state::{Answering, Choice, Form, Problem, Section, TTL};
+use crate::state::{Answering, Choice, Form, Problem, Section, Sheet, TTL};
 use crate::{Settings, queries};
 use identity::{Audience, Identity};
 
@@ -17,8 +17,49 @@ impl Settings {
         self.read_account(cx);
     }
 
+    /// The menu or the phone's strip opens a section; a sheet over the last
+    /// one closes, as Back closes it.
     pub(crate) fn select_section(&mut self, section: Section, cx: &mut Context<Self>) {
         self.section = section;
+        self.close_sheet(cx);
+    }
+
+    pub(crate) fn open_sheet(&mut self, sheet: Sheet, cx: &mut Context<Self>) {
+        self.sheet = Some(sheet);
+        cx.notify();
+    }
+
+    /// Closes the open sheet (Back, or its Cancel). An agent's sheet opens on
+    /// its actions next time: a rename not sent and a Specific that listed
+    /// nobody go with it (Expo `AgentSheet`'s close).
+    pub(crate) fn close_sheet(&mut self, cx: &mut Context<Self>) {
+        if let Some(Sheet::Actions(number) | Sheet::Rename(number) | Sheet::Answers(number)) =
+            self.sheet.take()
+        {
+            self.rename_agent
+                .retain(|agent, form| *agent != number || form.busy);
+            if let Some(answering) = self.answering.get_mut(&number) {
+                answering.listing = false;
+            }
+        }
+        cx.notify();
+    }
+
+    /// Whom an agent answers, in its sheet: the choice, and under Specific
+    /// the field that adds someone.
+    pub(crate) fn open_answers(&mut self, number: u64, cx: &mut Context<Self>) {
+        self.answering.entry(number).or_default();
+        self.sheet = Some(Sheet::Answers(number));
+        cx.notify();
+    }
+
+    /// Rename from an agent's actions: its sheet turns to the field,
+    /// holding the name.
+    pub(crate) fn start_rename_agent(&mut self, number: u64, cx: &mut Context<Self>) {
+        if !self.rename_agent.contains_key(&number) {
+            self.submit_rename_agent(number, cx);
+        }
+        self.sheet = Some(Sheet::Rename(number));
         cx.notify();
     }
 
@@ -115,6 +156,10 @@ impl Settings {
 
     pub(crate) fn cancel_rename_agent(&mut self, number: u64, cx: &mut Context<Self>) {
         self.rename_agent.remove(&number);
+        // the sheet goes back to the agent's actions
+        if self.sheet == Some(Sheet::Rename(number)) {
+            self.sheet = Some(Sheet::Actions(number));
+        }
         cx.notify();
     }
 
@@ -122,7 +167,7 @@ impl Settings {
         self.agent(number).map(|agent| agent.name.clone())
     }
 
-    fn agent(&self, number: u64) -> Option<&queries::Agent> {
+    pub(crate) fn agent(&self, number: u64) -> Option<&queries::Agent> {
         match self.account.ready() {
             Some(Some(queries::Seat::Account(account))) => {
                 account.agents.iter().find(|agent| agent.number == number)
@@ -303,6 +348,7 @@ impl Settings {
         cx.notify();
         let ask = cx.host().ask::<Submit<Identity>>(op);
         cx.land(ask, move |view, result, cx| {
+            let landed = matches!(result, Ok(Submitted::Applied { .. }));
             let form = form(view);
             form.busy = false;
             match result {
@@ -320,6 +366,15 @@ impl Settings {
             view.rename_agent.retain(|_, form| {
                 form.busy || form.problem.is_some() || !form.text.text().is_empty()
             });
+            // an add that landed closes its sheet, a rename goes back to the
+            // agent's actions, and the agent's sheet stays (Expo `Agents.tsx`)
+            if landed {
+                view.sheet = match view.sheet {
+                    Some(Sheet::Rename(number)) => Some(Sheet::Actions(number)),
+                    Some(Sheet::CreateAgent | Sheet::AddKey) => None,
+                    other => other,
+                };
+            }
             view.refresh_account(cx);
             cx.notify();
         })

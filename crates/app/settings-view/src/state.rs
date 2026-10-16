@@ -11,8 +11,10 @@ pub(crate) const TTL: [u64; 3] = [1, 7, 30];
 #[derive(Default, Serialize, Deserialize)]
 pub struct Settings {
     pub(crate) session: Session,
-    /// the pane the left menu has open
+    /// the pane open: the desktop menu's pick, or the phone strip's
     pub(crate) section: Section,
+    /// the sheet open over the phone's pane; Back closes it
+    pub(crate) sheet: Option<Sheet>,
     pub(crate) account: Loadable<Option<Seat>>,
     pub(crate) invite: Loadable<Invite>,
     /// which of [`TTL`] the next invite lasts
@@ -27,6 +29,21 @@ pub struct Settings {
     /// the one suspend, resume or revoke in flight
     pub(crate) agent_standing: Form,
     pub(crate) answering: BTreeMap<u64, Answering>,
+}
+
+/// A sheet over the phone's Agents pane; each form the desktop draws inline
+/// is one. An agent's sheet is one sheet in three modes, by the agent's
+/// number (the Expo app's `AgentSheet`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Sheet {
+    /// an agent's actions
+    Actions(u64),
+    /// an agent's new name
+    Rename(u64),
+    /// whom an agent answers
+    Answers(u64),
+    CreateAgent,
+    AddKey,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]

@@ -10,6 +10,7 @@ use crate::state::{Form, Problem, Section, TTL};
 use view::design::Ladder;
 
 mod account;
+pub(crate) mod phone;
 
 /// The left menu's width.
 const NAV_W: Pixels = px(200.);
@@ -18,9 +19,9 @@ const PANE_W: Pixels = px(720.);
 /// A field beside its button in a setting row.
 const FIELD_W: Pixels = px(220.);
 
-pub(crate) fn render(view: &Settings, touch: bool, cx: &mut Context<Settings>) -> impl IntoElement {
+pub(crate) fn render(view: &Settings, cx: &mut Context<Settings>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
-    let ladder = &design::ladder(touch);
+    let ladder = &design::POINTER;
     let section = shown(view);
     let body = match section {
         Section::Account => account::account(view, cx, &theme, ladder),
