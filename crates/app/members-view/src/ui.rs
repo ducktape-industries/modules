@@ -189,8 +189,8 @@ fn chips(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> impl IntoE
 
 /// The four states of the roster: loading, refused, empty, ready.
 fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladder) -> AnyElement {
-    let all = match view.roster() {
-        Roster::Rows(all) => all,
+    let shown = match view.roster() {
+        Roster::Rows(shown) => shown,
         Roster::Reading => {
             return pad(design::quiet(words::READING_ROSTER, theme))
                 .id("members-loading")
@@ -201,7 +201,7 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladde
             return design::empty_state(id, title, detail, theme).into_any_element();
         }
     };
-    let shown = view.shown();
+    let all = view.all();
     // one Tab stop; the arrows select as they move, and the active row is
     // the selected one, else the first shown, which Enter selects
     let numbers: Vec<u64> = shown.iter().map(|row| row.number).collect();
@@ -272,10 +272,11 @@ fn member_row(
     let selected = view.selected() == Some(number);
     let dim = row.kind.note().is_some();
     let name_of = |manager| name(all, manager);
-    let kind = match &row.kind {
-        // a program named for its program says so once
-        identity::Kind::System(program) if *program == row.name => words::PROGRAM.into(),
-        kind => identity::view::kind(kind, name_of),
+    let kind = match row.manager() {
+        // an agent: identity's words name its manager and why it no longer
+        // acts
+        Some(_) => identity::view::kind(&row.kind, name_of),
+        None => row.kind_word(words::DESK_USER),
     };
     let me = view.me == Some(number);
     let row = div()
@@ -423,19 +424,16 @@ fn head(
     // each part keeps its words (and the manager its link) on one line;
     // a narrow pane wraps between parts
     let mut caption: Vec<Vec<AnyElement>> = vec![vec![text(words::account(row.number))]];
-    match &row.kind {
-        identity::Kind::User => caption.push(vec![text(words::DESK_USER.into())]),
-        identity::Kind::System(program) if *program == row.name => {
-            caption.push(vec![text(words::PROGRAM.into())])
-        }
-        identity::Kind::System(_) => caption.push(vec![text(
-            row.kind.badge(|_| String::new()).unwrap_or_default(),
-        )]),
-        identity::Kind::Program { manager, .. } => {
-            // the badge with the manager's name left out, and the name as
-            // a link that chooses the manager here
-            let what = row.kind.badge(|_| String::new()).unwrap_or_default();
-            let manager = *manager;
+    match row.manager() {
+        None => caption.push(vec![text(row.kind_word(words::DESK_USER))]),
+        Some(manager) => {
+            // what the agent is and `managed by`, then the manager's name
+            // as a link that chooses the manager here
+            let what = format!(
+                "{} · {}",
+                row.kind_word(words::DESK_USER),
+                words::MANAGED_BY
+            );
             let label = name_or_number(rows, manager);
             let link = div()
                 .id("members-manager")
@@ -447,7 +445,7 @@ fn head(
                 .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.select(manager, cx)))
                 .child(label)
                 .into_any_element();
-            caption.push(vec![text(what.trim_end().to_owned()), link]);
+            caption.push(vec![text(what), link]);
             caption.extend(
                 standing_badge("members-standing", row, ladder, theme)
                     .map(|badge| vec![badge.into_any_element()]),

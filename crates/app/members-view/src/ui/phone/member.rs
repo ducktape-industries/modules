@@ -167,7 +167,11 @@ fn what(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Stateful<Div> {
-    let account = words::account(row.number);
+    let what = format!(
+        "{} · {}",
+        words::account(row.number),
+        row.kind_word(words::PHONE_PERSON)
+    );
     let devices = words::devices(row.devices.len());
     let line = div()
         .id("members-caption")
@@ -177,28 +181,17 @@ fn what(
         .font_family(design::fonts::FAMILY_MONO)
         .text_type(ladder.caption)
         .text_color(theme.muted);
-    match &row.kind {
-        identity::Kind::User => {
-            line.child(format!("{account} · {} · {devices}", words::PHONE_PERSON))
-        }
-        identity::Kind::System(program) if *program == row.name => {
-            line.child(format!("{account} · {}", words::PROGRAM))
-        }
-        identity::Kind::System(program) => {
-            line.child(format!("{account} · {} · {program}", words::PROGRAM))
-        }
-        identity::Kind::Program { manager, .. } => {
-            let manager = *manager;
+    match row.manager() {
+        Some(manager) => {
             let who = name_or_number(rows, manager);
             let open = cx.listener(move |view, _: &ClickEvent, _, cx| view.open(manager, cx));
-            line.child(format!(
-                "{account} · {} · {} ",
-                words::AGENT,
-                words::MANAGED_BY
-            ))
-            .child(inline_link("members-manager", who, open, theme, ladder))
-            .child(format!(" · {devices}"))
+            line.child(format!("{what} · {} ", words::MANAGED_BY))
+                .child(inline_link("members-manager", who, open, theme, ladder))
+                .child(format!(" · {devices}"))
         }
+        // a program holds no keys of its own
+        None if row.group() == Group::Programs => line.child(what),
+        None => line.child(format!("{what} · {devices}")),
     }
 }
 

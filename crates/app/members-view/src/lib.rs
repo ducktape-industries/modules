@@ -112,8 +112,8 @@ pub enum Page {
 
 /// What the roster has to show.
 pub(crate) enum Roster<'a> {
-    /// every account, once read; the filter and the chip let some through
-    Rows(&'a [Row]),
+    /// the rows the filter and the chip let through, grouped and in order
+    Rows(Vec<&'a Row>),
     /// the first read is on its way
     Reading,
     Refused(&'a Error),
@@ -197,6 +197,19 @@ impl Row {
         match self.kind {
             identity::Kind::Program { standing, .. } => Some(standing),
             identity::Kind::User | identity::Kind::System(_) => None,
+        }
+    }
+
+    /// What the account is, in words: `person` for a person (each tree says
+    /// it its own way: `words::PHONE_PERSON`, `words::DESK_USER`), `Agent`
+    /// for an agent, `Program` for a program named after its program (it
+    /// says so once), else `Program · chat`.
+    fn kind_word(&self, person: &'static str) -> String {
+        match &self.kind {
+            identity::Kind::User => person.into(),
+            identity::Kind::Program { .. } => words::AGENT.into(),
+            identity::Kind::System(program) if *program == self.name => words::PROGRAM.into(),
+            identity::Kind::System(program) => format!("{} · {program}", words::PROGRAM),
         }
     }
 
@@ -349,11 +362,10 @@ impl Members {
             let rescan = view.activity.is_idle();
             match (result, view.rows.ready()) {
                 (Ok(rows), Some(old)) if *old == rows => {}
-                (Ok(rows), old) => {
-                    let old = old.map_or(&[][..], Vec::as_slice);
+                (Ok(rows), _) => {
                     let keys_moved = view
                         .selected()
-                        .is_some_and(|number| keys(old, number) != keys(&rows, number));
+                        .is_some_and(|number| keys(view.all(), number) != keys(&rows, number));
                     view.rows = Loadable::Ready(rows);
                     cx.notify();
                     if keys_moved {
@@ -495,20 +507,26 @@ impl Members {
             let why = words::NO_ACCOUNTS_WHY.into();
             return Roster::Empty("members-empty", words::NO_ACCOUNTS, why);
         }
-        if self.shown().is_empty() {
+        let shown = self.shown();
+        if shown.is_empty() {
             let only = self.only.map(Group::label);
             let detail = words::no_match(self.filter.text().trim(), only);
             return Roster::Empty("members-no-match", words::NOTHING_MATCHES, detail);
         }
-        Roster::Rows(all)
+        Roster::Rows(shown)
+    }
+
+    /// Every account, once read; none before.
+    fn all(&self) -> &[Row] {
+        self.rows.ready().map_or(&[], Vec::as_slice)
     }
 
     /// The chips: All, People, Agents, Programs, each with how many the
     /// network holds.
     fn choices(&self) -> [(Option<Group>, &'static str, usize); 4] {
-        let rows = self.rows.ready().map_or(&[][..], Vec::as_slice);
         let count = |group: Option<Group>| {
-            rows.iter()
+            self.all()
+                .iter()
                 .filter(|row| group.is_none_or(|group| row.group() == group))
                 .count()
         };
@@ -545,8 +563,8 @@ impl Members {
 
     /// The agents account `number` manages.
     fn managed(&self, number: u64) -> Vec<&Row> {
-        let rows = self.rows.ready().map_or(&[][..], Vec::as_slice);
-        rows.iter()
+        self.all()
+            .iter()
             .filter(|row| row.manager() == Some(number))
             .collect()
     }

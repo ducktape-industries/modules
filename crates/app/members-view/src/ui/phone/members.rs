@@ -224,15 +224,14 @@ fn chip(
 /// first read, a refusal with Retry, nobody on the network, nobody the
 /// filter and the chip let through.
 fn list(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladder) -> AnyElement {
-    match view.roster() {
-        Roster::Rows(_) => {}
+    let shown = match view.roster() {
+        Roster::Rows(shown) => shown,
         Roster::Reading => return quiet("members-loading", words::READING_ROSTER, theme, ladder),
         Roster::Refused(refusal) => return refused(refusal, cx, theme, ladder),
         Roster::Empty(id, title, detail) => {
             return design::empty_state(id, title, detail, theme).into_any_element();
         }
-    }
-    let shown = view.shown();
+    };
     // one Tab stop: the arrows move a cursor, shown only once they have
     // moved, and a press or Enter opens the member
     let numbers: Vec<u64> = shown.iter().map(|row| row.number).collect();
@@ -302,7 +301,7 @@ fn member_row(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Stateful<Div> {
-    let all = view.rows.ready().map_or(&[][..], Vec::as_slice);
+    let all = view.all();
     let number = row.number;
     let me = view.me == Some(number);
     let managed_by = row
@@ -311,7 +310,8 @@ fn member_row(
     // an agent's standing, else what the account is (`index.tsx:64-71`)
     let (tail, what) = match standing_badge("members-row-standing", row, ladder, theme) {
         Some(badge) => (badge.into_any_element(), row.life()),
-        // a person or a program: no standing
+        // a person or a program: no standing. The roster says only which
+        // (`index.tsx:69`), never the program a program account runs
         None => {
             let word = match row.kind {
                 identity::Kind::System(_) => words::PROGRAM,
