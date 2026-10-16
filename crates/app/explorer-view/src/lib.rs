@@ -58,6 +58,8 @@ impl View for Explorer {
         Capability::Host,
         Capability::Clock,
         Capability::Clipboard,
+        // an account page's Open DM opens chat on the reader's DM room
+        Capability::Link,
     ];
     const TARGETS: &'static [&'static str] = &[
         identity::PROGRAM,

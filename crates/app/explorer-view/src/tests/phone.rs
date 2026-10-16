@@ -314,7 +314,10 @@ fn a_refused_transaction_shows_the_refusal_and_its_reason() {
 /// (`tx/<hash>`), found as search finds one. Both open the same page.
 #[test]
 fn a_transaction_link_opens_by_its_place_or_by_its_hash() {
-    for path in ["tx/11/0".to_owned(), format!("tx/{}", abi::hex(&[0xa1; 32]))] {
+    for path in [
+        "tx/11/0".to_owned(),
+        format!("tx/{}", abi::hex(&[0xa1; 32])),
+    ] {
         let cx = opened(&path);
         assert!(cx.find("tx-hash").is_some(), "{path}: {:?}", cx.texts());
         shows(&cx, "In block 11");
@@ -341,6 +344,27 @@ fn an_account_page_shows_its_devices_the_programs_it_used_and_its_activity() {
     shows(&cx, "Activity");
     click(&mut cx, "explorer-used-chat");
     shows(&cx, "Transactions · chat");
+}
+
+/// Open DM opens chat on the reader's DM room, as members-view does: for
+/// another person or a program account, not for the reader nor for a
+/// program's own account.
+#[test]
+fn open_dm_opens_the_readers_room_with_another_account() {
+    let mut cx = reader(Some(3), ADA, false, grants(), waiting());
+    phone(&mut cx);
+    click(&mut cx, "explorer-tab-accounts");
+    click(&mut cx, "explorer-account-5");
+    click(&mut cx, "explorer-open-dm");
+    assert_eq!(
+        cx.host().requests::<view::methods::LinkOpen>(),
+        [ducklink::mint("test#1", chat::PROGRAM, &["dm-3-5"]).unwrap()]
+    );
+    for own in ["3", "6"] {
+        back(&mut cx);
+        click(&mut cx, &format!("explorer-account-{own}"));
+        assert!(cx.find("explorer-open-dm").is_none(), "account {own}");
+    }
 }
 
 #[test]

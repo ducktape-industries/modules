@@ -196,6 +196,22 @@ impl Explorer {
         ducklink::mint(&self.session_chain, "explorer", &tail)
     }
 
+    /// The reader's DM room with `account` in chat, as members-view opens
+    /// it: for a person or a program account other than the reader, once
+    /// the session names the reader and the chain.
+    pub(crate) fn dm_link(&self, account: &identity::Account) -> Option<String> {
+        let me = self.acting.account?;
+        let reachable = matches!(
+            account.kind(),
+            identity::Kind::User | identity::Kind::Program { .. }
+        );
+        if !reachable || me == account.number {
+            return None;
+        }
+        let room = chat::dm_channel_id(me, account.number);
+        ducklink::mint(&self.session_chain, chat::PROGRAM, &[&room])
+    }
+
     /// `text` onto the clipboard; the note says `what` was copied.
     pub(crate) fn copy(&mut self, text: String, what: &'static str, cx: &mut Context<Self>) {
         let ask = cx.host().ask::<ClipboardWrite>(text);

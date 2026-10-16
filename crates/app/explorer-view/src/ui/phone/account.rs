@@ -22,6 +22,10 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> AnyEleme
     let copy = copy_link(view, &Route::Account(number), cx, k);
     let page = over("explorer-account", account.card.name.clone(), view, cx, k)
         .caption(format!("account {number} · {kind}"));
+    let page = match view.dm_link(account) {
+        Some(link) => page.trailing(open_dm(link, k)),
+        None => page,
+    };
     let page = match copy {
         Some(copy) => page.trailing(copy),
         None => page,
@@ -33,6 +37,20 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> AnyEleme
             .children(devices(view, account, k))
             .children(programs_used(view, number, cx, k))
             .children(activity(view, number, cx, k)),
+    )
+    .into_any_element()
+}
+
+/// Open DM (Expo `account/[number].tsx:59,69`): chat opens on the reader's
+/// DM room with this account.
+fn open_dm(link: String, k: &Kit) -> AnyElement {
+    design::icon_button(
+        "explorer-open-dm",
+        design::icon("message-square", k.ladder.icon),
+        "Open DM",
+        &k.ladder,
+        &k.theme,
+        move |_: &ClickEvent, _: &mut Window, cx: &mut App| cx.host().open_link(&link),
     )
     .into_any_element()
 }
