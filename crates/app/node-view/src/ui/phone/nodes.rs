@@ -268,9 +268,8 @@ fn roster(view: &Nodes, nodes: &[Node], cx: &Context<Nodes>, theme: &Theme) -> S
     let rows = |validators: bool| -> Vec<Stateful<Div>> {
         nodes
             .iter()
-            .enumerate()
-            .filter(|(_, node)| node.validator == validators)
-            .map(|(index, node)| member_row(view, index, node, cx, theme))
+            .filter(|node| node.validator == validators)
+            .map(|node| member_row(view, node, cx, theme))
             .collect()
     };
     let (seats, residents) = (rows(true), rows(false));
@@ -304,7 +303,6 @@ fn roster(view: &Nodes, nodes: &[Node], cx: &Context<Nodes>, theme: &Theme) -> S
 /// opens the member's page.
 fn member_row(
     view: &Nodes,
-    index: usize,
     node: &Node,
     cx: &Context<Nodes>,
     theme: &Theme,
@@ -322,7 +320,7 @@ fn member_row(
         cx.notify();
     });
     design::row(
-        ElementId::Name(format!("nodes-member-{index}").into()),
+        ElementId::Name(format!("nodes-member-{}", hex(&node.key)).into()),
         &LADDER,
         theme,
     )
@@ -352,7 +350,7 @@ fn member_title(node: &Node, theme: &Theme) -> Div {
     div()
         .flex()
         .items_baseline()
-        .min_w(px(0.))
+        .min_w_0()
         .whitespace_nowrap()
         .overflow_hidden()
         .text_type(LADDER.body)
@@ -365,7 +363,7 @@ fn member_title(node: &Node, theme: &Theme) -> Div {
         )
         .children(node.operator.clone().map(|operator| {
             div()
-                .min_w(px(0.))
+                .min_w_0()
                 .truncate()
                 .text_size(LADDER.secondary.size)
                 .text_color(theme.muted)
@@ -389,7 +387,7 @@ fn member_address(view: &Nodes, node: &Node, theme: &Theme) -> Div {
 fn row_lines(title: impl IntoElement, caption: impl IntoElement) -> Div {
     div()
         .flex_1()
-        .min_w(px(0.))
+        .min_w_0()
         .flex()
         .flex_col()
         .gap(ROW_LINES_GAP)

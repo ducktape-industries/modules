@@ -146,7 +146,7 @@ fn key_value(key: &str, label: &str, value: impl IntoElement, theme: &Theme) -> 
                 .text_color(theme.muted)
                 .child(label.to_owned()),
         )
-        .child(div().flex_1().min_w(px(0.)).child(value))
+        .child(div().flex_1().min_w_0().child(value))
 }
 
 /// A value in small type, wrapping.

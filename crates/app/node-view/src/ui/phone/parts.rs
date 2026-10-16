@@ -18,7 +18,7 @@ use crate::{Nodes, words};
 
 // SDK gap: the sheet's inset (`design::SHEET_INSET`), swap when feat/phone-kit lands
 /// How far a sheet's content sits in from its sides (Expo
-/// `src/kit/Sheet.tsx:149,165` and `Confirm.tsx:65`: 20).
+/// `src/kit/Sheet.tsx:148,162` and `Confirm.tsx:65`: 20).
 const SHEET_INSET: Pixels = px(20.);
 // SDK gap: the small button (`Button::small`; with `small_button`), swap when feat/phone-kit lands
 /// The kit's small button's height (Expo `src/design/theme.ts:76`
@@ -26,9 +26,11 @@ const SHEET_INSET: Pixels = px(20.);
 const SMALL_BUTTON: Pixels = px(36.);
 // SDK gap: the notice and its action (with `notice`, `action`, `alert`);
 // the SDK builds it later
-/// A notice's action: its secondary line (18) with 6 over and under
-/// (Expo `src/kit/Notice.tsx:58`).
+/// A notice's action: its secondary line (18) with 6 over and under, its
+/// press reaching 8 past each edge (Expo `src/kit/Notice.tsx:60`,
+/// `hitSlop={8}`).
 const NOTICE_ACTION: Pixels = px(30.);
+const NOTICE_REACH: Pixels = px(8.);
 // SDK gap: the empty state (`design::empty_state`; with `empty`), swap when feat/phone-kit lands
 /// The empty state's icon (Expo `src/design/theme.ts:87` `icon.empty`),
 /// its padding (`States.tsx:26`: 40 over and under, 32 at the sides) and
@@ -39,8 +41,8 @@ const EMPTY_X: Pixels = px(32.);
 const EMPTY_BODY_W: Pixels = px(280.);
 
 // SDK gap: the page's scroller; the SDK builds it later
-/// What a page scrolls, 16 clear at its end (Expo `index.tsx:182`
-/// `paddingBottom: gap.block`).
+/// What a page scrolls, 16 clear at its end (Expo `index.tsx:170` and
+/// `[key].tsx:58`, `paddingBottom: gap.block`).
 pub(super) fn scroller(id: &'static str, body: Div) -> Stateful<Div> {
     div()
         .id(id)
@@ -226,7 +228,9 @@ fn notice(id: impl Into<ElementId>, ground: Hsla, tone: Hsla, sentence: &str) ->
 }
 
 /// A notice's action: its word in the strip's tone, medium, 8 from the
-/// words, its press reaching to the ladder's hit (the kit's `hitSlop`).
+/// sentence, its press reaching 8 past each edge (the kit's `hitSlop`).
+/// Not `design::hit`: that reaches to the ladder's hit from the box's
+/// width, and a view can't measure its word.
 fn action(
     id: impl Into<ElementId>,
     label: &'static str,
@@ -242,7 +246,13 @@ fn action(
         .font_weight(FontWeight::MEDIUM)
         .child(label)
         .child(
-            design::hit(id, LADDER.hit, NOTICE_ACTION, &LADDER)
+            div()
+                .id(id)
+                .absolute()
+                .top(-NOTICE_REACH)
+                .bottom(-NOTICE_REACH)
+                .left(-NOTICE_REACH)
+                .right(-NOTICE_REACH)
                 .role(Role::Button)
                 .aria_label(label)
                 .focusable()
@@ -251,7 +261,9 @@ fn action(
 }
 
 /// The kit's small outline button: a hairline edge, its label in
-/// secondary medium, its press reaching to the ladder's hit. One that may
+/// secondary medium, its press reaching to the ladder's hit over and
+/// under. Never narrower than the hit (16 each side of a label), so it
+/// reaches nothing sideways: the hit gets the hit as its width. One that may
 /// not be pressed now (a vote in flight) goes faint on a quiet edge and
 /// takes no press.
 pub(super) fn small_button(

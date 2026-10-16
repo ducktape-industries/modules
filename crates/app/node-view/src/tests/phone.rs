@@ -119,16 +119,16 @@ fn the_list_reads_the_network_its_numbers_and_every_member() {
     );
     assert!(cx.find("nodes-table").is_none(), "the desktop's table");
     assert_eq!(
-        texts_of(&cx, "nodes-member-0"),
+        texts_of(&cx, "nodes-member-abcd"),
         ["abcd", "10.0.0.1:4000 · this node", "In sync"]
     );
     assert_eq!(
-        texts_of(&cx, "nodes-member-1"),
+        texts_of(&cx, "nodes-member-9c1e"),
         ["9c1e", "10.0.0.2:4000", "In sync"]
     );
-    assert_eq!(texts_of(&cx, "nodes-member-2"), ["5f0a", "—", "Quiet"]);
+    assert_eq!(texts_of(&cx, "nodes-member-5f0a"), ["5f0a", "—", "Quiet"]);
     assert_eq!(
-        texts_of(&cx, "nodes-member-3"),
+        texts_of(&cx, "nodes-member-0102"),
         ["0102", "10.0.0.9:4000"],
         "a resident's state is not reported"
     );
@@ -148,7 +148,7 @@ fn the_numbers_wait_for_the_node_and_name_no_network_yet() {
     let cx = phone_where(|cx| cx.host().never::<ChainStatus>());
     shows(&cx, &["Nodes", "Reading node status…"]);
     assert!(
-        cx.find("nodes-member-0").is_none(),
+        cx.find("nodes-member-abcd").is_none(),
         "the rows read the node's height"
     );
 }
@@ -180,7 +180,7 @@ fn a_refused_member_read_says_why_and_retry_reads_it_again() {
     shows(&cx, &["valset is not running here", "Retry"]);
     respond(&mut cx);
     click(&mut cx, "nodes-retry");
-    assert!(cx.find("nodes-member-0").is_some(), "{:?}", cx.texts());
+    assert!(cx.find("nodes-member-abcd").is_some(), "{:?}", cx.texts());
 }
 
 #[test]
@@ -213,8 +213,8 @@ fn a_node_that_hears_no_votes_says_why_its_cells_are_empty() {
 fn a_validator_behind_says_by_how_much_on_its_row_and_its_page() {
     let mut cx =
         phone_where(|cx| network_where(cx, |network| network.members[2].signed = Some(4195)));
-    assert!(texts_of(&cx, "nodes-member-1").contains(&"5 behind".to_owned()));
-    click(&mut cx, "nodes-member-1");
+    assert!(texts_of(&cx, "nodes-member-9c1e").contains(&"5 behind".to_owned()));
+    click(&mut cx, "nodes-member-9c1e");
     shows(&cx, &["4,195 voted", "5", "5 behind"]);
 }
 
@@ -223,9 +223,9 @@ fn a_member_on_an_agent_says_who_operates_it_on_its_row_and_its_page() {
     let mut cx =
         phone_where(|cx| serve_identity(cx, vec![(OTHER.to_vec(), 11)], operators().to_vec()));
     assert!(
-        texts_of(&cx, "nodes-member-1").contains(&" · operated by ada (validator vps)".to_owned())
+        texts_of(&cx, "nodes-member-9c1e").contains(&" · operated by ada (validator vps)".to_owned())
     );
-    click(&mut cx, "nodes-member-1");
+    click(&mut cx, "nodes-member-9c1e");
     shows(&cx, &["Operator", "operated by ada (validator vps)"]);
 }
 
@@ -242,7 +242,7 @@ fn a_silent_node_says_so_and_when_it_last_answered() {
         &cx,
         &["● Not answering · this node abcd", "Last answer 4s ago"],
     );
-    click(&mut cx, "nodes-member-0");
+    click(&mut cx, "nodes-member-abcd");
     shows(&cx, &["Last answer 4s ago"]);
 }
 
@@ -250,14 +250,14 @@ fn a_silent_node_says_so_and_when_it_last_answered() {
 fn a_member_row_opens_its_page_and_back_returns_to_the_list() {
     let (mut cx, _) = ready();
     phone(&mut cx);
-    click(&mut cx, "nodes-member-0");
+    click(&mut cx, "nodes-member-abcd");
     assert!(cx.find("nodes-page").is_none(), "the list gave way");
     assert!(cx.back_handler().is_some(), "Back has somewhere to go");
     cx.simulate_back();
     cx.run_until_parked();
     assert!(cx.find("nodes-node").is_none() && cx.find("nodes-page").is_some());
     assert_eq!(cx.back_handler(), None);
-    click(&mut cx, "nodes-member-3");
+    click(&mut cx, "nodes-member-0102");
     click(&mut cx, "nodes-node-back");
     assert!(cx.find("nodes-page").is_some(), "the page's own Back");
 }
@@ -450,7 +450,7 @@ fn propose_cancel_votes_to_cancel_that_change() {
 fn a_validator_page_reads_its_key_address_vote_and_the_blocks_it_led() {
     let (mut cx, _) = ready();
     phone(&mut cx);
-    click(&mut cx, "nodes-member-0");
+    click(&mut cx, "nodes-member-abcd");
     shows(
         &cx,
         &[
@@ -476,7 +476,7 @@ fn a_validator_page_reads_its_key_address_vote_and_the_blocks_it_led() {
 fn a_resident_page_reads_no_vote_and_says_it_does_not_propose() {
     let (mut cx, _) = ready();
     phone(&mut cx);
-    click(&mut cx, "nodes-member-3");
+    click(&mut cx, "nodes-member-0102");
     shows(&cx, &["resident", "Doesn't propose"]);
     assert!(!cx.has_text("Behind") && cx.find("nodes-node-strip").is_none());
 }
@@ -503,7 +503,7 @@ fn a_page_on_a_key_that_left_reads_not_a_member() {
     respond(&mut cx);
     let nodes = cx.open::<Nodes>();
     phone(&mut cx);
-    click(&mut cx, "nodes-member-3");
+    click(&mut cx, "nodes-member-0102");
     serve_set(
         &cx,
         vec![THIS.to_vec()],
@@ -524,7 +524,7 @@ fn a_page_on_a_key_that_left_reads_not_a_member() {
 #[test]
 fn a_voter_demotes_or_removes_a_validator_from_its_page() {
     let mut cx = voter();
-    click(&mut cx, "nodes-member-1");
+    click(&mut cx, "nodes-member-9c1e");
     assert!(cx.find("nodes-node-promote").is_none());
     click(&mut cx, "nodes-node-demote");
     click(&mut cx, "nodes-node-remove");
@@ -541,7 +541,7 @@ fn a_voter_demotes_or_removes_a_validator_from_its_page() {
 #[test]
 fn a_voter_promotes_a_resident_from_its_page() {
     let mut cx = voter();
-    click(&mut cx, "nodes-member-3");
+    click(&mut cx, "nodes-member-0102");
     assert!(cx.find("nodes-node-demote").is_none());
     click(&mut cx, "nodes-node-promote");
     // OTHER voted for it already: the reader's vote enacts, so it asks
@@ -563,7 +563,7 @@ fn every_screen_fits_a_phone_360_390_and_430_wide() {
     let mut cx = voter();
     testing::sweep(&mut cx, |cx| {
         assert_eq!(cx.back_handler(), None, "nothing to go back to");
-        assert!(cx.find("nodes-member-0").is_some(), "the members");
+        assert!(cx.find("nodes-member-abcd").is_some(), "the members");
         assert!(cx.find("nodes-motion-vote-0").is_some(), "Vote");
         assert!(
             cx.find("nodes-scheduled-cancel-0").is_some(),
@@ -581,11 +581,11 @@ fn every_screen_fits_a_phone_360_390_and_430_wide() {
         cx.simulate_back();
         cx.run_until_parked();
         assert!(cx.find("nodes-confirm-sheet").is_none());
-        click(cx, "nodes-member-0");
+        click(cx, "nodes-member-abcd");
         assert!(cx.find("nodes-node-remove").is_some(), "a validator's page");
         cx.simulate_back();
         cx.run_until_parked();
-        click(cx, "nodes-member-3");
+        click(cx, "nodes-member-0102");
         assert!(cx.find("nodes-node-promote").is_some(), "a resident's page");
         cx.simulate_back();
         cx.run_until_parked();
