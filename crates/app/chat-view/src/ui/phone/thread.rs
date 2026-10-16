@@ -23,7 +23,7 @@ pub(super) fn screen(
     let page = design::page(
         "chat-thread-page",
         words::THREAD,
-        design::Nav::back(back),
+        design::Nav::back(chat.pages().depth(), back),
         ladder,
         theme,
     );

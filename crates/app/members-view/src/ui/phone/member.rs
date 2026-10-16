@@ -61,7 +61,7 @@ pub(super) fn page(
     design::page(
         "members-member",
         row.name.clone(),
-        Nav::back(back),
+        Nav::back(view.pages.depth(), back),
         ladder,
         theme,
     )
@@ -107,7 +107,7 @@ fn missing(
     design::page(
         "members-member",
         words::account_title(number),
-        Nav::back(back),
+        Nav::back(view.pages.depth(), back),
         ladder,
         theme,
     )

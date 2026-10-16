@@ -28,18 +28,21 @@ mod tx;
 mod txs;
 mod unlinked;
 
-/// What every piece draws with: the theme, and the touch ladder (the Expo
-/// app's sizes, `design::TOUCH`).
+/// What every piece draws with: the theme, the touch ladder (the Expo
+/// app's sizes, `design::TOUCH`), and the stack's depth, which a page's
+/// `Nav` says.
 #[derive(Clone, Copy)]
 struct Look {
     theme: Theme,
     ladder: Ladder,
+    depth: usize,
 }
 
 pub(crate) fn render(view: &Explorer, cx: Cx) -> AnyElement {
     let k = &Look {
         theme: *cx.global::<Theme>(),
         ladder: design::TOUCH,
+        depth: view.pages.depth(),
     };
     // a link that opened nothing is a page of its own over the stack
     let gone = match &view.note {

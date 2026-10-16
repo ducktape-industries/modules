@@ -48,7 +48,8 @@ pub(super) fn render(
     design::page(
         "forge-page-change-form",
         title,
-        Nav::back(back),
+        // over the stack's top page
+        Nav::back(forge.nav().depth() + 1, back),
         ladder,
         theme,
     )

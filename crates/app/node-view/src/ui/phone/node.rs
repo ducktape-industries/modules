@@ -37,7 +37,8 @@ pub(super) fn render(view: &Nodes, key: &[u8], cx: &mut Context<Nodes>, theme: &
     });
     let nodes = view.nodes.ready();
     let Some(node) = nodes.and_then(|nodes| nodes.iter().find(|node| node.key == key)) else {
-        let page = design::page("nodes-node", "Node", Nav::back(back), &LADDER, theme);
+        let nav = Nav::back(view.pages().depth(), back);
+        let page = design::page("nodes-node", "Node", nav, &LADDER, theme);
         return page.child(missing(view, theme));
     };
     let body = div()
@@ -50,7 +51,7 @@ pub(super) fn render(view: &Nodes, key: &[u8], cx: &mut Context<Nodes>, theme: &
     design::page(
         "nodes-node",
         design::short_hex(&hex(&node.key)),
-        Nav::back(back),
+        Nav::back(view.pages().depth(), back),
         &LADDER,
         theme,
     )

@@ -72,7 +72,10 @@ fn page(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
     }
     let nav = match forge.nav().depth() {
         0 => Nav::root(reader(forge)),
-        _ => Nav::back(cx.listener(|forge, _: &ClickEvent, window, cx| forge.back(window, cx))),
+        depth => Nav::back(
+            depth,
+            cx.listener(|forge, _: &ClickEvent, window, cx| forge.back(window, cx)),
+        ),
     };
     match forge.nav().pages().last().copied().unwrap_or(Page::Repos) {
         Page::Repos => repos::render(forge, nav, cx, ladder, theme),
