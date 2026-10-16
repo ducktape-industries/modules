@@ -6,6 +6,17 @@ use view::methods::{HostSession, Invite, InviteCreate, Session, Submit};
 use view::testing::{StreamSender, TestAppContext};
 use view::{Theme, wire};
 
+mod phone;
+
+/// A press on `key` as the host sends it, to batch several in one tick.
+fn press(cx: &TestAppContext, key: &str) -> wire::Event {
+    let handler = cx.interactivity(key).on_click.expect("a click route");
+    wire::Event::Click {
+        handler,
+        event: (&view::ClickEvent::default()).into(),
+    }
+}
+
 fn account(number: u64, name: &str, control: identity::Control) -> identity::Account {
     identity::Account {
         number,
@@ -41,6 +52,43 @@ fn scout() -> identity::Account {
         },
     )
 }
+
+/// From here on identity reads Scout (12) in `life`: its manager's view
+/// after a suspend, a resume or a revoke lands.
+fn scout_is(cx: &TestAppContext, life: identity::Life) {
+    cx.host().handle::<Query<Identity>>(move |q| {
+        let life = life.clone();
+        Ok(match q {
+            identity::Query::Get { number } => {
+                identity::Reply::Account(Some(maya(number, "Laptop key")))
+            }
+            identity::Query::Managed { by: 7, .. } => {
+                let identity::Control::Program {
+                    manager, category, ..
+                } = scout().control
+                else {
+                    panic!()
+                };
+                let control = identity::Control::Program {
+                    script: None,
+                    manager,
+                    category,
+                    life,
+                };
+                identity::Reply::Accounts(identity::PageResponse {
+                    height: 42,
+                    items: vec![identity::Account { control, ..scout() }],
+                    next: None,
+                })
+            }
+            identity::Query::Audience { number: 12 } => {
+                identity::Reply::Audience(identity::Audience::Manager)
+            }
+            q => panic!("unexpected query: {q:?}"),
+        })
+    });
+}
+
 fn respond(cx: &TestAppContext) {
     cx.host().handle::<Query<Identity>>(|q| {
         Ok(match q {
@@ -623,40 +671,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
         assert_eq!(op, identity::Op::Suspend { account: 12 });
         Ok(view::testing::applied(Vec::new()))
     });
-    let suspended = |cx: &TestAppContext, life: identity::Life| {
-        cx.host().handle::<Query<Identity>>(move |q| {
-            let life = life.clone();
-            Ok(match q {
-                identity::Query::Get { number } => {
-                    identity::Reply::Account(Some(maya(number, "Laptop key")))
-                }
-                identity::Query::Managed { by: 7, .. } => {
-                    let identity::Control::Program {
-                        manager, category, ..
-                    } = scout().control
-                    else {
-                        panic!()
-                    };
-                    let control = identity::Control::Program {
-                        script: None,
-                        manager,
-                        category,
-                        life,
-                    };
-                    identity::Reply::Accounts(identity::PageResponse {
-                        height: 42,
-                        items: vec![identity::Account { control, ..scout() }],
-                        next: None,
-                    })
-                }
-                identity::Query::Audience { number: 12 } => {
-                    identity::Reply::Audience(identity::Audience::Manager)
-                }
-                q => panic!("unexpected query: {q:?}"),
-            })
-        });
-    };
-    suspended(&cx, identity::Life::Suspended { keys: Vec::new() });
+    scout_is(&cx, identity::Life::Suspended { keys: Vec::new() });
     cx.simulate_click("settings/agents/12/suspend");
     cx.run_until_parked();
     assert_eq!(sent(&cx), 2);
@@ -670,7 +685,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     });
     cx.simulate_click("settings/agents/12/resume");
     cx.run_until_parked();
-    suspended(&cx, identity::Life::Revoked);
+    scout_is(&cx, identity::Life::Revoked);
     cx.simulate_click("settings/agents/12/revoke");
     cx.run_until_parked();
     assert!(
@@ -953,6 +968,69 @@ fn specific_people_are_added_by_name_or_number_and_removed() {
     assert_eq!(*answers.borrow(), identity::Audience::Accounts(vec![9]));
     assert!(!cx.has_text("account 8"), "{:?}", cx.texts());
     assert!(cx.find("settings/agents/12/answers/refused").is_none());
+}
+
+fn typed(cx: &TestAppContext) -> &str {
+    let Some(wire::Node::Field { value, .. }) = cx.find("settings/agents/12/answers/name") else {
+        panic!("the person field: {:?}", cx.texts())
+    };
+    value
+}
+
+/// A person typed and not added goes with a choice that lands, and stays
+/// through one that is refused (one form for both on dev).
+#[test]
+fn a_person_typed_goes_with_a_choice_that_lands() {
+    let (mut cx, _) = answering(identity::Audience::Accounts(vec![8]));
+    cx.simulate_click("settings/agents/12/answers/add");
+    cx.simulate_input("settings/agents/12/answers/name", "Sam");
+    cx.simulate_click("settings/agents/12/answers/anyone");
+    cx.run_until_parked();
+    cx.simulate_click("settings/agents/12/answers/specific");
+    assert_eq!(typed(&cx), "");
+
+    cx.simulate_input("settings/agents/12/answers/name", "Eve");
+    cx.host()
+        .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
+    cx.simulate_click("settings/agents/12/answers/manager");
+    cx.run_until_parked();
+    cx.simulate_click("settings/agents/12/answers/specific");
+    assert_eq!(typed(&cx), "Eve");
+}
+
+/// The person field and Add wait while a choice is out (dev's one form).
+#[test]
+fn the_person_field_waits_for_a_choice_that_is_out() {
+    let (mut cx, _) = answering(identity::Audience::Accounts(vec![8]));
+    cx.simulate_click("settings/agents/12/answers/add");
+    let anyone = press(&cx, "settings/agents/12/answers/anyone");
+    cx.tick(vec![anyone]);
+    let Some(wire::Node::Field { options, .. }) = cx.find("settings/agents/12/answers/name") else {
+        panic!("the person field: {:?}", cx.texts())
+    };
+    assert!(options.disabled);
+    assert!(
+        cx.interactivity("settings/agents/12/answers/add")
+            .on_click
+            .is_none()
+    );
+}
+
+/// A Remove that lands takes a refused choice's sentence with it.
+#[test]
+fn a_landed_remove_takes_a_refused_choices_sentence() {
+    let (mut cx, _) = answering(identity::Audience::Accounts(vec![8, 9]));
+    cx.host()
+        .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
+    cx.simulate_click("settings/agents/12/answers/anyone");
+    cx.run_until_parked();
+    let refused = "That didn’t go through: account 7 does not manage account 12";
+    assert!(cx.has_text(refused));
+    cx.host()
+        .handle::<Submit<Identity>>(|_| Ok(view::testing::applied(Vec::new())));
+    cx.simulate_click("settings/agents/12/answers/8/remove");
+    cx.run_until_parked();
+    assert!(!cx.has_text(refused), "{:?}", cx.texts());
 }
 
 #[test]

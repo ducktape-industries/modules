@@ -11,8 +11,10 @@ pub(crate) const TTL: [u64; 3] = [1, 7, 30];
 #[derive(Default, Serialize, Deserialize)]
 pub struct Settings {
     pub(crate) session: Session,
-    /// the pane the left menu has open
+    /// the pane open: the desktop menu's pick, or the phone strip's
     pub(crate) section: Section,
+    /// the sheet open over the phone's pane; Back closes it
+    pub(crate) sheet: Option<Sheet>,
     pub(crate) account: Loadable<Option<Seat>>,
     pub(crate) invite: Loadable<Invite>,
     /// which of [`TTL`] the next invite lasts
@@ -29,10 +31,96 @@ pub struct Settings {
     pub(crate) answering: BTreeMap<u64, Answering>,
 }
 
+impl Settings {
+    /// The panes there are: Agents only for an account that manages agents.
+    pub(crate) fn sections(&self) -> Vec<Section> {
+        let manages = matches!(self.account.ready(), Some(Some(Seat::Account(a))) if a.manages);
+        [Section::Account, Section::Agents, Section::Invites]
+            .into_iter()
+            .filter(|section| *section != Section::Agents || manages)
+            .collect()
+    }
+
+    /// A write of Account's is in flight, any form's (Expo `useBusy`'s
+    /// scope, `src/account/Agents.tsx:38-43`).
+    pub(crate) fn writing(&self) -> bool {
+        let forms = [
+            &self.create_account,
+            &self.create_agent,
+            &self.agent_key,
+            &self.agent_standing,
+        ];
+        forms
+            .into_iter()
+            .chain(self.rename_agent.values())
+            .any(|form| form.busy)
+            || self.answering.values().any(Answering::busy)
+    }
+
+    /// The pane on screen: the picked one, or Account once it is not listed.
+    pub(crate) fn shown(&self) -> Section {
+        match self.sections().contains(&self.section) {
+            true => self.section,
+            false => Section::Account,
+        }
+    }
+}
+
+/// A sheet over the phone's Agents pane; each form the desktop draws inline
+/// is one. An agent's sheet is one sheet in three modes, by the agent's
+/// number (the Expo app's `AgentSheet`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Sheet {
+    /// an agent's actions
+    Actions(u64),
+    /// an agent's new name
+    Rename(u64),
+    /// whom an agent answers
+    Answers(u64),
+    /// a new agent's name
+    CreateAgent,
+    /// an agent's key request, pasted
+    AddKey,
+}
+
+impl Sheet {
+    /// The sheet once the op it sent landed: a rename goes back to the
+    /// agent's actions, an add closes, the rest stay (Expo `Agents.tsx`).
+    pub(crate) fn after_landing(self) -> Option<Sheet> {
+        match self {
+            Self::Rename(number) => Some(Self::Actions(number)),
+            Self::CreateAgent | Self::AddKey => None,
+            Self::Actions(_) | Self::Answers(_) => Some(self),
+        }
+    }
+}
+
+/// Whom one agent answers, as its manager changes it.
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub(crate) struct Answering {
+    /// Specific picked with nobody added yet: the field shows before
+    /// anything is sent
     pub(crate) listing: bool,
+    /// Only me or Anyone, sent from the choice
+    pub(crate) pick: Form,
+    /// the person typed in the field; adding or removing one
     pub(crate) form: Form,
+}
+
+impl Answering {
+    /// A change to whom it answers is in flight, the choice's or a person's.
+    pub(crate) fn busy(&self) -> bool {
+        self.pick.busy || self.form.busy
+    }
+
+    /// The form that says what stopped the last change; each change clears
+    /// the other's, so at most one has a problem.
+    pub(crate) fn stopped(&self) -> &Form {
+        match self.pick.problem {
+            Some(_) => &self.pick,
+            None => &self.form,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
