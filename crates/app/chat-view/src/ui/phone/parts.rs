@@ -315,7 +315,7 @@ pub(super) fn gate_strip(
             cx.notify();
             chat.set_archived(false, cx);
         });
-        notice_action("chat-room-unarchive", "Unarchive", ladder, unarchive)
+        notice_action("chat-room-unarchive", words::UNARCHIVE, ladder, unarchive)
     });
     notice(
         "chat-room-write-refusal",

@@ -265,7 +265,7 @@ fn owner_actions(
                 div()
                     .flex_1()
                     .text_type(ladder.body)
-                    .child("Rename channel"),
+                    .child(words::RENAME_CHANNEL),
             )
             // SDK gap: the row's chevron, swap when feat/phone-kit lands
             .child(design::icon("chevron-right", ladder.icon_row).text_color(theme.faint))
@@ -324,7 +324,7 @@ pub(super) fn sheet(
             add_body(chat, details, names, cx, theme, ladder),
         ),
         DetailsSheet::Rename => (
-            "Rename channel".to_owned(),
+            words::RENAME_CHANNEL.to_owned(),
             rename_body(details, cx, theme, ladder),
         ),
         DetailsSheet::Remove(account) => {
@@ -375,29 +375,28 @@ fn add_body(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Vec<AnyElement> {
-    // a number that is no account leaves the sheet open and does nothing,
-    // as Expo's (`details.tsx`, `addTyped`)
     let add = cx.listener(|chat, _: &ClickEvent, _window, cx| {
-        if chat.typed_member().is_none() {
-            return;
-        }
-        chat.close_details_sheet();
         cx.notify();
-        chat.add_member(cx);
+        chat.add_typed(cx);
+    });
+    let submit = cx.listener(|chat, _: &(), _window, cx| {
+        cx.notify();
+        chat.add_typed(cx);
     });
     let input = Input::new(
         "chat-details-add/account",
         &details.member_draft,
-        "Account number",
+        words::ACCOUNT_NUMBER,
     )
     .virtual_keyboard(VirtualKeyboard::Numeric)
     .autocorrect(false)
-    .autocapitalize(Autocapitalize::None);
+    .autocapitalize(Autocapitalize::None)
+    .on_submit(submit);
     // an account number, in the data face at the secondary size
     let input = design::field(input, ladder, theme)
         .font_family(design::fonts::FAMILY_MONO)
         .text_type(ladder.secondary);
-    let field = parts::field("Account number", input, None, theme, ladder);
+    let field = parts::field(words::ACCOUNT_NUMBER, input, None, theme, ladder);
     let form = div()
         .flex()
         .flex_col()
@@ -456,13 +455,17 @@ fn rename_body(
     ladder: &Ladder,
 ) -> Vec<AnyElement> {
     let rename = cx.listener(|chat, _: &ClickEvent, _window, cx| {
-        chat.close_details_sheet();
         cx.notify();
-        chat.rename(cx)
+        chat.rename_from_sheet(cx)
+    });
+    let submit = cx.listener(|chat, _: &(), _window, cx| {
+        cx.notify();
+        chat.rename_from_sheet(cx)
     });
     let input = Input::new("chat-details-rename/name", &details.name_draft, words::NAME)
         .autocorrect(false)
-        .autocapitalize(Autocapitalize::None);
+        .autocapitalize(Autocapitalize::None)
+        .on_submit(submit);
     let input = design::field(input, ladder, theme);
     vec![
         div()

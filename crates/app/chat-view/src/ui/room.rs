@@ -473,7 +473,7 @@ fn write_gate(gate: Gate, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder
         });
         notice = notice.child(button(
             "chat-room-unarchive",
-            "Unarchive",
+            words::UNARCHIVE,
             ladder,
             theme,
             reopen,

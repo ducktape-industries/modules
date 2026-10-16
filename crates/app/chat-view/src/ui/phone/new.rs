@@ -109,9 +109,6 @@ fn name_field(
     parts::field(words::NAME, input, problem, theme, ladder)
 }
 
-// SDK gap: the kit Segmented (segments share the width, 36 tall,
-// secondary words; mobile `src/kit/Choice.tsx:16-35`), swap when
-// feat/phone-kit lands
 /// Who may post: Anyone or Members only.
 fn policy(create: &ChannelCreate, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> Div {
     let pick = cx.processor(|chat, index: usize, _window, cx| {
@@ -135,11 +132,11 @@ fn policy(create: &ChannelCreate, cx: &mut Context<Chat>, theme: &Theme, ladder:
             div()
                 .text_type(ladder.caption)
                 .text_color(theme.muted)
-                .child("Who may post"),
+                .child(words::WHO_MAY_POST),
         )
         .child(design::segmented(
             "chat-new-policy",
-            "Who may post",
+            words::WHO_MAY_POST,
             ladder,
             theme,
             Some(usize::from(create.members_only)),

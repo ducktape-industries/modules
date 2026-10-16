@@ -370,6 +370,25 @@ impl Chat {
         self.set_member(principal, true, cx);
     }
 
+    /// The phone's Add sheet, from Add or the field's return: an account
+    /// number joins the room and the sheet closes; anything else leaves
+    /// the sheet open and does nothing (Expo `details.tsx`, `addTyped`).
+    pub(crate) fn add_typed(&mut self, cx: &mut Context<Self>) {
+        if self.typed_member().is_none() {
+            return;
+        }
+        self.close_details_sheet();
+        self.add_member(cx);
+    }
+
+    /// The phone's Rename sheet, from Rename or the field's return: it
+    /// closes, and the name goes as [`Chat::rename`] sends it (Expo
+    /// `details.tsx`, `rename`).
+    pub(crate) fn rename_from_sheet(&mut self, cx: &mut Context<Self>) {
+        self.close_details_sheet();
+        self.rename(cx);
+    }
+
     pub(crate) fn set_member(
         &mut self,
         principal: Principal,

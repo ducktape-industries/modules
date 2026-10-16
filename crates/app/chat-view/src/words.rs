@@ -39,6 +39,8 @@ pub(crate) const AGENT: &str = "Agent";
 pub(crate) const OPEN: &str = "Open";
 pub(crate) const MEMBERS_ONLY: &str = "Members only";
 pub(crate) const ARCHIVED: &str = "Archived";
+/// The new-channel form's policy choice: its label and its name.
+pub(crate) const WHO_MAY_POST: &str = "Who may post";
 
 /// Who may post in `channel`: an archived one takes no posts at all.
 pub(crate) fn policy(channel: &ChannelRow) -> &'static str {
@@ -132,3 +134,8 @@ pub(crate) const MEMBERS: &str = "Members";
 pub(crate) const NO_MEMBERS: &str = "No members added. An open channel needs none.";
 pub(crate) const ARCHIVE_CHANNEL: &str = "Archive channel";
 pub(crate) const UNARCHIVE_CHANNEL: &str = "Unarchive channel";
+/// An archived room's own way back, beside its strip.
+pub(crate) const UNARCHIVE: &str = "Unarchive";
+pub(crate) const RENAME_CHANNEL: &str = "Rename channel";
+/// The Add a member field's label and placeholder.
+pub(crate) const ACCOUNT_NUMBER: &str = "Account number";

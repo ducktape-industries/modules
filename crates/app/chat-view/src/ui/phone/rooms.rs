@@ -94,15 +94,11 @@ pub(super) fn screen(
     .into_any_element()
 }
 
-/// The title's caption: the network, then the reader's name.
+/// The title's caption: the network, then the reader's name, the one the
+/// avatar reads (Expo `chat/index.tsx:116`, `[network, myName]`).
 fn caption(chat: &Chat) -> String {
-    let me = chat
-        .my_account()
-        .zip(chat.names.ready())
-        .map(|(me, names)| names.member(&Principal::Account(me)));
-    [Some(chat.network().to_owned()), me]
+    [chat.network().to_owned(), chat.reader_name()]
         .into_iter()
-        .flatten()
         .filter(|word| !word.is_empty())
         .collect::<Vec<_>>()
         .join(" · ")

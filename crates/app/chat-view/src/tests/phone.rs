@@ -1029,6 +1029,30 @@ fn the_owners_sheets_add_and_rename_and_back_closes_a_sheet_first() {
 }
 
 #[test]
+fn the_add_and_rename_fields_send_on_the_keyboards_return() {
+    let (mut cx, _) = in_general();
+    cx.simulate_click("Channel details");
+    cx.simulate_click("Add a member…");
+    cx.simulate_input("chat-details-add/account", "10");
+    cx.simulate_submit("chat-details-add/account");
+    cx.run_until_parked();
+    assert!(cx.find("chat-details-sheet").is_none());
+    assert!(matches!(
+        submitted(&cx).pop(),
+        Some(Op::SetMembership { member: true, .. })
+    ));
+    cx.simulate_click("Rename channel");
+    cx.simulate_input("chat-details-rename/name", "lobby");
+    cx.simulate_submit("chat-details-rename/name");
+    cx.run_until_parked();
+    assert!(cx.find("chat-details-sheet").is_none());
+    assert!(matches!(
+        submitted(&cx).pop(),
+        Some(Op::RenameChannel { name, .. }) if name == "lobby"
+    ));
+}
+
+#[test]
 fn a_number_that_is_no_account_leaves_the_add_sheet_open() {
     let (mut cx, _) = in_general();
     cx.simulate_click("Channel details");
