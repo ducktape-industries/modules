@@ -1256,7 +1256,9 @@
       "title": "alice mentioned you",
       "body": "@bob hi",
       "tag": "room",
-      "link": "duck://chat/room"
+      "link": "duck://chat/room",
+      "kind": "Notice",
+      "until": 0
     },
     "reply": "Banner"
   },
@@ -1266,7 +1268,9 @@
       "title": "alice mentioned you",
       "body": "@bob hi",
       "tag": "room",
-      "link": "duck://chat/room"
+      "link": "duck://chat/room",
+      "kind": "Notice",
+      "until": 0
     },
     "reply": "Logged"
   },
@@ -1276,9 +1280,23 @@
       "title": "alice mentioned you",
       "body": "@bob hi",
       "tag": "room",
-      "link": "duck://chat/room"
+      "link": "duck://chat/room",
+      "kind": "Notice",
+      "until": 0
     },
     "reply": "Blocked"
+  },
+  {
+    "kind": "notify.post",
+    "request": {
+      "title": "alice is calling",
+      "body": "Huddle with 3 people",
+      "tag": "call/c-1",
+      "link": "duck://local/huddle/call/c-1",
+      "kind": "Call",
+      "until": 1700000045
+    },
+    "reply": "Banner"
   },
   {
     "kind": "store.get",

@@ -160,8 +160,8 @@ Ours, defined in this crate:
   `Subscription` are gpui's.
 - `div`, `uniform_list`, `list`, `Input`, `Textarea`, `img`/`Img`, `svg`/`Svg`,
   `canvas`/`Canvas`, `InteractiveText`/`StyledText`, `sensor`,
-  `resize_handle`, `modal_overlay`, `web`, `camera`, `microphone`
-  (`src/element.rs`, `src/list.rs`, `src/primitives/`, `src/rich_text.rs`,
+  `resize_handle`, `modal_overlay`, `web`, `camera`, `microphone`,
+  `remote_video`, `remote_audio` (`src/element.rs`, `src/list.rs`, `src/primitives/`, `src/rich_text.rs`,
   `src/behavior.rs`, `src/web.rs`, `src/media.rs`):
   each lowers to a `view_wire::Node`, with handlers kept view-side and
   crossed as routes: a listener's number, kept while its element is lowered
@@ -328,6 +328,18 @@ self.mine = Some(Track::publish(cx, mine, |view, item, cx| match item {
 a subscription whose publisher lost its grant ends `publisher_gone`. The codes
 each method ends with are in its doc in `methods.rs`.
 
+A call's media never crosses the view wire: the view places pieces and the
+host captures, encodes, publishes, subscribes, decodes, draws and plays
+(`src/media.rs`). `camera(id).publish(track)` and
+`microphone(id).publish(track).muted(muted)` publish what the device
+captures while the piece is placed (the host picks the mode and priority by
+the kind); `remote_video(id, track)` draws a person's picture and
+`remote_audio(id, track)` plays their voice (zero-size, out of the layout's
+flow), each subscribed while placed. Each needs `Capability::Live` beside
+its device's. A piece's `MediaState::track` says where its track stands
+(`Waiting`, `Up { subscribers }`, `Ended { code }`), and a view answers its
+`Waiting` as it answers a `live.publish`'s: with the op that writes the row.
+
 ## When a view renders, and who decides
 
 A view renders on the tick after it called `cx.notify()`, once however many
@@ -488,7 +500,7 @@ or `simulate_range(key, range)` then show it the rows the host shows.
 A sensor hears nothing until `simulate_bounds(name, origin, size)` lays
 its child out, and then as the app tells it: the same bounds again are no
 event. A web piece hears its page through `simulate_web_state(name, state)`,
-a camera or microphone piece its device through
+a camera, microphone or remote piece its device or its track through
 `simulate_media_state(name, state)`.
 The reader's offset is UTC until `simulate_offset(minutes)`.
 Every frame the view sends is held to `view_wire::audit`: a fault panics with
@@ -506,14 +518,19 @@ hear `publisher_gone`), then subscriptions, then room lists; a room list
 they still let watch hears the tracks still up that its row adds and drops;
 then what waited and is covered now is answered. The views opened in one
 `TestAppContext` are windows of one app: a second publication of a track it
-publishes is refused `duplicate_track`, as the app refuses it.
+publishes is refused `duplicate_track`, as the app refuses it. A call's
+pieces ask as the app asks for them: a publishing camera or microphone is a
+`live.publish` while its view's frames place it, a remote piece a
+`live.subscribe`, and each hears its `MediaState::track` through `on_state`
+when it changes; no object crosses. A piece its frame drops ends its track
+`track_ended` for its subscribers.
 `testing::lower(build)` is the one path that is not: it lowers a single
 element with no host, sanitizer or audit, for a test of what that element
 carries (`testing::assert_accessible(&tree)` audits it when the test wants).
 It holds the view to its `View::CAPABILITIES` and `View::TARGETS` as the app
-does: a method whose capability the manifest leaves out, or a web, camera or
-microphone piece from a view that does not declare `web`, `camera` or
-`microphone`, panics with
+does: a method whose capability the manifest leaves out, or a web, camera,
+microphone or remote piece from a view that does not declare `web`, `camera`,
+`microphone` or (for a piece on a live track) `live`, panics with
 `methods::refusal::UNDECLARED_CAPABILITY`, a node method naming a program
 the targets leave out with `methods::refusal::UNDECLARED_TARGET`, the codes
 the app refuses them with.

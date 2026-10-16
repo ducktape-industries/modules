@@ -266,7 +266,7 @@ impl Microphone {
 ///
 /// ```
 /// # use view::prelude::*;
-/// # let (room, them) = ("call-1".to_string(), 4);
+/// # let (room, them) = ("call-1".to_string(), 4_u64);
 /// let tile = remote_video(("tile", them), LiveTrack { room, name: format!("cam/{them}") })
 ///     .object_fit(ObjectFit::Cover)
 ///     .size_full();
@@ -319,7 +319,7 @@ impl RemoteVideo {
 ///
 /// ```
 /// # use view::prelude::*;
-/// # let (room, them) = ("call-1".to_string(), 4);
+/// # let (room, them) = ("call-1".to_string(), 4_u64);
 /// let voice = remote_audio(("voice", them), LiveTrack { room, name: format!("mic/{them}") })
 ///     .on_state(|state: &MediaState, _, _| println!("{}", state.speaking));
 /// ```
@@ -510,23 +510,28 @@ impl crate::testing::TestAppContext {
     /// the app tells it when its device starts, fails or goes, a recording
     /// moves, or its track does.
     pub fn simulate_media_state(&mut self, name: &str, state: MediaState) {
-        let (wire::Node::Camera {
-            on_state: Some(handler),
-            ..
-        }
-        | wire::Node::Microphone {
-            on_state: Some(handler),
-            ..
-        }
-        | wire::Node::Remote {
-            on_state: Some(handler),
-            ..
-        }) = self.node(name)
-        else {
-            panic!("{name:?} is no camera, microphone or remote piece with a state route");
-        };
-        let handler = *handler;
-        self.simulate_event(wire::Event::Media { handler, state });
+        let chain = crate::testing::chain_to(self.root(), name).unwrap_or_default();
+        assert!(
+            matches!(
+                chain.last(),
+                Some(
+                    wire::Node::Camera {
+                        on_state: Some(_),
+                        ..
+                    } | wire::Node::Microphone {
+                        on_state: Some(_),
+                        ..
+                    } | wire::Node::Remote {
+                        on_state: Some(_),
+                        ..
+                    }
+                )
+            ),
+            "{name:?} is no camera, microphone or remote piece with a state route"
+        );
+        let path = crate::testing::authored_path(&chain);
+        self.host().media(&path, |held| *held = state);
+        self.run_until_parked();
     }
 }
 
@@ -729,5 +734,144 @@ mod tests {
     #[should_panic(expected = "undeclared_capability")]
     fn a_microphone_the_manifest_leaves_out_fails_the_test() {
         TestAppContext::new().open::<NoMicrophone>();
+    }
+
+    fn call(name: &str) -> LiveTrack {
+        LiveTrack {
+            room: "call-1".into(),
+            name: name.into(),
+        }
+    }
+
+    /// One side of a call: its own camera and microphone publishing, and a
+    /// picture and a voice of someone else's.
+    #[derive(Default, serde::Deserialize, serde::Serialize)]
+    struct Huddle {
+        muted: bool,
+        heard: Vec<TrackState>,
+    }
+
+    impl View for Huddle {
+        const NAME: &'static str = "Huddle";
+        const CAPABILITIES: &'static [Capability] =
+            &[Capability::Camera, Capability::Microphone, Capability::Live];
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self::default()
+        }
+    }
+
+    impl Render for Huddle {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let heard = cx.listener(|view: &mut Self, state: &MediaState, _, cx| {
+                view.heard.push(state.track.clone());
+                cx.notify();
+            });
+            div()
+                .child(camera("cam").publish(call("cam/1")).mirror(true))
+                .child(microphone("mic").publish(call("mic/1")).muted(self.muted))
+                .child(
+                    remote_video("tile", call("cam/2"))
+                        .object_fit(ObjectFit::Cover)
+                        .size_full(),
+                )
+                .child(
+                    remote_audio("voice", call("mic/2"))
+                        .output("headphones")
+                        .on_state(heard),
+                )
+        }
+    }
+
+    /// The pieces carry their tracks: a camera's and a microphone's to
+    /// publish into, a microphone's mute, a remote picture's fit and a
+    /// remote voice's speaker; a remote piece's state reaches its listener.
+    #[test]
+    fn call_pieces_carry_their_tracks() {
+        let mut cx = TestAppContext::new();
+        let view = cx.open::<Huddle>();
+        let wire::Node::Camera {
+            publish: Some(cam),
+            mirror: true,
+            ..
+        } = cx.node("cam").clone()
+        else {
+            panic!("no publishing camera: {:?}", cx.root());
+        };
+        assert_eq!(cam, call("cam/1"));
+        let wire::Node::Microphone {
+            publish: Some(mic),
+            muted: false,
+            ..
+        } = cx.node("mic").clone()
+        else {
+            panic!("no publishing microphone: {:?}", cx.root());
+        };
+        assert_eq!(mic, call("mic/1"));
+        cx.update(&view, |view, _, cx| {
+            view.muted = true;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        assert!(matches!(
+            cx.node("mic"),
+            wire::Node::Microphone { muted: true, .. }
+        ));
+        let pieces: Vec<_> = crate::testing::pieces(cx.root())
+            .into_iter()
+            .filter_map(|(_, node)| match node {
+                wire::Node::Remote { track, media, .. } => Some((track.clone(), media.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            pieces,
+            [
+                (
+                    call("cam/2"),
+                    wire::RemoteMedia::Video {
+                        object_fit: wire::ImageObjectFit::Cover
+                    }
+                ),
+                (
+                    call("mic/2"),
+                    wire::RemoteMedia::Audio {
+                        output: Some("headphones".into())
+                    }
+                ),
+            ]
+        );
+        let up = TrackState::Up { subscribers: 0 };
+        let state = MediaState {
+            track: up.clone(),
+            ..Default::default()
+        };
+        cx.simulate_media_state("voice", state.clone());
+        // told once: the host tells a state again only when it changes
+        cx.simulate_media_state("voice", state);
+        cx.update(&view, |view, _, _| assert_eq!(view.heard, [up]));
+    }
+
+    /// Plays someone's voice, and its manifest leaves `live` out.
+    #[derive(Default, serde::Deserialize, serde::Serialize)]
+    struct NoLive;
+
+    impl View for NoLive {
+        const NAME: &'static str = "NoLive";
+        const CAPABILITIES: &'static [Capability] = &[Capability::Microphone];
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self
+        }
+    }
+
+    impl Render for NoLive {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().child(remote_audio("voice", call("mic/2")))
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "undeclared_capability")]
+    fn a_remote_piece_without_live_fails_the_test() {
+        TestAppContext::new().open::<NoLive>();
     }
 }

@@ -175,6 +175,32 @@ pub(crate) fn authored_path(chain: &[&Node]) -> Vec<crate::wire::ElementIdWire> 
         .collect()
 }
 
+/// Every camera, microphone and remote piece in the tree, depth first, by
+/// the path the host files it under: what the host keeps a device or a
+/// track for.
+pub(crate) fn pieces(root: &Node) -> Vec<(Vec<crate::wire::ElementIdWire>, &Node)> {
+    fn walk<'a>(
+        chain: &mut Vec<&'a Node>,
+        out: &mut Vec<(Vec<crate::wire::ElementIdWire>, &'a Node)>,
+    ) {
+        let node = *chain.last().unwrap();
+        if matches!(
+            node,
+            Node::Camera { .. } | Node::Microphone { .. } | Node::Remote { .. }
+        ) {
+            out.push((authored_path(chain), node));
+        }
+        for child in node.children() {
+            chain.push(child);
+            walk(chain, out);
+            chain.pop();
+        }
+    }
+    let mut out = Vec::new();
+    walk(&mut vec![root], &mut out);
+    out
+}
+
 /// The button whose key, label or accessible name is `name`.
 pub(crate) fn button<'a>(root: &'a Node, name: &str) -> Option<Vec<&'a Node>> {
     chain(root, &mut |chain| match chain.last().unwrap() {

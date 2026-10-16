@@ -250,7 +250,7 @@ impl TestAppContext {
         let rendered = driver.renders() > renders;
         self.dense = driver.app_mut().inner.dense.borrow().clone();
         self.ticks += 1;
-        self.host.accept(&frame, &driver.host());
+        let host = driver.host();
         let dialogs = self.tree.as_ref().map(focus::open_dialogs);
         // the frame as the host takes it: its style entries join the table
         // (a whole tree's replace it), and every style a node names is one
@@ -271,6 +271,9 @@ impl TestAppContext {
                 &self.styles,
             ));
         }
+        // its requests answered, and what the tree places kept, as the app
+        // keeps its pieces
+        self.host.accept(&frame, &host, self.tree.as_ref());
         assert_frame_accessible(self.tree.as_ref(), &frame.tooltip_responses);
         if let (Some((width, ladder)), Some(tree)) = (&self.fits, &self.tree) {
             super::assert_fits(tree, &self.styles, &self.dense, *width, ladder);

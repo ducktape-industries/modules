@@ -1,7 +1,7 @@
 use crate::{
     host::{Error, Shape, malformed},
     methods::{self, Method},
-    wire::{Event, Frame, Request},
+    wire::{ElementIdWire, Event, Frame, MediaState, Node, Request},
 };
 use std::{cell::RefCell, collections::HashMap, marker::PhantomData, rc::Rc};
 
@@ -9,7 +9,7 @@ use std::{cell::RefCell, collections::HashMap, marker::PhantomData, rc::Rc};
 type Key = (String, Option<String>);
 type Handler = Box<dyn FnMut(&Request) -> Option<Event>>;
 type Stream = Rc<RefCell<StreamState>>;
-type Hook = Box<dyn FnMut(&FakeHost, &Frame)>;
+type Hook = Box<dyn FnMut(&FakeHost, &Frame, Option<&Node>)>;
 
 #[derive(Default)]
 struct State {
@@ -28,6 +28,18 @@ struct State {
     /// The programs the view's `TARGETS` names; a node method naming
     /// another fails the test, as the app refuses it.
     targets: &'static [&'static str],
+    /// The camera, microphone and remote pieces of the tree the host
+    /// holds, as the app keeps them.
+    pieces: Vec<Piece>,
+}
+
+/// A piece as the host keeps it, by the path it is filed under: its state
+/// route and the state last told it, which the host tells again only when
+/// it changes.
+struct Piece {
+    path: Vec<ElementIdWire>,
+    handler: Option<u32>,
+    state: MediaState,
 }
 
 /// A typed host, by the shape of each request:
@@ -166,10 +178,31 @@ impl FakeHost {
             }));
     }
 
-    /// Runs `hook` on every frame the host takes, once its requests are
-    /// answered and no borrow is held.
-    pub(crate) fn after_frame(&self, hook: impl FnMut(&FakeHost, &Frame) + 'static) {
+    /// Runs `hook` on every frame the host takes, with the tree it holds
+    /// after it (none for a notifier's), once its requests are answered and
+    /// no borrow is held.
+    pub(crate) fn after_frame(&self, hook: impl FnMut(&FakeHost, &Frame, Option<&Node>) + 'static) {
         self.0.borrow_mut().after_frame.push(Box::new(hook));
+    }
+
+    /// The piece filed under `path` reports the state `update` leaves:
+    /// told to its `on_state` on the view's next tick when it changed, as
+    /// the app tells it. A piece the tree does not hold is not told.
+    pub(crate) fn media(&self, path: &[ElementIdWire], update: impl FnOnce(&mut MediaState)) {
+        let mut state = self.0.borrow_mut();
+        let Some(piece) = state.pieces.iter_mut().find(|piece| piece.path == path) else {
+            return;
+        };
+        let was = piece.state.clone();
+        update(&mut piece.state);
+        if piece.state == was {
+            return;
+        }
+        let told = piece.handler.map(|handler| Event::Media {
+            handler,
+            state: piece.state.clone(),
+        });
+        state.events.extend(told);
     }
 
     pub(super) fn reset_connection(&self) {
@@ -209,8 +242,36 @@ impl FakeHost {
         !self.0.borrow().events.is_empty()
     }
 
-    pub(crate) fn accept(&self, frame: &Frame, host: &crate::host::Host) {
+    /// Takes `frame`, after which the host holds `tree` (none for a
+    /// notifier, which has no tree).
+    pub(crate) fn accept(&self, frame: &Frame, host: &crate::host::Host, tree: Option<&Node>) {
         let mut state = self.0.borrow_mut();
+        if let Some(tree) = tree {
+            // a piece keeps its state while its path is in the tree, and a
+            // piece placed anew starts over, as the app keeps them
+            let mut held = std::mem::take(&mut state.pieces);
+            state.pieces = super::pieces(tree)
+                .into_iter()
+                .map(|(path, node)| {
+                    let (Node::Camera { on_state, .. }
+                    | Node::Microphone { on_state, .. }
+                    | Node::Remote { on_state, .. }) = node
+                    else {
+                        unreachable!("a piece")
+                    };
+                    let state = held
+                        .iter()
+                        .position(|piece| piece.path == path)
+                        .map(|at| held.swap_remove(at).state)
+                        .unwrap_or_default();
+                    Piece {
+                        path,
+                        handler: *on_state,
+                        state,
+                    }
+                })
+                .collect();
+        }
         // The app refuses a web, camera or microphone piece from a view
         // whose manifest leaves out its capability (and ends the view); a
         // test fails on it instead.
@@ -321,7 +382,7 @@ impl FakeHost {
         drop(state);
         let mut hooks = std::mem::take(&mut self.0.borrow_mut().after_frame);
         for hook in &mut hooks {
-            hook(self, frame);
+            hook(self, frame, tree);
         }
         let mut state = self.0.borrow_mut();
         hooks.append(&mut state.after_frame);
@@ -469,6 +530,7 @@ mod tests {
                 ..Frame::default()
             },
             &crate::host::Host::default(),
+            None,
         );
         assert_eq!(host.requests::<Query<First>>(), ["one"]);
         assert_eq!(host.requests::<Query<Second>>(), ["two"]);
@@ -490,6 +552,7 @@ mod tests {
                 ..Frame::default()
             },
             channel,
+            None,
         );
     }
 
