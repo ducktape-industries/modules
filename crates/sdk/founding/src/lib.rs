@@ -14,21 +14,22 @@ pub const VIEW_SECTION: &str = "ducktape.view";
 pub const DESCRIBE_SECTION: &str = "ducktape.describe";
 pub const FOUNDING: &str = include_str!("../founding.toml");
 
-pub const PROGRAMS: [(&str, &str); 5] = [
+pub const PROGRAMS: [(&str, &str); 6] = [
     ("programs", "settings_view"),
     ("valset", "node_view"),
     ("identity", "members_view"),
     ("chat", "chat_view"),
     ("forge", "forge_view"),
+    ("harness", "harness_view"),
 ];
-pub const UNVIEWED: [&str; 7] = [
+pub const UNVIEWED: &[&str] = &[
     "blobs",
     "awaits",
+    "scheduler",
     "activity",
     "files",
     "egress",
     "attribution",
-    "harness",
 ];
 pub const VIEWS: [&str; 1] = ["explorer_view"];
 

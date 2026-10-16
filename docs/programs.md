@@ -174,7 +174,7 @@ pub(crate) fn vote(ctx: &ExecCtx, voter: AccountNumber, id: &str, option: u32) -
     if option as usize >= row.options.len() {
         return Err(invalid(format!("poll {id} has options 0..{}", row.options.len())));
     }
-    ctx.require_person_or_agent(voter)?;
+    ctx.require_user_or_program_account(voter)?;
     let voted = (id.to_owned(), voter);
     if VOTERS.has(ctx, &voted) {
         return Err(already_exists(format!("account {voter} voted in {id}")));
@@ -226,7 +226,7 @@ runs, as no one. A write reads it first thing:
 
 ```rust
 fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
-    // every op acts as an account: a person, an agent or a program
+    // every op acts as an account: a user, a program account or a system account
     let account = ctx.sender_account()?;
     match op {
         Op::Open { poll_id, channel, question, options } => open(ctx, account, poll_id, channel, question, options),
@@ -246,9 +246,9 @@ The **origin** is the raw caller (`Origin::Signed(key)`, `Program(id)`,
 `env.sending_program()`, `env.sent_by("forge")`. Chat's `poll:<name>` ids
 belong to the program the prefix names, checked on the origin.
 
-The **identity role** answers who an account is. `ctx.require_person_or_agent(n)`
-asks it (`Profile(n)`) and refuses an absent account, a program's, or an
-agent that is suspended or revoked: poll's voters, chat's dm counterpart,
+The **identity role** answers who an account is. `ctx.require_user_or_program_account(n)`
+asks it (`Profile(n)`) and refuses an absent account, a system account, or a
+program account that is suspended or revoked: poll's voters, chat's dm counterpart,
 forge's reviewers. Ask a role at the program genesis bound to it,
 `ctx.env().role(abi::role::IDENTITY)?`, never by a name you assume. The profiles
 themselves (`abi::role::identity::{Profile, Kind, Standing}`) are what a
@@ -306,8 +306,8 @@ the target's refusal does is `reply`:
 `ctx.emit_as(account, target, &op, reply)` (and `emit_raw_as`) sends the
 same message as `account` instead of this program's own account. The host
 asks the identity role `Runs { program, account }` and runs the message as
-`account` only when identity answers with it: an active agent whose manager
-handed it to this program (identity's `SetRunner`). Any other answer refuses
+`account` only when identity answers with it: an active program account
+whose script calls this program (identity's `SetScript`). Any other answer refuses
 the message, which `reply` then handles like any refusal. A call acts as an
 account the same way (`ctx.call_as`, `call_raw_as`, below), and the refusal
 is the call's answer. harness writes as the agents it runs with
@@ -379,8 +379,8 @@ impl Awaiting for Feed {
 submission. A target that cannot answer yet calls `ctx.defer()`, keeps the
 ticket, and later sends `ctx.resolve(ticket, answer)`; until then your frame
 is parked, and it resumes in the submission that carries the resolve, with
-`ctx.env()` reading that block. A ticket nobody resolves expires after
-`awaits::EXPIRY_BLOCKS`, and the call answers the awaits role's refusal.
+`ctx.env()` reading that block. A call waits until its target answers; the
+awaits role puts no deadline on it.
 Each run between two awaits is its own transaction: a refusal undoes only
 the run it ends, never what an earlier block kept. `program::all(futures)`
 awaits several calls together and answers their results in order; each
@@ -389,10 +389,22 @@ the awaits program (`chain.seat::<awaits::Awaits>("awaits")`) and the
 awaiting program with `chain.seat_awaiting`.
 
 The program bound to the egress role is called this way:
-`ctx.call_raw(egress, abi::encode(&abi::role::egress::Op::Request(request)))`,
+`ctx.call_raw(egress, abi::encode(&abi::role::egress::Op::Request { request, wait: None }))`,
 with `egress` read from `ctx.env().roles.get(abi::role::EGRESS)`, answers the elected node's
 output, in a later block, or a refusal when the node reports a failure or
-the request expires.
+the request expires, `wait` blocks after it was made (`DEFAULT_WAIT`, 64,
+for `None`).
+
+**A run for a later block.** `ctx.schedule(height, target, &op).await`
+asks the program bound to the scheduler role to run `target` with `op` at
+the end of block `height`, which must be after the current one, and answers
+the entry id; `ctx.cancel(entry).await` withdraws it before it runs. The
+run comes from your program (`Origin::Program`, your account) with
+`cause: Cause::Scheduled { entry }`, so a target that accepts it only from
+you checks both, as egress does for its own `Expire`. The scheduler keeps
+the run's receipt (`Query::Entry`). On a `MockChain`, seat the scheduler
+(`chain.seat::<scheduler::Scheduler>("scheduler")`): moving past a block
+with `chain.at` runs what was due in it.
 
 ## 7. Describe
 
@@ -481,14 +493,14 @@ let mut chain = MockChain::default();
 chain.seat::<Poll>(PROGRAM);
 chain.seat::<chat::Chat>("chat");
 chain.register(PROGRAM, POLL);        // poll's account, as identity registers it
-chain.hold(key(ADA), ADA);           // Ada's key holds account 1, a person
+chain.hold(key(ADA), ADA);           // Ada's key holds account 1, a user
 chain.submit(Origin::Signed(key(ADA)), "chat", &channel("general", PostPolicy::Open))?;
 chain.submit(Origin::Signed(key(ADA)), PROGRAM, &open("lunch", "general"))?;
 let reply: Reply = chain.query(PROGRAM, &Query::Poll { poll_id: "lunch".into() })?;
 ```
 
 With no identity program seated, the chain's roster answers as the role
-would (`hold`, `register`, `profile` for an agent and its standing); seat
+would (`hold`, `register`, `profile` for a program account and its standing); seat
 `identity::Identity` where genesis binds the identity role
 (`MockHost::roles()`, or the roles given `MockChain::founded(roles)`) and
 the chain asks it instead, and the roster's edits do nothing (identity's own ops seat keys

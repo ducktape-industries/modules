@@ -52,6 +52,7 @@ members = [
     "crates/system/identity",
     "crates/system/blobs",
     "crates/system/awaits",
+    "crates/system/scheduler",
     "crates/app/chat",
     "crates/app/chat-view",
     "crates/app/forge-view",
@@ -66,6 +67,7 @@ members = [
     "crates/app/egress",
     "crates/app/attribution",
     "crates/app/harness",
+    "crates/app/harness-view",
     "crates/lib/gitcore",
 ]
 
@@ -86,12 +88,13 @@ view-wire = { path = "crates/sdk/view-wire" }
 describe = { path = "crates/sdk/describe" }
 conformance = { path = "crates/sdk/conformance" }
 view = { path = "crates/sdk/view" }
-gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "8fc712852ad6eaac4b5a120f8dbcac4243b7826d", default-features = false }
+gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "0bf28c84fce24fcb40c8f324af8a71fb25452c39", default-features = false }
 programs = { path = "crates/system/programs" }
 valset = { path = "crates/system/valset" }
 identity = { path = "crates/system/identity" }
 blobs = { path = "crates/system/blobs" }
 awaits = { path = "crates/system/awaits" }
+scheduler = { path = "crates/system/scheduler" }
 chat = { path = "crates/app/chat" }
 forge = { path = "crates/app/forge" }
 attribution = { path = "crates/app/attribution" }
@@ -105,9 +108,9 @@ files = { path = "crates/app/files" }
 # the key schemes it signs with (dev-dependencies only); the probe fixture it seats is a prebuilt wasm binary, `make
 # probe-fixture`, not a Cargo dependency (its `Step` script type is mirrored
 # in the `programs` crate's test, next to the binary it scripts)
-host = { git = "https://github.com/ducktape-industries/ducktape", rev = "a4360f6d6ac3b807df95e3fda24d8d8a8b130049" }
-blob = { git = "https://github.com/ducktape-industries/ducktape", rev = "a4360f6d6ac3b807df95e3fda24d8d8a8b130049" }
-keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "a4360f6d6ac3b807df95e3fda24d8d8a8b130049" }
+host = { git = "https://github.com/ducktape-industries/ducktape", rev = "ccc50fd70fe4a96653c5df4b176fddf55ed834d3" }
+blob = { git = "https://github.com/ducktape-industries/ducktape", rev = "ccc50fd70fe4a96653c5df4b176fddf55ed834d3" }
+keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "ccc50fd70fe4a96653c5df4b176fddf55ed834d3" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"
 
@@ -182,5 +185,5 @@ inherits = "release"
 strip = "debuginfo"
 
 [patch.crates-io]
-rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "8fc712852ad6eaac4b5a120f8dbcac4243b7826d" }
-gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "8fc712852ad6eaac4b5a120f8dbcac4243b7826d" }
+rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "0bf28c84fce24fcb40c8f324af8a71fb25452c39" }
+gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "0bf28c84fce24fcb40c8f324af8a71fb25452c39" }

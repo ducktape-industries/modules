@@ -143,6 +143,7 @@ impl RenderOnce for ActionButton {
 struct MentionItem {
     id: ElementId,
     label: SharedString,
+    hint: Option<SharedString>,
     selected: bool,
     on_click: Option<Click>,
 }
@@ -150,14 +151,31 @@ struct MentionItem {
 impl RenderOnce for MentionItem {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = *cx.global::<Theme>();
+        let name = match &self.hint {
+            Some(hint) => format!("{}, {hint}", self.label).into(),
+            None => self.label.clone(),
+        };
+        let hint = self.hint.map(|hint| {
+            let id = ElementId::Name(format!("{}/hint", self.id).into());
+            // the row is drawn at the pointer's sizes, its badge too
+            design::badge(
+                id,
+                hint,
+                &design::POINTER,
+                theme.warning,
+                theme.warning_soft,
+            )
+        });
         let mut row = div()
             .id(self.id)
             .role(Role::MenuItem)
-            .aria_label(self.label.clone())
+            .aria_label(name)
             .aria_selected(self.selected)
             .w_full()
             .flex()
             .items_center()
+            .justify_between()
+            .gap_2()
             .min_h(design::size::ROW)
             .px_2()
             .bg(if self.selected {
@@ -171,7 +189,8 @@ impl RenderOnce for MentionItem {
                 theme.foreground
             })
             .text_size(design::text::BODY)
-            .child(self.label);
+            .child(self.label)
+            .children(hint);
         if let Some(on_click) = self.on_click {
             row = row.on_click(on_click);
         }
@@ -274,6 +293,7 @@ pub fn view<V: 'static, F: Fn(&mut V, Event, &mut Window, &mut Context<V>) + 'st
             .map(|(index, choice)| MentionItem {
                 id: ElementId::Name(format!("{key}/mention/{}", choice.token).into()),
                 label: format!("@{}", choice.label).into(),
+                hint: choice.hint.clone().map(Into::into),
                 selected: index == selected,
                 on_click: press(
                     editable,

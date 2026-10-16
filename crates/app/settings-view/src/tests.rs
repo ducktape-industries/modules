@@ -26,15 +26,15 @@ fn maya(number: u64, label: &str) -> identity::Account {
         label: Some(label.into()),
         added_at: 1,
     }];
-    account(number, "Maya", identity::Control::Person { keys })
+    account(number, "Maya", identity::Control::User { keys })
 }
 /// Scout, the agent Maya (7) manages, keyless.
 fn scout() -> identity::Account {
     account(
         12,
         "Scout",
-        identity::Control::Managed {
-            runner: None,
+        identity::Control::Program {
+            script: None,
             manager: 7,
             category: identity::Category::Agent,
             life: identity::Life::Active { keys: Vec::new() },
@@ -100,8 +100,8 @@ fn seated(state: &str, dark: bool) -> (TestAppContext, StreamSender<HostSession>
                     identity::Reply::Profile(Some(identity::Profile {
                         number: 12,
                         name: "Scout".into(),
-                        kind: identity::Kind::Managed {
-                            runner: None,
+                        kind: identity::Kind::Program {
+                            script: None,
                             manager: 7,
                             category: identity::Category::Agent,
                             standing: identity::Standing::Suspended,
@@ -165,7 +165,7 @@ fn four_states_are_honest() {
     let cx = fixture("ready", false);
     for text in [
         "Maya",
-        "account 7 · Person",
+        "account 7 · User",
         "Keys",
         "Laptop key",
         "abcd",
@@ -293,11 +293,11 @@ fn a_refusal_retries_and_a_snapshot_restores() {
     respond(&cx);
     cx.simulate_click("settings/account-retry");
     cx.run_until_parked();
-    assert!(cx.has_text("account 7 · Person"), "{:?}", cx.texts());
+    assert!(cx.has_text("account 7 · User"), "{:?}", cx.texts());
     let snapshot = cx.snapshot().unwrap();
     cx.restore::<Settings>(&snapshot).unwrap();
     cx.run_until_parked();
-    assert!(cx.has_text("account 7 · Person"));
+    assert!(cx.has_text("account 7 · User"));
 }
 #[test]
 fn export_settings_screens() {
@@ -400,7 +400,7 @@ fn unregistered_key_creates_an_account() {
             op,
             identity::Op::Create { ref name, scheme: abi::Scheme::Ed25519 } if name == "Maya"
         ));
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.host().handle::<Query<Identity>>(|q| {
         Ok(match q {
@@ -427,7 +427,7 @@ fn unregistered_key_creates_an_account() {
     });
     cx.run_until_parked();
     assert!(cx.has_text("Maya"), "{:?}", cx.texts());
-    assert!(cx.has_text("account 9 · Person"), "{:?}", cx.texts());
+    assert!(cx.has_text("account 9 · User"), "{:?}", cx.texts());
     assert!(cx.find("settings/account/create/name").is_none());
 }
 
@@ -535,7 +535,7 @@ fn a_person_creates_an_agent_and_adds_its_key() {
     }
     cx.host().handle::<Submit<Identity>>(|op| {
         assert_eq!(op, identity::Op::CreateAgent { name: "Bot".into() });
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.simulate_input("settings/agents/create/name", " Bot ");
     cx.simulate_click("settings/agents/create/submit");
@@ -560,7 +560,7 @@ fn a_person_creates_an_agent_and_adds_its_key() {
     let expected = add.clone();
     cx.host().handle::<Submit<Identity>>(move |op| {
         assert_eq!(op, expected);
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.simulate_input("settings/agents/key/request", &abi::hex(&abi::encode(&add)));
     cx.simulate_click("settings/agents/key/submit");
@@ -604,7 +604,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
                 name: "Scout II".into()
             }
         );
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.simulate_input("settings/agents/12/name", " Scout II ");
     cx.simulate_click("settings/agents/12/rename");
@@ -621,7 +621,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     assert!(cx.find("settings/agents/12/resume").is_none());
     cx.host().handle::<Submit<Identity>>(|op| {
         assert_eq!(op, identity::Op::Suspend { account: 12 });
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     let suspended = |cx: &TestAppContext, life: identity::Life| {
         cx.host().handle::<Query<Identity>>(move |q| {
@@ -631,14 +631,14 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
                     identity::Reply::Account(Some(maya(number, "Laptop key")))
                 }
                 identity::Query::Managed { by: 7, .. } => {
-                    let identity::Control::Managed {
+                    let identity::Control::Program {
                         manager, category, ..
                     } = scout().control
                     else {
                         panic!()
                     };
-                    let control = identity::Control::Managed {
-                        runner: None,
+                    let control = identity::Control::Program {
+                        script: None,
                         manager,
                         category,
                         life,
@@ -666,7 +666,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     let logged = log.clone();
     cx.host().handle::<Submit<Identity>>(move |op| {
         logged.borrow_mut().push(op);
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.simulate_click("settings/agents/12/resume");
     cx.run_until_parked();
@@ -719,8 +719,8 @@ fn an_identity_head_re_reads_the_account_in_place() {
             }
             identity::Query::Managed { .. } => {
                 let mut scout = scout();
-                scout.control = identity::Control::Managed {
-                    runner: None,
+                scout.control = identity::Control::Program {
+                    script: None,
                     manager: 7,
                     category: identity::Category::Agent,
                     life: identity::Life::Suspended { keys: Vec::new() },
@@ -758,7 +758,7 @@ fn profile(number: u64, name: &str, kind: identity::Kind) -> identity::Profile {
 }
 
 fn person(number: u64, name: &str) -> identity::Profile {
-    profile(number, name, identity::Kind::Person)
+    profile(number, name, identity::Kind::User)
 }
 
 type Answers = std::rc::Rc<std::cell::RefCell<identity::Audience>>;
@@ -773,7 +773,7 @@ fn answering(audience: identity::Audience) -> (TestAppContext, Answers) {
         person(9, "Eve"),
         person(10, "Sam"),
         person(11, "sam"),
-        profile(3, "Bob", identity::Kind::Program("bob".into())),
+        profile(3, "Bob", identity::Kind::System("bob".into())),
     ];
     cx.host().handle::<Query<Identity>>(move |q| {
         Ok(match q {
@@ -825,7 +825,7 @@ fn answering(audience: identity::Audience) -> (TestAppContext, Answers) {
             panic!("unexpected op: {op:?}");
         };
         *landed.borrow_mut() = audience;
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     let heads = cx.host().stream::<Changes<Identity>>();
     heads.send(Some(Change {

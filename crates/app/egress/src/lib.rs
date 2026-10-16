@@ -1,6 +1,7 @@
 //! The `egress` program, bound to the egress role (`abi::role::egress`): a program's call to
 //! something outside the chain, a registered service or the public internet, answered by the
-//! member node the chain elects, in a later block. Its first queries are the role's.
+//! member node the chain elects, in a later block, or expired by its own scheduled run. Its
+//! first queries are the role's.
 mod program;
 mod rules;
 mod state;
@@ -9,7 +10,7 @@ mod tests;
 
 pub use ::program::{BlobId, ProgramId};
 pub use abi::role::egress::{
-    Answer, HTTP, NodeRow, Op, RELAY, RESERVED, Request, RequestRow, ServiceRow, http,
+    Answer, DEFAULT_WAIT, HTTP, NodeRow, Op, RELAY, RESERVED, Request, RequestRow, ServiceRow, http,
 };
 pub use abi::role::identity::AccountNumber;
 pub use program::Egress;
@@ -19,17 +20,12 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 pub const PROGRAM: &str = "egress";
 
-pub const EXPIRY_BLOCKS: u64 = abi::role::awaits::EXPIRY_BLOCKS;
-
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
 #[ask(Egress)]
 pub enum Query {
     #[ask(Reply::Requests(Vec<RequestRow>))]
     #[reads(state::ASSIGNED, state::REQUESTS)]
     Assigned { key: Vec<u8> },
-    #[ask(Reply::Requests(Vec<RequestRow>))]
-    #[reads(state::DEADLINES, state::REQUESTS)]
-    Overdue,
     #[ask(Reply::Node(Option<NodeRow>))]
     #[reads(state::NODES)]
     Node { key: Vec<u8> },
@@ -72,20 +68,31 @@ pub fn describe(op: &Op) -> describe::Description {
         ),
         Op::Serve { services } if services.is_empty() => ("Stop serving".to_owned(), Vec::new()),
         Op::Serve { services } => ("Serve".to_owned(), vec![field("services", names(services))]),
-        Op::Request(Request::Relay { note }) => (
+        Op::Request {
+            request: Request::Relay { note },
+            wait,
+        } => (
             "Request a relay".to_owned(),
-            vec![field("note", Value::count(note.len() as u64))],
+            vec![
+                field("note", Value::count(note.len() as u64)),
+                field("wait", Value::count(wait.unwrap_or(DEFAULT_WAIT))),
+            ],
         ),
-        Op::Request(Request::Http {
-            service,
-            head,
-            body,
-        }) => (
+        Op::Request {
+            request:
+                Request::Http {
+                    service,
+                    head,
+                    body,
+                },
+            wait,
+        } => (
             format!("Request {service}"),
             vec![
                 field("method", Value::text(head.method.as_str())),
                 field("target", Value::text(&head.target)),
                 field("body", Value::count(body.len() as u64)),
+                field("wait", Value::count(wait.unwrap_or(DEFAULT_WAIT))),
             ],
         ),
         Op::Answer { id, answer } => {
@@ -110,10 +117,6 @@ fn the_roles_queries_lead_and_encode_as_the_role_asks() {
         (
             abi::encode(&Query::Assigned { key: key.clone() }),
             abi::encode(&role::Query::Assigned { key: key.clone() }),
-        ),
-        (
-            abi::encode(&Query::Overdue),
-            abi::encode(&role::Query::Overdue),
         ),
         (
             abi::encode(&Query::Node { key: key.clone() }),

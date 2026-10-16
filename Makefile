@@ -19,7 +19,7 @@ DUCKTAPE ?= ../core
 # One cargo invocation per program: forge links chat and identity links
 # programs, and `-p a -p b --features program` in one call would unify
 # `program` into the other's link (two `alloc`/`call`).
-PROGRAMS := programs valset identity blobs awaits chat forge activity files egress attribution harness
+PROGRAMS := programs valset identity blobs awaits scheduler chat forge activity files egress attribution harness
 
 # Views are wasm32 cdylibs. Chat and Forge ride their own programs;
 # Settings rides the programs role. These are the views that ship: `wasm-views`
@@ -28,7 +28,7 @@ PROGRAMS := programs valset identity blobs awaits chat forge activity files egre
 # tests are the workspace's) and is kept out of this list on purpose: it
 # rides identity, which ships members-view, and nothing packs it.
 # `view-wasm-check` builds it for wasm32 so its `export_view!` cannot rot.
-VIEWS := chat-view members-view node-view explorer-view settings-view forge-view
+VIEWS := chat-view members-view node-view explorer-view settings-view forge-view harness-view
 
 # What a wasm32 view may link. A crate a view links must never reach the
 # signing/identity graph (blst does not build for wasm32, and a view has no

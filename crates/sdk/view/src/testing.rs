@@ -208,10 +208,183 @@ pub(crate) fn keys(root: Option<&Node>) -> Vec<String> {
     out
 }
 
+/// The phone widths a view is swept at (`(width, height)` in logical px):
+/// the narrowest, the common and the widest phone.
+pub const PHONES: [(f32, f32); 3] = [(360., 780.), (390., 844.), (430., 932.)];
+
+/// The width sweep (SPEC §8.1d-1): the open view is told the device is
+/// touch-first, laid out at each of [`PHONES`], and `drive` runs there (the
+/// states the view's §10 row lists), with every frame held to
+/// [`assert_accessible`] and [`assert_fits`] at that width under the touch
+/// ladder; then a resize 390 -> 360 -> 390 must give the 390 layout again
+/// (no sticky size state). A view's `tests/sweep.rs` is one call.
+pub fn sweep(cx: &mut TestAppContext, mut drive: impl FnMut(&mut TestAppContext)) {
+    let ladder = crate::design::ladder(true);
+    cx.simulate_touch(true);
+    for (width, height) in PHONES {
+        cx.fits = Some((width, ladder));
+        cx.simulate_resize(width, height);
+        drive(cx);
+    }
+    let (narrow, common) = (PHONES[0], PHONES[1]);
+    cx.fits = Some((common.0, ladder));
+    cx.simulate_resize(common.0, common.1);
+    let before = cx.root().clone();
+    cx.fits = Some((narrow.0, ladder));
+    cx.simulate_resize(narrow.0, narrow.1);
+    cx.fits = Some((common.0, ladder));
+    cx.simulate_resize(common.0, common.1);
+    assert_eq!(
+        cx.root(),
+        &before,
+        "a resize {} -> {} -> {} did not give the {} layout again: size state is sticky",
+        common.0,
+        narrow.0,
+        common.0,
+        common.0
+    );
+    cx.fits = None;
+}
+
+/// Panics listing each node that does not fit a body `width` wide under
+/// `ladder`: a fixed or minimum width past `width`; a pressable node (a
+/// click route, a field) whose height is under `ladder.hit`, or that is
+/// invisible. Its height is its own declared one, else the nearest row
+/// above it that declares one; for a node pinned absolute to its parent's
+/// top and bottom, that row's less the two insets, so a negative inset
+/// reaches past it (`design::hit`). Also a many-line field with an
+/// `on_submit` (the software Return is a newline); the root's `on_back`
+/// not exactly when there is somewhere to go back to (a sheet open, or a
+/// Back control drawn: a node named "Back", as `design::page` names it
+/// below the root of a `Pages` stack). Declared sizes only: the harness has no layout
+/// engine, so a width or height left to layout is not judged here (the qa
+/// phone-layout goldens are). A long press has no wire signal of its own,
+/// so its custom-action twin (rule 5) is the review's.
+pub fn assert_fits(
+    tree: &Node,
+    styles: &crate::wire::Styles,
+    width: f32,
+    ladder: &crate::design::Ladder,
+) {
+    let mut faults = Vec::new();
+    let mut sheet_open = false;
+    let mut back_drawn = false;
+    let hit: f32 = ladder.hit.into();
+    let px_of = |length: &Option<gpui::Length>| match length {
+        Some(gpui::Length::Definite(gpui::DefiniteLength::Absolute(
+            gpui::AbsoluteLength::Pixels(px),
+        ))) => Some(f32::from(*px)),
+        _ => None,
+    };
+    let declared = |id: Option<crate::wire::StyleId>| id.and_then(|id| styles.get(id));
+    let height_of = |node: &Node| {
+        let style = declared(node.style())?;
+        px_of(&style.size.height).or_else(|| px_of(&style.min_size.height))
+    };
+    // what an absolute node pinned top and bottom takes off its parent's
+    // height (negative when it reaches past it)
+    let pinned = |node: &Node| {
+        let style = declared(node.style())?;
+        if style.position != Some(gpui::Position::Absolute) {
+            return None;
+        }
+        Some(px_of(&style.inset.top)? + px_of(&style.inset.bottom)?)
+    };
+    chain(tree, &mut |chain| {
+        let node = *chain.last().unwrap();
+        let path = || {
+            chain
+                .iter()
+                .filter_map(|node| node.key().map(str::to_owned))
+                .collect::<Vec<_>>()
+                .join(" > ")
+        };
+        if let Some(style) = declared(node.style()) {
+            for (what, length) in [
+                ("width", &style.size.width),
+                ("min width", &style.min_size.width),
+            ] {
+                if let Some(px) = px_of(length)
+                    && px > width
+                {
+                    faults.push(format!("{what} {px} past the body's {width} at {}", path()));
+                }
+            }
+        }
+        let pressable = matches!(node, Node::Field { .. })
+            || node.interactivity().is_some_and(|i| i.on_click.is_some());
+        if pressable {
+            let invisible = declared(node.style())
+                .is_some_and(|style| style.visibility == Some(gpui::Visibility::Hidden));
+            if invisible {
+                faults.push(format!("a pressable node is invisible at {}", path()));
+            }
+            let nearest = height_of(node).or_else(|| {
+                let above = chain
+                    .iter()
+                    .rev()
+                    .skip(1)
+                    .find_map(|node| height_of(node))?;
+                Some(above - pinned(node).unwrap_or(0.))
+            });
+            if !nearest.is_some_and(|h| h >= hit) {
+                faults.push(format!(
+                    "a pressable node declares no height of at least {hit} (itself or the nearest row above it that declares one) at {}",
+                    path()
+                ));
+            }
+        }
+        if let Node::Field {
+            multiline: true,
+            on_submit: Some(_),
+            ..
+        } = node
+        {
+            faults.push(format!("a many-line field submits on Return at {}", path()));
+        }
+        sheet_open |= matches!(node, Node::Sheet { .. });
+        back_drawn |= node
+            .interactivity()
+            .is_some_and(|i| i.aria.label.as_deref() == Some("Back"));
+        false
+    });
+    let somewhere_back = sheet_open || back_drawn;
+    let on_back = tree.interactivity().and_then(|i| i.on_back).is_some();
+    if somewhere_back && !on_back {
+        faults.push(match sheet_open {
+            true => "a sheet is open and the root has no on_back".into(),
+            false => "a Back control is drawn and the root has no on_back".into(),
+        });
+    }
+    if on_back && !somewhere_back {
+        faults.push("the root has on_back with no sheet open and no Back control drawn: the phone's Back would pop nothing".into());
+    }
+    assert!(
+        faults.is_empty(),
+        "{} node(s) do not fit {width} px under touch:\n{}",
+        faults.len(),
+        faults
+            .iter()
+            .map(|fault| format!("  {fault}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
 mod context;
 mod fake_host;
 mod focus;
 pub use context::{TestAppContext, TickReport, VIEWPORT};
+
+/// What a test host answers an `op.submit` it took: [`Submitted::Applied`]
+/// with `output`, under a frame identity no test reads.
+pub fn applied(output: Vec<u8>) -> crate::methods::Submitted {
+    crate::methods::Submitted::Applied {
+        frame: [0; 32],
+        until: 0,
+        output,
+    }
+}
 pub use fake_host::{FakeHost, StreamSender};
 
 /// A program for the SDK's own tests to follow with `Changes<Probe>`.

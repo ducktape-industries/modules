@@ -54,8 +54,8 @@ impl MemorySandbox {
         self.chain.profile(Profile {
             number,
             name: format!("account {number}"),
-            kind: Kind::Managed {
-                runner: None,
+            kind: Kind::Program {
+                script: None,
                 manager: AGENT_MANAGER,
                 category: Category::Agent,
                 standing,

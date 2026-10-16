@@ -9,6 +9,7 @@ use super::*;
 pub(super) fn tree_depth(node: &Node) -> usize {
     match node {
         Node::Sensor { child: content, .. }
+        | Node::Sheet { child: content, .. }
         | Node::ResizeHandle { content, .. }
         | Node::Deferred { content, .. } => 1 + tree_depth(content),
         Node::Container(view_wire::ContainerNode { children, .. })
@@ -48,6 +49,10 @@ pub(super) fn check_bounds(node: &Node, styles: &Styles, depth: usize, ctx: &str
             ..
         }) => {
             check_native_style(&styles[*style]);
+            assert!(
+                depth == 0 || interactivity.as_ref().is_none_or(|i| i.on_back.is_none()),
+                "{ctx}: on_back survived below the root"
+            );
             for conditional in interactivity
                 .iter()
                 .flat_map(|interactivity| {
@@ -188,6 +193,21 @@ pub(super) fn check_bounds(node: &Node, styles: &Styles, depth: usize, ctx: &str
             for child in children {
                 check_bounds(child, styles, depth + 1, ctx);
             }
+        }
+        Node::Sheet {
+            style,
+            detents,
+            child,
+            ..
+        } => {
+            check_native_style(&styles[*style]);
+            assert!(
+                (1..=8).contains(&detents.len())
+                    && detents.iter().all(|d| (0. ..=1.).contains(d))
+                    && detents.windows(2).all(|pair| pair[0] < pair[1]),
+                "{ctx}: sanitize kept unsound sheet detents {detents:?}"
+            );
+            check_bounds(child, styles, depth + 1, ctx);
         }
         Node::Canvas { style, .. } => check_native_style(&styles[*style]),
     }

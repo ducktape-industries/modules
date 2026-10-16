@@ -5,19 +5,25 @@ use super::*;
 use crate::queries::{Account, Agent, Key};
 use crate::state::{Answering, Choice};
 use identity::{Audience, Standing};
+use view::design::Ladder;
 
 /// The identity header's avatar.
 const AVATAR_XL: Pixels = px(40.);
 
-pub(super) fn account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyElement {
+pub(super) fn account(
+    view: &Settings,
+    cx: &mut Context<Settings>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     match &view.account {
         Loadable::Ready(Some(Seat::Bare(key))) | Loadable::Reloading(Some(Seat::Bare(key)), _) => {
             column("settings/account/data")
                 .gap_0()
                 .child(who("Unregistered key", "no account yet", theme))
                 .child(group("settings/keys", "Keys", Some(1), theme))
-                .child(key_row(0, "Host key", key, theme))
-                .child(create_account(view, cx, theme))
+                .child(key_row(0, "Host key", key, theme, ladder))
+                .child(create_account(view, cx, theme, ladder))
                 .into_any_element()
         }
         // a key held by an agent that does not act goes by the agent
@@ -27,7 +33,7 @@ pub(super) fn account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme
                 .gap_0()
                 .child(who(name, "a key of an agent", theme))
                 .child(group("settings/keys", "Keys", Some(1), theme))
-                .child(key_row(0, "Host key", key, theme))
+                .child(key_row(0, "Host key", key, theme, ladder))
                 .child(secondary("settings/account/note", note, theme).pt(design::space::MD))
                 .into_any_element()
         }
@@ -35,11 +41,9 @@ pub(super) fn account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme
         | Loadable::Reloading(Some(Seat::Account(account)), _) => {
             let kind = identity::view::kind(&account.kind, |_| None);
             let about = format!("account {} · {kind}", account.number);
-            let keys = account
-                .keys
-                .iter()
-                .enumerate()
-                .map(|(i, key)| key_row(i, key.label.as_deref().unwrap_or("Key"), key, theme));
+            let keys = account.keys.iter().enumerate().map(|(i, key)| {
+                key_row(i, key.label.as_deref().unwrap_or("Key"), key, theme, ladder)
+            });
             column("settings/account/data")
                 .gap_0()
                 .child(who(&account.name, &about, theme))
@@ -70,8 +74,14 @@ pub(super) fn account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme
         .into_any_element(),
         Loadable::Failed(refusal) => {
             let retry = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.read_account(cx));
-            design::refused("settings/account", refusal.message.clone(), theme, retry)
-                .into_any_element()
+            design::refused(
+                "settings/account",
+                refusal.message.clone(),
+                ladder,
+                theme,
+                retry,
+            )
+            .into_any_element()
         }
         Loadable::Idle | Loadable::Loading(_) => {
             secondary("settings/account/loading", "Reading your account…", theme).into_any_element()
@@ -115,7 +125,7 @@ fn who(name: &str, about: &str, theme: &Theme) -> Stateful<Div> {
 }
 
 /// One key: its label over its short hex, a Validator tag on the right.
-fn key_row(i: usize, label: &str, key: &Key, theme: &Theme) -> Stateful<Div> {
+fn key_row(i: usize, label: &str, key: &Key, theme: &Theme, ladder: &Ladder) -> Stateful<Div> {
     let hex = design::short_hex(&abi::hex(&key.key));
     div()
         .id(format!("settings/key/{i}"))
@@ -146,13 +156,19 @@ fn key_row(i: usize, label: &str, key: &Key, theme: &Theme) -> Stateful<Div> {
             row.child(design::badge(
                 format!("settings/key/{i}/validator"),
                 "Validator",
+                ladder,
                 theme.success,
                 theme.success_soft,
             ))
         })
 }
 
-fn create_account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyElement {
+fn create_account(
+    view: &Settings,
+    cx: &mut Context<Settings>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let form = &view.create_account;
     let pressed =
         cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_create_account(cx));
@@ -187,6 +203,7 @@ fn create_account(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) ->
             "Create an account",
             "Your key isn't linked to an account yet. An account gives you a name others see.",
             control,
+            ladder,
             theme,
         ))
         .children(problem(
@@ -204,9 +221,12 @@ pub(super) fn agents_pane(
     view: &Settings,
     cx: &mut Context<Settings>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     match view.account.ready() {
-        Some(Some(Seat::Account(account))) if account.manages => agents(view, account, cx, theme),
+        Some(Some(Seat::Account(account))) if account.manages => {
+            agents(view, account, cx, theme, ladder)
+        }
         // the menu lists Agents only for such an account
         _ => div().into_any_element(),
     }
@@ -217,13 +237,14 @@ fn agents(
     account: &Account,
     cx: &mut Context<Settings>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let create = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_create_agent(cx));
     let add = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_agent_key(cx));
     let rows: Vec<AnyElement> = account
         .agents
         .iter()
-        .map(|agent| self::agent(view, agent, cx, theme))
+        .map(|agent| self::agent(view, agent, cx, theme, ladder))
         .collect();
     let create_control = div()
         .flex()
@@ -281,6 +302,7 @@ fn agents(
             "Create an agent",
             "A new account you manage. Give it a key next.",
             create_control,
+            ladder,
             theme,
         ))
         .children(problem(
@@ -294,6 +316,7 @@ fn agents(
             "Add a key to an agent",
             "Paste the key request the agent's device shows.",
             key_control,
+            ladder,
             theme,
         ))
         .children(problem("agents/key", &view.agent_key, "", theme))
@@ -303,7 +326,13 @@ fn agents(
 /// One agent's row: its avatar, name (a field while renamed) and standing,
 /// `account n · k keys`, and what its manager does to it. Revoked, it only
 /// reads as such.
-fn agent(view: &Settings, agent: &Agent, cx: &mut Context<Settings>, theme: &Theme) -> AnyElement {
+fn agent(
+    view: &Settings,
+    agent: &Agent,
+    cx: &mut Context<Settings>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let number = agent.number;
     let standing = agent.standing();
     let revoked = standing == Standing::Revoked;
@@ -355,6 +384,7 @@ fn agent(view: &Settings, agent: &Agent, cx: &mut Context<Settings>, theme: &The
                     line.child(design::badge(
                         format!("settings/agents/{number}/standing"),
                         label,
+                        ladder,
                         foreground,
                         background,
                     ))
@@ -391,7 +421,7 @@ fn agent(view: &Settings, agent: &Agent, cx: &mut Context<Settings>, theme: &The
             theme,
         )
     });
-    let answers = (!revoked).then(|| answers(view, agent, cx, theme));
+    let answers = (!revoked).then(|| answers(view, agent, cx, theme, ladder));
     div()
         .id(format!("settings/agents/{number}/card"))
         .flex()
@@ -410,6 +440,7 @@ fn answers(
     agent: &Agent,
     cx: &mut Context<Settings>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Stateful<Div> {
     let number = agent.number;
     let answering = view.answering.get(&number);
@@ -419,6 +450,7 @@ fn answers(
     let choices = design::segmented(
         format!("settings/agents/{number}/answers"),
         format!("Who {} answers", agent.name),
+        ladder,
         theme,
         Choice::ALL.iter().position(|choice| *choice == shown),
         Choice::ALL.map(|choice| {

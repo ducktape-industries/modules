@@ -94,10 +94,10 @@ fn sheet_over(
         })
     });
     cx.host().handle::<Submit<Valset>>(move |_| {
-        Ok(abi::encode(&Voted::Counted {
+        Ok(view::testing::applied(abi::encode(&Voted::Counted {
             votes: 1,
             needed: needed.max(2),
-        }))
+        })))
     });
     let session = cx.host().stream::<HostSession>();
     cx.open::<Nodes>();
@@ -126,8 +126,8 @@ fn a_row_says_who_operates_a_node_on_an_agent() {
     let agent = identity::Profile {
         number: 11,
         name: "validator vps".into(),
-        kind: identity::Kind::Managed {
-            runner: None,
+        kind: identity::Kind::Program {
+            script: None,
             manager: 10,
             category: identity::Category::Agent,
             standing: identity::Standing::Active,
@@ -136,7 +136,7 @@ fn a_row_says_who_operates_a_node_on_an_agent() {
     let ada = identity::Profile {
         number: 10,
         name: "ada".into(),
-        kind: identity::Kind::Person,
+        kind: identity::Kind::User,
     };
     cx.host()
         .handle::<Query<identity::Identity>>(move |query| match query {
@@ -256,7 +256,7 @@ fn a_press_that_enacts_says_what_happens_and_asks_once() {
     cx.run_until_parked();
     assert!(cx.find("nodes-confirm").is_none() && submitted(&cx).is_empty());
     cx.host()
-        .handle::<Submit<Valset>>(|_| Ok(abi::encode(&Voted::Enacted)));
+        .handle::<Submit<Valset>>(|_| Ok(view::testing::applied(abi::encode(&Voted::Enacted))));
     cx.simulate_click("nodes-door-open");
     cx.run_until_parked();
     cx.simulate_click("nodes-confirm-yes");
@@ -385,7 +385,7 @@ fn a_grant_motion_names_its_account() {
     let carol = identity::Profile {
         number: 12,
         name: "carol".into(),
-        kind: identity::Kind::Person,
+        kind: identity::Kind::User,
     };
     let mut cx = TestAppContext::new();
     node(&mut cx);

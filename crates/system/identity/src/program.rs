@@ -5,7 +5,7 @@ use ::program::{Error, ExecCtx, Program, QueryCtx};
 use crate::rules::{
     ACCOUNTS, MANAGED, OF_PROGRAM, account, add_key, audience, create, create_agent, generation,
     of_key, profiles, register_program, remove_key, resolve, resume, revoke, runs, set_audience,
-    set_name, set_profile, set_runner, suspend,
+    set_name, set_profile, set_script, suspend,
 };
 use crate::{Op, Query, Reply};
 
@@ -38,7 +38,7 @@ impl Program for Identity {
             Op::Resume { account } => resume(ctx, account),
             Op::Revoke { account } => revoke(ctx, account),
             Op::SetAudience { account, audience } => set_audience(ctx, account, audience),
-            Op::SetRunner { account, runner } => set_runner(ctx, account, runner),
+            Op::SetScript { account, script } => set_script(ctx, account, script),
         }
     }
 

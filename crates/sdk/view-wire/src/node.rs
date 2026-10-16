@@ -103,8 +103,9 @@ pub struct SvgTransformation {
 /// frames for host state, focus, and accessibility ancestry.
 ///
 /// The shape is derived; `Serialize` and `Deserialize` are the codec's
-/// (`codec.rs`), which decodes every node inside the frame's budget.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// (`codec.rs`), which decodes every node inside the frame's budget. A
+/// node's variant name, for a report, is `<&str>::from(&node)`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, strum::IntoStaticStr)]
 #[serde(remote = "Self")]
 pub enum Node {
     /// One native GPUI paragraph with optional interactive byte ranges.
@@ -267,6 +268,23 @@ pub enum Node {
         style: StyleId,
         on_dismiss: Option<u32>,
         children: Vec<Node>,
+    },
+    /// A panel over a scrim, holding one child the view owns. Under a
+    /// Compact body (`design::width::COMPACT_BELOW`) the host docks it to
+    /// the bottom edge, opened at the first of `detents` (fractions of the
+    /// body's height, ascending, each in `0..=1`), dragged between them and
+    /// down to dismiss; at a wider body it is a centred modal, as
+    /// [`Node::Overlay`]'s second child. The host owns the drag, the scrim
+    /// (an accessible "Close" control), the snap and the keyboard lift; the
+    /// view owns what is inside. `label` is the dialog's name. A sheet
+    /// inside a sheet is refused.
+    Sheet {
+        id: ElementIdWire,
+        label: Option<String>,
+        style: StyleId,
+        detents: Vec<f32>,
+        on_dismiss: Option<u32>,
+        child: Box<Node>,
     },
     /// Bounded geometry painted by the host, in widget-local coordinates.
     Canvas {

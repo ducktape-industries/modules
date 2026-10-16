@@ -648,7 +648,14 @@
                 "disabled": false,
                 "invalid": "true",
                 "required": true,
-                "read_only": true
+                "read_only": true,
+                "text_input": {
+                  "autocorrect": true,
+                  "autocapitalize": "Words",
+                  "suggestions": true,
+                  "input_action": "Go",
+                  "virtual_keyboard": "Url"
+                }
               },
               "placeholder": "Name",
               "secure": false,
@@ -687,6 +694,29 @@
                   }
                 }
               ]
+            }
+          },
+          {
+            "Sheet": {
+              "id": {
+                "Name": "sheet"
+              },
+              "label": "Message actions",
+              "style": 0,
+              "detents": [
+                0.6,
+                1.0
+              ],
+              "on_dismiss": 31,
+              "child": {
+                "Text": {
+                  "id": {
+                    "Name": "actions"
+                  },
+                  "style": 0,
+                  "content": "actions"
+                }
+              }
             }
           },
           {
@@ -1055,7 +1085,8 @@
                   "request": 50,
                   "hoverable": true,
                   "delay_ms": 300
-                }
+                },
+                "on_back": 81
               },
               "children": [
                 {
@@ -1342,7 +1373,14 @@
                 "disabled": false,
                 "invalid": "true",
                 "required": true,
-                "read_only": true
+                "read_only": true,
+                "text_input": {
+                  "autocorrect": false,
+                  "autocapitalize": "None",
+                  "suggestions": false,
+                  "input_action": "Unspecified",
+                  "virtual_keyboard": "Text"
+                }
               },
               "placeholder": "Notes",
               "secure": true,
@@ -2203,6 +2241,11 @@
       }
     },
     {
+      "Pointer": {
+        "touch": true
+      }
+    },
+    {
       "Viewport": {
         "width": 900.0,
         "height": 501.0
@@ -2444,6 +2487,11 @@
             }
           }
         }
+      }
+    },
+    {
+      "Back": {
+        "handler": 81
       }
     },
     {
@@ -2795,6 +2843,12 @@
       "location",
       "date",
       "time"
+    ],
+    "Autocapitalize": [
+      "None",
+      "Words",
+      "Sentences",
+      "Characters"
     ],
     "BorderStyle": [
       "Solid",
@@ -3234,6 +3288,16 @@
       "Center",
       "Right"
     ],
+    "TextInputAction": [
+      "Unspecified",
+      "Enter",
+      "Done",
+      "Go",
+      "Next",
+      "Previous",
+      "Search",
+      "Send"
+    ],
     "Toggled": [
       "false",
       "true",
@@ -3258,6 +3322,15 @@
     "UniformListSizing": [
       "Infer",
       "Auto"
+    ],
+    "VirtualKeyboard": [
+      "Text",
+      "Numeric",
+      "Decimal",
+      "Tel",
+      "Email",
+      "Url",
+      "Search"
     ],
     "Visibility": [
       "Visible",

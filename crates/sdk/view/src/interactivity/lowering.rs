@@ -164,6 +164,9 @@ impl Interactions {
                 .map(|listener| lowering.route(Kind::Hover, listener)),
             on_file_drop_exit: route_plain(self.on_file_drop_exit, lowering, Kind::FileDropExit),
             tooltip,
+            on_back: self
+                .on_back
+                .map(|listener| lowering.route(Kind::Back, listener)),
         })
     }
 }

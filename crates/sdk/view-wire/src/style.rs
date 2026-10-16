@@ -101,6 +101,14 @@ pub struct Interactivity {
     pub on_file_drop_exit: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tooltip: Option<crate::Tooltip>,
+    /// The handler Back goes to while the view has somewhere to go back to
+    /// (a page under the root of its stack, an open sheet), as
+    /// [`Event::Back`](crate::Event::Back); absent when it has not, and the
+    /// host leaves the program instead. On the ROOT node only: below the
+    /// root the frame is refused. A host with no Back gesture (the desktop)
+    /// never sends it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_back: Option<u32>,
 }
 
 crate::codec::sparse!(Interactivity);
