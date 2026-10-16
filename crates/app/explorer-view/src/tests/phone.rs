@@ -352,13 +352,21 @@ fn an_account_page_shows_its_devices_the_programs_it_used_and_its_activity() {
 #[test]
 fn open_dm_opens_the_readers_room_with_another_account() {
     let mut cx = reader(Some(3), ADA, false, grants(), waiting());
+    // a chain a link can name (`reader`'s names none)
+    cx.host().stream::<HostSession>().send(Session {
+        connected: true,
+        chain_id: "testkit#0a1b2c3d".into(),
+        signer: abi::hex(&ADA),
+        account: Some(3),
+        endpoint: String::new(),
+    });
     phone(&mut cx);
     click(&mut cx, "explorer-tab-accounts");
     click(&mut cx, "explorer-account-5");
     click(&mut cx, "explorer-open-dm");
     assert_eq!(
         cx.host().requests::<view::methods::LinkOpen>(),
-        [ducklink::mint("test#1", chat::PROGRAM, &["dm-3-5"]).unwrap()]
+        [ducklink::mint("testkit#0a1b2c3d", chat::PROGRAM, &["dm-3-5"]).unwrap()]
     );
     for own in ["3", "6"] {
         back(&mut cx);
