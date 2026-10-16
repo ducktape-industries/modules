@@ -72,9 +72,20 @@ pub mod type_scale {
     /// height (`*_LINE`), since the reader is further from a phone than from
     /// a desk. The body is 15.
     pub mod touch {
+        /// a code to read out or compare: the join code, a key's
+        /// fingerprint (`theme.ts:61` `display`)
+        pub const DISPLAY: f64 = 36.;
+        /// [`DISPLAY`]'s line height
+        pub const DISPLAY_LINE: f64 = 44.;
+        /// [`DISPLAY`]'s letter spacing: 0.04 of its size apart
+        /// (`theme.ts:61` `letterSpacing`)
+        pub const DISPLAY_TRACKING: f64 = 1.44;
         /// a view's first page's title
         pub const BIG_TITLE: f64 = 22.;
         pub const BIG_TITLE_LINE: f64 = 27.;
+        /// [`BIG_TITLE`]'s letter spacing: 0.01 of its size tighter
+        /// (`theme.ts:59` `letterSpacing`)
+        pub const BIG_TITLE_TRACKING: f64 = -0.22;
         /// a detail head's name, a fact's value
         pub const HEADING: f64 = 20.;
         pub const HEADING_LINE: f64 = 24.;
@@ -95,6 +106,14 @@ pub mod type_scale {
         /// a badge, a chip's count, a tab label
         pub const TINY: f64 = 11.;
         pub const TINY_LINE: f64 = 14.;
+        /// a fact's key, a code box's label, in capitals (`theme.ts:51`
+        /// `eyebrow`)
+        pub const EYEBROW: f64 = 11.;
+        /// [`EYEBROW`]'s line height
+        pub const EYEBROW_LINE: f64 = 14.;
+        /// [`EYEBROW`]'s letter spacing: 0.06 of its size apart
+        /// (`theme.ts:51` `letterSpacing`)
+        pub const EYEBROW_TRACKING: f64 = 0.66;
         /// code, in the data face
         pub const CODE: f64 = 12.;
         pub const CODE_LINE: f64 = 20.;
