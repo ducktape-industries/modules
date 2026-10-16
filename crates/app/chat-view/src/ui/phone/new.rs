@@ -104,6 +104,9 @@ fn name_field(
     parts::field("Name", input, problem, theme, ladder)
 }
 
+// SDK gap: the kit Segmented (segments share the width, 36 tall,
+// secondary words; mobile `src/kit/Choice.tsx:16-35`), swap when
+// feat/phone-kit lands
 /// Who may post: Anyone or Members only.
 fn policy(create: &ChannelCreate, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> Div {
     let pick = cx.processor(|chat, index: usize, _window, cx| {
