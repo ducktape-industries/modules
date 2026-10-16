@@ -519,9 +519,15 @@ pub(crate) fn render(
     let only = forge.nav().diff_path.clone();
     let shown = |file: &FileDiff| only.is_none() || only.as_deref() == path_of(file).as_deref();
     if !page.items.iter().any(shown) {
+        // Expo's: a change's diff `send` (`forge/change.tsx:342`), a
+        // commit's `git-commit-horizontal` (`commit/[oid].tsx:96`)
+        let glyph = match reviewable {
+            true => "send",
+            false => "git-commit-horizontal",
+        };
         return empty_state(
             id(format!("{element_id}-empty")),
-            "git-commit-horizontal",
+            glyph,
             "No changes",
             if *total_files == 0 {
                 "These endpoints hold the same tree."

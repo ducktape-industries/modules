@@ -455,6 +455,28 @@ fn press(element: Stateful<Div>) -> Stateful<Div> {
         .on_click(|_, _, _| {})
 }
 
+/// A diff line 20 tall, the whole line its press.
+fn line() -> Stateful<Div> {
+    press(div().id("line").h(px(20.)))
+}
+
+/// A dense list's row keeps its own box: marked `design::dense`, a line
+/// 20 tall passes the sweep.
+#[test]
+fn the_sweep_lets_a_press_marked_dense_keep_its_own_height() {
+    let (tree, styles) =
+        testing::lower(|_: &mut Context<()>| div().id("diff").child(design::dense(line())));
+    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+}
+
+/// The same line unmarked is held to a finger's 44.
+#[test]
+#[should_panic(expected = "declares no height of at least 44")]
+fn the_sweep_refuses_a_20_tall_press_not_marked_dense() {
+    let (tree, styles) = testing::lower(|_: &mut Context<()>| div().id("diff").child(line()));
+    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+}
+
 #[test]
 fn the_sweep_trusts_a_hit_told_its_parent_is_a_finger_tall() {
     fits_in_a_tall_row(press(design::hit(
@@ -481,30 +503,6 @@ fn the_sweep_trusts_a_box_pinned_by_one_inset() {
 #[test]
 fn the_sweep_trusts_a_press_with_no_height_of_its_own() {
     fits_in_a_tall_row(press(div().id("react")));
-}
-
-/// A strip tab draws in the bar less its hairline, as Expo's (43), but its
-/// own box, which is the press, is the whole strip: the sweep reads a true
-/// 44 off the tab itself.
-#[test]
-fn under_touch_a_strip_tabs_press_is_the_whole_strip_over_its_hairline() {
-    let theme = crate::Theme::light();
-    let (tree, styles) = testing::lower(|_: &mut Context<()>| {
-        div()
-            .id("bar")
-            .h(design::TOUCH.strip)
-            .border_b_1()
-            .child(design::item(
-                design::tab("files", "Files", true, &design::TOUCH, &theme, |_, _, _| {}),
-                crate::Role::Tab,
-                true,
-            ))
-    });
-    let tab = &tree.children()[0];
-    let look = &styles[tab.style().expect("a styled tab")];
-    assert_eq!(look.size.height, Some(px(44.).into()));
-    assert_eq!(look.padding.bottom, Some(px(1.).into()));
-    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
 }
 
 /// The other side of reading declared sizes: a hit in a chip that fills

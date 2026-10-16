@@ -401,26 +401,32 @@ fn blob_content(
             .into_any_element(),
         Content::Text => lines(forge.blob_cache.lines(oid, &name, &blob.bytes), theme),
         Content::Binary => empty_state(
-            id("forge-blob-binary"), "file-question-mark",
+            id("forge-blob-binary"),
+            "file-question-mark",
             "Binary file",
-            format!("{} bytes. Nothing here reads as text.", blob.size), ladder,
+            format!("{} bytes. Nothing here reads as text.", blob.size),
+            ladder,
             theme,
         )
         .into_any_element(),
         Content::Oversize => empty_state(
-            id("forge-blob-oversize"), "file-question-mark",
+            id("forge-blob-oversize"),
+            "file-question-mark",
             "Too large to show",
             format!(
                 "{} bytes, above this network's inline blob bound. Fetch the repository to read it.",
                 blob.size
-            ), ladder,
+            ),
+            ladder,
             theme,
         )
         .into_any_element(),
         Content::Gitlink => empty_state(
-            id("forge-blob-gitlink"), "file-question-mark",
+            id("forge-blob-gitlink"),
+            "file-question-mark",
             "Submodule",
-            "This entry points at another repository.", ladder,
+            "This entry points at another repository.",
+            ladder,
             theme,
         )
         .into_any_element(),

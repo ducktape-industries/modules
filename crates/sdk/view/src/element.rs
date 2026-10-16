@@ -136,6 +136,7 @@ pub(crate) fn wire_id(id: ElementId) -> wire::ElementIdWire {
 impl<'a> Lowering<'a> {
     pub(crate) fn new(window: &'a mut Window, app: &'a mut App) -> Self {
         slots::begin_lowering(&app.inner.slots, None);
+        crate::testing::begin_dense();
         Self {
             window,
             app,

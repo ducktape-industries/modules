@@ -248,13 +248,38 @@ pub fn sweep(cx: &mut TestAppContext, mut drive: impl FnMut(&mut TestAppContext)
     cx.fits = None;
 }
 
+thread_local! {
+    /// The ids each press [`design::dense`](crate::design::dense) marked is
+    /// filed under, in the tree last lowered on this thread: the presses
+    /// [`assert_fits`] lets stay under a finger's height. The mark is the
+    /// view's and is never sent, so the sweep reads it here, beside the
+    /// lowering that saw it.
+    static DENSE: std::cell::RefCell<Vec<Vec<crate::wire::ElementIdWire>>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// A tree's lowering begins: the presses the last one marked are gone.
+pub(crate) fn begin_dense() {
+    DENSE.with_borrow_mut(Vec::clear);
+}
+
+/// The press filed under `path` is a dense list's.
+pub(crate) fn mark_dense(path: &[crate::wire::ElementIdWire]) {
+    DENSE.with_borrow_mut(|dense| dense.push(path.to_vec()));
+}
+
 /// How tall a press is, as [`assert_fits`] reads its declared sizes.
 enum Press {
+    /// the press's own declared height (`h`, else `min_h`)
     Declared(f32),
     /// a box reaching past its parent: the parent inside its border, and
     /// the reach
     Reaches(f32),
+    /// no declared height on the press, so it is read off the nearest
+    /// declared row above it
     Undeclared,
+    /// a box reaching past a parent whose height is left to layout, which
+    /// the sweep cannot read
     ReachesPastAnUndeclaredParent,
 }
 
@@ -289,6 +314,10 @@ enum Press {
 ///
 /// And it refuses a `design::hit` whose parent's height is left to
 /// layout (`h_full`, `size_full`) even where the box fits.
+///
+/// A press [`design::dense`](crate::design::dense) marks, in the tree last
+/// lowered on this thread, may be under a finger's height: a dense list
+/// keeps its row's own press box, as the Expo app's does.
 pub fn assert_fits(
     tree: &Node,
     styles: &crate::wire::Styles,
@@ -383,10 +412,13 @@ pub fn assert_fits(
             if invisible {
                 faults.push(format!("a pressable node is invisible at {}", path()));
             }
+            let dense = DENSE.with_borrow(|dense| dense.contains(&authored_path(chain)));
             match press_height(chain) {
+                // a dense list's press keeps its own box
+                _ if dense => {}
                 Press::Declared(height) | Press::Reaches(height) if height >= hit => {}
                 Press::Reaches(height) => faults.push(format!(
-                    "a press box reaching past its parent comes to {height} (the parent inside its border, and the reach), under {hit}, at {}: tell `design::hit` the parent's border (`edge`)",
+                    "a press box reaching past its parent comes to {height} (the parent inside its border, and the reach), under {hit}, at {}: tell `design::hit` the parent's true size and border (`edge`)",
                     path()
                 )),
                 Press::ReachesPastAnUndeclaredParent => faults.push(format!(

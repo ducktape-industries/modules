@@ -22,7 +22,8 @@
 //!   [`SHEET_INSET`]
 //! - a choice: [`strip`] of [`tab`]s, [`segmented`], [`switch`]
 //! - a state: [`empty_state`], [`refused`], [`quiet`]
-//! - a press: [`pressed`], and [`hit`] for a control smaller than a finger
+//! - a press: [`pressed`], [`hit`] for a control smaller than a finger,
+//!   [`dense`] for a dense list's row
 //! - words: [`sentence`], [`failure`], [`fingerprint`], [`short_hex`]
 pub use ::design::*;
 
@@ -36,7 +37,6 @@ pub use words::{failure, sentence};
 
 use crate::prelude::*;
 use crate::{AnyElement, Div, FontWeight, Hsla, Pixels, Stateful, StyleRefinement};
-use control::Control as _;
 pub use gpui::Orientation;
 use gpui::{BoxShadow, ScrollStrategy};
 
@@ -576,6 +576,19 @@ pub fn hit(
     };
     let (x, y) = (inset(width), inset(height));
     div().id(id).absolute().top(y).bottom(y).left(x).right(x)
+}
+
+/// A press in a dense list, which keeps its row's own box under a
+/// finger's 44, as the Expo app's dense lists do: a chat message row, a
+/// diff line at 20. Every other press is held to [`Ladder::hit`] by the
+/// sweep ([`assert_fits`](crate::testing::assert_fits)); this one is let
+/// through. It changes nothing drawn and nothing sent to the host, only
+/// what the sweep accepts, and it is said where the row is built:
+/// `design::dense(div().id(("line", n)).h(px(20.)).role(Role::Button)
+/// .on_click(..))`.
+pub fn dense(mut element: Stateful<Div>) -> Stateful<Div> {
+    element.interactivity().interactions().dense = true;
+    element
 }
 
 /// How far a control dims while a finger holds it (the Expo kit's
@@ -1693,9 +1706,10 @@ const HAIRLINE: Pixels = px(1.);
 /// holds the focus and the arrows: the caller wraps it in
 /// `item(.., Role::Tab, active)`.
 ///
-/// A tab bar declares `.h(ladder.strip)`, its hairline included. Under a
-/// pointer a tab is at least [`Ladder::hit`] tall, and the caller sizes
-/// it to its bar (`h_full`, `flex_1`).
+/// Under a finger a tab bar is `.h(ladder.strip)` tall, its hairline
+/// included ([`strip`] declares it). Under a pointer a tab is at least
+/// [`Ladder::hit`] tall, and the caller sizes it to its bar (`h_full`,
+/// `flex_1`).
 ///
 /// Under a finger it is an item of the Expo kit's `Strip`
 /// (`Choice.tsx:113-145`): drawn in the bar less its hairline
@@ -2144,9 +2158,10 @@ fn touch_segment(
     theme: &Theme,
     click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
-    // `hit`'s width is the segment's own, which only layout knows; a
-    // segment shares a box as wide as the phone, so it is at least a
-    // finger wide and the press takes none of its neighbours' width
+    // `hit`'s width is the segment's own, which only layout knows. A
+    // segmented choice holds 2-3 choices (Expo's own rule, `Choice.tsx:1`)
+    // in a box as wide as the phone, so each is at least a finger wide and
+    // the press takes none of its neighbours' width
     let press = hit(id, ladder.hit, SEGMENT_HEIGHT, px(0.), ladder)
         .aria_label(label.clone())
         .aria_toggled(selected.into())
@@ -2606,55 +2621,82 @@ mod tests {
         assert_eq!(primary.background, Some(theme.primary.into()));
     }
 
-    /// A small button is the kit's 36 face, 12 in, secondary text, and
-    /// presses through a hit over it that reaches 44 tall; a busy one keeps
-    /// its look, drops its click and says it is busy.
+    /// The look of a lowered node: its row of the style table.
+    fn look(node: &wire::Node, styles: &wire::Styles) -> StyleRefinement {
+        styles[node.style().expect("a styled node")].clone()
+    }
+
+    /// Under a finger a small button's face is 36 tall, 12 in, in
+    /// secondary, at least 44 wide (`Button.tsx:60-61`, `:76`). Its press
+    /// is the face's parent, 44 tall, handing back the 4 it reaches over
+    /// and under, so a press anywhere on it dims the face.
     #[test]
-    fn under_touch_a_small_button_presses_at_44_and_a_busy_one_says_so() {
+    fn under_touch_a_small_buttons_press_is_44_round_its_36_face_and_dims_it() {
         let theme = Theme::light();
-        let retry = || button("retry", "Retry", &TOUCH, &theme, |_, _, _| {}).small();
-        let (face, styles) = lower_styled(div().w(px(360.)).child(retry()));
-        crate::testing::assert_fits(&face, &styles, 360., &TOUCH);
-        let face = &face.children()[0];
-        let look = &styles[face.style().expect("a styled face")];
-        assert_eq!(look.size.height, Some(px(36.).into()));
-        assert_eq!(look.padding.left, Some(px(12.).into()));
-        assert_eq!(look.text.font_size, Some(px(13.).into()));
-        assert_eq!(face.interactivity().and_then(|face| face.on_click), None);
-        let press = face.children().last().expect("the press");
+        let retry = button("retry", "Retry", &TOUCH, &theme, |_, _, _| {}).small();
+        let (row, styles) = lower_styled(div().w(px(360.)).child(retry));
+        assert_eq!(faults(&row), []);
+        crate::testing::assert_fits(&row, &styles, 360., &TOUCH);
+        let press = &row.children()[0];
+        let reach = look(press, &styles);
+        assert_eq!(reach.size.height, Some(px(44.).into()));
+        assert_eq!(
+            (reach.margin.top, reach.margin.bottom),
+            (Some(px(-4.).into()), Some(px(-4.).into()))
+        );
         let control = interactivity(press);
         assert_eq!(control.role, Some(Role::Button));
-        assert_eq!(control.aria.label.as_deref(), Some("Retry"));
         assert!(control.focusable && control.on_click.is_some());
-        let inset = &styles[press.style().expect("a styled press")].inset;
         assert_eq!(
-            (inset.top, inset.bottom),
-            (Some(px(-5.).into()), Some(px(-5.).into()))
+            control.active.and_then(|active| styles[active].opacity),
+            Some(0.6)
         );
+        let face = look(&press.children()[0], &styles);
+        assert_eq!(face.size.height, Some(px(36.).into()));
+        assert_eq!(face.min_size.width, Some(px(44.).into()));
+        assert_eq!(face.padding.left, Some(px(12.).into()));
+        assert_eq!(face.text.font_size, Some(TOUCH.secondary.size.into()));
+    }
 
-        let (busy, styles) = lower_styled(
-            button("save", "Save", &TOUCH, &theme, |_, _, _| {})
-                .kind(Kind::Primary)
-                .busy(true),
+    /// A pointer has one button size: `.small()` changes nothing under it.
+    #[test]
+    fn under_a_pointer_a_small_button_is_the_same_button() {
+        let theme = Theme::light();
+        let save = || button("save", "Save", &POINTER, &theme, |_, _, _| {});
+        assert_eq!(
+            format!("{:?}", lower_styled(save().small())),
+            format!("{:?}", lower_styled(save()))
         );
-        let control = interactivity(&busy);
+    }
+
+    /// A busy button drops its click and says it is busy. Under a finger
+    /// it keeps its look, as Expo's does (`Button.tsx:35-56`); under a
+    /// pointer it looks disabled.
+    #[test]
+    fn a_busy_button_drops_its_click_and_says_it_is_busy() {
+        let theme = Theme::light();
+        let busy = |ladder: &Ladder| {
+            let save = button("save", "Save", ladder, &theme, |_, _, _| {});
+            lower_styled(save.kind(Kind::Primary).busy(true))
+        };
+        let (node, styles) = busy(&TOUCH);
+        assert_eq!(faults(&node), []);
+        let control = interactivity(&node);
         assert!(control.on_click.is_none() && !control.focusable);
         assert_eq!(control.aria.disabled, Some(true));
         assert!(control.aria.busy);
-        let look = &styles[busy.style().expect("a styled button")];
-        assert_eq!(look.background, Some(theme.primary.into()));
-        let (busy, _) =
-            lower_styled(button("save", "Save", &POINTER, &theme, |_, _, _| {}).busy(true));
-        let control = interactivity(&busy);
+        assert_eq!(look(&node, &styles).background, Some(theme.primary.into()));
+        let (node, styles) = busy(&POINTER);
+        let control = interactivity(&node);
         assert!(control.on_click.is_none() && control.aria.busy);
-        assert_eq!(control.aria.disabled, Some(true));
+        assert_eq!(look(&node, &styles).background, Some(theme.faint.into()));
     }
 
-    /// The first [`wire::Node::Field`] in `node`'s tree: its options.
-    fn field_options(node: &wire::Node) -> Option<&wire::InputOptions> {
+    /// The first [`wire::Node::Field`] in `node`'s tree.
+    fn field_node(node: &wire::Node) -> Option<&wire::Node> {
         match node {
-            wire::Node::Field { options, .. } => Some(options),
-            _ => node.children().iter().find_map(field_options),
+            wire::Node::Field { .. } => Some(node),
+            _ => node.children().iter().find_map(field_node),
         }
     }
 
@@ -2667,7 +2709,9 @@ mod tests {
         let text = crate::TextField::new("ada");
         let said = |node: wire::Node| {
             assert_eq!(faults(&node), []);
-            let options = field_options(&node).expect("a field");
+            let Some(wire::Node::Field { options, .. }) = field_node(&node) else {
+                panic!("a field: {node:?}")
+            };
             (options.invalid, options.description.clone())
         };
         let refused = (Some(wire::Invalid::True), Some("Too long.".to_owned()));
@@ -2692,30 +2736,164 @@ mod tests {
         assert_eq!(said(lower(lines().problem("Too long."))), refused);
     }
 
+    /// A field's problem thickens its edge to 2 in danger and pulls the
+    /// text in by 1, so the text stays where it was (`Field.tsx:37-38`,
+    /// `:52`); a lead glyph puts the text 8 after it, 39 in (`:58`); mono
+    /// is the data face at secondary (`:76-77`).
+    #[test]
+    fn a_fields_problem_thickens_its_edge_and_keeps_its_text_in_place() {
+        let theme = Theme::light();
+        let text = crate::TextField::new("ada");
+        let control = |built: Field<crate::Input>| {
+            let (node, styles) = lower_styled(built);
+            look(field_node(&node).expect("a field"), &styles)
+        };
+        let key = || field(crate::Input::new("key", &text, "Key"), &TOUCH, &theme);
+        let calm = control(key());
+        assert_eq!(calm.border_widths.left, Some(px(1.).into()));
+        assert_eq!(calm.padding.left, Some(px(12.).into()));
+        let refused = control(key().problem("Too long."));
+        assert_eq!(refused.border_widths.left, Some(px(2.).into()));
+        assert_eq!(refused.border_color, Some(theme.danger));
+        assert_eq!(refused.padding.left, Some(px(11.).into()));
+        assert_eq!(
+            control(key().lead("search")).padding.left,
+            Some(px(38.).into())
+        );
+        let mono = control(key().mono());
+        assert_eq!(mono.text.font_family, Some(fonts::FAMILY_MONO.into()));
+        assert_eq!(mono.text.font_size, Some(TOUCH.secondary.size.into()));
+    }
+
+    /// Under a pointer a field is the desktop's control tall, its text the
+    /// desktop's body.
+    #[test]
+    fn under_a_pointer_a_field_is_the_desktops_control() {
+        let theme = Theme::light();
+        let text = crate::TextField::new("");
+        let built = field(crate::Input::new("name", &text, "Name"), &POINTER, &theme);
+        let (node, styles) = lower_styled(built.label("Name"));
+        assert_eq!(faults(&node), []);
+        let control = look(field_node(&node).expect("a field"), &styles);
+        assert_eq!(control.min_size.height, Some(POINTER.control.into()));
+        assert_eq!(control.text.font_size, Some(POINTER.body.size.into()));
+    }
+
+    /// A row's words are its title in body over a caption in caption
+    /// muted, 1 apart (`Row.tsx:58-69`), and the chevron after them is the
+    /// row icon's size, faint (`:75`); each by the ladder.
+    #[test]
+    fn a_rows_words_are_its_title_over_its_caption_one_apart() {
+        let theme = Theme::light();
+        for ladder in [&TOUCH, &POINTER] {
+            let words = row_words(row_title("Ada", ladder, &theme))
+                .child(row_caption("#42", ladder, &theme));
+            let (words, styles) = lower_styled(words);
+            assert_eq!(look(&words, &styles).gap.height, Some(px(1.).into()));
+            let [title, caption] = words.children() else {
+                panic!("a title and a caption: {words:?}")
+            };
+            let (title, caption) = (look(title, &styles), look(caption, &styles));
+            assert_eq!(title.text.font_size, Some(ladder.body.size.into()));
+            assert_eq!(title.text.color, Some(theme.foreground));
+            assert_eq!(caption.text.font_size, Some(ladder.caption.size.into()));
+            assert_eq!(caption.text.color, Some(theme.muted));
+            let (glyph, styles) = lower_styled(chevron(ladder, &theme));
+            let glyph = look(&glyph, &styles);
+            assert_eq!(glyph.size.height, Some(ladder.icon_row.into()));
+            assert_eq!(glyph.text.color, Some(theme.faint));
+        }
+    }
+
+    /// A form sheet's head holds its title as a level-2 heading in title
+    /// medium (`Agents.tsx:189-193`).
+    #[test]
+    fn a_sheet_title_is_a_level_2_heading_in_title_medium() {
+        let theme = Theme::light();
+        let (head, styles) = lower_styled(sheet_title("add", "Add an agent", &TOUCH, &theme));
+        assert_eq!(faults(&head), []);
+        let title = &head.children()[0];
+        let heading = interactivity(title);
+        assert_eq!(heading.role, Some(Role::Heading));
+        assert_eq!(heading.aria.level, Some(2));
+        let look = look(title, &styles);
+        assert_eq!(look.text.font_size, Some(TOUCH.title.size.into()));
+        assert_eq!(look.text.font_weight, Some(FontWeight::MEDIUM));
+    }
+
+    /// A form's verbs keep the kinds their caller built: Cancel, then the
+    /// verb taking the rest of the row (`Agents.tsx:224-232`).
+    #[test]
+    fn form_verbs_keep_the_kinds_their_caller_built() {
+        let theme = Theme::light();
+        let verbs = |cancel_kind: Kind, verb_kind: Kind| {
+            let (row, styles) = lower_styled(form_verbs(
+                button("cancel", "Cancel", &TOUCH, &theme, |_, _, _| {}).kind(cancel_kind),
+                button("add", "Add", &TOUCH, &theme, |_, _, _| {}).kind(verb_kind),
+            ));
+            let [cancel, rest] = row.children() else {
+                panic!("Cancel, then the verb's column: {row:?}")
+            };
+            assert_eq!(look(rest, &styles).flex_grow, Some(1.));
+            let verb = &rest.children()[0];
+            (
+                look(cancel, &styles).border_color,
+                look(verb, &styles).background,
+            )
+        };
+        assert_eq!(
+            verbs(Kind::Quiet, Kind::Primary),
+            (Some(Hsla::transparent_black()), Some(theme.primary.into()))
+        );
+        assert_eq!(
+            verbs(Kind::Outline, Kind::Outline),
+            (Some(theme.border_strong), None)
+        );
+    }
+
     /// A sheet row is one press the row's height; a hint trails its label
     /// in caption muted, and a row that destroys wears the danger tone.
     #[test]
-    fn a_sheet_row_is_one_press_whose_hint_trails_and_whose_danger_shows() {
+    fn under_touch_a_sheet_rows_hint_trails_and_its_danger_shows() {
         let theme = Theme::light();
+        let destroys = true;
         let (row, styles) = lower_styled(
             sheet_row("delete", "Delete", &TOUCH, &theme, |_, _, _| {})
                 .icon("trash")
                 .hint("3 files")
-                .danger(),
+                .when(destroys, SheetRow::danger),
         );
         let control = interactivity(&row);
         assert_eq!(control.role, Some(Role::Button));
         assert!(control.focusable && control.on_click.is_some());
         assert_eq!(faults(&row), []);
-        let look = |node: &wire::Node| styles[node.style().expect("a styled node")].clone();
-        assert_eq!(look(&row).size.height, Some(TOUCH.sheet_row.into()));
+        assert_eq!(
+            look(&row, &styles).size.height,
+            Some(TOUCH.sheet_row.into())
+        );
         let [glyph, label, hint] = row.children() else {
             panic!("a glyph, a label and a hint: {row:?}")
         };
-        assert_eq!(look(glyph).text.color, Some(theme.danger));
-        assert_eq!(look(label).text.color, Some(theme.danger));
-        assert_eq!(look(hint).text.color, Some(theme.muted));
-        assert_eq!(look(hint).text.font_size, Some(px(12.).into()));
+        assert_eq!(look(glyph, &styles).text.color, Some(theme.danger));
+        assert_eq!(look(label, &styles).text.color, Some(theme.danger));
+        let hint = look(hint, &styles);
+        assert_eq!(hint.text.color, Some(theme.muted));
+        assert_eq!(hint.text.font_size, Some(TOUCH.caption.size.into()));
+    }
+
+    /// Under a pointer a sheet row is the desktop's row tall and does not
+    /// dim.
+    #[test]
+    fn under_a_pointer_a_sheet_row_is_a_row_tall_and_does_not_dim() {
+        let theme = Theme::light();
+        let copy = sheet_row("copy", "Copy", &POINTER, &theme, |_, _, _| {}).hint("⌘C");
+        let (row, styles) = lower_styled(copy);
+        assert_eq!(faults(&row), []);
+        assert_eq!(
+            look(&row, &styles).size.height,
+            Some(POINTER.sheet_row.into())
+        );
+        assert_eq!(interactivity(&row).active, None);
     }
 
     /// A strip is the ladder's strip tall under a finger, and at least that
@@ -2725,8 +2903,11 @@ mod tests {
         let theme = Theme::light();
         let bar = |ladder: &Ladder| {
             let bar = composite("pages", Role::TabList, "Pages").build();
-            let (node, styles) = lower_styled(strip(bar, ladder, &theme));
-            styles[node.style().expect("a styled strip")].clone()
+            let files = tab("files", "Files", true, ladder, &theme, |_, _, _| {});
+            let (node, styles) =
+                lower_styled(strip(bar, ladder, &theme).child(item(files, Role::Tab, true)));
+            assert_eq!(faults(&node), []);
+            look(&node, &styles)
         };
         let touch = bar(&TOUCH);
         assert_eq!(touch.size.height, Some(px(44.).into()));
@@ -2736,11 +2917,11 @@ mod tests {
         assert_eq!(pointer.min_size.height, Some(POINTER.strip.into()));
     }
 
-    /// Under a finger an empty state is the kit's: centred, the glyph 28
-    /// faint over the title and the detail; a refused read is the kit's
-    /// danger notice, an alert whose Retry presses at 44.
+    /// Under a finger an empty state is the kit's: centred, 40 over and 32
+    /// in, the glyph 28 faint over the title and the detail
+    /// (`States.tsx:26-31`).
     #[test]
-    fn under_touch_an_empty_state_and_a_refused_read_are_the_kits() {
+    fn under_touch_an_empty_state_centres_its_glyph_over_its_words() {
         let theme = Theme::light();
         let (empty, styles) = lower_styled(empty_state(
             "none",
@@ -2750,30 +2931,58 @@ mod tests {
             &TOUCH,
             &theme,
         ));
-        let look = &styles[empty.style().expect("a styled state")];
-        assert_eq!(look.align_items, Some(gpui::AlignItems::Center));
-        assert_eq!(look.padding.top, Some(px(40.).into()));
-        assert_eq!(look.padding.left, Some(px(32.).into()));
-        let glyph = &styles[empty.children()[0].style().expect("a styled glyph")];
+        assert_eq!(faults(&empty), []);
+        let state = look(&empty, &styles);
+        assert_eq!(state.align_items, Some(gpui::AlignItems::Center));
+        assert_eq!(state.padding.top, Some(px(40.).into()));
+        assert_eq!(state.padding.left, Some(px(32.).into()));
+        let glyph = look(&empty.children()[0], &styles);
         assert_eq!(glyph.size.height, Some(px(28.).into()));
         assert_eq!(glyph.text.color, Some(theme.faint));
+    }
 
-        let (notice, styles) = lower_styled(div().w(px(360.)).child(refused(
-            "rooms",
-            "The node refused.",
-            &TOUCH,
+    /// Under a pointer an empty state is its title and detail alone, as the
+    /// desktop has always drawn it.
+    #[test]
+    fn under_a_pointer_an_empty_state_is_its_words_alone() {
+        let theme = Theme::light();
+        let (empty, _) = lower_styled(empty_state(
+            "none",
+            "users",
+            "No accounts",
+            "Nothing yet.",
+            &POINTER,
             &theme,
-            |_, _, _| {},
-        )));
-        crate::testing::assert_fits(&notice, &styles, 360., &TOUCH);
-        let notice = &notice.children()[0];
+        ));
+        assert_eq!(faults(&empty), []);
+        assert_eq!(empty.children().len(), 2);
+    }
+
+    /// Under a finger a refused read is the kit's danger notice, an alert
+    /// a screen reader says at once (`Notice.tsx:37`). Retry's press
+    /// reaches 8 past it on every side (`hitSlop`, `Notice.tsx:60`): 46
+    /// tall, a margin of -8 handing the room back, the word 16 in.
+    #[test]
+    fn under_touch_a_refused_read_is_an_alert_whose_retry_reaches_8_past_it() {
+        let theme = Theme::light();
+        let notice = refused("rooms", "The node refused.", &TOUCH, &theme, |_, _, _| {});
+        let (screen, styles) = lower_styled(div().w(px(360.)).child(notice));
+        assert_eq!(faults(&screen), []);
+        crate::testing::assert_fits(&screen, &styles, 360., &TOUCH);
+        let notice = &screen.children()[0];
         let alert = interactivity(notice);
         assert_eq!(alert.role, Some(Role::Alert));
         assert_eq!(alert.aria.live, Some(wire::Live::Assertive));
-        let retry = notice.children()[1].children().last().expect("the press");
+        let retry = &notice.children()[1];
         let control = interactivity(retry);
-        assert_eq!(control.aria.label.as_deref(), Some("Retry"));
         assert!(control.focusable && control.on_click.is_some());
+        let reach = look(retry, &styles);
+        assert_eq!(reach.size.height, Some(px(46.).into()));
+        assert_eq!(
+            (reach.margin.top, reach.margin.left),
+            (Some(px(-8.).into()), Some(px(-8.).into()))
+        );
+        assert_eq!(reach.padding.left, Some(px(16.).into()));
     }
 
     /// What the Expo kit sets `weight="medium"` asks for 500 under a
