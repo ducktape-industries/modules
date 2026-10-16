@@ -120,7 +120,8 @@ fn endpoints(
         .items_center()
         .gap(design::space::LG)
         .child(picker(Menu::Source, source))
-        .child(design::icon("arrow-right", ladder.icon_row).text_color(theme.foreground))
+        // the kit's `Icon` in its default tone (`Icon.tsx:8`)
+        .child(design::icon("arrow-right", ladder.icon_row).text_color(theme.muted))
         .child(picker(Menu::Target, ref_label(&form.into)));
     div()
         .flex()

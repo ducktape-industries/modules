@@ -156,7 +156,8 @@ impl Forge {
     }
 
     /// Opens `menu` under the press that asked for it, its filter box
-    /// empty and holding the keys, on the tab and the item it has picked,
+    /// empty and (under a pointer) holding the keys, on the tab and the item
+    /// it has picked,
     /// scrolled to the middle; Esc or a pick gives the keys back to the button
     /// ([`crate::ui::components::dropdown`]).
     pub(crate) fn open_dropdown(
@@ -177,7 +178,11 @@ impl Forge {
         self.menu_scroll
             .scroll_to_item(self.menu_cursor, ScrollStrategy::Center);
         self.open_menu(Some(menu), cx);
-        window.focus(crate::id(format!("{}-filter", menu.key())));
+        // under a finger the sheet opens with the keyboard down, as Expo's
+        // `RefSheet` does (its filter sets no `autoFocus`)
+        if !self.touch {
+            window.focus(crate::id(format!("{}-filter", menu.key())));
+        }
     }
 
     /// The arrows are on item `index` of the open dropdown, scrolled to.
