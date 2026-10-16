@@ -33,6 +33,19 @@ fn identity_moves(cx: &mut TestAppContext, height: u64) {
     cx.run_until_parked();
 }
 
+/// A press on `key` as the host sends it, to batch several in one tick.
+fn press(cx: &TestAppContext, key: &str) -> wire::Event {
+    let handler = cx.interactivity(key).on_click.expect("a click route");
+    wire::Event::Click {
+        handler,
+        event: (&view::ClickEvent::default()).into(),
+    }
+}
+
+fn focused(cx: &TestAppContext) -> Option<String> {
+    cx.focused().and_then(wire::Node::key).map(str::to_owned)
+}
+
 fn has_all(cx: &TestAppContext, texts: &[&str]) {
     for text in texts {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
@@ -503,6 +516,131 @@ fn an_added_key_closes_its_sheet() {
     assert!(cx.find("settings/agents/key/sheet").is_none());
 }
 
+/// An op settles the sheet it was sent from, not one opened while it was
+/// out: a Suspend that lands keeps a Rename opened meanwhile.
+#[test]
+fn a_landing_leaves_a_sheet_opened_meanwhile() {
+    let mut cx = agents();
+    cx.simulate_click("settings/agents/12");
+    cx.host()
+        .handle::<Submit<Identity>>(|_| Ok(view::testing::applied(Vec::new())));
+    let suspend = press(&cx, "settings/agents/12/suspend");
+    let rename = press(&cx, "settings/agents/12/rename/open");
+    cx.tick(vec![suspend, rename]);
+    assert!(cx.find("settings/agents/12/name").is_some());
+    cx.run_until_parked();
+    assert!(
+        cx.find("settings/agents/12/name").is_some(),
+        "the suspend's landing took the rename away: {:?}",
+        cx.texts()
+    );
+}
+
+/// A create that lands after its sheet was cancelled leaves the add-key
+/// sheet opened meanwhile open.
+#[test]
+fn a_create_landing_leaves_the_add_key_sheet_open() {
+    let mut cx = agents();
+    cx.simulate_click("settings/agents/create/open");
+    cx.simulate_input("settings/agents/create/name", "Bot");
+    cx.host()
+        .handle::<Submit<Identity>>(|_| Ok(view::testing::applied(Vec::new())));
+    let create = press(&cx, "settings/agents/create/submit");
+    let cancel = press(&cx, "settings/agents/create/cancel");
+    let key = press(&cx, "settings/agents/key/open");
+    cx.tick(vec![create, cancel, key]);
+    assert!(cx.find("settings/agents/key/sheet").is_some());
+    cx.run_until_parked();
+    assert!(
+        cx.find("settings/agents/key/sheet").is_some(),
+        "the create's landing closed the add-key sheet: {:?}",
+        cx.texts()
+    );
+}
+
+/// Back is there exactly while a sheet is drawn: an agent gone from a
+/// failed read takes its sheet, and Back, with it.
+#[test]
+fn back_goes_with_the_sheet_a_failed_read_took() {
+    let mut cx = agents();
+    cx.simulate_click("settings/agents/12");
+    assert!(cx.back_handler().is_some());
+    cx.host()
+        .refuse::<Query<Identity>>("unavailable", "Account query refused.");
+    identity_moves(&mut cx, 50);
+    assert!(cx.find("settings/agents/12/sheet").is_none());
+    assert_eq!(cx.back_handler(), None);
+}
+
+/// A sheet closed with something typed and not sent opens empty again.
+#[test]
+fn a_closed_sheet_forgets_what_was_not_sent() {
+    let mut cx = agents();
+    cx.simulate_click("settings/agents/create/open");
+    cx.simulate_input("settings/agents/create/name", "Half");
+    cx.simulate_back();
+    cx.simulate_click("settings/agents/key/open");
+    cx.simulate_input("settings/agents/key/request", "zz");
+    cx.simulate_click("settings/agents/key/submit");
+    assert!(cx.has_text("That isn’t a key request for one of your agents."));
+    cx.simulate_back();
+    cx.simulate_click("settings/agents/create/open");
+    let Some(wire::Node::Field { value, .. }) = cx.find("settings/agents/create/name") else {
+        panic!("the name field: {:?}", cx.texts())
+    };
+    assert_eq!(value, "");
+    cx.simulate_back();
+    cx.simulate_click("settings/agents/key/open");
+    assert!(!cx.has_text("That isn’t a key request for one of your agents."));
+}
+
+/// The create and rename fields take the keyboard as they open (Expo
+/// `autoFocus`).
+#[test]
+fn a_name_field_takes_the_keyboard_as_it_opens() {
+    let mut cx = agents();
+    cx.simulate_click("settings/agents/create/open");
+    assert_eq!(focused(&cx).as_deref(), Some("settings/agents/create/name"));
+    cx.simulate_back();
+    cx.simulate_click("settings/agents/12");
+    cx.simulate_click("settings/agents/12/rename/open");
+    assert_eq!(focused(&cx).as_deref(), Some("settings/agents/12/name"));
+}
+
+/// A refused choice says why on its own line, not in the person field.
+#[test]
+fn a_refused_choice_has_its_own_line() {
+    let (mut cx, _) = answering(identity::Audience::Accounts(vec![8]));
+    on_phone(&mut cx);
+    cx.host()
+        .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
+    cx.simulate_click("settings/agents/12");
+    cx.simulate_click("settings/agents/12/answers/open");
+    cx.simulate_click("settings/agents/12/answers/anyone");
+    cx.run_until_parked();
+    assert!(cx.has_text("That didn’t go through: account 7 does not manage account 12"));
+    let Some(wire::Node::Field { options, .. }) = cx.find("settings/agents/12/answers/name") else {
+        panic!("the person field: {:?}", cx.texts())
+    };
+    assert!(
+        options.invalid.is_none(),
+        "the refusal is the choice's, not the field's"
+    );
+}
+
+/// Whom it answers opens tall, its body scrolling (Expo opens it at 85%).
+#[test]
+fn whom_it_answers_opens_tall_and_scrolls() {
+    let mut cx = agents();
+    cx.simulate_click("settings/agents/12");
+    cx.simulate_click("settings/agents/12/answers/open");
+    let wire::Node::Sheet { detents, .. } = cx.node("settings/agents/12/sheet") else {
+        panic!("the agent's sheet")
+    };
+    assert_eq!(detents, &[0.85, 1.0]);
+    assert!(cx.find("settings/agents/12/scroll").is_some());
+}
+
 /// Every phone field says what keyboard it wants (rule 7).
 #[test]
 fn the_phones_fields_carry_their_keyboard_hints() {
@@ -513,8 +651,9 @@ fn the_phones_fields_carry_their_keyboard_hints() {
         options.text_input
     };
     let account = phone("unregistered");
+    // Expo's fields set none: React Native's default, sentences
     let name = hints(&account, "settings/account/create/name");
-    assert_eq!(name.autocapitalize, wire::Autocapitalize::Words);
+    assert_eq!(name.autocapitalize, wire::Autocapitalize::Sentences);
 
     let mut cx = agents();
     cx.simulate_click("settings/agents/key/open");
@@ -524,12 +663,12 @@ fn the_phones_fields_carry_their_keyboard_hints() {
     cx.simulate_back();
     cx.simulate_click("settings/agents/create/open");
     let name = hints(&cx, "settings/agents/create/name");
-    assert_eq!(name.autocapitalize, wire::Autocapitalize::Words);
+    assert_eq!(name.autocapitalize, wire::Autocapitalize::Sentences);
     cx.simulate_back();
     cx.simulate_click("settings/agents/12");
     cx.simulate_click("settings/agents/12/rename/open");
     let rename = hints(&cx, "settings/agents/12/name");
-    assert_eq!(rename.autocapitalize, wire::Autocapitalize::Words);
+    assert_eq!(rename.autocapitalize, wire::Autocapitalize::Sentences);
     cx.simulate_click("settings/agents/12/rename/cancel");
     cx.simulate_click("settings/agents/12/answers/open");
     cx.simulate_click("settings/agents/12/answers/specific");

@@ -79,10 +79,32 @@ impl Sheet {
     }
 }
 
+/// Whom one agent answers, as its manager changes it.
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub(crate) struct Answering {
+    /// Specific picked with nobody added yet: the field shows before
+    /// anything is sent
     pub(crate) listing: bool,
+    /// Only me or Anyone, sent from the choice
+    pub(crate) pick: Form,
+    /// the person typed in the field; adding or removing one
     pub(crate) form: Form,
+}
+
+impl Answering {
+    /// A change to whom it answers is in flight, the choice's or a person's.
+    pub(crate) fn busy(&self) -> bool {
+        self.pick.busy || self.form.busy
+    }
+
+    /// The form that says what stopped the last change; each change clears
+    /// the other's, so at most one has a problem.
+    pub(crate) fn stopped(&self) -> &Form {
+        match self.pick.problem {
+            Some(_) => &self.pick,
+            None => &self.form,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

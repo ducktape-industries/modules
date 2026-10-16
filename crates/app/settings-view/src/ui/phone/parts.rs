@@ -21,6 +21,9 @@ const TITLE_GAP: Pixels = px(1.);
 /// A stopped field's text inset: its edge goes 2 thick in the danger tone,
 /// so the text moves one in to stay put (Expo `src/kit/Field.tsx:52`).
 const STOPPED_INSET: Pixels = px((design::spacing::LG - 1.) as f32);
+/// A stopped field of many lines moves its lines one in from the top and
+/// bottom too (Expo `src/kit/Field.tsx:79`).
+pub(super) const STOPPED_LINES: Pixels = px((design::spacing::MD - 1.) as f32);
 
 /// A column of a pane or a sheet, its children edge to edge.
 pub(super) fn column(id: impl Into<ElementId>) -> Stateful<Div> {
@@ -41,7 +44,8 @@ pub(super) fn name_input(
     Input::new(id, &form.text, label)
         .placeholder(prompt)
         .disabled(form.busy)
-        .autocapitalize(Autocapitalize::Words)
+        // Expo's fields set none: React Native's default, sentences
+        .autocapitalize(Autocapitalize::Sentences)
         .when_some(problem, |input, problem| {
             input.invalid(Invalid::True).description(problem)
         })

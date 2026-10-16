@@ -441,7 +441,7 @@ fn answers(
     let number = agent.number;
     let answering = view.answering.get(&number);
     let listing = answering.is_some_and(|answering| answering.listing);
-    let busy = answering.is_some_and(|answering| answering.form.busy);
+    let busy = answering.is_some_and(Answering::busy);
     let shown = Choice::shown(&agent.audience, listing);
     let choices = shared::audience_choices(agent, shown, cx, ladder, theme);
     let open_to_anyone = agent.audience == Audience::Anyone;
@@ -468,7 +468,7 @@ fn answers(
     let refused = answering.and_then(|answering| {
         problem(
             &format!("agents/{number}/answers"),
-            &answering.form,
+            answering.stopped(),
             words::ADD_PERSON.empty,
             theme,
         )

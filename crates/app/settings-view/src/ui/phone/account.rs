@@ -181,6 +181,7 @@ fn account_pane(
         }
         Loadable::Failed(refusal) => {
             let retry = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.read_account(cx));
+            // SDK gap: the refused read as a full-width Notice, swap when feat/phone-kit lands
             design::refused(
                 "settings/account",
                 refusal.message.clone(),
@@ -244,6 +245,7 @@ fn no_account(view: &Settings, ladder: &Ladder, theme: &Theme) -> Stateful<Div> 
             ladder,
             theme,
         ),
+        // SDK gap: the centred empty state with its icon, swap when feat/phone-kit lands
         _ => design::empty_state(
             "settings/account/empty",
             words::NO_ACCOUNT,
@@ -348,6 +350,7 @@ fn create_account(
     );
     let pressed =
         cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_create_account(cx));
+    // SDK gap: the busy button with its spinner, swap when feat/phone-kit lands
     let create = design::button(
         "settings/account/create/submit",
         if form.busy {

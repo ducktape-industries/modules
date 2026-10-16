@@ -29,18 +29,30 @@ impl Settings {
         cx.notify();
     }
 
-    /// Closes the open sheet (Back, or its Cancel). An agent's sheet opens on
-    /// its actions next time: a rename not sent and a Specific that listed
-    /// nobody go with it (Expo `AgentSheet`'s close).
+    /// Closes the open sheet (Back, or its Cancel). What it held and did not
+    /// send goes with it, so it opens afresh next time: an agent's sheet on
+    /// its actions, with no rename, no Specific that listed nobody and no
+    /// person typed; an add sheet empty (Expo `Agents.tsx`'s closes). A form
+    /// in flight keeps going; its landing settles it.
     pub(crate) fn close_sheet(&mut self, cx: &mut Context<Self>) {
-        if let Some(Sheet::Actions(number) | Sheet::Rename(number) | Sheet::Answers(number)) =
-            self.sheet.take()
-        {
-            self.rename_agent
-                .retain(|agent, form| *agent != number || form.busy);
-            if let Some(answering) = self.answering.get_mut(&number) {
-                answering.listing = false;
+        let unsent = |form: &mut Form| {
+            if !form.busy {
+                *form = Form::default();
             }
+        };
+        match self.sheet.take() {
+            Some(Sheet::Actions(number) | Sheet::Rename(number) | Sheet::Answers(number)) => {
+                self.rename_agent
+                    .retain(|agent, form| *agent != number || form.busy);
+                if let Some(answering) = self.answering.get_mut(&number) {
+                    answering.listing = false;
+                    unsent(&mut answering.pick);
+                    unsent(&mut answering.form);
+                }
+            }
+            Some(Sheet::CreateAgent) => unsent(&mut self.create_agent),
+            Some(Sheet::AddKey) => unsent(&mut self.agent_key),
+            None => {}
         }
         cx.notify();
     }
@@ -188,7 +200,7 @@ impl Settings {
 
     fn open_people(&mut self, number: u64, cx: &mut Context<Self>) {
         let answering = self.answering.entry(number).or_default();
-        if answering.form.busy {
+        if answering.busy() {
             return;
         }
         answering.listing = true;
@@ -197,10 +209,11 @@ impl Settings {
 
     fn answer(&mut self, number: u64, audience: Audience, cx: &mut Context<Self>) {
         let answering = self.answering.entry(number).or_default();
-        if answering.form.busy {
+        if answering.busy() {
             return;
         }
         answering.listing = false;
+        answering.pick.problem = None;
         answering.form.problem = None;
         let unchanged = self
             .agent(number)
@@ -209,7 +222,7 @@ impl Settings {
             cx.notify();
             return;
         }
-        self.submit_audience(number, audience, cx);
+        self.submit_audience(number, audience, |answering| &mut answering.pick, cx);
     }
 
     pub(crate) fn submit_audience_person(&mut self, number: u64, cx: &mut Context<Self>) {
@@ -222,10 +235,11 @@ impl Settings {
             cx.notify();
             return;
         };
-        let form = &mut answering.form;
-        if form.busy {
+        if answering.busy() {
             return;
         }
+        answering.pick.problem = None;
+        let form = &mut answering.form;
         let typed = form.text.text().trim().to_string();
         if typed.is_empty() {
             form.problem = Some(Problem::Empty);
@@ -252,7 +266,8 @@ impl Settings {
             Ok(Found::Account(person)) => {
                 let mut listed = self.listed(number);
                 listed.push(person);
-                return self.submit_audience(number, Audience::Accounts(listed), cx);
+                let audience = Audience::Accounts(listed);
+                return self.submit_audience(number, audience, |answering| &mut answering.form, cx);
             }
             Ok(Found::Nobody) => Problem::NoSuchAccount,
             Ok(Found::Several) => Problem::SeveralAccounts,
@@ -270,17 +285,26 @@ impl Settings {
     ) {
         let mut listed = self.listed(number);
         listed.retain(|listed| *listed != person);
-        self.submit_audience(number, Audience::Accounts(listed), cx);
+        let audience = Audience::Accounts(listed);
+        self.submit_audience(number, audience, |answering| &mut answering.form, cx);
     }
 
-    fn submit_audience(&mut self, number: u64, audience: Audience, cx: &mut Context<Self>) {
+    /// Sends whom an agent answers; `which` of its forms carries the send
+    /// (the choice's, or the person field's).
+    fn submit_audience(
+        &mut self,
+        number: u64,
+        audience: Audience,
+        which: fn(&mut Answering) -> &mut Form,
+        cx: &mut Context<Self>,
+    ) {
         let op = identity::Op::SetAudience {
             account: number,
             audience,
         };
         self.submit_agent_op(
             op,
-            move |v| &mut v.answering.entry(number).or_default().form,
+            move |v| which(v.answering.entry(number).or_default()),
             cx,
         );
     }
@@ -341,6 +365,9 @@ impl Settings {
         pending.busy = true;
         pending.problem = None;
         cx.notify();
+        // the sheet this op was sent from; another opened meanwhile is not
+        // this op's to move
+        let from = self.sheet;
         let ask = cx.host().ask::<Submit<Identity>>(op);
         cx.land(ask, move |view, result, cx| {
             let landed = matches!(result, Ok(Submitted::Applied { .. }));
@@ -361,8 +388,8 @@ impl Settings {
             view.rename_agent.retain(|_, form| {
                 form.busy || form.problem.is_some() || !form.text.text().is_empty()
             });
-            if landed {
-                view.sheet = view.sheet.and_then(Sheet::after_landing);
+            if landed && view.sheet == from {
+                view.sheet = from.and_then(Sheet::after_landing);
             }
             view.refresh_account(cx);
             cx.notify();
