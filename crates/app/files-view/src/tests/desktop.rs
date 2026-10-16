@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use files::DiffKind;
 use view::methods::{Query as Ask, Submit};
+use view::wire;
 
 use super::*;
 use crate::words;
@@ -406,4 +407,134 @@ fn a_removed_folder_returns_to_the_folder_it_was_in() {
     commit_form(&mut cx);
     assert!(cx.has_text("notes.txt"), "{:?}", cx.texts());
     assert!(cx.find("files/entry/docs").is_none());
+}
+
+#[test]
+fn a_wide_pane_lists_the_places_down_the_side_in_place_of_the_tabs() {
+    let net = seeded();
+    let mut cx = desktop_at(&net, 1000.);
+    assert!(cx.find("files-side").is_some(), "{:?}", cx.texts());
+    assert!(cx.find("files-tabs").is_none());
+    assert!(
+        cx.find("files/side/pin/v1").is_some(),
+        "the pins are listed"
+    );
+    cx.simulate_click("files/side/home");
+    cx.run_until_parked();
+    assert!(cx.has_text(words::KIND), "a wide folder lists in columns");
+    assert!(cx.has_text("Text"), "{:?}", cx.texts());
+    cx.simulate_resize(700., 900.);
+    cx.run_until_parked();
+    assert!(cx.find("files-side").is_none());
+    assert!(
+        cx.find("files-tabs").is_some(),
+        "narrowed, the tabs are back"
+    );
+}
+
+#[test]
+fn split_a_file_opens_beside_its_folder_and_a_folder_there_takes_its_place() {
+    let net = seeded();
+    let mut cx = desktop_at(&net, 1440.);
+    cx.simulate_click("files/side/home");
+    cx.run_until_parked();
+    assert!(cx.has_text(words::PICK_A_FILE));
+    cx.simulate_click("files/entry/notes.txt");
+    cx.run_until_parked();
+    assert!(cx.find("files-list").is_some() && cx.find("files-detail").is_some());
+    assert!(cx.has_text(NOTES), "the file shows: {:?}", cx.texts());
+    assert!(cx.has_text("docs"), "its folder stays listed beside it");
+    cx.simulate_click("files/entry/docs");
+    cx.run_until_parked();
+    assert!(cx.has_text("plan.md"), "{:?}", cx.texts());
+    assert!(
+        cx.has_text(words::PICK_A_FILE),
+        "the folder took the file's place"
+    );
+}
+
+#[test]
+fn split_a_snapshot_opens_beside_the_history() {
+    let net = seeded();
+    let mut cx = desktop_at(&net, 1440.);
+    cx.simulate_click("files/side/pin/v1");
+    cx.run_until_parked();
+    assert!(cx.has_text(words::FIRST_SNAPSHOT), "{:?}", cx.texts());
+    assert!(
+        cx.has_text("Say more"),
+        "the history stays listed beside it"
+    );
+}
+
+#[test]
+fn an_image_shows_as_its_picture() {
+    let net = seeded();
+    let mut cx = desktop(&net);
+    cx.simulate_click("files/place/shared");
+    cx.run_until_parked();
+    cx.simulate_click("files/entry/dot.png");
+    cx.run_until_parked();
+    assert!(shows(&cx, "Image · 67 bytes"), "{:?}", cx.texts());
+    assert!(
+        matches!(cx.find("files-picture"), Some(wire::Node::Image { .. })),
+        "{:?}",
+        cx.texts()
+    );
+}
+
+/// A file at `/shared/<name>` that begins as a PNG and is `size` bytes in
+/// all, committed by dev; then its page, the `Read`s it asked counted.
+fn picture_page(size: usize) -> (TestAppContext, Rc<Cell<u32>>) {
+    let net = seeded();
+    let mut bytes = PNG.to_vec();
+    bytes.resize(size, 0);
+    commit(
+        &net,
+        net.me(),
+        "A big picture",
+        vec![put("/shared/big.png", &bytes)],
+    );
+    let mut cx = desktop(&net);
+    let reads = Rc::new(Cell::new(0));
+    let counted = reads.clone();
+    let chain = net.clone();
+    cx.host().handle::<Ask<files::Files>>(move |query| {
+        if matches!(query, files::Query::Read { .. }) {
+            counted.set(counted.get() + 1);
+        }
+        chain.query(files::PROGRAM, &query)
+    });
+    cx.simulate_click("files/place/shared");
+    cx.run_until_parked();
+    cx.simulate_click("files/entry/big.png");
+    cx.run_until_parked();
+    (cx, reads)
+}
+
+#[test]
+fn a_picture_larger_than_one_read_is_read_whole_at_one_snapshot() {
+    let size = 2 * files::CHUNK_SIZE as usize + 8;
+    let (cx, reads) = picture_page(size);
+    // the first 64 KiB, then a chunk at a time
+    assert_eq!(reads.get(), 3);
+    let Some(wire::Node::Image {
+        data: Some(wire::ImageData::Encoded(bytes)),
+        ..
+    }) = cx.find("files-picture")
+    else {
+        panic!("no picture: {:?}", cx.texts());
+    };
+    assert_eq!(bytes.len(), size);
+}
+
+#[test]
+fn a_picture_too_large_to_draw_says_its_size_and_is_not_read_on() {
+    let (cx, reads) = picture_page(crate::state::SHOW_MOST as usize + 1);
+    assert_eq!(
+        reads.get(),
+        1,
+        "only the first bytes, which say it is a picture"
+    );
+    assert!(cx.find("files-picture").is_none());
+    assert!(shows(&cx, "only one of 8.0 MB or less"), "{:?}", cx.texts());
 }

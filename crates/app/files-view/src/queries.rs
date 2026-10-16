@@ -2,10 +2,15 @@
 //! snapshot: the first answer names it, and every later page and read of
 //! the same screen asks that snapshot, so a commit landing in between never
 //! mixes two trees on one page.
+use std::sync::Arc;
+
 use files::{BlobId, PageRequest};
 use view::prelude::*;
 
-use crate::state::{Folder, HISTORY_PAGE, History, Names, Opened, PREVIEW, ROOT, Snapshot};
+use crate::state::{
+    Folder, HISTORY_PAGE, History, Names, Opened, PREVIEW, ROOT, SHOW_MOST, Snapshot,
+    picture_format,
+};
 
 /// A folder's entries, every page of them, and who writes it.
 pub(crate) async fn folder(host: Host, path: String) -> Result<Folder, Error> {
@@ -53,7 +58,8 @@ async fn ownership(
         .map(Some)
 }
 
-/// What is at `path`, its first [`PREVIEW`] bytes, and who writes it.
+/// What is at `path`, its first [`PREVIEW`] bytes (the whole of a
+/// picture the app draws), and who writes it.
 pub(crate) async fn file(host: Host, path: String) -> Result<Opened, Error> {
     let (snapshot, entry) = host
         .query(files::ask::Stat {
@@ -64,7 +70,7 @@ pub(crate) async fn file(host: Host, path: String) -> Result<Opened, Error> {
     let readable = entry
         .as_ref()
         .is_some_and(|entry| !matches!(entry.node, files::Node::Dir { .. }));
-    let (bytes, whole) = match readable {
+    let (bytes, whole, picture) = match readable {
         true => {
             let contents = host
                 .query(files::ask::Read {
@@ -74,9 +80,10 @@ pub(crate) async fn file(host: Host, path: String) -> Result<Opened, Error> {
                     len: PREVIEW,
                 })
                 .await?;
-            (contents.bytes, contents.eof)
+            let picture = picture(&host, &path, snapshot, &contents).await?;
+            (contents.bytes, contents.eof, picture)
         }
-        false => (Vec::new(), true),
+        false => (Vec::new(), true, None),
     };
     let ownership = match entry {
         Some(_) => ownership(&host, &path, snapshot).await?,
@@ -88,8 +95,45 @@ pub(crate) async fn file(host: Host, path: String) -> Result<Opened, Error> {
         entry,
         bytes,
         whole,
+        picture,
         ownership,
     })
+}
+
+/// The whole picture a file's first bytes begin, read on from them a
+/// chunk at a time at the same snapshot; `None` when they begin none, or
+/// the file holds more than [`SHOW_MOST`].
+async fn picture(
+    host: &Host,
+    path: &str,
+    at: Option<BlobId>,
+    first: &files::Contents,
+) -> Result<Option<Arc<Image>>, Error> {
+    let Some(format) = picture_format(&first.bytes) else {
+        return Ok(None);
+    };
+    if first.size > SHOW_MOST {
+        return Ok(None);
+    }
+    let mut bytes = first.bytes.clone();
+    let mut eof = first.eof;
+    while !eof {
+        let next = host
+            .query(files::ask::Read {
+                path: path.to_owned(),
+                at,
+                offset: bytes.len() as u64,
+                len: files::CHUNK_SIZE,
+            })
+            .await?;
+        // a read that brings nothing would never end the loop
+        if next.bytes.is_empty() {
+            break;
+        }
+        eof = next.eof;
+        bytes.extend(next.bytes);
+    }
+    Ok(Some(Arc::new(Image::from_bytes(format, bytes))))
 }
 
 /// The newest [`HISTORY_PAGE`] snapshots, and every pin.

@@ -1,10 +1,10 @@
 //! Every sentence, label and status word both designs show, once: the
 //! desktop's pages (`ui/`) and the phone's screens (`ui/phone/`) word
 //! things from here and never type a sentence the other also types.
-use files::{Change, DiffEntry, DiffKind, Node, Principal, SnapshotRow};
+use files::{Change, DiffEntry, DiffKind, EntryInfo, Node, Principal, SnapshotRow};
 use view::design::{date, grouped, plural};
 
-use crate::state::{Names, NoHome, Note, PREVIEW, Place, name_of};
+use crate::state::{Holds, Names, NoHome, Note, PREVIEW, Place, SHOW_MOST, holds_by_name, name_of};
 use crate::write::{Naming, Write};
 
 pub const TITLE: &str = "Files";
@@ -32,6 +32,14 @@ pub const READING_FOLDER: &str = "Reading the folder…";
 pub const READING_FILE: &str = "Reading the file…";
 pub const READING_HISTORY: &str = "Reading the history…";
 pub const READING_SNAPSHOT: &str = "Reading the snapshot…";
+pub const READING_PICTURE: &str = "Reading the image…";
+/// What an image that does not draw says in its place.
+pub const NOT_DRAWN: &str = "This image does not draw here.";
+
+/// What the detail pane beside a folder's list says before a file opens.
+pub const PICK_A_FILE: &str = "Open a file to see it here.";
+/// What the detail pane beside the history says before a snapshot opens.
+pub const PICK_A_SNAPSHOT: &str = "Open a snapshot to see what it changed.";
 
 pub const EMPTY_FOLDER: &str = "Nothing here yet";
 pub const EMPTY_WRITABLE: &str = "Make a folder or a text file here.";
@@ -154,14 +162,34 @@ pub fn entry_caption(node: &Node) -> String {
     }
 }
 
-/// What a file holds, in a word: text, a link, or bytes that are not text.
-pub fn kind(node: &Node, text: bool) -> &'static str {
-    match (node, text) {
+/// What a node holds, in a word: a folder, a link, an image, text, or
+/// bytes that are neither; a file by `holds`.
+pub fn kind(node: &Node, holds: Holds) -> &'static str {
+    match (node, holds) {
         (Node::Symlink { .. }, _) => "Link",
         (Node::Dir { .. }, _) => "Folder",
-        (_, true) => "Text",
-        (_, false) => "Not text",
+        (_, Holds::Picture) => "Image",
+        (_, Holds::Text) => "Text",
+        (_, Holds::Bytes) => "Not text",
     }
+}
+
+/// What a folder's entry holds, in a word, by its name: a listing
+/// carries no bytes, so a file is one it does not know only as a file.
+pub fn entry_kind(entry: &EntryInfo) -> &'static str {
+    match (&entry.node, holds_by_name(name_of(&entry.path))) {
+        (Node::File { .. }, Holds::Bytes) => "File",
+        (node, holds) => kind(node, holds),
+    }
+}
+
+/// What a picture too large to draw here says in its place.
+pub fn too_big_to_show(size: u64) -> String {
+    format!(
+        "An image of {}: only one of {} or less is drawn here.",
+        self::size(size),
+        self::size(SHOW_MOST)
+    )
 }
 
 /// Why only part of a file shows.

@@ -66,6 +66,7 @@ impl View for Files {
 
 impl Render for Files {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.width = window.viewport_size().width.into();
         // two designs, picked once: under a finger the phone's screens
         // (`ui/phone`), under a pointer the desktop's pages
         if window.touch() {

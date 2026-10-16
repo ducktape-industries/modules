@@ -5,7 +5,7 @@ use view::prelude::*;
 
 use files::BlobId;
 
-use crate::state::Route;
+use crate::state::{Route, parent_of};
 use crate::{Files, queries};
 
 impl Files {
@@ -16,8 +16,16 @@ impl Files {
             // the places name the newest snapshots
             Route::Places | Route::History => self.read_history(cx),
             Route::Folder(path) => self.read_folder(path, cx),
-            Route::File(path) => self.read_file(path, cx),
-            Route::Snapshot(id) => self.read_snapshot(id, cx),
+            // a file and a snapshot also read the list they are in, which
+            // a wide desktop shows beside them
+            Route::File(path) => {
+                self.read_folder(parent_of(&path).to_owned(), cx);
+                self.read_file(path, cx);
+            }
+            Route::Snapshot(id) => {
+                self.read_history(cx);
+                self.read_snapshot(id, cx);
+            }
         }
     }
 

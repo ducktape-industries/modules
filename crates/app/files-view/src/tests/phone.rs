@@ -55,6 +55,16 @@ fn a_file_screen_shows_what_it_is_and_its_text() {
 }
 
 #[test]
+fn an_image_screen_shows_its_picture() {
+    let net = seeded();
+    let mut cx = phone(&net);
+    tap(&mut cx, "files/place/shared");
+    tap(&mut cx, "files/entry/dot.png");
+    assert!(cx.has_text("Image"), "{:?}", cx.texts());
+    assert!(cx.find("files-picture").is_some(), "{:?}", cx.texts());
+}
+
+#[test]
 fn an_empty_folder_says_what_would_fill_it() {
     let net = seeded();
     // the newest snapshot's byline is drawn: its time pinned as the seed's
@@ -197,6 +207,12 @@ fn every_screen_and_sheet_fits_a_phone() {
         tap(cx, "files/begin/edit");
         cx.simulate_back();
         cx.run_until_parked();
+        cx.simulate_back();
+        cx.run_until_parked();
+        cx.simulate_back();
+        cx.run_until_parked();
+        tap(cx, "files/place/shared");
+        tap(cx, "files/entry/dot.png");
         cx.simulate_back();
         cx.run_until_parked();
         cx.simulate_back();

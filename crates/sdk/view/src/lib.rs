@@ -9,12 +9,12 @@ extern crate self as view;
 pub use gpui::{
     Anchor, AnchoredPositionMode, Bounds, ClickEvent, CursorStyle, Edges, ElementId, EventEmitter,
     FileDropEvent, FollowMode, FontStyle, FontWeight, Global, HighlightStyle, HoverListenerMode,
-    Hsla, KeyDownEvent, KeyUpEvent, Keystroke, ListAlignment, ListHorizontalSizingBehavior,
-    ListOffset, ListScrollEvent, ListSizingBehavior, Modifiers, ModifiersChangedEvent, MouseButton,
-    MouseDownEvent, MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit,
-    PinchEvent, Pixels, Point, Resource, Role, ScrollStrategy, ScrollWheelEvent, SharedString,
-    StrikethroughStyle, StyleRefinement, Styled, Subscription, TextRun, TextStyle, Toggled,
-    UnderlineStyle, hsla, px, rems, rgb,
+    Hsla, Image, ImageFormat, KeyDownEvent, KeyUpEvent, Keystroke, ListAlignment,
+    ListHorizontalSizingBehavior, ListOffset, ListScrollEvent, ListSizingBehavior, Modifiers,
+    ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
+    MousePressureEvent, MouseUpEvent, ObjectFit, PinchEvent, Pixels, Point, Resource, Role,
+    ScrollStrategy, ScrollWheelEvent, SharedString, StrikethroughStyle, StyleRefinement, Styled,
+    Subscription, TextRun, TextStyle, Toggled, UnderlineStyle, hsla, px, rems, rgb,
 };
 pub use view_derive::IntoElement;
 pub use view_wire as wire;
@@ -72,17 +72,18 @@ pub mod prelude {
     pub use crate::{
         AnyElement, AnyView, App, Autocapitalize, BackEvent, Bounds, ClickEvent, Context, Element,
         ElementId, Entity, EventEmitter, FileDropEvent, FluentBuilder, FocusHandle, FollowMode,
-        Global, Host, HoverListenerMode, Hsla, Input, InteractiveElement, InteractiveText,
-        IntoElement, KeyDownEvent, KeyUpEvent, List, ListAlignment, ListHorizontalSizingBehavior,
-        ListOffset, ListScrollEvent, ListSizingBehavior, ListState, Loadable, MediaState,
-        MediaStatus, MicHandle, ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseExitEvent,
-        MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit, ParentElement, PinchEvent,
-        Pixels, Playback, Render, RenderOnce, Role, ScrollHandle, ScrollStrategy, ScrollWheelEvent,
-        SharedString, StatefulInteractiveElement, Styled, StyledImage, StyledText, Subscription,
-        Task, TextField, TextInputAction, Textarea, Theme, UniformListScrollHandle, View,
-        VirtualKeyboard, WebHandle, WebState, Window, anchored, camera, canvas, deferred, design,
-        div, export_notifier, export_view, hsla, img, list, microphone, modal_overlay, px, rems,
-        resize_handle, rgb, sensor, sheet, svg, uniform_list, web,
+        Global, Host, HoverListenerMode, Hsla, Image, ImageFormat, Input, InteractiveElement,
+        InteractiveText, IntoElement, KeyDownEvent, KeyUpEvent, List, ListAlignment,
+        ListHorizontalSizingBehavior, ListOffset, ListScrollEvent, ListSizingBehavior, ListState,
+        Loadable, MediaState, MediaStatus, MicHandle, ModifiersChangedEvent, MouseButton,
+        MouseDownEvent, MouseExitEvent, MouseMoveEvent, MousePressureEvent, MouseUpEvent,
+        ObjectFit, ParentElement, PinchEvent, Pixels, Playback, Render, RenderOnce, Role,
+        ScrollHandle, ScrollStrategy, ScrollWheelEvent, SharedString, StatefulInteractiveElement,
+        Styled, StyledImage, StyledText, Subscription, Task, TextField, TextInputAction, Textarea,
+        Theme, UniformListScrollHandle, View, VirtualKeyboard, WebHandle, WebState, Window,
+        anchored, camera, canvas, deferred, design, div, export_notifier, export_view, hsla, img,
+        list, microphone, modal_overlay, px, rems, resize_handle, rgb, sensor, sheet, svg,
+        uniform_list, web,
     };
 }
 mod text;
