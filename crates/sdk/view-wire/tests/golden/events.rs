@@ -372,6 +372,7 @@ pub fn every_event() -> Vec<Event> {
                 detail: "the driver stopped".into(),
                 speaking: true,
                 opens_settings: true,
+                monitor_stopped: true,
             },
         },
     ]

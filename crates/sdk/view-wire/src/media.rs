@@ -81,4 +81,10 @@ pub struct MediaState {
     /// [`Place::CameraSettings`]: crate::methods::Place::CameraSettings
     /// [`Place::MicrophoneSettings`]: crate::methods::Place::MicrophoneSettings
     pub opens_settings: bool,
+    /// A microphone's: the host stopped its monitor under the view (the
+    /// sound fell to a loudspeaker, where it would howl, or the speaker
+    /// failed) and holds it off, whatever the node's `monitor` says, until
+    /// a frame sends `monitor: false`. A view turns its own switch off on
+    /// it; a camera's is always `false`.
+    pub monitor_stopped: bool,
 }
