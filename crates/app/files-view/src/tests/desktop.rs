@@ -1,13 +1,14 @@
 //! The desktop's pages over the seeded network: what each page shows, a
 //! refused read, and each write committed through the real program, as dev.
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use files::DiffKind;
+use files::{BlobId, DiffKind, Node};
 use view::methods::{Query as Ask, Submit};
 use view::wire;
 
 use super::*;
+use crate::state::{Holds, SHOW_MOST};
 use crate::words;
 
 /// The place in the texts on screen of the first text containing `part`.
@@ -422,7 +423,11 @@ fn a_wide_pane_lists_the_places_down_the_side_in_place_of_the_tabs() {
     cx.simulate_click("files/side/home");
     cx.run_until_parked();
     assert!(cx.has_text(words::KIND), "a wide folder lists in columns");
-    assert!(cx.has_text("Text"), "{:?}", cx.texts());
+    assert!(
+        cx.has_text(words::kind(&file(), Holds::Text)),
+        "{:?}",
+        cx.texts()
+    );
     cx.simulate_resize(700., 900.);
     cx.run_until_parked();
     assert!(cx.find("files-side").is_none());
@@ -474,7 +479,12 @@ fn an_image_shows_as_its_picture() {
     cx.run_until_parked();
     cx.simulate_click("files/entry/dot.png");
     cx.run_until_parked();
-    assert!(shows(&cx, "Image · 67 bytes"), "{:?}", cx.texts());
+    let under = format!(
+        "{} · {}",
+        words::kind(&file(), Holds::Picture),
+        words::size(PNG.len() as u64)
+    );
+    assert!(shows(&cx, &under), "{:?}", cx.texts());
     assert!(
         matches!(cx.find("files-picture"), Some(wire::Node::Image { .. })),
         "{:?}",
@@ -482,9 +492,76 @@ fn an_image_shows_as_its_picture() {
     );
 }
 
-/// A file at `/shared/<name>` that begins as a PNG and is `size` bytes in
-/// all, committed by dev; then its page, the `Read`s it asked counted.
-fn picture_page(size: usize) -> (TestAppContext, Rc<Cell<u32>>) {
+/// A file node, for the words a file's kind is said in.
+fn file() -> Node {
+    Node::File {
+        file: BlobId::Sha256([0; 32]),
+        size: 0,
+        exec: false,
+    }
+}
+
+/// Whether the side's row for `key` is the one picked.
+fn picked(cx: &TestAppContext, key: &str) -> bool {
+    cx.interactivity(&format!("files/side/{key}")).aria.selected == Some(true)
+}
+
+#[test]
+fn a_pin_made_while_a_folder_is_open_joins_the_side() {
+    let net = seeded();
+    let mut cx = desktop_at(&net, 1000.);
+    cx.simulate_click("files/side/home");
+    cx.run_until_parked();
+    let snapshot = commit(
+        &net,
+        net.me(),
+        "More notes",
+        vec![put("/home/dev/more.txt", b"more")],
+    );
+    let pin = Op::Pin {
+        name: "v2".into(),
+        snapshot,
+    };
+    net.submit(net.me(), files::PROGRAM, &pin)
+        .expect("a pin on a minted snapshot");
+    cx.run_until_parked();
+    assert!(cx.find("files/side/pin/v2").is_some(), "{:?}", cx.texts());
+}
+
+#[test]
+fn the_side_picks_the_place_or_the_pin_the_page_is_under() {
+    let net = seeded();
+    let mut cx = desktop_at(&net, 1000.);
+    cx.simulate_click("files/side/home");
+    cx.run_until_parked();
+    cx.simulate_click("files/entry/notes.txt");
+    cx.run_until_parked();
+    assert!(picked(&cx, "home") && !picked(&cx, "everything"));
+    cx.simulate_click("files/side/shared");
+    cx.run_until_parked();
+    cx.simulate_click("files/entry/readme.txt");
+    cx.run_until_parked();
+    assert!(picked(&cx, "shared"));
+    cx.simulate_click("files/side/pin/v1");
+    cx.run_until_parked();
+    assert!(picked(&cx, "pin/v1") && !picked(&cx, "history"));
+    // one Tab stop: the arrows open the item over or under
+    cx.simulate_focus("files-side-list");
+    cx.simulate_key_down("files-side-list", "up");
+    cx.run_until_parked();
+    assert!(picked(&cx, "history"), "{:?}", cx.texts());
+    assert!(cx.has_text("Say more"), "the history opened");
+    cx.simulate_key_down("files-side-list", "down");
+    cx.run_until_parked();
+    assert!(picked(&cx, "pin/v1"));
+}
+
+/// The snapshot each `Read` a page asked was at.
+type Reads = Rc<RefCell<Vec<Option<BlobId>>>>;
+
+/// A file at `/shared/big.png` that begins as a PNG and is `size` bytes in
+/// all, committed by dev; then its page, the `Read`s it asked kept.
+fn picture_page(size: usize) -> (TestAppContext, Network, Reads) {
     let net = seeded();
     let mut bytes = PNG.to_vec();
     bytes.resize(size, 0);
@@ -495,12 +572,12 @@ fn picture_page(size: usize) -> (TestAppContext, Rc<Cell<u32>>) {
         vec![put("/shared/big.png", &bytes)],
     );
     let mut cx = desktop(&net);
-    let reads = Rc::new(Cell::new(0));
-    let counted = reads.clone();
+    let reads = Reads::default();
+    let kept = reads.clone();
     let chain = net.clone();
     cx.host().handle::<Ask<files::Files>>(move |query| {
-        if matches!(query, files::Query::Read { .. }) {
-            counted.set(counted.get() + 1);
+        if let files::Query::Read { at, .. } = &query {
+            kept.borrow_mut().push(*at);
         }
         chain.query(files::PROGRAM, &query)
     });
@@ -508,15 +585,17 @@ fn picture_page(size: usize) -> (TestAppContext, Rc<Cell<u32>>) {
     cx.run_until_parked();
     cx.simulate_click("files/entry/big.png");
     cx.run_until_parked();
-    (cx, reads)
+    (cx, net, reads)
 }
 
 #[test]
 fn a_picture_larger_than_one_read_is_read_whole_at_one_snapshot() {
     let size = 2 * files::CHUNK_SIZE as usize + 8;
-    let (cx, reads) = picture_page(size);
+    let (cx, _, reads) = picture_page(size);
     // the first 64 KiB, then a chunk at a time
-    assert_eq!(reads.get(), 3);
+    let reads = reads.borrow();
+    assert_eq!(reads.len(), 3);
+    assert!(reads[0].is_some() && reads.iter().all(|at| *at == reads[0]));
     let Some(wire::Node::Image {
         data: Some(wire::ImageData::Encoded(bytes)),
         ..
@@ -528,13 +607,71 @@ fn a_picture_larger_than_one_read_is_read_whole_at_one_snapshot() {
 }
 
 #[test]
+fn a_picture_on_screen_is_not_read_again_by_a_commit_that_leaves_it() {
+    let (mut cx, net, reads) = picture_page(2 * files::CHUNK_SIZE as usize + 8);
+    assert_eq!(reads.borrow().len(), 3);
+    commit(
+        &net,
+        net.me(),
+        "Another file",
+        vec![put("/shared/other.txt", b"other")],
+    );
+    cx.run_until_parked();
+    assert_eq!(reads.borrow().len(), 4, "its first bytes again, no more");
+    assert!(
+        matches!(cx.find("files-picture"), Some(wire::Node::Image { .. })),
+        "{:?}",
+        cx.texts()
+    );
+}
+
+#[test]
+fn a_picture_read_short_of_its_size_says_so() {
+    let net = seeded();
+    let mut bytes = PNG.to_vec();
+    bytes.resize(2 * files::CHUNK_SIZE as usize, 0);
+    commit(
+        &net,
+        net.me(),
+        "A big picture",
+        vec![put("/shared/big.png", &bytes)],
+    );
+    let mut cx = desktop(&net);
+    let chain = net.clone();
+    // every read past the first brings nothing
+    cx.host().handle::<Ask<files::Files>>(move |query| {
+        let past = matches!(query, files::Query::Read { offset, .. } if offset > 0);
+        match chain.query(files::PROGRAM, &query) {
+            Ok(files::Reply::Contents(contents)) if past => {
+                Ok(files::Reply::Contents(files::Contents {
+                    bytes: Vec::new(),
+                    eof: true,
+                    ..contents
+                }))
+            }
+            reply => reply,
+        }
+    });
+    cx.simulate_click("files/place/shared");
+    cx.run_until_parked();
+    cx.simulate_click("files/entry/big.png");
+    cx.run_until_parked();
+    assert!(cx.find("files-picture").is_none());
+    assert!(cx.find("files-file-refused").is_some(), "{:?}", cx.texts());
+}
+
+#[test]
 fn a_picture_too_large_to_draw_says_its_size_and_is_not_read_on() {
-    let (cx, reads) = picture_page(crate::state::SHOW_MOST as usize + 1);
+    let (cx, _, reads) = picture_page(SHOW_MOST as usize + 1);
     assert_eq!(
-        reads.get(),
+        reads.borrow().len(),
         1,
         "only the first bytes, which say it is a picture"
     );
     assert!(cx.find("files-picture").is_none());
-    assert!(shows(&cx, "only one of 8.0 MB or less"), "{:?}", cx.texts());
+    assert!(
+        shows(&cx, &words::too_big_to_show(SHOW_MOST + 1)),
+        "{:?}",
+        cx.texts()
+    );
 }

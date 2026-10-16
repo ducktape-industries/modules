@@ -5,27 +5,45 @@ use view::prelude::*;
 
 use files::BlobId;
 
-use crate::state::{Route, parent_of};
+use crate::state::{Opened, Route, parent_of};
 use crate::{Files, queries};
 
 impl Files {
-    /// What the page on top shows: on a move to it, and on every commit
-    /// anyone lands. A page read before shows while it is read again.
+    /// What the page on top shows, on a move to it (or a Retry): its own
+    /// read, and what it is drawn with that is not read yet. A page read
+    /// before shows while it is read again.
     pub(crate) fn read_page(&mut self, cx: &mut Context<Self>) {
-        match self.page().clone() {
-            // the places name the newest snapshots
-            Route::Places | Route::History => self.read_history(cx),
+        self.read(false, cx);
+    }
+
+    /// Everything on screen, again: on every commit or pin anyone lands.
+    pub(crate) fn read_all(&mut self, cx: &mut Context<Self>) {
+        self.read(true, cx);
+    }
+
+    fn read(&mut self, all: bool, cx: &mut Context<Self>) {
+        // the history page's own read; on every other page, the side's
+        // pins, the places' newest snapshots and the history a snapshot is
+        // open beside: read once, then again on each change
+        let page = self.page().clone();
+        if all
+            || page == Route::History
+            || matches!(self.history, Loadable::Idle | Loadable::Failed(_))
+        {
+            self.read_history(cx);
+        }
+        match page {
+            Route::Places | Route::History => {}
             Route::Folder(path) => self.read_folder(path, cx),
-            // a file and a snapshot also read the list they are in, which
-            // a wide desktop shows beside them
             Route::File(path) => {
-                self.read_folder(parent_of(&path).to_owned(), cx);
+                // the folder it is in, which a wide desktop lists beside it
+                let folder = parent_of(&path);
+                if all || self.folder_at(folder).is_none() {
+                    self.read_folder(folder.to_owned(), cx);
+                }
                 self.read_file(path, cx);
             }
-            Route::Snapshot(id) => {
-                self.read_history(cx);
-                self.read_snapshot(id, cx);
-            }
+            Route::Snapshot(id) => self.read_snapshot(id, cx),
         }
     }
 
@@ -39,10 +57,13 @@ impl Files {
     }
 
     fn read_file(&mut self, path: String, cx: &mut Context<Self>) {
-        if self.file_at(&path).is_none() {
+        let shown = self.file_at(&path);
+        // the picture on screen, kept while the file's content is the same
+        let kept = shown.and_then(Opened::kept_picture);
+        if shown.is_none() {
             self.file = Loadable::Idle;
         }
-        let read = queries::file(cx.host(), path);
+        let read = queries::file(cx.host(), path, kept);
         cx.load(self, read, |view| &mut view.file);
     }
 

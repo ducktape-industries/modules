@@ -6,7 +6,7 @@
 use files::Node;
 
 use super::*;
-use crate::state::{Holds, Opened, SHOW_MOST, name_of};
+use crate::state::{Holds, Opened, name_of};
 
 /// The tallest a picture draws: a tall one fits this, a small one keeps
 /// its own size.
@@ -102,8 +102,8 @@ fn picture(file: &Opened, k: &Kit) -> AnyElement {
             .id("files-picture-note")
             .into_any_element()
     };
-    match &file.picture {
-        Some(picture) => img(picture.clone())
+    match words::picture(file) {
+        Ok(picture) => img(picture.clone())
             .id("files-picture")
             .max_w_full()
             .max_h(PICTURE_H)
@@ -112,8 +112,6 @@ fn picture(file: &Opened, k: &Kit) -> AnyElement {
             .aria_label(name_of(&file.path).to_owned())
             .with_fallback(move || quiet(words::NOT_DRAWN.to_owned()))
             .into_any_element(),
-        None if file.size() > SHOW_MOST => quiet(words::too_big_to_show(file.size())),
-        // a restored view reads its picture again
-        None => quiet(words::READING_PICTURE.to_owned()),
+        Err(sentence) => quiet(sentence),
     }
 }

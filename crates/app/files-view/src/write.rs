@@ -266,7 +266,7 @@ impl Files {
                 }
                 self.follow(&sent.change);
                 self.note = Some(Note::Committed(sent.message));
-                self.read_page(cx);
+                self.read_all(cx);
             }
             (Some(problem), Some(form)) => {
                 form.sending = false;

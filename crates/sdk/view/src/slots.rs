@@ -301,12 +301,18 @@ pub fn picture(context: &Context, bytes: impl AsRef<[u8]>) -> (u64, Option<Vec<u
     let bytes = bytes.as_ref();
     let mut hasher = std::hash::DefaultHasher::new();
     bytes.hash(&mut hasher);
-    let hash = hasher.finish();
+    picture_keyed(context, hasher.finish(), bytes)
+}
+
+/// A picture that carries its own key (gpui's `Image::id`, the hash of
+/// its bytes taken once when it was made): a frame that draws it again
+/// neither hashes nor copies its bytes.
+pub fn picture_keyed(context: &Context, key: u64, bytes: &[u8]) -> (u64, Option<Vec<u8>>) {
     let tables = &mut *context.0.borrow_mut();
-    if !tables.pictures.insert(hash) {
-        return (hash, None);
+    if !tables.pictures.insert(key) {
+        return (key, None);
     }
-    (hash, Some(bytes.to_vec()))
+    (key, Some(bytes.to_vec()))
 }
 
 pub(crate) fn clear_pictures(context: &Context) {

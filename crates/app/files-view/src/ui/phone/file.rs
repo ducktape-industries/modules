@@ -8,7 +8,7 @@ use files::Node;
 use view::design::space;
 
 use super::*;
-use crate::state::{Holds, Opened, SHOW_MOST, name_of};
+use crate::state::{Holds, Opened, name_of};
 
 pub(super) fn file(view: &Files, path: &str, cx: Cx, k: &Kit) -> AnyElement {
     let page = page("files-file", name_of(path).to_owned(), view, cx, k).caption(path.to_owned());
@@ -87,8 +87,8 @@ fn text_block(text: &str, file: &Opened, k: &Kit) -> AnyElement {
 fn picture(file: &Opened, k: &Kit) -> AnyElement {
     let theme = k.theme;
     let ladder = k.ladder;
-    match &file.picture {
-        Some(picture) => div()
+    match words::picture(file) {
+        Ok(picture) => div()
             .p(space::BLOCK)
             .child(
                 img(picture.clone())
@@ -106,10 +106,6 @@ fn picture(file: &Opened, k: &Kit) -> AnyElement {
                     }),
             )
             .into_any_element(),
-        None if file.size() > SHOW_MOST => {
-            quiet("files-picture-note", words::too_big_to_show(file.size()), k)
-        }
-        // a restored view reads its picture again
-        None => quiet("files-picture-note", words::READING_PICTURE, k),
+        Err(sentence) => quiet("files-picture-note", sentence, k),
     }
 }

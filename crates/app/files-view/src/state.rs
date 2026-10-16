@@ -255,9 +255,10 @@ pub const PREVIEW: u64 = 64 * 1024;
 
 /// The most a picture may hold to be read whole and drawn; a larger one
 /// says its size.
-// ponytail: the SDK hashes a picture's bytes on every frame that draws
-// it, so this stays well under the app's 64 MiB; key pictures by the
-// image's own id in the SDK to raise it.
+// ponytail: a picture shown is held whole in the view's memory and read
+// a chunk per query, then crosses to the app once; the app draws at most
+// 64 MiB of pixels (about 4096 x 4096), whatever the file holds. Read a
+// smaller rendition (made at upload) to show larger files.
 pub const SHOW_MOST: u64 = 8 << 20;
 
 /// One file as `files` answered it at one snapshot.
@@ -290,6 +291,15 @@ impl Opened {
         self.entry
             .as_ref()
             .filter(|entry| !matches!(entry.node, Node::Dir { .. }))
+    }
+
+    /// The picture on screen and the content it was read from: kept,
+    /// unread, while a later read finds the file's content the same.
+    pub fn kept_picture(&self) -> Option<(BlobId, Arc<Image>)> {
+        match (self.file().map(|entry| &entry.node), &self.picture) {
+            (Some(Node::File { file, .. }), Some(picture)) => Some((*file, picture.clone())),
+            _ => None,
+        }
     }
 
     /// What the file holds, by its first bytes.

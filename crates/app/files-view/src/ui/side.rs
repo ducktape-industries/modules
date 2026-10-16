@@ -9,20 +9,17 @@ use view::{Div, Stateful};
 use super::*;
 use crate::state::{HISTORY_GLYPH, HOME_GLYPH, PIN_GLYPH, Place, SHARED_PATH};
 
-/// The side's width.
-const SIDE_W: Pixels = px(220.);
-
 /// One thing the side opens.
 #[derive(Clone)]
-enum Item {
+enum Item<'a> {
     /// the reader's home, by its path
     Home(String),
     Place(Place),
     History,
-    Pin(PinRow),
+    Pin(&'a PinRow),
 }
 
-impl Item {
+impl Item<'_> {
     fn route(&self) -> Route {
         match self {
             Item::Home(path) => Route::Folder(path.clone()),
@@ -64,15 +61,14 @@ impl Item {
 /// Everything the side lists, in order: the places, then the history and
 /// its pins. The home shows once identity names the reader's (the places
 /// page says why it does not).
-fn items(view: &Files) -> Vec<Item> {
+fn items(view: &Files) -> Vec<Item<'_>> {
     let home = view.reader.home().ok().map(Item::Home);
     let places = Place::ALL.map(Item::Place);
     let pins = view
         .history
         .ready()
-        .map(|history| history.pins.clone())
-        .unwrap_or_default()
         .into_iter()
+        .flat_map(|history| &history.pins)
         .map(Item::Pin);
     home.into_iter()
         .chain(places)
@@ -113,21 +109,21 @@ pub(super) fn side(view: &Files, cx: Cx, k: &Kit) -> Stateful<Div> {
         view.open_from_places(routes[index].clone(), cx)
     };
     let moved = open.clone();
-    // the history's head sits over the history's own row
+    // the history's group starts at the history's own row
     let history_at = items
         .iter()
         .position(|item| matches!(item, Item::History))
         .unwrap_or(count);
-    let mut rows: Vec<AnyElement> = Vec::with_capacity(count + 2);
-    rows.push(head(words::PLACES, k).into_any_element());
-    for (index, item) in items.iter().enumerate() {
-        if index == history_at {
-            rows.push(head(words::HISTORY, k).mt_3().into_any_element());
-        }
-        let active = index == here.unwrap_or(0);
-        rows.push(row(item, here == Some(index), active, cx, k).into_any_element());
-    }
-    let list = design::composite("files-side-list", Role::ListBox, words::PLACES)
+    let mut rows = items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| row(item, here == Some(index), index == here.unwrap_or(0), cx, k));
+    let places =
+        group("files-side-places", words::PLACES, k).children(rows.by_ref().take(history_at));
+    let history = group("files-side-history", words::HISTORY, k)
+        .mt_3()
+        .children(rows);
+    let list = design::composite("files-side-list", Role::ListBox, words::SIDE)
         .wrap()
         .active(here.unwrap_or(0), count)
         .on_move(cx.processor(moved))
@@ -135,12 +131,12 @@ pub(super) fn side(view: &Files, cx: Cx, k: &Kit) -> Stateful<Div> {
         .build()
         .flex()
         .flex_col()
-        .gap_1()
-        .children(rows);
+        .child(places)
+        .child(history);
     div()
         .id("files-side")
         .flex_none()
-        .w(SIDE_W)
+        .w(px(SIDE_W))
         .h_full()
         .overflow_y_scroll()
         .p_2()
@@ -149,18 +145,29 @@ pub(super) fn side(view: &Files, cx: Cx, k: &Kit) -> Stateful<Div> {
         .child(list)
 }
 
-/// A section's name, over its rows.
-fn head(label: &'static str, k: &Kit) -> Div {
+/// A section of the list, named over its rows.
+fn group(id: &'static str, label: &'static str, k: &Kit) -> Stateful<Div> {
     div()
-        .px_2()
-        .py_1()
-        .text_size(design::text::CAPTION)
-        .text_color(k.theme.sidebar_muted)
-        .child(label)
+        .id(id)
+        .flex()
+        .flex_col()
+        .gap_1()
+        .role(Role::Group)
+        .aria_label(label)
+        .child(
+            div()
+                .px_2()
+                .py_1()
+                .text_size(design::text::CAPTION)
+                .text_color(k.theme.sidebar_muted)
+                .child(label),
+        )
 }
 
 /// One item: `picked` when the page on screen is under it, `active` when
 /// the arrows are on it.
+// ponytail: chat's sidebar row (`chat-view/src/ui/sidebar.rs`), copied;
+// a `design::` sidebar row once a third view draws one.
 fn row(item: &Item, picked: bool, active: bool, cx: Cx, k: &Kit) -> Stateful<Div> {
     let route = item.route();
     let open = cx.listener(move |view: &mut Files, _: &ClickEvent, _, cx| {

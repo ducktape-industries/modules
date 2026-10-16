@@ -1,10 +1,15 @@
 //! Every sentence, label and status word both designs show, once: the
 //! desktop's pages (`ui/`) and the phone's screens (`ui/phone/`) word
 //! things from here and never type a sentence the other also types.
+use std::sync::Arc;
+
 use files::{Change, DiffEntry, DiffKind, EntryInfo, Node, Principal, SnapshotRow};
+use view::Image;
 use view::design::{date, grouped, plural};
 
-use crate::state::{Holds, Names, NoHome, Note, PREVIEW, Place, SHOW_MOST, holds_by_name, name_of};
+use crate::state::{
+    Holds, Names, NoHome, Note, Opened, PREVIEW, Place, SHOW_MOST, holds_by_name, name_of,
+};
 use crate::write::{Naming, Write};
 
 pub const TITLE: &str = "Files";
@@ -19,6 +24,8 @@ pub const LATEST: &str = "Latest snapshots";
 pub const CHAIN: &str = "the chain";
 /// What the desktop's tab list is called to assistive tech.
 pub const TABS: &str = "Pages";
+/// What a wide desktop's side is called to assistive tech.
+pub const SIDE: &str = "Places and history";
 /// What a folder's or a file's crumbs are called to assistive tech.
 pub const PATH: &str = "Path";
 
@@ -162,6 +169,14 @@ pub fn entry_caption(node: &Node) -> String {
     }
 }
 
+/// What an entry's Size column says: a link has no size of its own.
+pub fn entry_size(node: &Node) -> String {
+    match node {
+        Node::Symlink { .. } => "—".into(),
+        node => entry_caption(node),
+    }
+}
+
 /// What a node holds, in a word: a folder, a link, an image, text, or
 /// bytes that are neither; a file by `holds`.
 pub fn kind(node: &Node, holds: Holds) -> &'static str {
@@ -170,16 +185,23 @@ pub fn kind(node: &Node, holds: Holds) -> &'static str {
         (Node::Dir { .. }, _) => "Folder",
         (_, Holds::Picture) => "Image",
         (_, Holds::Text) => "Text",
-        (_, Holds::Bytes) => "Not text",
+        (_, Holds::Bytes) => "File",
     }
 }
 
 /// What a folder's entry holds, in a word, by its name: a listing
-/// carries no bytes, so a file is one it does not know only as a file.
+/// carries no bytes.
 pub fn entry_kind(entry: &EntryInfo) -> &'static str {
-    match (&entry.node, holds_by_name(name_of(&entry.path))) {
-        (Node::File { .. }, Holds::Bytes) => "File",
-        (node, holds) => kind(node, holds),
+    kind(&entry.node, holds_by_name(name_of(&entry.path)))
+}
+
+/// The picture a file draws, or what shows in its place: it is too large
+/// to be read here, or (a restored view reads it again) still reading.
+pub fn picture(file: &Opened) -> Result<&Arc<Image>, String> {
+    match &file.picture {
+        Some(picture) => Ok(picture),
+        None if file.size() > SHOW_MOST => Err(too_big_to_show(file.size())),
+        None => Err(READING_PICTURE.to_owned()),
     }
 }
 

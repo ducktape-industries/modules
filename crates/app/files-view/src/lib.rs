@@ -1,6 +1,6 @@
 //! Files: duckfs, the network's versioned filesystem (the `files`
 //! program), as a file browser. A folder lists its entries at the newest
-//! snapshot, a file shows its text (or its size, when it is not text), and
+//! snapshot, a file shows its picture or its text (else its size), and
 //! the history lists the snapshots every commit made and the pins that
 //! name some of them. Where `files` lets the reader write (their home,
 //! `/home/<their name>/`, and `/shared/`, unless a write list says other),

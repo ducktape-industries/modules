@@ -42,18 +42,24 @@ pub(crate) enum Layout {
     Split,
 }
 
-/// Under this width the places fold into tabs, as forge folds its side
-/// panes (its `NARROW_BELOW`).
-const NARROW_BELOW: f32 = 880.;
-/// From this width a file or a snapshot opens beside its list.
-const SPLIT_FROM: f32 = 1200.;
+/// The side's width.
+const SIDE_W: f32 = 220.;
+/// The narrowest a page reads beside the side: a folder's three columns.
+/// With the side, 880: the width forge folds its side panes at.
+const PAGE_KEEPS: f32 = 660.;
+/// The narrowest a list reads beside what opened from it.
+const LIST_KEEPS: f32 = 460.;
+/// The narrowest a file's text or picture reads beside its list.
+const DETAIL_KEEPS: f32 = 520.;
 
 impl Layout {
     pub(crate) fn of(width: f32) -> Layout {
-        match width {
-            width if width < NARROW_BELOW => Layout::Narrow,
-            width if width < SPLIT_FROM => Layout::Wide,
-            _ => Layout::Split,
+        if !design::docks(width, PAGE_KEEPS, SIDE_W) {
+            Layout::Narrow
+        } else if !design::docks(width, SIDE_W + LIST_KEEPS, DETAIL_KEEPS) {
+            Layout::Wide
+        } else {
+            Layout::Split
         }
     }
 }
@@ -86,7 +92,7 @@ pub(crate) fn render(view: &Files, cx: Cx) -> AnyElement {
                 .flex()
                 .flex_col()
                 .children(note(view, k))
-                .child(main(view, layout, cx, k)),
+                .child(body(view, layout, cx, k)),
         ),
     };
     let form = form::sheet(view, cx, k);
@@ -108,7 +114,7 @@ fn page(view: &Files, layout: Layout, cx: Cx, k: &Kit) -> AnyElement {
 /// Beside the side: the page on top, or, split, the list it is in (a
 /// folder's, the history) with what opened from it beside the list, or
 /// what would.
-fn main(view: &Files, layout: Layout, cx: Cx, k: &Kit) -> AnyElement {
+fn body(view: &Files, layout: Layout, cx: Cx, k: &Kit) -> AnyElement {
     if layout != Layout::Split {
         return scrolled("files-page", page(view, layout, cx, k)).into_any_element();
     }

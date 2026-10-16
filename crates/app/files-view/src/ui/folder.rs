@@ -12,6 +12,8 @@ use crate::state::{entry_glyph, name_of, parent_of};
 /// A column's width in a wide list: what an entry holds, how big it is.
 const KIND_W: Pixels = px(96.);
 const SIZE_W: Pixels = px(96.);
+/// The columns' names' height, over the rows.
+const HEADS_H: Pixels = px(32.);
 
 /// How a folder is listed.
 struct Listing<'a> {
@@ -109,7 +111,7 @@ fn entries(
 /// The columns' names, over the rows.
 fn heads(k: &Kit) -> Div {
     div()
-        .h(px(32.))
+        .h(HEADS_H)
         .flex()
         .items_center()
         .gap_3()
@@ -138,10 +140,9 @@ fn entry_row(entry: &EntryInfo, columns: bool, marked: bool, cx: Cx, k: &Kit) ->
     let open =
         cx.listener(move |view: &mut Files, _: &ClickEvent, _, cx| view.open(route.clone(), cx));
     let name = name_of(&entry.path).to_owned();
-    let caption = words::entry_caption(&entry.node);
     let aside = match columns {
-        true => cells(words::entry_kind(entry), caption).into_any_element(),
-        false => caption.into_any_element(),
+        true => cells(words::entry_kind(entry), words::entry_size(&entry.node)).into_any_element(),
+        false => words::entry_caption(&entry.node).into_any_element(),
     };
     let row = row(
         format!("files/entry/{name}"),
