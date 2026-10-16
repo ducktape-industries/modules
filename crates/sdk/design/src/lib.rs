@@ -70,7 +70,8 @@ pub mod type_scale {
     /// The scale under a finger (`window.touch()`): the Expo app's text
     /// roles (mobile `src/design/theme.ts` `type`), each a size and its line
     /// height (`*_LINE`), since the reader is further from a phone than from
-    /// a desk. The body is 15.
+    /// a desk, and for the three roles Expo spaces out or tightens, the
+    /// space after each letter (`*_LETTER_SPACING`, in px). The body is 15.
     pub mod touch {
         /// a code to read out or compare: the join code, a key's
         /// fingerprint (`theme.ts:61` `display`)
@@ -79,13 +80,13 @@ pub mod type_scale {
         pub const DISPLAY_LINE: f64 = 44.;
         /// [`DISPLAY`]'s letter spacing: 0.04 of its size apart
         /// (`theme.ts:61` `letterSpacing`)
-        pub const DISPLAY_TRACKING: f64 = 1.44;
+        pub const DISPLAY_LETTER_SPACING: f64 = 1.44;
         /// a view's first page's title
         pub const BIG_TITLE: f64 = 22.;
         pub const BIG_TITLE_LINE: f64 = 27.;
         /// [`BIG_TITLE`]'s letter spacing: 0.01 of its size tighter
         /// (`theme.ts:59` `letterSpacing`)
-        pub const BIG_TITLE_TRACKING: f64 = -0.22;
+        pub const BIG_TITLE_LETTER_SPACING: f64 = -0.22;
         /// a detail head's name, a fact's value
         pub const HEADING: f64 = 20.;
         pub const HEADING_LINE: f64 = 24.;
@@ -113,7 +114,7 @@ pub mod type_scale {
         pub const EYEBROW_LINE: f64 = 14.;
         /// [`EYEBROW`]'s letter spacing: 0.06 of its size apart
         /// (`theme.ts:51` `letterSpacing`)
-        pub const EYEBROW_TRACKING: f64 = 0.66;
+        pub const EYEBROW_LETTER_SPACING: f64 = 0.66;
         /// code, in the data face
         pub const CODE: f64 = 12.;
         pub const CODE_LINE: f64 = 20.;

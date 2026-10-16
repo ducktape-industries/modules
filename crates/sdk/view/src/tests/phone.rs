@@ -11,12 +11,15 @@ use crate::{BackEvent, Div, Stateful, View, wire};
 struct Phone {
     pages: Pages<String>,
     picking: bool,
+    /// the reader's account name, empty while it is still being read
+    reader: String,
 }
 impl Default for Phone {
     fn default() -> Self {
         Self {
             pages: Pages::root("rooms".into()),
             picking: false,
+            reader: "mina".into(),
         }
     }
 }
@@ -36,13 +39,13 @@ impl Render for Phone {
         let back =
             (depth > 0).then(|| cx.listener(move |view, _: &ClickEvent, _, cx| pop(view, cx)));
         let page = design::page("rooms", self.pages.top().clone(), back, &ladder, &theme);
+        // the reader's avatar on the first page, the room's peer after it
         let page = match depth {
-            0 => page.account("mina"),
-            _ => page,
+            0 => page.account(&self.reader),
+            _ => page.leading(div().id("avatar").size(ladder.avatar.side).rounded_full()),
         };
         let page = page
             .caption(format!("{} deep", depth))
-            .leading(div().id("avatar").size(ladder.avatar.side).rounded_full())
             .trailing(design::button(
                 "new",
                 "New",
@@ -218,19 +221,22 @@ fn under_touch_a_page_is_the_expo_header() {
     );
 }
 
-/// A view's first page leads its title row with the reader's avatar in a
-/// press target, named "Account"; a press asks the host to bring up the
-/// reader's account, and a page with Back draws no avatar.
+/// Under a finger a view's first page leads its title row with the
+/// reader's avatar in a press target, named "Account", undimmed by a
+/// press; a press asks the host to bring up the reader's account, and an
+/// avatar whose name is still being read draws `•`. A pointer draws none.
 #[test]
 fn a_first_page_leads_with_the_readers_account() {
     let mut cx = TestAppContext::new();
-    cx.open::<Phone>();
+    let phone = cx.open::<Phone>();
+    assert!(cx.find("rooms-account").is_none(), "none under a pointer");
     cx.simulate_touch(true);
     let row = cx.node("rooms-title").children();
     assert_eq!(row[0].key(), Some("rooms-account"));
     let account = cx.interactivity("rooms-account");
     assert_eq!(account.role, Some(crate::Role::Button));
     assert_eq!(account.aria.label.as_deref(), Some("Account"));
+    assert_eq!(account.active, None, "no dim on a press");
     let hit = cx.style("rooms-account");
     assert_eq!(
         (hit.size.width, hit.size.height),
@@ -241,8 +247,12 @@ fn a_first_page_leads_with_the_readers_account() {
     assert!(cx.has_text("M"));
     cx.simulate_click("Account");
     assert_eq!(cx.host().requests::<HostShow>(), [Place::Account]);
-    cx.simulate_click("Open");
-    assert!(cx.find("rooms-account").is_none());
+    cx.update(&phone, |phone, _, cx| {
+        phone.reader.clear();
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(cx.has_text("•"));
 }
 
 #[derive(Default, Serialize, Deserialize)]

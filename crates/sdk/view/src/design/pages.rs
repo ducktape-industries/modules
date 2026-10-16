@@ -71,6 +71,11 @@ impl<P> Pages<P> {
 /// Back).
 pub const CAPSULE_CLEARANCE: Pixels = px(96.);
 
+/// The key of one part of page `id`: `{id}-{part}`.
+fn named(id: &ElementId, part: &str) -> ElementId {
+    ElementId::Name(format!("{id}-{part}").into())
+}
+
 /// One page's frame: a title row (`{id}-title`, [`Ladder::header`] tall)
 /// with a Back control (`{id}-back`, [`Ladder::hit`] each way, named
 /// "Back") when `back` is given, the heading (`{id}-heading`, truncating),
@@ -90,13 +95,12 @@ pub fn page(
     theme: &Theme,
 ) -> Page {
     let id = id.into();
-    let named = |suffix: &str| ElementId::Name(format!("{id}-{suffix}").into());
     let theme = *theme;
     let root = back.is_none();
     let back = back.map(|back| match ladder.touch {
         // the Expo kit's header: its `Hit` with the Lucide arrow
         true => super::icon_button(
-            named("back"),
+            named(&id, "back"),
             super::icon("arrow-left", ladder.icon),
             "Back",
             ladder,
@@ -105,7 +109,7 @@ pub fn page(
         )
         .into_any_element(),
         false => div()
-            .id(named("back"))
+            .id(named(&id, "back"))
             .min_w(ladder.hit)
             .min_h(ladder.hit)
             .flex()
@@ -167,25 +171,45 @@ impl Page {
         self.caption = Some(caption.into());
         self
     }
-    /// The reader's own avatar (`{id}-account`, [`Ladder::avatar`] in a
-    /// [`Ladder::hit`] box, named "Account"), after Back: a press asks the
-    /// host to bring up the reader's account (`host.show`
-    /// [`Place::Account`], so the view declares `Capability::Host`). A
-    /// view's first page sets it, as the Expo kit's module root draws it
-    /// (`Header.tsx:46-54`); `name` is the reader's as the view reads it,
-    /// empty while it is still being read.
+    /// The reader's own avatar on a view's first page, under a finger: the
+    /// Expo kit's module root (`Header.tsx:46-54`), so set it on the first
+    /// page only. `{id}-account`, [`Ladder::avatar`] in a [`Ladder::hit`]
+    /// box, named "Account", with no dim on a press (Expo's `Pressable`
+    /// sets none). A press asks the host to bring up the reader's account
+    /// (`host.show` [`Place::Account`], so the view declares
+    /// `Capability::Host`) as a `notify`: a refusal (no account to show, a
+    /// host older than `host.show`) is silent and the press does nothing.
+    /// Under a pointer it draws nothing, as a pointer's first page is drawn
+    /// like any other.
+    ///
+    /// `name` is the reader's account name, read as the view reads any
+    /// account's name (the session names only the account number); while
+    /// it is still being read it is empty, and the avatar draws `•`
+    /// ([`initial`](super::initial)).
     pub fn account(mut self, name: &str) -> Self {
-        let id = ElementId::Name(format!("{}-account", self.id).into());
-        let avatar = super::avatar(name, self.ladder.avatar, &self.theme);
+        if !self.ladder.touch {
+            return self;
+        }
         let show = |_: &ClickEvent, _: &mut Window, cx: &mut App| {
             cx.host().notify::<HostShow>(Place::Account);
         };
-        let button = super::icon_button(id, avatar, "Account", &self.ladder, &self.theme, show);
-        self.account = Some(button.into_any_element());
+        let avatar = div()
+            .id(named(&self.id, "account"))
+            .size(self.ladder.hit)
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+            .role(Role::Button)
+            .aria_label("Account")
+            .focusable()
+            .on_click(show)
+            .child(super::avatar(name, self.ladder.avatar, &self.theme));
+        self.account = Some(avatar.into_any_element());
         self
     }
-    /// An element before the heading, after Back and the account: a
-    /// person's avatar.
+    /// An element before the heading, after Back and the account: another
+    /// person's avatar (a DM room's peer).
     pub fn leading(mut self, element: impl IntoElement) -> Self {
         self.leading.push(element.into_any_element());
         self
@@ -208,7 +232,6 @@ impl IntoElement for Page {
     type Element = Stateful<Div>;
     fn into_element(self) -> Self::Element {
         let (ladder, theme, id, root) = (self.ladder, self.theme, self.id, self.root);
-        let named = |suffix: &str| ElementId::Name(format!("{id}-{suffix}").into());
         let title = match (ladder.touch, root) {
             (true, true) => ladder.big_title,
             _ => ladder.title,
@@ -219,21 +242,21 @@ impl IntoElement for Page {
             .flex()
             .flex_col()
             .child(
-                heading(named("heading"), self.title, 1, &theme)
+                heading(named(&id, "heading"), self.title, 1, &theme)
                     .truncate()
                     .text_type(title)
                     .when(ladder.touch, |title| title.font_weight(FontWeight::MEDIUM)),
             )
             .children(self.caption.map(|caption| {
                 div()
-                    .id(named("caption"))
+                    .id(named(&id, "caption"))
                     .text_type(ladder.caption)
                     .text_color(theme.muted)
                     .truncate()
                     .child(caption)
             }));
         let title_row = div()
-            .id(named("title"))
+            .id(named(&id, "title"))
             .flex_none()
             .min_h(ladder.header)
             .flex()

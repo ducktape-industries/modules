@@ -98,7 +98,7 @@ pub struct Type {
     pub line: Option<Pixels>,
     /// Added after each letter (CSS `letter-spacing`, Expo's
     /// `letterSpacing`); negative sets the letters tighter.
-    pub tracking: Option<Pixels>,
+    pub letter_spacing: Option<Pixels>,
 }
 
 impl Type {
@@ -107,7 +107,7 @@ impl Type {
         Self {
             size,
             line: None,
-            tracking: None,
+            letter_spacing: None,
         }
     }
     /// A role at `size` on a `line` tall line.
@@ -115,13 +115,13 @@ impl Type {
         Self {
             size: px(size as f32),
             line: Some(px(line as f32)),
-            tracking: None,
+            letter_spacing: None,
         }
     }
-    /// This role with `tracking` px after each letter.
-    pub const fn tracked(self, tracking: f64) -> Self {
+    /// This role with `letter_spacing` px after each letter.
+    pub const fn spaced(self, letter_spacing: f64) -> Self {
         Self {
-            tracking: Some(px(tracking as f32)),
+            letter_spacing: Some(px(letter_spacing as f32)),
             ..self
         }
     }
@@ -137,8 +137,8 @@ pub trait TextType: Styled + Sized {
             Some(line) => element.line_height(line),
             None => element,
         };
-        match role.tracking {
-            Some(tracking) => element.letter_spacing(tracking),
+        match role.letter_spacing {
+            Some(letter_spacing) => element.letter_spacing(letter_spacing),
             None => element,
         }
     }
@@ -219,7 +219,10 @@ pub struct Ladder {
     /// an icon leading a sheet row
     pub icon_sheet: Pixels,
     /// a code to read out or compare (the join code, a key's
-    /// fingerprint), in the data face
+    /// fingerprint). The role is a size, line and spacing; the caller adds
+    /// the data face and weight Expo sets beside it,
+    /// `.font_family(design::fonts::FAMILY_MONO).font_weight(FontWeight::MEDIUM)`
+    /// (`join/code.tsx:63`)
     pub display: Type,
     /// a view's first page's title
     pub big_title: Type,
@@ -242,7 +245,9 @@ pub struct Ladder {
     /// a fact's key, a code box's label: drawn by [`eyebrow`], which adds
     /// the data face, the muted colour and the capitals
     pub eyebrow: Type,
-    /// code, in the data face
+    /// code. The role is a size and line; the caller adds the data face
+    /// Expo sets beside it, `.font_family(design::fonts::FAMILY_MONO)`
+    /// (`forge/Lines.tsx:104`)
     pub code: Type,
 }
 
@@ -297,8 +302,8 @@ pub const TOUCH: Ladder = {
         icon: px(h::ICON as f32),
         icon_row: px(h::ICON_ROW as f32),
         icon_sheet: px(h::ICON_SHEET as f32),
-        display: Type::lined(t::DISPLAY, t::DISPLAY_LINE).tracked(t::DISPLAY_TRACKING),
-        big_title: Type::lined(t::BIG_TITLE, t::BIG_TITLE_LINE).tracked(t::BIG_TITLE_TRACKING),
+        display: Type::lined(t::DISPLAY, t::DISPLAY_LINE).spaced(t::DISPLAY_LETTER_SPACING),
+        big_title: Type::lined(t::BIG_TITLE, t::BIG_TITLE_LINE).spaced(t::BIG_TITLE_LETTER_SPACING),
         heading: Type::lined(t::HEADING, t::HEADING_LINE),
         title: Type::lined(t::TITLE, t::TITLE_LINE),
         body: Type::lined(t::BODY, t::BODY_LINE),
@@ -308,7 +313,7 @@ pub const TOUCH: Ladder = {
         secondary: Type::lined(t::SECONDARY, t::SECONDARY_LINE),
         caption: Type::lined(t::CAPTION, t::CAPTION_LINE),
         tiny: Type::lined(t::TINY, t::TINY_LINE),
-        eyebrow: Type::lined(t::EYEBROW, t::EYEBROW_LINE).tracked(t::EYEBROW_TRACKING),
+        eyebrow: Type::lined(t::EYEBROW, t::EYEBROW_LINE).spaced(t::EYEBROW_LETTER_SPACING),
         code: Type::lined(t::CODE, t::CODE_LINE),
     }
 };
@@ -1728,7 +1733,7 @@ mod tests {
         assert_eq!(words.transform, Some(wire::TextTransform::Uppercase));
         let text = &styles[node.style().expect("a styled box")].text;
         assert_eq!(text.font_size, Some(TOUCH.eyebrow.size.into()));
-        assert_eq!(text.letter_spacing, TOUCH.eyebrow.tracking);
+        assert_eq!(text.letter_spacing, TOUCH.eyebrow.letter_spacing);
         assert_eq!(text.font_family.as_deref(), Some(fonts::FAMILY_MONO));
         assert_eq!(text.color, Some(theme.muted));
     }
@@ -1737,10 +1742,26 @@ mod tests {
     /// `size`), number for number.
     #[test]
     fn the_touch_ladder_is_the_expo_theme() {
-        let role = |(size, line, tracking): (f32, f32, Option<f32>)| Type {
+        let role = |(size, line, letter_spacing): (f32, f32, Option<f32>)| Type {
             size: px(size),
             line: Some(px(line)),
-            tracking: tracking.map(px),
+            letter_spacing: letter_spacing.map(px),
+        };
+        let roles = |l: Ladder| {
+            [
+                l.display,
+                l.big_title,
+                l.heading,
+                l.title,
+                l.body,
+                l.label,
+                l.small,
+                l.secondary,
+                l.caption,
+                l.tiny,
+                l.eyebrow,
+                l.code,
+            ]
         };
         let t = TOUCH;
         assert_eq!(
@@ -1757,20 +1778,7 @@ mod tests {
             [56., 48., 52., 44., 44., 22., 18., 20.].map(px)
         );
         assert_eq!(
-            [
-                t.display,
-                t.big_title,
-                t.heading,
-                t.title,
-                t.body,
-                t.label,
-                t.small,
-                t.secondary,
-                t.caption,
-                t.tiny,
-                t.eyebrow,
-                t.code
-            ],
+            roles(t),
             [
                 (36., 44., Some(1.44)),
                 (22., 27., Some(-0.22)),
@@ -1798,24 +1806,10 @@ mod tests {
         );
         // a pointer's roles name no line height and no letter spacing: the
         // desktop's text stands
-        let p = POINTER;
         assert!(
-            [
-                p.display,
-                p.big_title,
-                p.heading,
-                p.title,
-                p.body,
-                p.label,
-                p.small,
-                p.secondary,
-                p.caption,
-                p.tiny,
-                p.eyebrow,
-                p.code
-            ]
-            .iter()
-            .all(|role| role.line.is_none() && role.tracking.is_none())
+            roles(POINTER)
+                .iter()
+                .all(|role| role.line.is_none() && role.letter_spacing.is_none())
         );
     }
 
