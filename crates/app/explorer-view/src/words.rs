@@ -7,7 +7,8 @@
 //! notes, problems and press words in `acting.rs`, and why a program page
 //! lists no capability in `state.rs` (`Unlisted::sentence`).
 use ::programs::{Change, NOTICE, Pending};
-use view::methods::{Capability, Manifested};
+use view::host::Error;
+use view::methods::{self, Capability, Manifested, Submitted};
 
 use crate::decode::{ago, grouped, plural, scheme, short, size};
 use crate::state::blob_kind;
@@ -391,5 +392,47 @@ pub(crate) fn allows(capability: Capability) -> &'static str {
         Capability::Live => {
             "sends and hears live streams in its program's rooms, as the program grants"
         }
+    }
+}
+
+// SDK gap: design::failure, swap when #417 lands
+/// What a write came to (Expo `src/write/words.ts:79-84` `failure`): a
+/// landed one's output; else why it stopped, told apart by whether it was
+/// refused (by the program, or not confirmed on the host), may have gone
+/// through, or was never sent (no node reached, none connected, or
+/// something before the send refused: safe to send again).
+pub(crate) fn failure(answer: Result<Submitted, Error>) -> Result<Vec<u8>, String> {
+    match answer {
+        Ok(Submitted::Applied { output, .. }) => Ok(output),
+        Ok(Submitted::InDoubt { .. }) => Err(
+            "This may have gone through: no answer came back. What you see is read again from the node."
+                .into(),
+        ),
+        Ok(Submitted::Refused { refusal, .. }) => {
+            Err(format!("That didn’t go through: {}", refusal.message))
+        }
+        Err(refusal) => Err(match refusal.code.as_str() {
+            methods::refusal::CONSENT_REFUSED => {
+                format!("That didn’t go through: {}", refusal.message)
+            }
+            methods::refusal::RPC_CLIENT => {
+                "Not sent: the node can’t be reached. Check the connection, then try again.".into()
+            }
+            methods::refusal::NOT_CONNECTED => "Not sent: not connected to a node.".into(),
+            _ => format!("Not sent: {}", refusal.message),
+        }),
+    }
+}
+
+/// A refused read or run in words a person reads (Expo
+/// `crates/mobile-core/src/lib.rs:104-118`): the program's or the node's
+/// own, but a program the network does not run comes back as its bare
+/// name (abi's `unknown_program` carries only that), so it is said in
+/// full.
+pub(crate) fn refusal(refusal: &Error) -> String {
+    if refusal.code == abi::reason::UNKNOWN_PROGRAM {
+        format!("This network runs no program called {}.", refusal.message)
+    } else {
+        refusal.message.clone()
     }
 }

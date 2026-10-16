@@ -233,7 +233,9 @@ fn accounts(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
         }),
     )
     .flex_1()
-    .min_h_0();
+    .min_h_0()
+    // the list's foot (Expo `pages.tsx:134` `ListFooterComponent`)
+    .pb(space::BLOCK);
     div()
         .id("explorer-page")
         .flex_1()

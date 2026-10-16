@@ -162,6 +162,14 @@ pub struct Network {
     pub roles: Option<abi::Roles>,
 }
 
+impl Note {
+    /// What a write came to: on the Programs page it sits in the page's
+    /// own scroll (Expo `Outcomes`, `programs.tsx:150`).
+    pub(crate) fn of_a_write(&self) -> bool {
+        matches!(self, Note::Sent(_) | Note::Refused(_))
+    }
+}
+
 /// The page a link named by a hash (`block/<hash>`, `tx/<hash>`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Linked {

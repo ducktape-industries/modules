@@ -8,8 +8,8 @@ use valset::{Motion, Valset, Voted};
 use view::methods::Submitted;
 use view::prelude::*;
 
-use crate::Explorer;
 use crate::state::{Network, Note};
+use crate::{Explorer, words};
 
 /// Blocks past the earliest a maintainer's change may land that a form
 /// asks by default: the op lands a block or two after the press.
@@ -565,23 +565,14 @@ impl Explorer {
         cx: &mut Context<Self>,
     ) {
         self.acting.busy = false;
-        let problem = match answer {
-            Ok(Submitted::Applied { output, .. }) => {
+        let problem = match words::failure(answer) {
+            Ok(output) => {
                 self.acting.form = None;
                 self.note = Some(Note::Sent(sent(path, &output, title)));
                 cx.notify();
                 return;
             }
-            // the Expo outbox's words (`write/words.ts` `failure`): the
-            // program refused it, or it never reached a node.
-            // SDK gap: `design::failure`, the SDK builds it later
-            Ok(Submitted::Refused { refusal, .. }) => {
-                format!("That didn’t go through: {}", refusal.message)
-            }
-            Err(refusal) => format!("Not sent: {}", refusal.message),
-            Ok(Submitted::InDoubt { .. }) => {
-                "No answer came back: it may have gone through.".into()
-            }
+            Err(problem) => problem,
         };
         match &mut self.acting.form {
             Some(form) => form.problem = Some(Problem::whole(problem)),

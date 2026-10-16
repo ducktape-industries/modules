@@ -18,7 +18,10 @@ const PAGES: [(&str, &str, Route); 5] = [
 
 pub(super) fn root(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
     let strip = strip(view, cx, k);
-    let note = note(view, cx, k);
+    // a write's outcome on the Programs page sits in its scroll
+    // (`programs::programs`)
+    let outcome = view.note.as_ref().is_some_and(Note::of_a_write);
+    let note = note(view, cx, k).filter(|_| !(outcome && view.pages.first() == &Route::Programs));
     let page = pages::body(view, cx, k);
     if view.searching {
         searching(view, cx, k)

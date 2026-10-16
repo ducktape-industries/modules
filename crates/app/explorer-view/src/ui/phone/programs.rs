@@ -36,9 +36,15 @@ pub(super) fn programs(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
         .flatten()
         .collect()
     };
+    // what a write came to, at the top of the page's own scroll (Expo
+    // `Outcomes`, `programs.tsx:150`)
+    let outcome = view.note.as_ref().is_some_and(Note::of_a_write);
     scroller("explorer-page")
+        .children(note(view, cx, k).filter(|_| outcome))
         .children(listed)
         .children(access(view, network, cx, k))
+        // Expo's own foot past the page's (`programs.tsx:243`)
+        .child(div().flex_none().h(space::BLOCK))
         .into_any_element()
 }
 
