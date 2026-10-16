@@ -270,7 +270,9 @@ pub(super) fn confirm(
 }
 
 /// `screen` under `dialog`, while there is one: dimmed, a press on the
-/// scrim (or Back) keeps the message.
+/// scrim (or Back) keeps the message. The dialog is centred top to bottom
+/// and stretches across, `gap.xl` in from each side (mobile
+/// `src/kit/Dialog.tsx:29`), so its words wrap at the phone's width.
 pub(super) fn with_confirm(
     screen: AnyElement,
     dialog: Option<Stateful<Div>>,
@@ -292,7 +294,7 @@ pub(super) fn with_confirm(
         dialog,
     )
     .flex()
-    .items_center()
+    .flex_col()
     .justify_center()
     .px(design::space::XL)
     .backdrop(hsla(0., 0., 0., scrim))
