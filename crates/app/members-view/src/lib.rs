@@ -87,9 +87,8 @@ pub struct Members {
     /// the pane's width, read from the window each render
     #[serde(skip)]
     width: f32,
-    /// the device's pointer is a finger, read from the window on attach and
-    /// each render: a phone's activity rows are titled by what each
-    /// transaction did
+    /// the device's pointer is a finger, read from the window each render:
+    /// a phone's activity rows are titled by what each transaction did
     #[serde(skip)]
     touch: bool,
     /// the list's dragged width; `None` until the first drag
@@ -358,9 +357,7 @@ impl View for Members {
     // the list and the detail fit at 320, the desk's smallest window
     const MIN_WINDOW_WIDTH: u32 = 320;
 
-    fn attach(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // a restore reads a member's activity before the first render
-        self.touch = window.touch();
+    fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         cx.follow::<HostSession>((), |view, session, cx| match session {
             Ok(session) => {
                 let now = (session.account, &session.chain_id, &session.signer);
@@ -395,7 +392,13 @@ impl Render for Members {
         // the pane's width, as the host lays the frame out: the detail
         // docks or floats by it in the frame that shows it
         self.width = window.viewport_size().width.into();
-        self.touch = window.touch();
+        // the pointer is in hand from the first tick, after `attach` read a
+        // restored member's activity: a finger reads it again, titled
+        if self.touch != window.touch() {
+            self.touch = window.touch();
+            self.seen.clear();
+            self.read_activity(cx);
+        }
         // a finger draws the phone's screens (the Expo app's), a pointer
         // the desk's: two trees over the one model, picked here once
         if self.touch {
