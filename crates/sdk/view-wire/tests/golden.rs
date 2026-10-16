@@ -445,6 +445,40 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             },
         ),
         exchange::<HostVisible>((), true),
+        exchange::<HostFloat>(
+            Float {
+                width: 320,
+                height: 200,
+                min_width: 240,
+                min_height: 150,
+                on_top: true,
+            },
+            Placement {
+                floating: true,
+                on_top: true,
+            },
+        ),
+        exchange::<HostFloat>(
+            Float {
+                width: 320,
+                height: 200,
+                min_width: 240,
+                min_height: 150,
+                on_top: false,
+            },
+            Placement {
+                floating: true,
+                on_top: false,
+            },
+        ),
+        exchange::<HostUnfloat>((), ()),
+        exchange::<HostPlacement>(
+            (),
+            Placement {
+                floating: false,
+                on_top: false,
+            },
+        ),
         exchange::<HostBadge>(3, ()),
         exchange::<HostTitle>("general".into(), ()),
         exchange::<CameraDevices>(
