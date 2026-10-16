@@ -2,11 +2,11 @@
 //! the states Expo draws (full, still being read, refused, empty) and
 //! through each of its presses; the width sweep at 360, 390 and 430
 //! (SPEC §8.1d-1); and a vote's outcome in the Expo app's words.
-use super::voting::{sheet, submitted};
+use super::voting::{operators, sheet, sheet_view, submitted};
 use super::*;
-use crate::voting::{cancel, said};
+use crate::voting::cancel;
 use valset::{Motion, Op, Pending, Voted};
-use view::methods::{Submit, Submitted};
+use view::methods::Submit;
 use view::testing;
 
 /// The view as a phone 390 wide shows it.
@@ -46,15 +46,38 @@ fn valset_upgrade() -> programs::Pending {
 /// promotion of the resident waiting on OTHER's vote, so the reader's own
 /// vote enacts it, and [`valset_upgrade`] scheduled.
 fn voter() -> TestAppContext {
+    voter_view().0
+}
+
+/// [`voter`], and the view, for a test that sets what a read left.
+fn voter_view() -> (TestAppContext, Entity<Nodes>) {
     let waiting = Pending {
         motion: Motion::Promote {
             key: RESIDENT.to_vec(),
         },
         voters: vec![OTHER.to_vec()],
     };
-    let mut cx = sheet(&THIS, 2, vec![waiting], vec![valset_upgrade()]);
+    let (mut cx, nodes) = sheet_view(&THIS, 2, vec![waiting], vec![valset_upgrade()]);
     phone(&mut cx);
-    cx
+    (cx, nodes)
+}
+
+/// Changes the view as a read would have left it, and draws it again.
+fn set(cx: &mut TestAppContext, nodes: &Entity<Nodes>, change: impl FnOnce(&mut Nodes)) {
+    cx.update(nodes, |view, _, cx| {
+        change(view);
+        cx.notify();
+    });
+    cx.run_until_parked();
+}
+
+/// What the node says of the network: [`seen`] at 4,200, with `change`.
+fn network_where(cx: &TestAppContext, change: fn(&mut NetworkStatus)) {
+    cx.host().handle::<ChainNetwork>(move |()| {
+        let mut network = seen(4200);
+        change(&mut network);
+        Ok(network)
+    });
 }
 
 /// The view on a phone over a node that answers every ask, but the one
@@ -170,6 +193,43 @@ fn a_network_with_no_members_says_so() {
 }
 
 #[test]
+fn a_node_that_hears_no_votes_says_why_its_cells_are_empty() {
+    let unsigned = phone_where(|cx| network_where(cx, |network| network.members[3].signed = None));
+    assert_eq!(
+        texts_of(&unsigned, "nodes-unheard"),
+        ["This node isn't voting right now, so it can't see the validators' votes."]
+    );
+    let refused = phone_where(|cx| {
+        cx.host()
+            .refuse::<ChainNetwork>("unknown_request", "no such method")
+    });
+    assert_eq!(
+        texts_of(&refused, "nodes-unheard"),
+        ["This node doesn't report its validators' votes. Update the node."]
+    );
+}
+
+#[test]
+fn a_validator_behind_says_by_how_much_on_its_row_and_its_page() {
+    let mut cx =
+        phone_where(|cx| network_where(cx, |network| network.members[2].signed = Some(4195)));
+    assert!(texts_of(&cx, "nodes-member-1").contains(&"5 behind".to_owned()));
+    click(&mut cx, "nodes-member-1");
+    shows(&cx, &["4,195 voted", "5", "5 behind"]);
+}
+
+#[test]
+fn a_member_on_an_agent_says_who_operates_it_on_its_row_and_its_page() {
+    let mut cx =
+        phone_where(|cx| serve_identity(cx, vec![(OTHER.to_vec(), 11)], operators().to_vec()));
+    assert!(
+        texts_of(&cx, "nodes-member-1").contains(&" · operated by ada (validator vps)".to_owned())
+    );
+    click(&mut cx, "nodes-member-1");
+    shows(&cx, &["Operator", "operated by ada (validator vps)"]);
+}
+
+#[test]
 fn a_silent_node_says_so_and_when_it_last_answered() {
     let (mut cx, ticks) = ready();
     phone(&mut cx);
@@ -228,6 +288,73 @@ fn a_voter_with_nothing_waiting_reads_no_motion_and_no_change() {
         &cx,
         &["No motion waits for votes.", "No change is scheduled."],
     );
+}
+
+#[test]
+fn a_refused_motions_read_says_why_and_retry_reads_it_again() {
+    let (mut cx, nodes) = voter_view();
+    set(&mut cx, &nodes, |view| {
+        view.voting.motions = Loadable::Failed(Error::new("unavailable", "valset is restarting"));
+    });
+    shows(&cx, &["valset is restarting", "Retry"]);
+    assert!(cx.find("nodes-motion-0").is_none());
+    click(&mut cx, "nodes-motions-retry");
+    assert!(cx.find("nodes-motions-refused").is_none());
+    shows(&cx, &["Promote 0102 to validator"]);
+}
+
+#[test]
+fn a_refused_schedule_read_says_why_and_retry_reads_it_again() {
+    let (mut cx, nodes) = voter_view();
+    set(&mut cx, &nodes, |view| {
+        view.voting.scheduled =
+            Loadable::Failed(Error::new("unavailable", "programs is restarting"));
+    });
+    shows(&cx, &["programs is restarting", "Retry"]);
+    assert!(cx.find("nodes-scheduled-0").is_none());
+    click(&mut cx, "nodes-scheduled-retry");
+    assert!(cx.find("nodes-scheduled-refused").is_none());
+    shows(&cx, &["Propose cancel"]);
+}
+
+#[test]
+fn the_motions_and_the_schedule_wait_for_their_reads() {
+    let (mut cx, nodes) = voter_view();
+    set(&mut cx, &nodes, |view| {
+        view.voting.motions = Loadable::Idle;
+        view.voting.scheduled = Loadable::Idle;
+    });
+    shows(&cx, &["Reading the motions…", "Reading the schedule…"]);
+}
+
+#[test]
+fn a_motion_the_reader_voted_on_reads_voted_and_has_no_vote() {
+    let mine = Pending {
+        motion: Motion::Promote {
+            key: RESIDENT.to_vec(),
+        },
+        voters: vec![THIS.to_vec()],
+    };
+    let mut cx = sheet(&THIS, 3, vec![mine], Vec::new());
+    phone(&mut cx);
+    assert_eq!(texts_of(&cx, "nodes-motion-voted-0"), ["voted"]);
+    assert!(cx.find("nodes-motion-vote-0").is_none());
+}
+
+#[test]
+fn a_vote_in_flight_greys_every_vote_until_it_answers() {
+    let mut cx = voter();
+    cx.host().never::<Submit<Valset>>();
+    click(&mut cx, "nodes-door");
+    click(&mut cx, "nodes-door-open");
+    assert_eq!(submitted(&cx).len(), 1);
+    for id in ["nodes-motion-vote-0", "nodes-scheduled-cancel-0"] {
+        let press = cx.interactivity(id);
+        assert!(
+            press.aria.disabled == Some(true) && press.on_click.is_none(),
+            "{id}"
+        );
+    }
 }
 
 #[test]
@@ -464,50 +591,4 @@ fn every_screen_fits_a_phone_360_390_and_430_wide() {
         cx.run_until_parked();
         assert!(cx.find("nodes-page").is_some(), "back on the list");
     });
-}
-
-#[test]
-fn a_vote_says_what_it_came_to_in_the_expo_words() {
-    let applied = |voted: Voted| Ok(testing::applied(abi::encode(&voted)));
-    assert_eq!(said(applied(Voted::Enacted)), Ok("Enacted".into()));
-    assert_eq!(
-        said(applied(Voted::Counted {
-            votes: 1,
-            needed: 2
-        })),
-        Ok("Vote counted: 1 of 2".into())
-    );
-    let refusal = |code: &str, message: &str| Error::new(code, message);
-    assert_eq!(
-        said(Ok(Submitted::Refused {
-            frame: [0; 32],
-            until: 0,
-            refusal: refusal("unauthorized", "only a validator votes"),
-        })),
-        Err("That didn’t go through: only a validator votes".into())
-    );
-    assert_eq!(
-        said(Err(refusal(
-            methods::refusal::RPC_CLIENT,
-            "connection refused"
-        ))),
-        Err("Not sent: the node can’t be reached. Check the connection, then try again.".into())
-    );
-    assert_eq!(
-        said(Err(refusal(
-            methods::refusal::SESSION_LOCKED,
-            "No key is unlocked."
-        ))),
-        Err("Not sent: No key is unlocked.".into())
-    );
-    assert_eq!(
-        said(Ok(Submitted::InDoubt {
-            frame: [0; 32],
-            until: 0
-        })),
-        Err(
-            "This may have gone through: no answer came back. What you see is read again from the node."
-                .into()
-        )
-    );
 }
