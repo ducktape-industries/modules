@@ -173,8 +173,9 @@ fn mention_row(
         .items_center()
         .gap(design::space::LG)
         .px(design::space::BLOCK)
-        .role(Role::MenuItem)
+        .role(Role::Button)
         .aria_label(choice.label.clone())
+        .focusable()
         .child(face(&choice.label, agent, ladder.avatar_inline, theme))
         .child(
             div()

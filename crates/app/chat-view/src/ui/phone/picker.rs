@@ -202,7 +202,8 @@ fn grid(
     let mut cells = cells.into_iter().peekable();
     while cells.peek().is_some() {
         let row: Vec<AnyElement> = cells.by_ref().take(fits - 1).collect();
-        rows.push(div().flex().gap(gap).children(row));
+        let id = format!("chat-reaction-{section}-row-{}", rows.len());
+        rows.push(div().id(id).flex().gap(gap).children(row));
     }
     div()
         .flex()
@@ -294,7 +295,7 @@ pub(super) fn cell(
         .when(cell.mine, |cell| cell.bg(theme.accent_soft))
         .text_type(CELL_EMOJI)
         .role(Role::Button)
-        .aria_label(cell.emoji.clone())
+        .aria_label(format!("React with {}", cell.emoji))
         .focusable()
         .on_click(press)
         .child(cell.emoji)

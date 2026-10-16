@@ -60,19 +60,10 @@ pub(super) fn screen(
         .into_any_element()
 }
 
-/// Whether the reader owns the channel: its owner's actions are theirs.
-fn owner_of(chat: &Chat, info: &ChannelInfo) -> bool {
-    chat.me().is_some_and(|me| me == info.channel.owner)
-}
-
 /// The name, then who may post, when it was made and by whom.
 fn head(chat: &Chat, info: &ChannelInfo, theme: &Theme, ladder: &Ladder) -> Stateful<Div> {
     let channel = &info.channel;
-    let policy = match (channel.archived, channel.members_only()) {
-        (true, _) => "Archived",
-        (false, true) => "Members only",
-        (false, false) => "Open",
-    };
+    let policy = parts::policy(channel);
     let owner = chat.names.ready().map_or_else(
         || Names::empty().member(&channel.owner),
         |names| names.member(&channel.owner),
@@ -137,7 +128,7 @@ fn members(
             .into_any_element(),
         );
     }
-    let owner = owner_of(chat, info);
+    let owner = chat.owns_room();
     rows.extend(
         roster
             .into_iter()
@@ -246,7 +237,7 @@ fn owner_actions(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Vec<AnyElement> {
-    if !owner_of(chat, info) {
+    if !chat.owns_room() {
         return Vec::new();
     }
     let rename = cx.listener(|chat, _: &ClickEvent, _window, cx| {

@@ -125,9 +125,9 @@ fn quick(
             )
         })
         .collect();
-    let all = cx.listener(move |chat, _: &ClickEvent, window, cx| {
+    let all = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
         cx.notify();
-        chat.open_menu(pane, seq, rev, Mode::Reactions, window, cx)
+        chat.show_menu(pane, seq, rev, Mode::Reactions);
     });
     let all = div()
         .id("chat-actions-all-reactions")
@@ -195,6 +195,7 @@ fn rows(
     if !deleted {
         let text = message.body.clone();
         let copy = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
+            cx.notify();
             chat.close_menu();
             chat.copy_text(text.clone(), "message text", cx);
         });
@@ -208,6 +209,7 @@ fn rows(
     }
     if let Some(link) = link {
         let copy = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
+            cx.notify();
             chat.close_menu();
             chat.copy_text(link.clone(), "message link", cx);
         });
@@ -222,7 +224,7 @@ fn rows(
     let reopen = |mode: Mode, cx: &mut Context<Chat>| -> Press {
         Box::new(cx.listener(move |chat, _: &ClickEvent, window, cx| {
             cx.notify();
-            chat.open_menu(pane, seq, rev, mode, window, cx)
+            open(chat, pane, seq, rev, mode, window)
         }))
     };
     if !deleted && mine {
@@ -244,6 +246,19 @@ fn rows(
         ));
     }
     rows
+}
+
+/// Turns the open sheet into an edit or a delete: an edit hands the keys
+/// to its field, a delete to the dialog's Cancel, so a stray Enter keeps
+/// the message.
+fn open(chat: &mut Chat, pane: Pane, seq: u64, rev: u32, mode: Mode, window: &mut Window) {
+    if !chat.show_menu(pane, seq, rev, mode) {
+        return;
+    }
+    match chat.editing() {
+        Some(target) => crate::composer::focus(window, &target.key()),
+        None => window.focus(CANCEL_DELETE),
+    }
 }
 
 /// A press on one of the sheet's rows.

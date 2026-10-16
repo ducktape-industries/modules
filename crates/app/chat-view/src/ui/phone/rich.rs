@@ -16,7 +16,7 @@ use chat::view::Names;
 use chat::{Block, Span};
 use view::design::Ladder;
 
-/// A quote's inset past its rule (mobile `src/chat/Rich.tsx:34`).
+/// A quote's inset past its 2 rule (mobile `src/chat/Rich.tsx:34`).
 const QUOTE_INSET: Pixels = px(10.);
 /// A list line's marker column, 22 less the line's inset (mobile
 /// `src/chat/Rich.tsx:26`).

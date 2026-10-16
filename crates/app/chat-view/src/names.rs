@@ -106,6 +106,25 @@ impl crate::Chat {
         Some((names.member(&peer), crate::message::agent(names, &peer)))
     }
 
+    /// The name a person knows room `id` by: a direct room's other person,
+    /// else the channel's `#name`; a direct room the roster cannot name yet
+    /// keeps its own name, and a room not listed yet its short id.
+    pub(crate) fn room_name(&self, id: &str) -> String {
+        let peer = self
+            .my_account()
+            .and_then(|me| dm_peer_of(me, id))
+            .zip(self.names.ready())
+            .map(|(peer, names)| names.member(&Principal::Account(peer)));
+        let name = |name: &str| match chat::dm_peers(id) {
+            Some(_) => name.to_owned(),
+            None => format!("#{name}"),
+        };
+        peer.unwrap_or_else(|| match self.info(id) {
+            Some(info) => name(&info.channel.name),
+            None => name(&view::design::short_hex(id)),
+        })
+    }
+
     /// What the top of the open room's history says: where it starts, by
     /// the channel's name or the direct room's other person.
     pub(crate) fn intro(&self) -> Option<String> {

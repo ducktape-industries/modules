@@ -11,7 +11,7 @@ use view::{FontWeight, HighlightStyle};
 
 use super::parts::{self, ROW_TALL, face, quiet};
 use crate::{Chat, Hits};
-use chat::{MsgRow, Principal};
+use chat::MsgRow;
 use view::design::Ladder;
 
 /// The field's magnifier (mobile `app/(tabs)/chat/search.tsx:88`).
@@ -69,6 +69,7 @@ fn title_row(
         .placeholder("Search messages")
         .on_submit(submit);
     // the field as the focused kit field draws it: 2 in the foreground
+    // (mobile `app/(tabs)/chat/search.tsx:84`)
     let field = div()
         .flex_1()
         .min_w(px(0.))
@@ -112,7 +113,8 @@ fn title_row(
         ))
 }
 
-/// The one scope there is, chosen (the kit `Chips`).
+/// The one scope there is, drawn chosen (the kit `Chips`); with nothing
+/// else to choose it is no control.
 fn scope(theme: &Theme, ladder: &Ladder) -> Div {
     div()
         .flex()
@@ -130,7 +132,6 @@ fn scope(theme: &Theme, ladder: &Ladder) -> Div {
                 .bg(theme.primary)
                 .text_type(ladder.secondary)
                 .text_color(theme.primary_foreground)
-                .aria_selected(true)
                 .child("All rooms"),
         )
 }
@@ -213,7 +214,7 @@ fn hit(
     });
     let place = format!(
         " in {} · {}",
-        room_name(chat, &row.channel_id),
+        chat.room_name(&row.channel_id),
         design::day(row.time)
     );
     let title = div()
@@ -262,17 +263,6 @@ fn hit(
             .child(words),
     )
     .into_any_element()
-}
-
-/// A room as a hit names it: `#name`, or the direct room's other person.
-fn room_name(chat: &Chat, id: &str) -> String {
-    let peer = chat
-        .my_account()
-        .and_then(|me| crate::names::dm_peer_of(me, id))
-        .zip(chat.names.ready())
-        .map(|(peer, names)| names.member(&Principal::Account(peer)));
-    peer.or_else(|| chat.info(id).map(|info| format!("#{}", info.channel.name)))
-        .unwrap_or_else(|| id.to_owned())
 }
 
 /// `body` with each word of `query` in medium and the foreground; a tag

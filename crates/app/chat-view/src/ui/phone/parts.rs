@@ -188,6 +188,15 @@ pub(super) fn small_button(
         )
 }
 
+/// Who may post in `channel`, as its caption and its details say it.
+pub(super) fn policy(channel: &chat::ChannelRow) -> &'static str {
+    match (channel.archived, channel.members_only()) {
+        (true, _) => "Archived",
+        (false, true) => "Members only",
+        (false, false) => "Open",
+    }
+}
+
 /// The kit `Field`: `input` (a [`design::field`]) with its label over it
 /// (caption, muted) and, where the value will not do, its problem under it
 /// in danger on a 2 edge.
@@ -198,7 +207,8 @@ pub(super) fn field(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Div {
-    // the thicker edge eats into the padding, so the words stay put
+    // a problem's edge is 2 (mobile `src/kit/Field.tsx:38`); the thicker
+    // edge eats into the padding, so the words stay put
     let input = match problem {
         Some(_) => input
             .border_2()

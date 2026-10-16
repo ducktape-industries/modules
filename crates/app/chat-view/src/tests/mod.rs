@@ -16,6 +16,7 @@ mod agents;
 mod menus;
 mod message;
 mod notices;
+mod phone;
 mod reader;
 mod rich;
 mod room;

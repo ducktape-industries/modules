@@ -2,7 +2,8 @@
 //! run's face and byline, the blocks ([`super::rich`]), "edited", the
 //! reactions and their "+", and in the room the button into its thread. A
 //! tap does nothing, as in the phone's own messengers; a long press (or
-//! the screen reader's "Message actions") opens the actions sheet. Reads
+//! the screen reader's "Message actions", or a keyboard's press) opens
+//! the actions sheet. Reads
 //! the message and the open menu; writes through the model's own
 //! reactions, menus and thread.
 use view::prelude::*;
@@ -12,7 +13,7 @@ use view::{FontWeight, HighlightStyle, UnderlineStyle};
 use super::parts::{HAIRLINE, face};
 use super::rich;
 use crate::message::ChatMessage;
-use crate::{Chat, Control, Mode, Pane};
+use crate::{Chat, Mode, Pane};
 use chat::Reaction;
 use view::design::Ladder;
 
@@ -46,21 +47,21 @@ pub(super) fn row(
     let chosen = chat.menu.as_ref().is_some_and(|menu| {
         menu.pane == pane && menu.seq == seq && matches!(menu.mode, Mode::Toolbar | Mode::More)
     });
-    let actions = cx.listener(move |chat, event: &ClickEvent, window, cx| {
-        if let ClickEvent::Touch(touch) = event
-            && touch.long_press
-        {
+    // a finger's long press opens the actions, and so does the keyboard's
+    // press on the row; a tap does nothing
+    let actions = cx.listener(move |chat, event: &ClickEvent, _window, cx| {
+        let opens = match event {
+            ClickEvent::Touch(touch) => touch.long_press,
+            ClickEvent::Keyboard(_) => true,
+            ClickEvent::Mouse(_) => false,
+        };
+        if opens {
             cx.notify();
-            chat.open_menu(pane, seq, rev, Mode::More, window, cx);
+            chat.show_menu(pane, seq, rev, Mode::More);
         }
     });
-    let id = match message.pending {
-        // what an e2e flow finds a post on its way by (Expo's testID)
-        true => "pending".to_owned(),
-        false => format!("chat-message-{}-row", message.id),
-    };
     let row = div()
-        .id(id)
+        .id(format!("chat-message-{}-row", message.id))
         .relative()
         .w_full()
         // a finger lands in `hit` (rule 3)
@@ -76,6 +77,7 @@ pub(super) fn row(
         .when(chosen, |row| row.bg(theme.accent_soft))
         .role(Role::Group)
         .aria_label(format!("{}: {}", message.author, message.body))
+        .focusable()
         .on_click(actions)
         .child(
             div()
@@ -96,9 +98,9 @@ pub(super) fn row(
                     view::wire::Action::CustomAction,
                     move |_: Option<&view::wire::ActionData>, _: &mut Window, app: &mut App| {
                         // a released view answers no action
-                        let _ = chat.update_in(app, |chat, window, cx| {
+                        let _ = chat.update(app, |chat, cx| {
                             cx.notify();
-                            chat.open_menu(pane, seq, rev, Mode::More, window, cx);
+                            chat.show_menu(pane, seq, rev, Mode::More);
                         });
                     },
                 )
@@ -267,27 +269,26 @@ fn reactions(
     ladder: &Ladder,
 ) -> Div {
     let (seq, rev) = (message.seq, message.rev);
-    let act = |control: Control| {
-        cx.listener(move |chat, _: &ClickEvent, window, cx| {
-            cx.notify();
-            chat.act(pane, seq, rev, control.clone(), window, cx);
-        })
-    };
     let chips: Vec<AnyElement> = message
         .reactions
         .iter()
         .map(|reaction| {
-            let control = Control::Reaction {
-                emoji: reaction.emoji.clone(),
-                add: !reaction.reacted_by_me,
-            };
+            let (emoji, add) = (reaction.emoji.clone(), !reaction.reacted_by_me);
+            let react = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
+                cx.notify();
+                chat.react(seq, emoji.clone(), add, cx)
+            });
             let id = format!("chat-message-{}-reaction-{}", message.id, reaction.emoji);
-            emoji_chip(id, reaction, act(control), theme, ladder)
+            emoji_chip(id, reaction, react, theme, ladder)
         })
         .collect();
+    let pick = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
+        cx.notify();
+        chat.show_menu(pane, seq, rev, Mode::Reactions);
+    });
     let add = add_chip(
         format!("chat-message-{}-reaction-add", message.id),
-        act(Control::AddReaction),
+        pick,
         theme,
         ladder,
     );
@@ -332,6 +333,7 @@ fn emoji_chip(
         .role(Role::Button)
         .aria_label(format!("{} {}", reaction.emoji, reaction.count))
         .aria_toggled(mine.into())
+        .focusable()
         .on_click(click)
         .consumes_click();
     chip(mine, theme)
@@ -356,6 +358,7 @@ fn add_chip(
     let hit = design::hit(id, CHIP_WIDTH, CHIP_HEIGHT, ladder)
         .role(Role::Button)
         .aria_label("Add reaction")
+        .focusable()
         .on_click(click)
         .consumes_click();
     chip(false, theme)
@@ -386,6 +389,7 @@ fn thread_button(
     )
     .role(Role::Button)
     .aria_label(format!("Open thread, {replies}"))
+    .focusable()
     .on_click(open)
     .consumes_click();
     div()

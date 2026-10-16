@@ -18,17 +18,7 @@ impl Chat {
     /// The composer's placeholder: who or where a message goes
     /// (`Message #general`, `Message Priya Nair`).
     pub(crate) fn composer_hint(&self, room: &Room) -> String {
-        if let Some((peer, _)) = self.dm_peer() {
-            return format!("Message {peer}");
-        }
-        let name = self.info(&room.id).map_or_else(
-            || view::design::short_hex(&room.id),
-            |info| info.channel.name.clone(),
-        );
-        match chat::dm_peers(&room.id) {
-            Some(_) => format!("Message {name}"),
-            None => format!("Message #{name}"),
-        }
+        format!("Message {}", self.room_name(&room.id))
     }
 
     /// A pane's refused read, asked again: the open thread, or the room

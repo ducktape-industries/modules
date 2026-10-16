@@ -23,7 +23,7 @@ pub(super) fn screen(
 ) -> AnyElement {
     let page = design::page(
         "chat-room-page",
-        title(chat, room),
+        chat.room_name(&room.id),
         Some(back),
         ladder,
         theme,
@@ -55,26 +55,10 @@ pub(super) fn screen(
         .into_any_element()
 }
 
-/// The room's name: `#name`, or the direct room's other person.
-fn title(chat: &Chat, room: &Room) -> String {
-    if let Some((peer, _)) = chat.dm_peer() {
-        return peer;
-    }
-    match chat.info(&room.id) {
-        Some(info) if chat::dm_peers(&room.id).is_some() => info.channel.name.clone(),
-        Some(info) => format!("#{}", info.channel.name),
-        None => design::short_hex(&room.id),
-    }
-}
-
 /// A channel's caption: how many members it seats, and who may post.
 fn caption(chat: &Chat, room: &Room) -> Option<String> {
     let channel = &chat.info(&room.id)?.channel;
-    let policy = match (channel.archived, channel.members_only()) {
-        (true, _) => "Archived",
-        (false, true) => "Members only",
-        (false, false) => "Open",
-    };
+    let policy = parts::policy(channel);
     let seated = room.members.ready().map_or(0, Vec::len);
     Some(match seated {
         0 => policy.to_owned(),

@@ -71,6 +71,9 @@ impl Chat {
                 .is_some_and(|menu| menu.mode == Mode::Toolbar)
     }
 
+    /// Opens the menu of the message at `seq` in `mode` and hands the keys
+    /// to what the desktop draws for it: the edit's field, the profile
+    /// card's first button, the delete's Cancel, the menu's own focus.
     pub(crate) fn open_menu(
         &mut self,
         pane: Pane,
@@ -80,17 +83,37 @@ impl Chat {
         window: &mut view::Window,
         _cx: &mut Context<Self>,
     ) {
-        if seq == 0 {
+        if !self.show_menu(pane, seq, rev, mode) {
             return;
+        }
+        match self.editing() {
+            // the edit field takes the keys as it opens: what is typed
+            // edits, and Enter saves; left in the room's composer, the
+            // typing was a new message and Enter sent it
+            Some(target) => crate::composer::focus(window, &target.key()),
+            None if mode == Mode::Profile => {
+                window.focus(crate::ui::menu::card::focus_key(self, pane, seq))
+            }
+            None => window.focus(crate::ui::menu::focus_key(pane, mode)),
+        }
+    }
+
+    /// Opens the menu of the message at `seq` in `mode`, its edit's draft
+    /// seeded and its picker fresh, and moves no keys: the surface that
+    /// draws it does. False when it does not open: no message there yet,
+    /// reactions in an archived room (said in the notice), an edit of
+    /// nothing.
+    pub(crate) fn show_menu(&mut self, pane: Pane, seq: u64, rev: u32, mode: Mode) -> bool {
+        if seq == 0 {
+            return false;
         }
         if mode == Mode::Reactions && self.room_info().is_some_and(|i| i.channel.archived) {
             self.notice = ARCHIVED_REACTIONS.into();
-            return;
+            return false;
         }
-        let mut editor = None;
         if mode == Mode::Editing {
             let Some(body) = self.edit_body(pane, seq) else {
-                return;
+                return false;
             };
             let target = Target::Edit {
                 channel: self.room_id(),
@@ -98,12 +121,10 @@ impl Chat {
                 base_rev: rev,
             };
             let choices = self.mention_choices();
-            let key = target.key();
             self.drafts
-                .entry(key.clone())
+                .entry(target.key())
                 .or_default()
                 .seed(&body, &choices);
-            editor = Some(key);
         }
         if mode == Mode::Reactions {
             self.picker = Default::default();
@@ -116,16 +137,7 @@ impl Chat {
             at: self.layout.press,
         });
         self.menu_cursor = 0;
-        match editor {
-            // the edit field takes the keys as it opens: what is typed
-            // edits, and Enter saves; left in the room's composer, the
-            // typing was a new message and Enter sent it
-            Some(key) => crate::composer::focus(window, &key),
-            None if mode == Mode::Profile => {
-                window.focus(crate::ui::menu::card::focus_key(self, pane, seq))
-            }
-            None => window.focus(crate::ui::menu::focus_key(pane, mode)),
-        }
+        true
     }
 
     pub(crate) fn close_menu(&mut self) {
