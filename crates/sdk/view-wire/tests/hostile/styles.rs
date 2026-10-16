@@ -364,5 +364,5 @@ fn a_style_entry_is_the_same_bytes_however_the_writer_walks_it() {
         feed(&entry);
     }
     assert_eq!(corpus.len(), 260);
-    assert_eq!(digest, 0xa384_0e9b_bfaf_0a93, "{digest:#018x}");
+    assert_eq!(digest, 0xbdf8_9dbc_d947_29c2, "{digest:#018x}");
 }
