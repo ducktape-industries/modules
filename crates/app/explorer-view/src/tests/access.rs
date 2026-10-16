@@ -10,7 +10,7 @@ use valset::{Motion, Voted};
 use view::methods::Submit;
 
 /// Ada (account 3) maintains chat; Scout, her agent (5), every program.
-fn grants() -> Vec<Grant> {
+pub(super) fn grants() -> Vec<Grant> {
     vec![
         Grant {
             scope: Scope::Program("chat".into()),
@@ -25,7 +25,7 @@ fn grants() -> Vec<Grant> {
 
 /// A change waiting: chat's at 700, made by Ada's grant, and forge's
 /// removal at 120, made by the vote.
-fn waiting() -> Vec<Pending> {
+pub(super) fn waiting() -> Vec<Pending> {
     vec![
         Pending {
             height: 120,
@@ -45,7 +45,7 @@ const CODE: [u8; 32] = [0x7e; 32];
 /// The Programs page for a reader whose key is `signer`, acting as
 /// `account`, voting for the validator when `votes`; the programs role holding
 /// `grants` and `scheduled`, chat a hook-free program, identity a role's.
-fn reader(
+pub(super) fn reader(
     account: Option<u64>,
     signer: [u8; 32],
     votes: bool,
@@ -87,9 +87,10 @@ fn reader_on(
     );
     cx.host().handle::<Query<Valset>>(move |query| {
         Ok(match query {
-            valset::Query::Voices { .. } => valset::Reply::Voices(match votes {
-                true => vec![VALIDATOR.to_vec()],
-                false => Vec::new(),
+            valset::Query::Voices { .. } => valset::Reply::Voices(if votes {
+                vec![VALIDATOR.to_vec()]
+            } else {
+                Vec::new()
             }),
             _ => valset::Reply::Validators(vec![VALIDATOR.to_vec()]),
         })
@@ -291,7 +292,7 @@ fn a_voter_proposes_a_grant_naming_the_account_as_it_is_typed() {
         "{:?}",
         cx.texts()
     );
-    cx.simulate_input("explorer-form-name", "trade");
+    cx.simulate_input("explorer-form-scope", "trade");
     cx.simulate_click("explorer-form-submit");
     cx.run_until_parked();
     let op = abi::encode(&programs::Op::Grant(Grant {
@@ -310,9 +311,10 @@ fn a_voter_proposes_a_grant_naming_the_account_as_it_is_typed() {
 #[test]
 fn a_refusal_shows_in_the_form_in_the_hosts_words() {
     let mut cx = maintainer();
-    let refusal = "account 3 may not change chat: no grant, and not the validators' vote";
+    // the host's own refusal: never sent (`design::failure`)
+    let refusal = "Unlock a key first.";
     cx.host()
-        .refuse::<Submit<Programs>>("unauthorized", refusal);
+        .refuse::<Submit<Programs>>(view::methods::refusal::SESSION_LOCKED, refusal);
     cx.simulate_click("explorer-remove-chat");
     cx.run_until_parked();
     cx.simulate_click("explorer-form-submit");
@@ -322,7 +324,11 @@ fn a_refusal_shows_in_the_form_in_the_hosts_words() {
         "the form says why"
     );
     assert!(cx.find("explorer-note").is_none(), "and nothing else does");
-    assert!(cx.has_text(refusal), "{:?}", cx.texts());
+    assert!(
+        cx.has_text(&format!("Not sent: {refusal}")),
+        "{:?}",
+        cx.texts()
+    );
     // pressed again, the old refusal goes at the press, not when the
     // answer lands: the app's confirm card waits over the form meanwhile
     cx.host().never::<Submit<Programs>>();
@@ -448,7 +454,8 @@ fn a_form_builds_its_op_or_says_why_not() {
         ),
     ] {
         assert_eq!(
-            acting::built(&form(edit, code, height), &network, 12),
+            acting::built(&form(edit, code, height), &network, 12)
+                .map_err(|problem| problem.sentence),
             Err(why.to_owned())
         );
     }

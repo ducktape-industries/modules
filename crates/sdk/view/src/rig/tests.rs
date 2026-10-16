@@ -126,6 +126,99 @@ fn a_submission_is_a_block_with_its_changes() {
     );
 }
 
+/// A hook keeping the last frame the chain told it of.
+struct Tap;
+
+impl Program for Tap {
+    const NAME: &'static str = "tap";
+    type Op = ();
+    type Query = ();
+    type Reply = Option<hook::Record>;
+
+    fn execute(_: &ExecCtx, (): ()) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn query(ctx: &program::QueryCtx, (): ()) -> Result<Option<hook::Record>, Error> {
+        ctx.record("told")
+    }
+
+    fn hook(ctx: &ExecCtx, record: hook::Record) -> Result<(), Error> {
+        ctx.put("told", &record);
+        Ok(())
+    }
+}
+
+/// A hook is told of each frame, with the account its key acts as, and
+/// its writes are the block's changes; the roster lists it.
+#[test]
+fn a_hook_is_told_of_each_frame_as_the_kernel_tells_it() {
+    let net = Network::new();
+    net.hook::<Tap>("tap");
+    let told = || -> hook::Record { net.query::<(), Option<_>>("tap", &()).unwrap().unwrap() };
+    let ada = net.person("ada");
+    let created = told();
+    assert_eq!(created.height, net.height());
+    assert_eq!(created.position, 0);
+    assert_eq!(created.target, "identity");
+    assert!(created.applied);
+    assert_eq!(created.account, None, "her key held no account before");
+    assert!(
+        net.take_changes()
+            .iter()
+            .any(|(program, _)| program == "tap")
+    );
+    net.submit(ada, "tap", &()).unwrap();
+    let posted = told();
+    assert_eq!(posted.target, "tap");
+    assert_eq!(posted.account, Some(ada));
+    assert_eq!(posted.signer, net.key_of(ada));
+    net.system("tap", &()).unwrap();
+    assert_eq!(told(), posted, "a system run is no signed frame");
+    net.found_roster();
+    let hooks: programs::Reply = net
+        .query(programs::PROGRAM, &programs::Query::Hooks(net.height()))
+        .unwrap();
+    assert_eq!(hooks, programs::Reply::Hooks(vec!["tap".into()]));
+}
+
+/// A hook that writes and then refuses.
+struct Balk;
+
+impl Program for Balk {
+    const NAME: &'static str = "balk";
+    type Op = ();
+    type Query = ();
+    type Reply = Option<hook::Record>;
+
+    fn execute(_: &ExecCtx, (): ()) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn query(ctx: &program::QueryCtx, (): ()) -> Result<Option<hook::Record>, Error> {
+        ctx.record("told")
+    }
+
+    fn hook(ctx: &ExecCtx, record: hook::Record) -> Result<(), Error> {
+        ctx.put("told", &record);
+        Err(Error::new("refused", "not this frame"))
+    }
+}
+
+/// A hook that refuses is undone, as the kernel undoes it, and the frame
+/// it was told of stands.
+#[test]
+fn a_hook_that_refuses_is_undone_and_the_frame_stands() {
+    let net = Network::new();
+    net.hook::<Balk>("balk");
+    let ada = net.person("ada");
+    let at = net.height();
+    net.submit(ada, "balk", &()).expect("the frame stands");
+    assert_eq!(net.height(), at + 1);
+    let told: Option<hook::Record> = net.query("balk", &()).unwrap();
+    assert_eq!(told, None, "its writes are undone");
+}
+
 /// A typed override answers before the chain; a refused one refuses.
 #[test]
 fn an_override_answers_in_place_of_the_chain() {
