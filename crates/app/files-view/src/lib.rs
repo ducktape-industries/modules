@@ -13,7 +13,8 @@
 //! `actions.rs`, what they write `write.rs`; every sentence is in
 //! `words.rs`. `ui/` draws the desktop's pages, `ui/phone/` the phone's
 //! screens: the root picks one, once, by the device. Element ids: a
-//! container is `files-<name>`, a control or a row `files/<what>/<key>`.
+//! container is `files-<name>`, a control or a row `files/<what>/<key>`,
+//! or `files/<what>:<path>` where a path is the key.
 mod actions;
 mod load;
 mod queries;

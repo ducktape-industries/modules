@@ -102,10 +102,9 @@ pub struct Reader {
     pub name: Loadable<Option<String>>,
 }
 
-/// Where the reader's home is, or why there is none to show.
+/// Why the reader has no home to show.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Home<'a> {
-    At(String),
+pub enum NoHome<'a> {
     /// no account is signed in
     SignedOut,
     Asking,
@@ -114,17 +113,18 @@ pub enum Home<'a> {
 }
 
 impl Reader {
-    pub fn home(&self) -> Home<'_> {
+    /// The reader's home, `/home/<their name>`, or why there is none.
+    pub fn home(&self) -> Result<String, NoHome<'_>> {
         if self.account.is_none() {
-            return Home::SignedOut;
+            return Err(NoHome::SignedOut);
         }
         match &self.name {
             Loadable::Ready(Some(name)) | Loadable::Reloading(Some(name), _) => {
-                Home::At(format!("/home/{name}"))
+                Ok(format!("/home/{name}"))
             }
-            Loadable::Ready(None) | Loadable::Reloading(None, _) => Home::Unnamed,
-            Loadable::Failed(refusal) => Home::Refused(&refusal.message),
-            Loadable::Idle | Loadable::Loading(_) => Home::Asking,
+            Loadable::Ready(None) | Loadable::Reloading(None, _) => Err(NoHome::Unnamed),
+            Loadable::Failed(refusal) => Err(NoHome::Refused(&refusal.message)),
+            Loadable::Idle | Loadable::Loading(_) => Err(NoHome::Asking),
         }
     }
 

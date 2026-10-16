@@ -46,10 +46,13 @@ impl Files {
         }
     }
 
+    /// A snapshot never changes: read once it shows, it is not asked
+    /// again on a commit; a refusal is asked again by Retry.
     fn read_snapshot(&mut self, id: BlobId, cx: &mut Context<Self>) {
-        if self.snapshot_at(id).is_none() {
-            self.snapshot = Loadable::Idle;
+        if self.snapshot_at(id).is_some() {
+            return;
         }
+        self.snapshot = Loadable::Idle;
         let read = queries::snapshot(cx.host(), id);
         cx.load(self, read, |view| &mut view.snapshot);
         if self.names.is_idle() {

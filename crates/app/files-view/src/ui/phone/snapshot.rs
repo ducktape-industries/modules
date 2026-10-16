@@ -66,11 +66,8 @@ fn found(view: &Files, row: &SnapshotRow, changes: &[DiffEntry], k: &Kit) -> Any
 
 /// What the snapshot changed, path by path.
 fn changed(row: &SnapshotRow, changes: &[DiffEntry], k: &Kit) -> AnyElement {
-    if row.parent.is_none() {
-        return quiet("files-first", words::FIRST_SNAPSHOT, k);
-    }
-    if changes.is_empty() {
-        return quiet("files-unchanged", words::NOTHING_CHANGED, k);
+    if let Some(note) = words::changes_note(row, changes) {
+        return quiet("files-changes-note", note, k);
     }
     div()
         .id("files-changes")

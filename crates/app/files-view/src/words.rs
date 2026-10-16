@@ -1,10 +1,10 @@
 //! Every sentence, label and status word both designs show, once: the
 //! desktop's pages (`ui/`) and the phone's screens (`ui/phone/`) word
 //! things from here and never type a sentence the other also types.
-use files::{Change, DiffKind, Node, Principal};
+use files::{Change, DiffEntry, DiffKind, Node, Principal, SnapshotRow};
 use view::design::{date, grouped, plural};
 
-use crate::state::{Home, Names, Note, PREVIEW, Place, name_of};
+use crate::state::{Names, NoHome, Note, PREVIEW, Place, name_of};
 use crate::write::{Naming, Write};
 
 pub const TITLE: &str = "Files";
@@ -97,14 +97,24 @@ pub fn pin_caption(seq: Option<u64>, owner: String) -> String {
     format!("{named} · {owner}")
 }
 
-/// Why the reader has no home to open; `None` when they have one.
-pub fn no_home<'a>(home: &Home<'a>) -> Option<&'a str> {
-    match home {
-        Home::At(_) => None,
-        Home::SignedOut => Some(SIGNED_OUT),
-        Home::Asking => Some(FINDING_HOME),
-        Home::Unnamed => Some(NO_NAME),
-        Home::Refused(why) => Some(why),
+/// Why the reader has no home to open.
+pub fn no_home<'a>(why: &NoHome<'a>) -> &'a str {
+    match why {
+        NoHome::SignedOut => SIGNED_OUT,
+        NoHome::Asking => FINDING_HOME,
+        NoHome::Unnamed => NO_NAME,
+        NoHome::Refused(why) => why,
+    }
+}
+
+/// What a snapshot page says in place of its changes: that it is the
+/// first, whose whole tree is new, or that it changed nothing; `None`
+/// when it lists them.
+pub fn changes_note(row: &SnapshotRow, changes: &[DiffEntry]) -> Option<&'static str> {
+    match (row.parent, changes.is_empty()) {
+        (None, _) => Some(FIRST_SNAPSHOT),
+        (Some(_), true) => Some(NOTHING_CHANGED),
+        (Some(_), false) => None,
     }
 }
 

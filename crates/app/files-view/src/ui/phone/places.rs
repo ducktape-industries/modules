@@ -6,7 +6,7 @@
 use view::{Div, Stateful};
 
 use super::*;
-use crate::state::{HISTORY_GLYPH, HOME_GLYPH, Home, Place};
+use crate::state::{HISTORY_GLYPH, HOME_GLYPH, Place};
 
 pub(super) fn places(view: &Files, cx: Cx, k: &Kit) -> AnyElement {
     let history = history_caption(view);
@@ -57,12 +57,12 @@ pub(super) fn places(view: &Files, cx: Cx, k: &Kit) -> AnyElement {
 /// else a row that says why there is none.
 fn home(view: &Files, cx: Cx, k: &Kit) -> Stateful<Div> {
     match view.reader.home() {
-        Home::At(path) => place_row("home", HOME_GLYPH, words::HOME, &path, &path, cx, k),
-        home => still_row(
+        Ok(path) => place_row("home", HOME_GLYPH, words::HOME, &path, &path, cx, k),
+        Err(why) => still_row(
             "files/place/home",
             HOME_GLYPH,
             words::HOME,
-            words::no_home(&home).unwrap_or_default().to_owned(),
+            words::no_home(&why).to_owned(),
             k,
         ),
     }

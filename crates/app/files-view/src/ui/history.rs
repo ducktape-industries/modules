@@ -156,14 +156,9 @@ pub(super) fn snapshot(view: &Files, id: BlobId, cx: Cx, k: &Kit) -> AnyElement 
 
 /// What the snapshot changed, path by path.
 fn changes(row: &SnapshotRow, snapshot: &Snapshot, k: &Kit) -> AnyElement {
-    let said = match (row.parent, snapshot.changes.is_empty()) {
-        (None, _) => Some(("files-first", words::FIRST_SNAPSHOT)),
-        (Some(_), true) => Some(("files-unchanged", words::NOTHING_CHANGED)),
-        (Some(_), false) => None,
-    };
-    if let Some((id, sentence)) = said {
-        return design::quiet(sentence, &k.theme)
-            .id(id)
+    if let Some(note) = words::changes_note(row, &snapshot.changes) {
+        return design::quiet(note, &k.theme)
+            .id("files-changes-note")
             .px_5()
             .py_3()
             .into_any_element();
