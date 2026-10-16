@@ -15,8 +15,6 @@ use crate::{Chat, Hits};
 use chat::MsgRow;
 use view::design::Ladder;
 
-/// The field's magnifier (mobile `app/(tabs)/chat/search.tsx:88`).
-const SEARCH_ICON: Pixels = px(20.);
 /// A kit `Chips` chip (mobile `src/design/theme.ts:78`, `size.chip`).
 const CHIP: Pixels = px(32.);
 
@@ -61,26 +59,14 @@ fn title_row(
         .autocapitalize(Autocapitalize::None)
         .virtual_keyboard(VirtualKeyboard::Search)
         .input_action(TextInputAction::Search)
-        .flex_1()
-        .min_w(px(0.))
-        .text_type(ladder.body)
-        .text_color(theme.foreground)
         .placeholder(words::SEARCH_MESSAGES)
         .on_submit(submit);
-    // the field as the focused kit field draws it: 2 in the foreground
-    // (mobile `app/(tabs)/chat/search.tsx:84`)
-    let field = div()
+    // the page opens with the field focused, so it wears the focused
+    // kit field's edge (mobile `app/(tabs)/chat/search.tsx:84` draws it
+    // fixed)
+    let field = parts::search_field(input, theme, ladder)
         .flex_1()
-        .min_w(px(0.))
-        .h(ladder.control)
-        .flex()
-        .items_center()
-        .gap(design::space::SM)
-        .px(design::space::LG)
-        .border_2()
-        .border_color(theme.foreground)
-        .child(design::icon("search", SEARCH_ICON))
-        .child(input);
+        .min_w(px(0.));
     div()
         .id("chat-search-title")
         .flex_none()

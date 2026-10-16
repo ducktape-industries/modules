@@ -18,8 +18,6 @@ pub(super) const CELL: Pixels = px(44.);
 const CELL_EMOJI: design::Type = design::Type::lined(24., 30.);
 /// Where the sheet rests (mobile `src/chat/Actions.tsx:153`).
 const DETENTS: [f32; 2] = [0.6, 1.0];
-/// The field's magnifier (mobile `src/chat/Actions.tsx:157`).
-const SEARCH_ICON: Pixels = px(20.);
 /// A category tab: 36 wide, the glyph 20 on a 26 line, a 2 rule under the
 /// chosen one (mobile `src/chat/Actions.tsx:195` and `:197`).
 const TAB_WIDTH: Pixels = px(36.);
@@ -75,7 +73,7 @@ pub(super) fn sheet(
     )
 }
 
-/// The search field: a hairline box, its magnifier, the words.
+/// The search field, its magnifier in it.
 fn field(chat: &Chat, theme: &Theme, ladder: &Ladder) -> Div {
     let input = Input::new(
         "chat-reaction-search",
@@ -84,22 +82,8 @@ fn field(chat: &Chat, theme: &Theme, ladder: &Ladder) -> Div {
     )
     .autocorrect(false)
     .autocapitalize(Autocapitalize::None)
-    .flex_1()
-    .min_w(px(0.))
-    .text_type(ladder.body)
-    .text_color(theme.foreground)
     .placeholder(words::SEARCH_EMOJI);
-    div()
-        .min_h(ladder.control)
-        .flex()
-        .items_center()
-        .gap(design::space::SM)
-        .px(design::space::LG)
-        .border_1()
-        .border_color(theme.border_strong)
-        .bg(theme.background)
-        .child(design::icon("search", SEARCH_ICON))
-        .child(input)
+    super::parts::search_field(input, theme, ladder)
 }
 
 /// No search: Frequently used, the tabs, the chosen tab's grid.

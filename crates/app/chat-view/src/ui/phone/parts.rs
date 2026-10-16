@@ -201,6 +201,35 @@ pub(super) fn small_button(
         )
 }
 
+/// A search field's magnifier (mobile `src/chat/Actions.tsx:157`,
+/// `app/(tabs)/chat/search.tsx:88`).
+const SEARCH_ICON: Pixels = px(20.);
+
+// SDK gap: field lead slot, swap when feat/phone-kit lands
+/// A search field (the kit `Field` with a magnifier `lead`): `input` is a
+/// [`design::field`], so the edge is the field's own hairline, which the
+/// host draws in the ink while the field is focused (mobile
+/// `src/kit/Field.tsx:38-39`). The magnifier, muted, lies in the field's
+/// padding where Expo's `lead` sits: past the hairline and `gap.lg`, the
+/// words `gap.sm` after it.
+pub(super) fn search_field(input: Input, theme: &Theme, ladder: &Ladder) -> Div {
+    let lead = div()
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .left(HAIRLINE + design::space::LG)
+        .flex()
+        .items_center()
+        .child(design::icon("search", SEARCH_ICON).text_color(theme.muted));
+    div()
+        .child(
+            design::field(input, ladder, theme)
+                .w_full()
+                .pl(design::space::LG + SEARCH_ICON + design::space::SM),
+        )
+        .child(lead)
+}
+
 // SDK gap: the labelled field, swap when feat/phone-kit lands
 /// The kit `Field`: `input` (a [`design::field`]) with its label over it
 /// (caption, muted) and, where the value will not do, its problem under it
