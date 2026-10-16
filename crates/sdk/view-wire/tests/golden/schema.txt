@@ -1241,6 +1241,7 @@ TextNode struct
   id: Option(TypeName("WireRepr"))
   style: U32
   content: Str
+  transform: Option(TypeName("TextTransform"))
 TextPosition struct
   node: TypeName("NodeId")
   characterIndex: U64
@@ -1264,6 +1265,8 @@ TextSelection struct
 TextToken struct
   range: TypeName("TextRange")
   id: Str
+TextTransform enum
+  0 Uppercase: Unit
 Toggled enum
   0 false: Unit
   1 true: Unit
