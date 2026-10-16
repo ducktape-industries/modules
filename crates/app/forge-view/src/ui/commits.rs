@@ -6,8 +6,10 @@ use view::{Div, Paged, Stateful};
 
 use crate::Forge;
 use crate::queries::PAGE;
+use crate::select::summary_of;
 use crate::ui::components::{badge, button, empty_state, heading, id, quiet, short_hex};
 use crate::ui::{diff, fact, refused};
+use crate::words;
 use forge::{CommitInfo, Query};
 use view::design::Ladder;
 
@@ -39,7 +41,7 @@ pub(crate) fn render(
     if forge.tree_query(Vec::new()).is_none() {
         return match forge.refs() {
             Some(_) => crate::ui::code::no_commits(forge, theme, ladder),
-            None => quiet("Resolving the ref…", theme),
+            None => quiet(words::RESOLVING_REF, theme),
         };
     }
     log(forge, &forge.log_query(), "forge-log", cx, theme, ladder)
@@ -86,8 +88,8 @@ pub(crate) fn log(
         return empty_state(
             id(format!("{element_id}-empty")),
             "git-commit-horizontal",
-            "No commits",
-            "This ref carries no history yet.",
+            words::NO_COMMITS,
+            words::NO_HISTORY,
             &ladder,
             theme,
         )
@@ -141,7 +143,7 @@ pub(crate) fn log(
 }
 
 /// What a log says while a page of it is on its way.
-const READING: &str = "Reading the history…";
+const READING: &str = words::READING_HISTORY;
 
 /// The row past the commits held: the loading line, at a row's height.
 fn reading_on(key: &str, theme: &Theme) -> AnyElement {
@@ -183,7 +185,7 @@ fn row(
                 .text_color(theme.muted)
                 .child(short_hex(&oid)),
         )
-        .cell(div().flex_1().truncate().child(summary(commit)))
+        .cell(div().flex_1().truncate().child(summary_of(commit)))
         .cell(quiet(
             String::from_utf8_lossy(&commit.author.name).into_owned(),
             theme,
@@ -204,7 +206,7 @@ fn row(
 /// A commit's ids, parents, author and message.
 fn facts(commit: &CommitInfo, theme: &Theme) -> Stateful<Div> {
     let parents = if commit.parents.is_empty() {
-        "root commit".to_owned()
+        words::ROOT_COMMIT.to_owned()
     } else {
         commit
             .parents
@@ -248,14 +250,6 @@ fn authored(commit: &CommitInfo) -> String {
 /// The short commit id column.
 const OID_W: Pixels = px(100.);
 
-fn summary(commit: &CommitInfo) -> String {
-    String::from_utf8_lossy(&commit.message)
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .to_owned()
-}
-
 /// One commit's page: its facts over its diff against its first parent,
 /// with a Back to the log it was opened from.
 pub(crate) fn detail(
@@ -286,7 +280,7 @@ pub(crate) fn detail(
                 .border_color(theme.border)
                 .child(heading(
                     id("forge-commit-title"),
-                    commit.as_ref().map_or_else(|| short_hex(oid), summary),
+                    commit.as_ref().map_or_else(|| short_hex(oid), summary_of),
                     2,
                     theme,
                 ))
@@ -297,7 +291,7 @@ pub(crate) fn detail(
                     header.child(
                         button(
                             id("forge-commit-files-all"),
-                            "All files",
+                            words::ALL_FILES,
                             ladder,
                             theme,
                             all,
@@ -326,7 +320,7 @@ pub(crate) fn detail(
                 forge,
                 &own,
                 "forge-commit-diff",
-                "Reading the diff…",
+                words::READING_DIFF,
                 cx,
                 theme,
                 ladder,

@@ -76,10 +76,12 @@ impl Forge {
         })
     }
 
-    /// The root and every expanded directory: what the tree reads.
+    /// The root, every expanded directory and the phone's open folder:
+    /// what the tree reads.
     pub(crate) fn tree_queries(&self) -> Vec<Query> {
         std::iter::once(Vec::new())
             .chain(self.nav.expanded.iter().cloned())
+            .chain(self.nav.folder.clone())
             .filter_map(|path| self.tree_query(path))
             .collect()
     }
@@ -88,9 +90,15 @@ impl Forge {
     /// its own children. The filter keeps every directory and the files
     /// whose name holds it.
     pub(crate) fn tree_rows(&self) -> Vec<Row> {
+        self.tree_rows_at(Vec::new())
+    }
+
+    /// The rows of the folder at `dir` as [`Self::tree_rows`] walks the
+    /// root: the phone's folder page lists one.
+    pub(crate) fn tree_rows_at(&self, dir: Vec<u8>) -> Vec<Row> {
         let mut rows = Vec::new();
         let needle = self.tree_search.text().trim().to_lowercase();
-        self.walk(Vec::new(), 0, &needle, &mut rows);
+        self.walk(dir, 0, &needle, &mut rows);
         rows
     }
 

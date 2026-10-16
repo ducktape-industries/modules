@@ -12,13 +12,21 @@
 //! - `state`: what the view holds; `select`: what the screens read out of it.
 //! - `sync`: which reads the screen needs; `queries`: how one read is asked.
 //! - `navigate`, `actions`, `review`, `tree`: what an event changes.
-//! - `ui`: the screens; `ui::markdown`: documents and their links.
+//! - `words`: every sentence both designs say; `markdown`, `highlight`,
+//!   `blob`: documents, source tokens and the open file, read once for
+//!   either design; `list`: a list as one Tab stop.
+//! - `ui`: the desktop's screens; `ui::phone`: the phone's (the Expo app's).
 mod api;
+mod blob;
+mod highlight;
+mod list;
+mod markdown;
 mod queries;
 mod select;
 mod state;
 mod sync;
 mod tree;
+mod words;
 
 mod actions;
 mod navigate;
@@ -112,8 +120,25 @@ impl Render for Forge {
         // a change's title lands async: the frame is the one place that
         // sees each
         self.settle_title(cx);
-        ui::render(self, window.touch(), cx)
+        // the one pick between the two designs: under a finger the Expo
+        // app's screens (`ui::phone`), under a pointer the desktop's; the
+        // phone's screens read a little more (`Forge::touch`)
+        if self.touch != window.touch() {
+            self.touch = window.touch();
+            self.sync(cx);
+        }
+        if self.touch {
+            ui::phone::render(self, cx)
+        } else {
+            ui::render(self, cx).into_any_element()
+        }
     }
+}
+
+/// An element id from its name: every id in this view is a name, so a test
+/// or the host finds it by what it says.
+pub(crate) fn id(text: impl Into<String>) -> ElementId {
+    ElementId::Name(text.into().into())
 }
 
 impl Forge {

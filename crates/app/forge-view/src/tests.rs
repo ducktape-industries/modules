@@ -678,6 +678,24 @@ fn judged(cx: &TestAppContext) -> Vec<forge::Principal> {
         .collect()
 }
 
+/// The host's badge is a dot, never a count: 1 while any change waits on my
+/// judgment, 0 once none does or while nobody is seated, posted from the
+/// judgment read every screen keeps and again when a block changes it.
+#[test]
+fn the_badge_is_a_dot_while_a_change_waits_on_my_judgment() {
+    use view::methods::HostBadge;
+    let (cx, _) = booted("default");
+    assert_eq!(cx.host().requests::<HostBadge>().last(), Some(&1));
+    let (mut cx, _) = booted("judgment-empty");
+    assert_eq!(cx.host().requests::<HostBadge>().last(), Some(&0));
+    // leaving the repositories page keeps the read, and the dot stays off
+    cx.simulate_click("forge-repo-project-open");
+    cx.run_until_parked();
+    assert_eq!(cx.host().requests::<HostBadge>(), [0]);
+    let (cx, _) = seated(b"stranger", None);
+    assert_eq!(cx.host().requests::<HostBadge>().last(), Some(&0));
+}
+
 /// A key that holds no account reads everything and writes nothing: every
 /// write control is off, the filters about "me" ask nothing, and the
 /// screen says an account is needed.
@@ -710,7 +728,16 @@ fn a_second_device_key_reads_as_the_same_person() {
     view.read(|forge| assert_eq!(forge.me_principal(), Some(forge::Principal::Account(1))));
     cx.simulate_click("forge-filter-judgment");
     cx.run_until_parked();
-    assert_eq!(judged(&cx), [forge::Principal::Account(1)]);
+    // asked at the repositories page and again in the Changes tab: both
+    // times for the account
+    let judged = judged(&cx);
+    assert!(!judged.is_empty());
+    assert!(
+        judged
+            .iter()
+            .all(|who| *who == forge::Principal::Account(1)),
+        "{judged:?}"
+    );
 }
 
 /// The reader creates the account in Account, then switches to Forge: the
@@ -1844,6 +1871,9 @@ mod screen_tests;
 #[path = "log_tests.rs"]
 mod log_tests;
 
+#[path = "phone_tests.rs"]
+mod phone_tests;
+
 #[test]
 fn copy_puts_the_address_on_the_clipboard_without_opening_the_repository() {
     let (mut cx, view) = booted("default");
@@ -2744,8 +2774,10 @@ fn costs(
 /// the activity, so a real review block, which marks the repository active,
 /// costs those three; a chat block re-reads no forge read the Readme tab
 /// shows; an identity block only the names; and a reopened link (`None`)
-/// re-reads everything. On the Judgment filter a real review lands as a
-/// forge item and, with the line it posted, a chat item, and each asks the
+/// re-reads everything. The judgment is read on every screen for the
+/// host's badge, so a review record written costs that one read wherever
+/// the reader is. On the Judgment filter a real review lands as a forge
+/// item and, with the line it posted, a chat item, and each asks the
 /// judgment again.
 #[test]
 fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
@@ -2753,14 +2785,18 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
     let review = costs(&mut costed, "Readme tab, a review record written", |c| {
         c.heads.forge.send(block(100, vec![review_key()]))
     });
-    assert!(review.is_empty(), "{review:?}");
+    assert_eq!(
+        review.keys().collect::<Vec<_>>(),
+        ["Judgment"],
+        "the badge's read follows a review: {review:?}"
+    );
     let real_review = costs(&mut costed, "Readme tab, a real review block", |c| {
         c.heads.forge.send(block(100, real_review_keys()))
     });
     // the open-changes count on the tab bar reads the changes again too
     assert_eq!(
         real_review.keys().collect::<Vec<_>>(),
-        ["Activity", "Changes", "Repo", "Repos"],
+        ["Activity", "Changes", "Judgment", "Repo", "Repos"],
         "{real_review:?}"
     );
     let pushed = costs(&mut costed, "Readme tab, a ref moved", |c| {
@@ -2768,7 +2804,7 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
     });
     assert_eq!(
         pushed.keys().collect::<Vec<_>>(),
-        ["Blob", "Refs", "Tree"],
+        ["Blob", "Judgment", "Refs", "Tree"],
         "{pushed:?}"
     );
     let repo = forge::tables::REPOS.key(&"project".to_owned());
@@ -2808,11 +2844,11 @@ fn a_block_costs_the_reads_of_the_tables_it_wrote_to() {
     assert_eq!(
         all.keys().collect::<Vec<_>>(),
         [
-            "Activity", "Blob", "Changes", "Refs", "Repo", "Repos", "Tree"
+            "Activity", "Blob", "Changes", "Judgment", "Refs", "Repo", "Repos", "Tree"
         ],
         "{all:?}"
     );
-    assert_eq!(all.values().sum::<usize>(), 9);
+    assert_eq!(all.values().sum::<usize>(), 10);
     costed.cx.simulate_click("forge-tab-changes");
     costed.cx.run_until_parked();
     costed.cx.simulate_click("forge-filter-judgment");

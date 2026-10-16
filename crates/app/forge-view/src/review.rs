@@ -2,7 +2,7 @@
 //! it all becomes. A refusal keeps every draft.
 use view::prelude::*;
 
-use crate::state::{Forge, PendingComment, ReviewSession, change_key};
+use crate::state::{Forge, PendingComment, ReviewRefusal, ReviewSession, change_key};
 use forge::{Op, ReviewDraft, Verdict};
 
 impl Forge {
@@ -58,7 +58,7 @@ impl Forge {
             .get(&key)
             .and_then(|review| review.staged(&path, new_side, line).cloned());
         if let Some(review) = self.reviews.get_mut(&key) {
-            review.error.clear();
+            review.refused = None;
             // a new document each time, whatever the field showed before
             let body = TextField::new(staged.map(|staged| staged.body.text()).unwrap_or_default());
             review.open = Some(PendingComment {
@@ -69,7 +69,7 @@ impl Forge {
             });
         }
         crate::ui::diff::reveal_composer(self);
-        window.focus(crate::ui::components::id("forge-comment-body"));
+        window.focus(crate::id("forge-comment-body"));
         cx.notify();
     }
 
@@ -125,7 +125,7 @@ impl Forge {
         let comments = review.line_comments();
         if matches!(verdict, Verdict::Comment) && review.body.is_blank() && comments.is_empty() {
             if let Some(review) = self.reviews.get_mut(&key) {
-                review.error = "A comment review needs a body or a line comment".into();
+                review.refused = Some(ReviewRefusal::EmptyComment);
             }
             cx.notify();
             return;
@@ -139,7 +139,7 @@ impl Forge {
         };
         if let Some(review) = self.reviews.get_mut(&key) {
             review.finishing = false;
-            review.error.clear();
+            review.refused = None;
         }
         self.submit(
             Op::ReviewSubmit {

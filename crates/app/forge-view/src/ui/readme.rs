@@ -4,9 +4,11 @@ use view::prelude::*;
 use view::{Div, Stateful};
 
 use crate::Forge;
-use crate::ui::code::{links, no_commits};
+use crate::markdown::links;
+use crate::ui::code::no_commits;
 use crate::ui::components::{empty_state, id, path_text, quiet};
 use crate::ui::{markdown, staged};
+use crate::words;
 use forge::{BlobView, Content, Query, Reply};
 use view::design::Ladder;
 
@@ -27,7 +29,7 @@ pub(crate) fn render(
         return page
             .child(match forge.refs() {
                 Some(_) => no_commits(forge, theme, ladder),
-                None => quiet("Resolving the ref…", theme),
+                None => quiet(words::RESOLVING_REF, theme),
             })
             .into_any_element();
     };
@@ -35,7 +37,7 @@ pub(crate) fn render(
         forge,
         &root,
         "forge-readme-tree",
-        "Reading the tree…",
+        words::READING_TREE,
         cx,
         theme,
         ladder,
@@ -47,7 +49,7 @@ pub(crate) fn render(
             .child(empty_state(
                 id("forge-readme-none"),
                 "file-text",
-                "No README",
+                words::NO_README,
                 "This ref carries no README at its root. The Code tab has its files.",
                 ladder,
                 theme,
@@ -63,7 +65,7 @@ pub(crate) fn render(
         forge,
         &query,
         "forge-readme-blob",
-        "Reading the README…",
+        words::READING_README,
         cx,
         theme,
         ladder,
@@ -98,7 +100,7 @@ fn document(
             &links(Vec::new(), cx),
         )
     } else {
-        quiet("This README is not text.", theme)
+        quiet(words::README_NOT_TEXT, theme)
     };
     div()
         .id(id("forge-readme-page"))

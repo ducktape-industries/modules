@@ -37,6 +37,9 @@ pub struct Forge {
     /// the window's title last sent
     #[serde(skip)]
     pub(crate) title: Option<String>,
+    /// the host badge last posted: 1 while a change waits on my judgment
+    #[serde(skip)]
+    pub(crate) badge: Option<i64>,
     pub(crate) layout: Layout,
     #[serde(skip)]
     /// every read on screen, keyed by the query that asked it
@@ -91,9 +94,36 @@ pub struct Forge {
     /// the change whose Close waits for a second press: closing is final
     #[serde(skip)]
     pub(crate) closing: Option<String>,
+    /// drawn under a finger (`window.touch()`): the phone's screens,
+    /// whose change strip counts every tab as Expo's does, so a change's
+    /// conversation and diff are read whichever tab is open
+    #[serde(skip)]
+    pub(crate) touch: bool,
     /// the dropdown open under its button, if any
     #[serde(skip)]
     pub(crate) menu: Option<Menu>,
+    /// the sheet open over the phone's page, if any (boards 21, 23)
+    #[serde(skip)]
+    pub(crate) sheet: Option<Sheet>,
+    /// the phone's change page shows its Details tab (board 23)
+    #[serde(skip)]
+    pub(crate) details: bool,
+    /// the phone's Refs tab lists the tags, not the branches
+    #[serde(skip)]
+    pub(crate) refs_tags: bool,
+    /// the phone's file page wraps its lines
+    #[serde(skip)]
+    pub(crate) wrap: bool,
+    /// the phone's file page shows a markdown file's source, not the
+    /// document
+    #[serde(skip)]
+    pub(crate) source: bool,
+    /// the list the phone's code and diff rows are drawn in
+    #[serde(skip)]
+    pub(crate) lines: crate::ui::phone::Block,
+    /// the phone's people sheet's filter (reviewers, a writer to grant)
+    #[serde(skip)]
+    pub(crate) people_search: TextField,
     /// where the open dropdown sits: under the press that opened it
     #[serde(skip)]
     pub(crate) menu_at: (f32, f32),
@@ -136,7 +166,7 @@ pub struct Forge {
     #[serde(skip)]
     pub(crate) change_tab_cursor: Option<ChangeTab>,
     #[serde(skip)]
-    pub(crate) blob_cache: crate::ui::code::BlobCache,
+    pub(crate) blob_cache: crate::blob::BlobCache,
     #[serde(skip)]
     pub(crate) diff_cache: crate::ui::diff::DiffCache,
 }
@@ -155,14 +185,27 @@ pub(crate) struct Nav {
     pub cursor: Option<Vec<u8>>,
     /// the open file: its path and blob oid
     pub blob: Option<(Vec<u8>, String)>,
+    /// the folder the phone's Code tab shows on a page of its own, by
+    /// full path (Expo `code/[...path].tsx`); the desktop opens folders
+    /// in place (`expanded`)
+    pub folder: Option<Vec<u8>>,
     /// a file a link named, opened once its folder's tree lands
     #[serde(skip)]
     pub goto: Option<Vec<u8>>,
+    /// a path a link named that the browsed ref does not hold: the
+    /// phone's Code tab says so on a page of its own (Expo
+    /// `code/[...path].tsx`), the desktop in its notice
+    #[serde(skip)]
+    pub missing: Option<Vec<u8>>,
     pub commit: Option<String>,
     pub change: Option<u64>,
     pub change_tab: ChangeTab,
     /// single-file mode in the change's diff
     pub diff_path: Option<Vec<u8>>,
+    /// the phone's All files page: every file of the change's diff on
+    /// one page (Expo `diff.tsx` without a path); the desktop's Files tab
+    /// shows them all in place
+    pub all_files: bool,
     pub dock: Option<Dock>,
 }
 
@@ -170,6 +213,99 @@ impl Nav {
     pub fn revision(&self, head: &[u8]) -> Revision {
         Revision::Ref(self.rev.clone().unwrap_or_else(|| head.to_vec()))
     }
+
+    /// The page stack this record projects to, root first: `Nav` is the one
+    /// route model (every screen reads it, a snapshot restores it), so the
+    /// stack is derived from it each render rather than kept beside it. The
+    /// phone shows the top page alone and Back pops one level
+    /// ([`Forge::back`](crate::Forge::back)); the desktop docks the same
+    /// pages as panes.
+    pub fn pages(&self) -> Vec<Page> {
+        let mut pages = vec![Page::Repos];
+        if self.repo.is_none() {
+            return pages;
+        }
+        pages.push(Page::Repo);
+        if self.change.is_some() {
+            pages.push(Page::Change);
+            match self.change_tab {
+                ChangeTab::Files if self.diff_path.is_some() || self.all_files => {
+                    pages.push(Page::File)
+                }
+                ChangeTab::Commits if self.commit.is_some() => pages.push(Page::Commit),
+                _ => {}
+            }
+            return pages;
+        }
+        match self.tab {
+            RepoTab::Code => {
+                if self.folder.is_some() {
+                    pages.push(Page::Folder);
+                }
+                if self.blob.is_some() {
+                    pages.push(Page::Blob);
+                } else if self.missing.is_some() {
+                    pages.push(Page::Missing);
+                }
+            }
+            RepoTab::Commits if self.commit.is_some() => pages.push(Page::Commit),
+            _ => {}
+        }
+        pages
+    }
+
+    /// `0` at the repositories: how many pages Back has to pop.
+    pub fn depth(&self) -> usize {
+        self.pages().len() - 1
+    }
+}
+
+/// One page of the stack [`Nav::pages`] projects, the screen the phone
+/// shows alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Page {
+    Repos,
+    Repo,
+    Change,
+    /// one file of a change's diff, shown alone, or all of them (the
+    /// phone's All files)
+    File,
+    /// one commit of a repository's or a change's log
+    Commit,
+    /// one folder of the Code tab (the phone's)
+    Folder,
+    /// one file of the Code tab
+    Blob,
+    /// a path a link named that the ref does not hold
+    Missing,
+}
+
+/// What lies over the phone's page, read from the model each frame
+/// ([`Forge::overlay`](crate::Forge::overlay)): the one the phone draws, and
+/// the one its Back closes first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Overlay {
+    /// a ref picker (`menu`)
+    Menu(Menu),
+    /// a sheet a page opened (`sheet`)
+    Sheet(Sheet),
+    /// the New repository form
+    NewRepository,
+    /// Finish your review
+    FinishReview,
+}
+
+/// A sheet a phone page opens over itself; Back closes it first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Sheet {
+    /// a repository's About (the desktop docks it, `Nav::dock`)
+    About,
+    /// what an open change offers its author and writers: Edit, Close
+    ChangeActions,
+    /// a member to grant write access to (the Settings tab)
+    Grant,
+    /// a member to ask for a review (the change form)
+    Reviewers,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -263,6 +399,10 @@ pub(crate) enum Menu {
     Ref,
     /// the default head in the repository's settings
     Head,
+    /// a new change's source (the phone's change form)
+    Source,
+    /// a new change's target (the phone's change form)
+    Target,
 }
 
 impl Menu {
@@ -272,6 +412,8 @@ impl Menu {
         match self {
             Menu::Ref => "forge-ref-picker",
             Menu::Head => "forge-settings-head",
+            Menu::Source => "forge-change-from",
+            Menu::Target => "forge-change-into",
         }
     }
 }
@@ -312,6 +454,10 @@ impl Filter {
     }
 }
 
+/// Where a line comment sits: the file's path, the new side (or the old),
+/// the line; what a diff line's comment button carries.
+pub(crate) type Anchor = (Vec<u8>, bool, u64);
+
 /// A review being written: pending comments staged against one pinned pair
 /// of endpoints, published as exactly one `ReviewSubmit`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -327,7 +473,16 @@ pub(crate) struct ReviewSession {
     #[serde(skip)]
     pub verdict: Option<Verdict>,
     pub finishing: bool,
-    pub error: String,
+    /// why finishing it was refused before it was sent; each design words
+    /// it
+    pub refused: Option<ReviewRefusal>,
+}
+
+/// Why a review was refused before it was sent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum ReviewRefusal {
+    /// a comment review with no body and no line comment
+    EmptyComment,
 }
 
 impl ReviewSession {
@@ -450,9 +605,14 @@ pub(crate) enum Progress {
     Submitting,
     /// accepted by the node, waiting for the block that carries it
     Accepted,
-    /// refused, with the program's sentence
-    Refused(String),
+    /// it did not land: the host's answer (refused, in doubt, or never
+    /// sent), which each design words (`ui::pending`, the phone's
+    /// `design::failure`)
+    Refused(Answer),
 }
+
+/// What the host answered a write.
+pub(crate) type Answer = Result<view::methods::Submitted, view::host::Error>;
 
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
