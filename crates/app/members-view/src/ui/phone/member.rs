@@ -100,8 +100,8 @@ fn missing(
         Loadable::Failed(refusal) => refused(refusal, cx, theme, ladder),
         Loadable::Ready(_) | Loadable::Reloading(..) => design::empty_state(
             "members-no-account",
-            format!("No account #{number}"),
-            "Identity holds no account by this number.",
+            words::no_account(number),
+            words::NO_ACCOUNT_WHY,
             theme,
         )
         .into_any_element(),
@@ -111,7 +111,7 @@ fn missing(
     };
     design::page(
         "members-member",
-        format!("Account {number}"),
+        words::account_title(number),
         Some(back),
         ladder,
         theme,
@@ -178,7 +178,9 @@ fn what(
         .text_type(ladder.caption)
         .text_color(theme.muted);
     match &row.kind {
-        identity::Kind::User => line.child(format!("{account} · Person · {devices}")),
+        identity::Kind::User => {
+            line.child(format!("{account} · {} · {devices}", words::PHONE_PERSON))
+        }
         identity::Kind::System(program) if *program == row.name => {
             line.child(format!("{account} · {}", words::PROGRAM))
         }
@@ -189,9 +191,13 @@ fn what(
             let manager = *manager;
             let who = name_or_number(rows, manager);
             let open = cx.listener(move |view, _: &ClickEvent, _, cx| view.open(manager, cx));
-            line.child(format!("{account} · Agent · managed by "))
-                .child(inline_link("members-manager", who, open, theme, ladder))
-                .child(format!(" · {devices}"))
+            line.child(format!(
+                "{account} · {} · {} ",
+                words::AGENT,
+                words::MANAGED_BY
+            ))
+            .child(inline_link("members-manager", who, open, theme, ladder))
+            .child(format!(" · {devices}"))
         }
     }
 }
@@ -442,7 +448,7 @@ fn signed_row(
         .text_color(theme.muted)
         .child(inline_link(
             format!("members-block-{index}"),
-            format!("block {place}"),
+            words::block(&place),
             open,
             theme,
             ladder,

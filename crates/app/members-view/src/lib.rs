@@ -239,7 +239,7 @@ fn standing_badge(
 /// a resident quiet (Nodes' memberships drew them so).
 fn valset_badge(standing: &str, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
     let (foreground, background) = match standing {
-        "Validator" => (theme.success, theme.success_soft),
+        words::VALIDATOR => (theme.success, theme.success_soft),
         _ => (theme.muted, theme.surface_raised),
     };
     design::badge(
@@ -509,7 +509,7 @@ impl Members {
             Some(Group::Agents),
             Some(Group::Programs),
         ]
-        .map(|group| (group, group.map_or("All", Group::label), count(group)))
+        .map(|group| (group, group.map_or(words::ALL, Group::label), count(group)))
     }
 
     /// The network's label: the session's chain id before its salt
@@ -607,8 +607,8 @@ fn row(account: &identity::Account, members: &[valset::Membership]) -> Row {
             .find(|member| account.holds(&member.key))
             .map(|member| {
                 match member.role {
-                    valset::Role::Validator => "Validator",
-                    valset::Role::Resident => "Resident",
+                    valset::Role::Validator => words::VALIDATOR,
+                    valset::Role::Resident => words::RESIDENT,
                 }
                 .into()
             }),

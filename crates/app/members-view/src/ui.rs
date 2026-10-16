@@ -48,7 +48,7 @@ pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElem
         (true, _) => screen
             .child(design::divider(
                 "members-list-resize",
-                "Resize the member list",
+                words::RESIZE_LIST,
                 &theme,
                 cx,
                 |view, dx| {
@@ -100,7 +100,7 @@ fn list_pane(
     ladder: &Ladder,
 ) -> impl IntoElement {
     let count = match view.rows.ready() {
-        Some(rows) => design::plural(rows.len() as u64, "account", "accounts"),
+        Some(rows) => words::accounts(rows.len()),
         None => String::new(),
     };
     div()
@@ -379,7 +379,7 @@ fn detail(
             .id("members-none")
             .px(px(20.))
             .py(space::BLOCK)
-            .child(design::quiet("Choose a member", theme))
+            .child(design::quiet(words::CHOOSE_MEMBER, theme))
             .into_any_element();
     };
     let mut detail = div()
@@ -424,7 +424,7 @@ fn head(
     // a narrow pane wraps between parts
     let mut caption: Vec<Vec<AnyElement>> = vec![vec![text(words::account(row.number))]];
     match &row.kind {
-        identity::Kind::User => caption.push(vec![text("User".into())]),
+        identity::Kind::User => caption.push(vec![text(words::DESK_USER.into())]),
         identity::Kind::System(program) if *program == row.name => {
             caption.push(vec![text(words::PROGRAM.into())])
         }
@@ -556,7 +556,7 @@ fn head(
                     let close = cx.listener(|view, _: &ClickEvent, _, cx| view.close(cx));
                     buttons.child(design::button(
                         "members-detail-close",
-                        "Close",
+                        words::CLOSE,
                         ladder,
                         theme,
                         close,
@@ -806,12 +806,12 @@ fn activity(view: &Members, theme: &Theme, ladder: &Ladder) -> impl IntoElement 
                     .child(
                         design::link(
                             format!("members-tx-{index}"),
-                            format!("block {place} · {}", signed.position),
+                            format!("{} · {}", words::block(&place), signed.position),
                             format!("duck://explorer/tx/{}/{}", signed.height, signed.position),
                             ladder,
                             theme,
                         )
-                        .aria_label(format!("Open {label} in Explorer")),
+                        .aria_label(words::open_in_explorer(&label)),
                     )
                     .child(
                         div()
@@ -829,7 +829,7 @@ fn activity(view: &Members, theme: &Theme, ladder: &Ladder) -> impl IntoElement 
     section(
         "members-activity",
         words::RECENT_ACTIVITY,
-        "newest first".to_owned(),
+        words::NEWEST_FIRST.to_owned(),
         body,
         theme,
     )

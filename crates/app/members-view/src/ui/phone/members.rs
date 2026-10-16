@@ -65,12 +65,12 @@ pub(super) fn page(
     );
     let page = match view.network() {
         "" => page,
-        network => page.caption(format!("{network} · {count} accounts")),
+        network => page.caption(format!("{network} · {}", words::accounts(count))),
     };
     page.trailing(design::icon_button(
         "members-filter-open",
         design::icon("search", ladder.icon),
-        "Filter",
+        words::FILTER,
         ladder,
         theme,
         open_filter,
@@ -132,7 +132,7 @@ fn filter_row(
         .child(design::icon_button(
             "members-filter-close",
             design::icon("x", ladder.icon),
-            "Close filter",
+            words::CLOSE_FILTER,
             ladder,
             theme,
             close,
@@ -307,7 +307,7 @@ fn member_row(
     let me = view.me == Some(number);
     let managed_by = row
         .manager()
-        .map(|manager| format!("managed by {}", name_or_number(all, manager)));
+        .map(|manager| format!("{} {}", words::MANAGED_BY, name_or_number(all, manager)));
     let (tail, what) = match &row.kind {
         identity::Kind::Program { standing, .. } => (
             standing_badge("members-row-standing", row, *standing, ladder, theme)
@@ -321,10 +321,10 @@ fn member_row(
             words::PROGRAM,
         ),
         identity::Kind::User => (
-            caption("Person", theme, ladder)
+            caption(words::PHONE_PERSON, theme, ladder)
                 .flex_none()
                 .into_any_element(),
-            "Person",
+            words::PHONE_PERSON,
         ),
     };
     let description = [me.then_some(words::YOU), managed_by.as_deref(), Some(what)]
