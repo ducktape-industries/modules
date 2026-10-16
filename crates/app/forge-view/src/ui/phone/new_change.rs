@@ -104,7 +104,7 @@ fn endpoints(
         false => ref_label(&form.from),
     };
     let editing = form.edit.is_some();
-    let mut picker = |menu: Menu, label: String| {
+    let picker = |menu: Menu, label: String| {
         let open = cx.listener(move |forge, event: &ClickEvent, window, cx| {
             forge.open_dropdown(menu, event, window, cx)
         });

@@ -196,15 +196,15 @@ impl Forge {
                     form.head = name;
                 }
             }
-            Menu::Source => {
+            Menu::Source | Menu::Target => {
                 if let Some(form) = &mut self.form {
-                    form.from = name;
+                    match menu {
+                        Menu::Source => form.from = name,
+                        _ => form.into = name,
+                    }
                 }
-            }
-            Menu::Target => {
-                if let Some(form) = &mut self.form {
-                    form.into = name;
-                }
+                // the form reads how its new ends compare
+                self.sync(cx);
             }
         }
         self.close_dropdown(menu, window, cx);
