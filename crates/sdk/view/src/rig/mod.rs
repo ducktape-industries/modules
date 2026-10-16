@@ -846,9 +846,10 @@ impl Network {
     /// whether the program applied or refused it, and what the run wrote
     /// recorded as the block's changes.
     pub(crate) fn run(&self, origin: Origin, target: String, payload: Vec<u8>) -> methods::Receipt {
-        let signer = match &origin {
-            Origin::Signed(key) => key.clone(),
-            Origin::Program(_) | Origin::Root => Vec::new(),
+        // the kernel tells hooks of signed frames only
+        let (signer, signed) = match &origin {
+            Origin::Signed(key) => (key.clone(), true),
+            Origin::Program(_) | Origin::Root => (Vec::new(), false),
         };
         let mut state = self.0.borrow_mut();
         let height = state.blocks.len() as u64 + 1;
@@ -885,7 +886,7 @@ impl Network {
             target: target.clone(),
             applied: ran.is_ok(),
         };
-        for hook in &state.hooks {
+        for hook in state.hooks.iter().filter(|_| signed) {
             tell(&state.chain, hook, record.clone());
         }
         let outcome = match ran {
