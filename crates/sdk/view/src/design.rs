@@ -407,32 +407,40 @@ pub fn icon(name: &str, size: Pixels) -> crate::Svg {
 
 /// A press target bigger than what it draws (React Native's `hitSlop`):
 /// a transparent box over its parent, taking no layout space, that
-/// carries the press and the Aria while the parent only draws. Under a
-/// finger it reaches past each edge of a `width` x `height` parent until
-/// it is [`Ladder::hit`] each way (an axis already that long gets no
-/// reach); under a pointer it covers the parent exactly. The reach lies
-/// over what sits around the parent, so rows keep their spacing, and the
-/// focus ring is drawn on the whole box. Where the box reaches past its
-/// parent, [`assert_fits`](crate::testing::assert_fits) measures it off
-/// the parent's declared height, so the parent declares one; a box that
-/// reaches nowhere is measured as any press, off the nearest declared row
-/// above it.
+/// carries the press and the Aria while the parent only draws. `width` x
+/// `height` is the parent's box, its border included, and `edge` the
+/// width of that border (`px(0.)` for none): an absolute box is placed
+/// inside its parent's border, so it reaches past the border too. Under a
+/// finger the box reaches past each edge until it is [`Ladder::hit`] each
+/// way (an axis already that long gets no reach); under a pointer it
+/// covers the parent exactly. The reach lies over what sits around the
+/// parent, so rows keep their spacing, and the focus ring is drawn on the
+/// whole box. Where the box reaches past its parent,
+/// [`assert_fits`](crate::testing::assert_fits) measures it off the
+/// parent's declared height less its border, so the parent declares one;
+/// a box that reaches nowhere is measured as any press, off the nearest
+/// declared row above it.
 /// The 44 is our rule, not Expo's: React Native's `hitSlop` is set per
 /// control, and the Expo kit's reaction chips set none. A reaction chip 30
 /// tall and at least 40 wide:
 /// `div().h(px(30.)).min_w(px(40.)).child("👍 2").child(design::hit("react",
-/// px(40.), px(30.), &ladder).role(Role::Button).aria_label("👍 2")
+/// px(40.), px(30.), px(0.), &ladder).role(Role::Button).aria_label("👍 2")
 /// .focusable().on_click(..))`.
 pub fn hit(
     id: impl Into<ElementId>,
     width: Pixels,
     height: Pixels,
+    edge: Pixels,
     ladder: &Ladder,
 ) -> Stateful<Div> {
-    // the inset on each side of an axis: negative, it reaches past
-    let inset = |side: Pixels| match ladder.touch {
-        true => px(((f32::from(side) - f32::from(ladder.hit)) / 2.).min(0.)),
-        false => px(0.),
+    // the inset on each side of an axis, from inside the parent's border:
+    // negative, it reaches past
+    let inset = |side: Pixels| {
+        let reach = match ladder.touch {
+            true => px(((f32::from(side) - f32::from(ladder.hit)) / 2.).min(0.)),
+            false => px(0.),
+        };
+        reach - edge
     };
     let (x, y) = (inset(width), inset(height));
     div().id(id).absolute().top(y).bottom(y).left(x).right(x)
@@ -1524,7 +1532,7 @@ fn touch_segment(
     // `hit`'s width is the segment's own, which only layout knows; a
     // segment shares a box as wide as the phone, so it is at least a
     // finger wide and the press takes none of its neighbours' width
-    let press = hit(id, ladder.hit, SEGMENT_HEIGHT, ladder)
+    let press = hit(id, ladder.hit, SEGMENT_HEIGHT, px(0.), ladder)
         .aria_label(label.clone())
         .aria_toggled(selected.into())
         .on_click(click);

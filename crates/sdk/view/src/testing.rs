@@ -249,6 +249,9 @@ pub fn sweep(cx: &mut TestAppContext, mut drive: impl FnMut(&mut TestAppContext)
 /// How tall a press is, as [`assert_fits`] reads its declared sizes.
 enum Press {
     Declared(f32),
+    /// a box reaching past its parent: the parent inside its border, and
+    /// the reach
+    Reaches(f32),
     Undeclared,
     ReachesPastAnUndeclaredParent,
 }
@@ -262,6 +265,8 @@ enum Press {
 /// past its parent (negative insets, `design::hit`) is measured off its
 /// parent alone, which must declare its height: the reach is sized to
 /// that parent, so a taller row further up says nothing about the box.
+/// An absolute box is placed inside its parent's border, so it is the
+/// parent's height less the border, and the reach.
 /// Also a many-line field with an `on_submit` (the software Return is a
 /// newline); the root's `on_back` not exactly when there is somewhere to
 /// go back to (a sheet open, or a Back control drawn: a node named "Back",
@@ -303,6 +308,16 @@ pub fn assert_fits(
         let style = declared(node.style())?;
         px_of(&style.size.height).or_else(|| px_of(&style.min_size.height))
     };
+    // what a node's top and bottom borders take off its height
+    let border_of = |node: &Node| {
+        let edge = |width: Option<gpui::AbsoluteLength>| match width {
+            Some(gpui::AbsoluteLength::Pixels(px)) => f32::from(px),
+            _ => 0.,
+        };
+        declared(node.style()).map_or(0., |style| {
+            edge(style.border_widths.top) + edge(style.border_widths.bottom)
+        })
+    };
     // what an absolute node pinned top and bottom takes off its parent's
     // height (negative when it reaches past it)
     let pinned = |node: &Node| {
@@ -313,28 +328,28 @@ pub fn assert_fits(
         Some(px_of(&style.inset.top)? + px_of(&style.inset.bottom)?)
     };
     // how tall the last node of `chain` presses: its own declared height;
-    // for a box reaching past its parent (`design::hit`), the parent's and
-    // the reach; else the nearest declared row above it, less what it is
-    // pinned in by
+    // for a box reaching past its parent (`design::hit`), the parent's
+    // inside its border and the reach; else the nearest declared row above
+    // it, less what it is pinned in by
     let press_height = |chain: &[&Node]| {
         let node = *chain.last().expect("a chain ends at its node");
         if let Some(own) = height_of(node) {
             return Press::Declared(own);
         }
         let reach = pinned(node).filter(|insets| *insets < 0.).map(f32::abs);
-        let parent = chain.iter().rev().nth(1).copied();
-        let height = match reach {
-            Some(reach) => match parent.and_then(&height_of) {
-                Some(parent) => Some(parent + reach),
-                None => return Press::ReachesPastAnUndeclaredParent,
-            },
-            None => chain
-                .iter()
-                .rev()
-                .skip(1)
-                .find_map(|node| height_of(node))
-                .map(|above| above - pinned(node).unwrap_or(0.)),
-        };
+        if let Some(reach) = reach {
+            let parent = chain.iter().rev().nth(1).copied();
+            let inside = parent.and_then(|parent| Some(height_of(parent)? - border_of(parent)));
+            return inside.map_or(Press::ReachesPastAnUndeclaredParent, |inside| {
+                Press::Reaches(inside + reach)
+            });
+        }
+        let height = chain
+            .iter()
+            .rev()
+            .skip(1)
+            .find_map(|node| height_of(node))
+            .map(|above| above - pinned(node).unwrap_or(0.));
         height.map_or(Press::Undeclared, Press::Declared)
     };
     chain(tree, &mut |chain| {
@@ -367,7 +382,11 @@ pub fn assert_fits(
                 faults.push(format!("a pressable node is invisible at {}", path()));
             }
             match press_height(chain) {
-                Press::Declared(height) if height >= hit => {}
+                Press::Declared(height) | Press::Reaches(height) if height >= hit => {}
+                Press::Reaches(height) => faults.push(format!(
+                    "a press box reaching past its parent comes to {height} (the parent inside its border, and the reach), under {hit}, at {}: tell `design::hit` the parent's border (`edge`)",
+                    path()
+                )),
                 Press::ReachesPastAnUndeclaredParent => faults.push(format!(
                     "a press box reaches past a parent that declares no height at {}: declare the parent's height (`.h(..)` or `.min_h(..)`); one left to layout (`h_full`, `size_full`) is not read",
                     path()

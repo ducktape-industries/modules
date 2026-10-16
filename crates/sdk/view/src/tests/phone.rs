@@ -271,7 +271,7 @@ fn chip(ladder: Option<&design::Ladder>) -> Stateful<Div> {
     let chip = div().id("chip").h(px(30.)).min_w(px(40.)).child("👍 2");
     match ladder {
         Some(ladder) => chip.child(
-            design::hit("react", px(40.), px(30.), ladder)
+            design::hit("react", px(40.), px(30.), px(0.), ladder)
                 .role(crate::Role::Button)
                 .aria_label("👍 2")
                 .focusable()
@@ -349,7 +349,7 @@ fn a_short_chip_without_a_hit_does_not_fit_a_phone() {
 fn loose_chip(row: f32) -> Stateful<Div> {
     div().id("row").h(px(row)).child(
         div().id("chip").min_w(px(40.)).child("👍 2").child(
-            design::hit("react", px(40.), px(30.), &design::TOUCH)
+            design::hit("react", px(40.), px(30.), px(0.), &design::TOUCH)
                 .role(crate::Role::Button)
                 .aria_label("👍 2")
                 .focusable()
@@ -461,6 +461,7 @@ fn the_sweep_trusts_a_hit_told_its_parent_is_a_finger_tall() {
         "react",
         px(44.),
         px(44.),
+        px(0.),
         &design::TOUCH,
     )));
 }
@@ -520,8 +521,52 @@ fn the_sweep_refuses_a_hit_whose_parent_fills_its_row_by_layout() {
                 "react",
                 px(44.),
                 px(30.),
+                px(0.),
                 &design::TOUCH,
             ))))
     });
+    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+}
+
+/// A chip 32 tall with a hairline edge, pressing through a `design::hit`
+/// told its edge: the box is placed inside the edge, so it reaches 7 past
+/// each side of the inside, and presses at 44.
+fn bordered_chip(edge: Pixels) -> Stateful<Div> {
+    div().id("row").h(px(48.)).child(
+        div()
+            .id("chip")
+            .relative()
+            .h(px(32.))
+            .min_w(px(44.))
+            .border_1()
+            .child("👍 2")
+            .child(press(design::hit(
+                "react",
+                px(44.),
+                px(32.),
+                edge,
+                &design::TOUCH,
+            ))),
+    )
+}
+
+#[test]
+fn a_bordered_chip_presses_at_44_through_a_hit_told_its_edge() {
+    let (tree, styles) = testing::lower(|_: &mut Context<()>| bordered_chip(px(1.)));
+    let hit = &tree.children()[0].children()[1];
+    let inset = &styles[hit.style().expect("a styled hit")].inset;
+    assert_eq!(
+        (inset.top, inset.bottom),
+        (Some(px(-7.).into()), Some(px(-7.).into()))
+    );
+    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+}
+
+/// The same chip with its edge left out presses at 42 (30 inside the
+/// edge, 6 over and under), and the sweep says so.
+#[test]
+#[should_panic(expected = "comes to 42")]
+fn a_bordered_chip_whose_hit_is_not_told_its_edge_does_not_fit() {
+    let (tree, styles) = testing::lower(|_: &mut Context<()>| bordered_chip(px(0.)));
     testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
 }
