@@ -17,12 +17,12 @@ use super::parts::{self, Back, Row, Tint, Tone};
 use super::tabs;
 use crate::Forge;
 use crate::actions::MergeBlock;
-use crate::state::{ChangeTab, Sheet, change_key};
-use crate::ui::components::{id, path_text, ref_label, short_hex};
-use crate::ui::markdown;
-use forge::{
-    Change, ChangeState, Content, FileDiff, Mergeability, Principal, Reply, Review, Verdict,
-};
+use crate::id;
+use crate::markdown;
+use crate::state::{ChangeTab, Sheet, change_key, verdict_label};
+use crate::words::{self, path_text};
+use forge::{Change, ChangeState, Content, FileDiff, Principal, Reply, Review, Verdict};
+use view::design::short_hex;
 
 pub(super) fn render(
     forge: &Forge,
@@ -40,8 +40,8 @@ pub(super) fn render(
         ),
         None => (format!("#{n}"), repo.clone()),
     };
-    let more = cx
-        .listener(|forge, _: &ClickEvent, _, cx| forge.open_sheet(Some(Sheet::ChangeActions), cx));
+    let more =
+        cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_sheet(Sheet::ChangeActions, cx));
     let page = design::page("forge-page-change", title, back, ladder, theme)
         .caption(caption)
         .trailing(design::icon_button(
@@ -61,7 +61,7 @@ pub(super) fn render(
             forge,
             &query,
             "forge-change",
-            "Reading this change…",
+            words::READING_CHANGE,
             cx,
             (ladder, theme),
         );
@@ -280,7 +280,7 @@ fn timeline(
         .unwrap_or_default();
     let body = (!change.body.trim().is_empty()).then(|| {
         let blocks = markdown::parse(&change.body);
-        let links = crate::ui::code::links(Vec::new(), cx);
+        let links = markdown::links(Vec::new(), cx);
         div().p(design::space::BLOCK).child(document::markdown(
             "forge-change-body",
             &blocks,
@@ -293,7 +293,7 @@ fn timeline(
         true => vec![
             parts::quiet(
                 id("forge-reviews-none"),
-                "Nobody has reviewed this change yet.",
+                words::NOBODY_REVIEWED,
                 ladder,
                 theme,
             )
@@ -317,7 +317,7 @@ fn timeline(
         .child(section_aside(
             "forge-reviews-head",
             "Reviews",
-            "advisory".to_owned(),
+            words::ADVISORY.to_owned(),
             ladder,
             theme,
         ))
@@ -401,19 +401,13 @@ fn events(
             let (who, what) = match (change.state, &change.merge_oid) {
                 _ if Some(row.seq) == first => (
                     forge.principal_name(&change.author),
-                    "opened this change".to_owned(),
+                    words::OPENED_IT.to_owned(),
                 ),
                 (ChangeState::Merged, Some(oid)) => (
                     name(&change.merged_by),
-                    format!(
-                        "merged into {} as {}",
-                        ref_label(&change.into),
-                        short_hex(oid)
-                    ),
+                    words::merged_into(&change.into, oid),
                 ),
-                (ChangeState::Closed, _) => {
-                    (name(&change.closed_by), "closed this change".to_owned())
-                }
+                (ChangeState::Closed, _) => (name(&change.closed_by), words::CLOSED_IT.to_owned()),
                 _ => return None,
             };
             let said = div().text_color(theme.muted).child(what).into_any_element();
@@ -421,7 +415,7 @@ fn events(
                 key: format!("forge-event-{}", row.message_id),
                 name: who,
                 agent: false,
-                meta: format!("block {}", design::grouped(row.height)),
+                meta: words::block(row.height),
             };
             Some(line.draw(vec![said], ladder, theme))
         })
@@ -495,15 +489,16 @@ impl TimelineLine {
 /// `outdated`), what it says, each line comment as `path:line — body` in
 /// the data face.
 fn review_line(forge: &Forge, review: &Review, ladder: &Ladder, theme: &Theme) -> AnyElement {
-    let (label, tint) = match review.draft.verdict {
-        Verdict::Approve => ("Approve", Tint::Ok),
-        Verdict::RequestChanges => ("Request changes", Tint::Warn),
-        Verdict::Comment => ("Comment", Tint::Plain),
+    let label = verdict_label(review.draft.verdict);
+    let tint = match review.draft.verdict {
+        Verdict::Approve => Tint::Ok,
+        Verdict::RequestChanges => Tint::Warn,
+        Verdict::Comment => Tint::Plain,
     };
     let outdated = forge.outdated(&review.draft.commit_oid).then(|| {
         parts::badge(
             id(format!("forge-review-outdated-{}", review.id)),
-            "outdated",
+            words::OUTDATED,
             Tint::Warn,
             ladder,
             theme,
@@ -545,7 +540,7 @@ fn review_line(forge: &Forge, review: &Review, ladder: &Ladder, theme: &Theme) -
         key: format!("forge-review-{}", review.id),
         name: forge.principal_name(&review.author),
         agent: is_agent(forge, &review.author),
-        meta: format!("block {}", design::grouped(review.height)),
+        meta: words::block(review.height),
     };
     line.draw(said, ladder, theme)
 }
@@ -574,7 +569,7 @@ fn replies(
         return vec![
             parts::quiet(
                 id("forge-conversation-loading"),
-                "Reading the conversation…",
+                words::READING_CONVERSATION,
                 ladder,
                 theme,
             )
@@ -602,7 +597,7 @@ fn replies(
 
 fn reply_line(forge: &Forge, row: &chat::MsgRow, ladder: &Ladder, theme: &Theme) -> AnyElement {
     let meta = match row.time {
-        0 => format!("block {}", design::grouped(row.height)),
+        0 => words::block(row.height),
         time => design::clock(time),
     };
     let said = match row.deleted {
@@ -663,7 +658,7 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &T
             });
             design::button(
                 id("forge-start-review"),
-                "Start review",
+                words::START_REVIEW,
                 ladder,
                 theme,
                 start,
@@ -703,11 +698,11 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &The
     let send = cx.listener(|forge, _: &ClickEvent, window, cx| forge.post_reply(window, cx));
     let me = forge.me_principal().is_some();
     let sendable = me && !forge.reply.is_blank();
-    let field = Textarea::new(id("forge-reply"), &forge.reply, "Reply in this change")
+    let field = Textarea::new(id("forge-reply"), &forge.reply, words::REPLY_IN_CHANGE)
         .autocorrect(true)
         .autocapitalize(Autocapitalize::Sentences)
         .read_only(!me)
-        .placeholder("Reply in this change");
+        .placeholder(words::REPLY_IN_CHANGE);
     div()
         .flex()
         .flex_none()
@@ -758,7 +753,7 @@ fn files(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme)
         return column
             .child(parts::quiet(
                 id("forge-files-comparing"),
-                "Comparing the endpoints…",
+                words::COMPARING_ENDPOINTS,
                 ladder,
                 theme,
             ))
@@ -768,7 +763,7 @@ fn files(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme)
         forge,
         &query,
         "forge-diff",
-        "Reading the diff…",
+        words::READING_DIFF,
         cx,
         (ladder, theme),
     ) {
@@ -783,8 +778,8 @@ fn files(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme)
             .child(parts::empty_state(
                 id("forge-files-empty"),
                 "send",
-                "No changes",
-                "These endpoints hold the same tree.",
+                words::NO_CHANGES,
+                words::SAME_TREE,
                 ladder,
                 theme,
             ))
@@ -795,7 +790,7 @@ fn files(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme)
         .child(file_list(files, forge, cx, ladder, theme))
         .child(parts::quiet(
             id("forge-files-footer"),
-            "Tick a file once you have read it.",
+            words::TICK_A_FILE,
             ladder,
             theme,
         ))
@@ -813,12 +808,9 @@ fn files_head(
 ) -> Div {
     let added: u64 = files.iter().map(|file| file.additions).sum();
     let deleted: u64 = files.iter().map(|file| file.deletions).sum();
-    let first = files.first().and_then(crate::ui::diff::path_of);
+    let first = files.first().and_then(crate::select::path_of);
     let all = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.single_file(first.clone(), cx));
-    let words = format!(
-        "{} · +{added} −{deleted}",
-        design::plural(total, "file", "files")
-    );
+    let said = words::files_changed(total, added, deleted);
     div()
         .flex()
         .items_center()
@@ -831,11 +823,11 @@ fn files_head(
                 .font_family(design::fonts::FAMILY_MONO)
                 .text_type(ladder.secondary)
                 .text_color(theme.muted)
-                .child(words),
+                .child(said),
         )
         .child(parts::small_button(
             id("forge-all-files"),
-            "All files",
+            words::ALL_FILES,
             ladder,
             theme,
             all,
@@ -851,7 +843,7 @@ fn file_list(
 ) -> Stateful<Div> {
     let paths: Vec<Vec<u8>> = files
         .iter()
-        .map(|file| crate::ui::diff::path_of(file).unwrap_or_default())
+        .map(|file| crate::select::path_of(file).unwrap_or_default())
         .collect();
     let rows = files
         .iter()
@@ -891,7 +883,7 @@ fn file_row(
     let shown = path_text(path);
     let binary = file.hunks.is_empty() && file.content != Content::Text;
     let counted = file.additions > 0 || file.deletions > 0;
-    let state = crate::ui::diff::status_label(file.status);
+    let state = crate::words::file_status(file.status);
     let facts = match (binary, counted) {
         (true, _) => parts::caption(format!("{state} · binary"), ladder, theme),
         (false, true) => parts::caption(String::new(), ladder, theme).child(parts::delta(
@@ -944,14 +936,14 @@ fn details(
         .child(section_aside(
             "forge-details-reviews",
             "Reviews",
-            "advisory".to_owned(),
+            words::ADVISORY.to_owned(),
             ladder,
             theme,
         ))
         .children(reviewers(forge, change, ladder, theme))
         .child(design::section_head(
             id("forge-details-merge"),
-            "Merge status",
+            words::MERGE_STATUS,
             None,
             ladder,
             theme,
@@ -985,20 +977,20 @@ fn reviewers(forge: &Forge, change: &Change, ladder: &Ladder, theme: &Theme) -> 
         .iter()
         .filter(|who| !latest.iter().any(|(answered, _)| answered == who));
     let answered = latest.iter().map(|(who, verdict)| {
-        let (word, tint) = match verdict {
-            Verdict::Approve => ("approved", Tint::Ok),
-            Verdict::RequestChanges => ("changes", Tint::Danger),
-            Verdict::Comment => ("commented", Tint::Plain),
+        let tint = match verdict {
+            Verdict::Approve => Tint::Ok,
+            Verdict::RequestChanges => Tint::Danger,
+            Verdict::Comment => Tint::Plain,
         };
-        person_row(forge, who, word, tint, ladder, theme)
+        person_row(forge, who, words::standing(*verdict), tint, ladder, theme)
     });
-    let waiting = asked.map(|who| person_row(forge, who, "asked", Tint::Plain, ladder, theme));
+    let waiting = asked.map(|who| person_row(forge, who, words::ASKED, Tint::Plain, ladder, theme));
     let rows: Vec<AnyElement> = answered.chain(waiting).collect();
     match rows.is_empty() {
         true => vec![
             parts::quiet(
                 id("forge-details-reviews-none"),
-                "Nobody has reviewed this change yet.",
+                words::NOBODY_REVIEWED,
                 ladder,
                 theme,
             )
@@ -1035,10 +1027,10 @@ fn person_row(
 /// Mergeability, the distance, both heads (`gone` once deleted).
 fn merge_status(forge: &Forge, ladder: &Ladder, theme: &Theme) -> Vec<AnyElement> {
     let comparison = forge.compare();
-    let word = comparison.map_or("comparing…", |comparison| {
-        merge_word(comparison.mergeability)
+    let word = comparison.map_or(words::COMPARING, |comparison| {
+        words::merge_status(comparison.mergeability)
     });
-    let head = |oid: Option<&String>| oid.map_or("gone".to_owned(), |oid| short_hex(oid));
+    let head = |oid: Option<&String>| oid.map_or(words::GONE.to_owned(), |oid| short_hex(oid));
     let (source, target) = forge
         .change()
         .map(|(_, source, target, _)| (source.as_ref(), target.as_ref()))
@@ -1046,10 +1038,7 @@ fn merge_status(forge: &Forge, ladder: &Ladder, theme: &Theme) -> Vec<AnyElement
     let distance = comparison.map(|comparison| {
         parts::key_value(
             "Distance",
-            parts::data(format!(
-                "{} ahead · {} behind",
-                comparison.ahead, comparison.behind
-            )),
+            parts::data(words::distance(comparison)),
             ladder,
             theme,
         )
@@ -1062,22 +1051,11 @@ fn merge_status(forge: &Forge, ladder: &Ladder, theme: &Theme) -> Vec<AnyElement
     ))
     .chain(distance)
     .chain([
-        parts::key_value("Source head", parts::data(head(source)), ladder, theme),
-        parts::key_value("Target head", parts::data(head(target)), ladder, theme),
+        parts::key_value(words::SOURCE_HEAD, parts::data(head(source)), ladder, theme),
+        parts::key_value(words::TARGET_HEAD, parts::data(head(target)), ladder, theme),
     ])
     .map(IntoElement::into_any_element)
     .collect()
-}
-
-/// How a comparison stands, in the Details tab's words (`repo.tsx`
-/// `mergeWord`).
-fn merge_word(mergeability: Mergeability) -> &'static str {
-    match mergeability {
-        Mergeability::UpToDate => "already contained",
-        Mergeability::FastForward => "fast-forward",
-        Mergeability::Diverged => "diverged",
-        Mergeability::Unrelated => "unrelated histories",
-    }
 }
 
 /// "Line comments" and every one, mine pending first, each opening its
@@ -1092,7 +1070,7 @@ fn line_comments(
         review.comments.iter().map(|comment| {
             (
                 comment.path.clone(),
-                format!("{}:{} · pending", path_text(&comment.path), comment.line),
+                words::pending_at(&comment.path, comment.line),
             )
         })
     });
@@ -1117,7 +1095,7 @@ fn line_comments(
     let all: Vec<(Vec<u8>, String)> = pending.chain(published).collect();
     let head = design::section_head(
         id("forge-details-comments"),
-        "Line comments",
+        words::LINE_COMMENTS,
         (!all.is_empty()).then_some(all.len()),
         ladder,
         theme,
@@ -1126,7 +1104,7 @@ fn line_comments(
     if all.is_empty() {
         let none = parts::quiet(
             id("forge-details-comments-none"),
-            "Nobody has written on a line of this change yet.",
+            words::NOBODY_ON_A_LINE,
             ladder,
             theme,
         );
@@ -1186,7 +1164,7 @@ pub(super) fn actions_sheet(
 ) -> AnyElement {
     let dismiss = cx.listener(|forge, _: &(), _, cx| {
         forge.closing = None;
-        forge.open_sheet(None, cx);
+        forge.close_sheet(cx);
     });
     let asking = forge.closing.is_some() && forge.review_key() == forge.closing;
     let body = match asking {
@@ -1206,7 +1184,7 @@ fn actions(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
     let open = change.state == ChangeState::Open;
     let mine = forge.me_principal().as_ref() == Some(&change.author);
     let edit = cx.listener(|forge, _: &ClickEvent, window, cx| {
-        forge.open_sheet(None, cx);
+        forge.close_sheet(cx);
         forge.start_edit(window, cx);
     });
     let close = cx.listener(|forge, _: &ClickEvent, _, cx| forge.close_change(cx));
@@ -1220,7 +1198,7 @@ fn actions(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
             cx.host()
                 .notify::<view::methods::ClipboardWrite>(link.clone());
         }
-        forge.open_sheet(None, cx);
+        forge.close_sheet(cx);
     });
     div()
         .flex()
@@ -1263,17 +1241,17 @@ fn actions(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
 fn close_for_good(cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> Div {
     let confirm = cx.listener(|forge, _: &ClickEvent, _, cx| {
         forge.close_change(cx);
-        forge.open_sheet(None, cx);
+        forge.close_sheet(cx);
     });
     let cancel = cx.listener(|forge, _: &ClickEvent, _, cx| {
         forge.closing = None;
         cx.notify();
     });
-    let head = parts::sheet_head("forge-close-title", "Close for good", ladder, theme).child(
+    let head = parts::sheet_head("forge-close-title", words::CLOSE_FOR_GOOD, ladder, theme).child(
         div()
             .text_type(ladder.small)
             .text_color(theme.muted)
-            .child("Closing is final: a closed change cannot be reopened."),
+            .child(words::CLOSING_IS_FINAL),
     );
     div()
         .flex()
@@ -1282,7 +1260,7 @@ fn close_for_good(cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> Di
         .child(design::sheet_row(
             id("forge-close-confirm"),
             Some("x"),
-            "Close for good",
+            words::CLOSE_FOR_GOOD,
             true,
             ladder,
             theme,

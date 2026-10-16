@@ -15,9 +15,12 @@ use std::rc::Rc;
 use view::prelude::*;
 
 use crate::Forge;
+use crate::select::path_of;
+use crate::state::Anchor;
 use crate::ui::components::{PRESS_TARGET, badge, empty_state, id, path_text, quiet};
 use crate::ui::staged;
-use forge::{Content, FileDiff, FileStatus, LineKind, Query, Reply, Side};
+use crate::words::{self, file_status, why_no_lines};
+use forge::{Content, FileDiff, LineKind, Query, Reply, Side};
 use view::design::Ladder;
 
 /// A route an event of a virtual row takes back into the view.
@@ -42,9 +45,6 @@ const NOTE_W: Pixels = px(520.);
 /// character counts two): a line of capitals, about 8 px a character at
 /// the note's size, still fits the box's 498 px of text.
 const NOTE_CHARS: usize = 60;
-
-/// The anchor a gutter button carries: path, new side, line.
-pub(crate) type Anchor = (Vec<u8>, bool, u64);
 
 /// One row of the diff as it is painted: a file's header, a hunk's, or a
 /// line. Built for the rows on screen, from the held reply.
@@ -185,7 +185,7 @@ impl Rows {
         let hunk = laid.hunks.partition_point(|(first, _)| *first <= index);
         let Some((first, _)) = hunk.checked_sub(1).map(|hunk| laid.hunks[hunk]) else {
             if index == laid.first_row + 1 && file.hunks.is_empty() {
-                return Painted::banner(Kind::Hunk, why(file).into(), path);
+                return Painted::banner(Kind::Hunk, why_no_lines(file).into(), path);
             }
             return Painted::banner(Kind::Hunk, String::new(), Vec::new());
         };
@@ -330,7 +330,7 @@ impl Notes {
                 continue;
             }
             let text = wrap(&draft.body.text()).into_iter().map(NoteKind::Text);
-            let head = NoteKind::Head("Your pending comment".into(), false);
+            let head = NoteKind::Head(words::YOUR_PENDING_COMMENT.into(), false);
             let rows_of_box = boxed(
                 &format!("forge-diff-draft-{n}"),
                 std::iter::once(head).chain(text),
@@ -499,7 +499,7 @@ pub(crate) fn render(
         forge,
         query,
         element_id,
-        "Reading the diff…",
+        words::READING_DIFF,
         cx,
         theme,
         &ladder,
@@ -521,9 +521,9 @@ pub(crate) fn render(
     if !page.items.iter().any(shown) {
         return empty_state(
             id(format!("{element_id}-empty")),
-            "No changes",
+            words::NO_CHANGES,
             if *total_files == 0 {
-                "These endpoints hold the same tree."
+                words::SAME_TREE
             } else {
                 "No file here matches what is selected."
             },
@@ -737,7 +737,7 @@ fn file_strip(
                 .aria_selected(shown)
                 .on_click(click)
                 .child(crate::ui::bold(label))
-                .child(quiet(status_label(file.status), &theme))
+                .child(quiet(file_status(file.status), &theme))
                 .children(counts(file).map(|counts| quiet(counts, &theme)));
             design::item(row, Role::ListBoxOption, index == active).into_any_element()
         },
@@ -750,20 +750,6 @@ pub(crate) fn file_at(reply: &Reply, index: usize) -> Option<&FileDiff> {
     match reply {
         Reply::Diff { page, .. } => page.items.get(index),
         _ => None,
-    }
-}
-
-pub(crate) fn path_of(file: &FileDiff) -> Option<Vec<u8>> {
-    file.new_path.clone().or_else(|| file.old_path.clone())
-}
-
-pub(crate) fn status_label(status: FileStatus) -> &'static str {
-    match status {
-        FileStatus::Added => "added",
-        FileStatus::Deleted => "deleted",
-        FileStatus::Modified => "modified",
-        FileStatus::ModeChanged => "mode changed",
-        FileStatus::TypeChanged => "type changed",
     }
 }
 
@@ -797,7 +783,7 @@ fn file_header(file: &FileDiff) -> String {
         }
         _ => path_text(&path_of(file).unwrap_or_default()),
     };
-    let status = status_label(file.status);
+    let status = file_status(file.status);
     match counts(file) {
         Some(counts) => format!("{header} · {status} · {counts}"),
         None => format!("{header} · {status}"),
@@ -808,16 +794,6 @@ fn file_header(file: &FileDiff) -> String {
 /// an oversize file or a submodule has none to count, not zero.
 fn counts(file: &FileDiff) -> Option<String> {
     (file.content == Content::Text).then(|| format!("+{} −{}", file.additions, file.deletions))
-}
-
-/// Why a file has no lines to show.
-pub(crate) fn why(file: &FileDiff) -> &'static str {
-    match file.content {
-        Content::Binary => "Binary file — no lines to show",
-        Content::Oversize => "Too large to diff inline",
-        Content::Gitlink => "Submodule pointer",
-        Content::Text => "No line changes",
-    }
 }
 
 type Anchored = (Vec<u8>, bool, u64, String, String, bool);
@@ -981,7 +957,7 @@ fn note_row(
             .when(*outdated, |slice| {
                 slice.child(badge(
                     id(format!("{}-outdated", note.key)),
-                    "outdated",
+                    words::OUTDATED,
                     ladder,
                     theme.warning,
                     theme.warning_soft,
@@ -1002,7 +978,7 @@ fn note_row(
                     .bg(theme.background)
                     .text_size(design::text::SECONDARY)
                     .text_color(theme.foreground)
-                    .placeholder("What should change here?")
+                    .placeholder(words::COMMENT_PROMPT)
                     .on_submit(move |_: &(), window: &mut Window, app: &mut App| {
                         stage(&(), window, app)
                     }),
@@ -1129,7 +1105,7 @@ mod tests {
         FileDiff {
             old_path: None,
             new_path: Some(path.as_bytes().to_vec()),
-            status: FileStatus::Added,
+            status: forge::FileStatus::Added,
             old_oid: None,
             new_oid: Some("new".into()),
             old_kind: None,

@@ -161,7 +161,7 @@ pub struct Forge {
     #[serde(skip)]
     pub(crate) change_tab_cursor: Option<ChangeTab>,
     #[serde(skip)]
-    pub(crate) blob_cache: crate::ui::code::BlobCache,
+    pub(crate) blob_cache: crate::blob::BlobCache,
     #[serde(skip)]
     pub(crate) diff_cache: crate::ui::diff::DiffCache,
 }
@@ -244,6 +244,23 @@ pub(crate) enum Page {
     Commit,
     /// one file of the Code tab
     Blob,
+}
+
+/// What lies over the phone's page, read from the model each frame
+/// ([`Forge::overlay`](crate::Forge::overlay)): the one the phone draws, and
+/// the one its Back closes first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Overlay {
+    /// a ref picker (`menu`)
+    Menu(Menu),
+    /// a sheet a page opened (`sheet`)
+    Sheet(Sheet),
+    /// a repository's About (its dock)
+    About,
+    /// the New repository form
+    NewRepository,
+    /// Finish your review
+    FinishReview,
 }
 
 /// A sheet a phone page opens over itself; Back closes it first.
@@ -396,6 +413,10 @@ impl Filter {
         }
     }
 }
+
+/// Where a line comment sits: the file's path, the new side (or the old),
+/// the line; what a diff line's comment button carries.
+pub(crate) type Anchor = (Vec<u8>, bool, u64);
 
 /// A review being written: pending comments staged against one pinned pair
 /// of endpoints, published as exactly one `ReviewSubmit`.

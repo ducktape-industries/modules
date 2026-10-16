@@ -12,32 +12,11 @@ use view::{Div, Stateful};
 
 use super::parts::{self, Row};
 use crate::Forge;
-use crate::state::ReviewSession;
-use crate::ui::components::{id, short_hex};
+use crate::id;
+use crate::state::{ReviewSession, verdict_label};
+use crate::words::{self, VERDICTS};
 use forge::Verdict;
-
-/// The verdicts in the Expo app's order, each with what it means
-/// (`VERDICTS`).
-const VERDICTS: [(Verdict, &str, &str, &str); 3] = [
-    (
-        Verdict::Comment,
-        "comment",
-        "Comment",
-        "Feedback without a verdict.",
-    ),
-    (
-        Verdict::Approve,
-        "approve",
-        "Approve",
-        "Ready to merge as it is.",
-    ),
-    (
-        Verdict::RequestChanges,
-        "request-changes",
-        "Request changes",
-        "Needs work before it merges.",
-    ),
-];
+use view::design::short_hex;
 
 pub(super) fn render(
     forge: &Forge,
@@ -52,13 +31,17 @@ pub(super) fn render(
         "line comment",
         "line comments",
     );
-    let head = parts::sheet_head("forge-finish-title", "Finish your review", ladder, theme).child(
-        parts::caption(
-            format!("{staged} staged against {}", short_hex(&review.commit)),
-            ladder,
-            theme,
-        ),
-    );
+    let head = parts::sheet_head(
+        "forge-finish-title",
+        words::FINISH_YOUR_REVIEW,
+        ladder,
+        theme,
+    )
+    .child(parts::caption(
+        format!("{staged} staged against {}", short_hex(&review.commit)),
+        ladder,
+        theme,
+    ));
     let body = div()
         .id(id("forge-finish-body"))
         .size_full()
@@ -71,7 +54,7 @@ pub(super) fn render(
         .child(actions(forge, review, cx, ladder, theme));
     design::sheet(
         id("forge-finish-sheet"),
-        "Finish your review",
+        words::FINISH_YOUR_REVIEW,
         ladder,
         theme,
     )
@@ -82,17 +65,17 @@ pub(super) fn render(
 
 /// What the review says overall, and why it was refused; 16 in, 4 under.
 fn overall(review: &ReviewSession, ladder: &Ladder, theme: &Theme) -> Div {
-    let field = Textarea::new(id("forge-review-body"), &review.body, "Review body")
+    let field = Textarea::new(id("forge-review-body"), &review.body, words::REVIEW_BODY)
         .autocorrect(true)
         .autocapitalize(Autocapitalize::Sentences)
-        .placeholder("What this review says overall");
+        .placeholder(words::REVIEW_PROMPT);
     div()
         .p(design::space::BLOCK)
         .pb(design::space::XS)
-        .child(parts::field_lines(
+        .child(parts::text_area_field(
             None,
-            parts::text_area(field, ladder, theme),
-            (&review.error, None),
+            field,
+            &review.error,
             ladder,
             theme,
         ))
@@ -125,10 +108,11 @@ fn verdicts(
         VERDICTS
             .iter()
             .enumerate()
-            .map(|(index, &(verdict, slug, label, said))| {
+            .map(|(index, &(verdict, slug, said))| {
                 let on = review.verdict == Some(verdict);
                 let pick = cx
                     .listener(move |forge, _: &ClickEvent, _, cx| forge.pick_verdict(verdict, cx));
+                let label = verdict_label(verdict);
                 let row = Row::titled(id(format!("forge-verdict-{slug}")), label, ladder)
                     .caption(parts::caption(said, ladder, theme))
                     .tail(parts::radio_mark(on, theme))
@@ -170,7 +154,7 @@ fn actions(
             2.,
             design::button(
                 id("forge-submit-review"),
-                "Submit review",
+                words::SUBMIT_REVIEW,
                 ladder,
                 theme,
                 submit,

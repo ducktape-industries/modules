@@ -15,12 +15,12 @@ use view::{Div, Paged, Stateful};
 use super::document;
 use super::parts::{self, Chip, Row, Tone};
 use crate::Forge;
+use crate::id;
+use crate::list;
 use crate::state::{Filter, Menu, RepoTab, Sheet};
 use crate::tree::{self, Slot};
-use crate::ui::components::{self, id, ref_label};
-use forge::{
-    BlobView, ChangeSummary, CommitInfo, Content, Judgment, Mergeability, Query, Reply, Revision,
-};
+use crate::words::{self, ref_label};
+use forge::{BlobView, ChangeSummary, CommitInfo, Content, Judgment, Query, Reply, Revision};
 
 /// The open tab's body.
 pub(super) fn render(
@@ -51,11 +51,11 @@ fn body(key: &str) -> Stateful<Div> {
 
 /// A ref with nothing under it (`NoCommits`): how to push to it.
 fn no_commits(forge: &Forge, ladder: &Ladder, theme: &Theme) -> AnyElement {
-    let address = crate::ui::repo_link(forge, &forge.repo_name());
+    let address = forge.repo_link(&forge.repo_name());
     parts::empty_state(
         id("forge-tree-no-commits"),
         "git-commit-horizontal",
-        "No commits yet",
+        words::NO_COMMITS_YET,
         format!("Push code to this ref to browse it here: git push {address} main"),
         ladder,
         theme,
@@ -74,7 +74,7 @@ fn unresolved(forge: &Forge, ladder: &Ladder, theme: &Theme) -> Option<AnyElemen
         Some(_) => no_commits(forge, ladder, theme),
         None => parts::quiet(
             id("forge-ref-resolving"),
-            "Resolving the ref…",
+            words::RESOLVING_REF,
             ladder,
             theme,
         )
@@ -98,7 +98,7 @@ fn readme(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme
         forge,
         &root,
         "forge-readme-tree",
-        "Reading the tree…",
+        words::READING_TREE,
         cx,
         (ladder, theme),
     );
@@ -111,7 +111,7 @@ fn readme(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme
             .child(parts::empty_state(
                 id("forge-readme-none"),
                 "file-text",
-                "No README",
+                words::NO_README,
                 format!("Add a README.md at the root of {ref_}."),
                 ladder,
                 theme,
@@ -142,7 +142,7 @@ fn readme_document(
         forge,
         &query,
         "forge-readme-blob",
-        "Reading the README…",
+        words::READING_README,
         cx,
         (ladder, theme),
     ) {
@@ -156,7 +156,7 @@ fn readme_document(
     };
     let bar = parts::file_bar(
         "forge-readme-title",
-        components::path_text(name),
+        crate::words::path_text(name),
         right,
         ladder,
         theme,
@@ -185,7 +185,7 @@ fn readme_body(
     if blob.content != Content::Text {
         return parts::quiet(
             id("forge-readme-binary"),
-            "This README is not text.",
+            words::README_NOT_TEXT,
             ladder,
             theme,
         )
@@ -193,7 +193,7 @@ fn readme_body(
         .into_any_element();
     }
     let blocks = forge.blob_cache.doc(oid, &blob.bytes);
-    let links = crate::ui::code::links(Vec::new(), cx);
+    let links = crate::markdown::links(Vec::new(), cx);
     document::markdown("forge-readme-body", &blocks, &links, ladder, theme)
 }
 
@@ -210,11 +210,15 @@ fn code(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
         ladder,
         theme,
     );
-    let filter = Input::new(id("forge-tree-search"), &forge.tree_search, "Filter files")
-        .autocorrect(false)
-        .autocapitalize(Autocapitalize::None)
-        .virtual_keyboard(VirtualKeyboard::Search)
-        .placeholder("Filter files");
+    let filter = Input::new(
+        id("forge-tree-search"),
+        &forge.tree_search,
+        words::FILTER_FILES,
+    )
+    .autocorrect(false)
+    .autocapitalize(Autocapitalize::None)
+    .virtual_keyboard(VirtualKeyboard::Search)
+    .placeholder(words::FILTER_FILES);
     let page = body("forge-code").child(bar).child(
         div()
             .p(design::space::BLOCK)
@@ -231,7 +235,7 @@ fn code(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
         forge,
         &root,
         "forge-tree",
-        "Reading the tree…",
+        words::READING_TREE,
         cx,
         (ladder, theme),
     ) {
@@ -243,8 +247,8 @@ fn code(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
             .child(parts::empty_state(
                 id("forge-tree-empty"),
                 "folder-open",
-                "Nothing here",
-                "This tree holds no file the filter keeps.",
+                words::NOTHING_HERE,
+                words::NO_FILE_KEPT,
                 ladder,
                 theme,
             ))
@@ -303,9 +307,11 @@ fn tree_row(
     ladder: &Ladder,
     theme: &Theme,
 ) -> AnyElement {
-    let key = id(format!("forge-tree-{}", components::path_text(&row.path)));
+    let key = id(format!("forge-tree-{}", crate::words::path_text(&row.path)));
     let line = match &row.slot {
-        Slot::Loading => return parts::quiet(key, "Reading…", ladder, theme).into_any_element(),
+        Slot::Loading => {
+            return parts::quiet(key, words::READING, ladder, theme).into_any_element();
+        }
         Slot::Failed(sentence) => {
             return parts::notice(key, sentence.clone(), Tone::Danger, ladder, theme)
                 .into_any_element();
@@ -337,7 +343,7 @@ fn commits(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
 }
 
 /// What a log says while a page of it is on its way.
-const READING: &str = "Reading the history…";
+const READING: &str = words::READING_HISTORY;
 
 /// A history as a list (`Log`): the commits read so far and, while it
 /// goes on, the quiet line, which asks for the next page as it comes into
@@ -359,8 +365,8 @@ pub(super) fn log(
         return parts::empty_state(
             id(format!("{element_id}-empty")),
             "git-commit-horizontal",
-            "No commits",
-            "This ref carries no history yet.",
+            words::NO_COMMITS,
+            words::NO_HISTORY,
             ladder,
             theme,
         )
@@ -371,7 +377,7 @@ pub(super) fn log(
         _ => "forge-log-list",
     };
     let pressed = log.clone();
-    let list = components::list(
+    let list = list::list(
         list_id,
         "Commits",
         held,
@@ -384,7 +390,7 @@ pub(super) fn log(
         },
     );
     let paint = log_rows(log, list_id, forge, cx, ladder, theme);
-    list.child(components::window(
+    list.child(list::window(
         element_id,
         count,
         None,
@@ -437,8 +443,8 @@ fn log_rows(
     ladder: &Ladder,
     theme: &Theme,
 ) -> impl Fn(std::ops::Range<usize>, &mut Window, &mut App) -> Vec<AnyElement> + 'static {
-    let (at, _) = components::cursor(forge, list_id);
-    let walked = components::walked(forge, list_id);
+    let (at, _) = list::cursor(forge, list_id);
+    let walked = list::walked(forge, list_id);
     let open: parts::Route<String> =
         Rc::new(cx.processor(|forge, oid: String, _, cx| forge.open_commit(Some(oid), cx)));
     let (ladder, theme) = (*ladder, *theme);
@@ -485,12 +491,12 @@ fn changes(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
     let search = Input::new(
         id("forge-changes-search"),
         &forge.change_search,
-        "Search titles",
+        words::SEARCH_TITLES,
     )
     .autocorrect(false)
     .autocapitalize(Autocapitalize::None)
     .virtual_keyboard(VirtualKeyboard::Search)
-    .placeholder("Search titles");
+    .placeholder(words::SEARCH_TITLES);
     let page = body("forge-changes")
         .child(filter_chips(forge, cx, ladder, theme))
         .child(
@@ -507,8 +513,8 @@ fn changes(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
             .child(parts::empty_state(
                 id("forge-changes-no-account"),
                 "user-round",
-                "No account",
-                "Create an account to see the changes that involve you.",
+                words::NO_ACCOUNT,
+                words::CREATE_AN_ACCOUNT,
                 ladder,
                 theme,
             ))
@@ -518,7 +524,7 @@ fn changes(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
         forge,
         &query,
         "forge-changes-list",
-        "Reading the changes…",
+        words::READING_CHANGES,
         cx,
         (ladder, theme),
     ) {
@@ -580,14 +586,8 @@ fn listed<'a>(reply: &'a Reply, repo: &str) -> Vec<(&'a ChangeSummary, Option<&'
 
 fn no_changes(filter: Filter, ladder: &Ladder, theme: &Theme) -> AnyElement {
     let (title, said) = match filter {
-        Filter::Judgment => (
-            "Nothing waits on you",
-            "No review is requested of you and no thread of yours has an answer.",
-        ),
-        _ => (
-            "No changes here",
-            "Compare a branch from the Refs tab to open one.",
-        ),
+        Filter::Judgment => (words::NOTHING_WAITS, words::NOTHING_ASKED),
+        _ => (words::NO_CHANGES_HERE, words::COMPARE_TO_OPEN),
     };
     parts::empty_state(
         id("forge-changes-empty"),
@@ -679,7 +679,7 @@ fn refs(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
         forge,
         &forge.refs_query(),
         "forge-refs-list",
-        "Reading refs…",
+        words::READING_REFS,
         cx,
         (ladder, theme),
     ) {
@@ -690,8 +690,8 @@ fn refs(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
             .child(parts::empty_state(
                 id("forge-refs-empty"),
                 "git-branch",
-                "No refs",
-                "This repository is unborn: nothing has been pushed to it yet.",
+                words::NO_REFS,
+                words::UNBORN,
                 ladder,
                 theme,
             ))
@@ -714,16 +714,8 @@ fn refs(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
 /// What this repository's settings forbid, if anything.
 fn forbidden(forge: &Forge) -> Option<String> {
     let (info, _, _) = forge.repo()?;
-    let what = match (
-        info.repo.settings.allow_force,
-        info.repo.settings.allow_delete,
-    ) {
-        (false, false) => "force pushes and ref deletions",
-        (false, true) => "force pushes",
-        (true, false) => "ref deletions",
-        (true, true) => return None,
-    };
-    Some(format!("This repository forbids {what}."))
+    let settings = &info.repo.settings;
+    words::forbids(settings.allow_force, settings.allow_delete)
 }
 
 fn ref_list(
@@ -774,7 +766,7 @@ impl RefLine {
         let target = forge
             .refs()
             .and_then(|refs| refs.iter().find(|info| info.name == name))
-            .map(|info| components::short_hex(&info.target));
+            .map(|info| design::short_hex(&info.target));
         let facts = target
             .into_iter()
             .chain(standing(forge, name))
@@ -850,7 +842,7 @@ fn ref_row(
 fn standing(forge: &Forge, name: &[u8]) -> Option<String> {
     let head = forge.head_name();
     if name == head {
-        return Some("browsing".to_owned());
+        return Some(words::BROWSING.to_owned());
     }
     if !name.starts_with(b"refs/heads/") {
         return None;
@@ -861,19 +853,8 @@ fn standing(forge: &Forge, name: &[u8]) -> Option<String> {
         into: Revision::Ref(head),
     };
     Some(match forge.ready(&query) {
-        Some(Reply::Compare { comparison, .. }) => {
-            let word = match comparison.mergeability {
-                Mergeability::UpToDate => "merged",
-                Mergeability::FastForward => "fast-forward",
-                Mergeability::Diverged => "diverged",
-                Mergeability::Unrelated => "unrelated",
-            };
-            format!(
-                "{} ahead · {} behind · {word}",
-                comparison.ahead, comparison.behind
-            )
-        }
-        _ => "comparing…".to_owned(),
+        Some(Reply::Compare { comparison, .. }) => words::compared(comparison),
+        _ => words::COMPARING.to_owned(),
     })
 }
 
@@ -889,7 +870,7 @@ fn settings(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &The
         forge,
         &forge.repo_query(),
         "forge-settings-repo",
-        "Reading this repository…",
+        words::READING_REPOSITORY,
         cx,
         (ladder, theme),
     );
@@ -929,7 +910,7 @@ fn settings(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &The
             ladder,
             theme,
         ))
-        .child(section("forge-settings-writers", "Can write"))
+        .child(section("forge-settings-writers", words::CAN_WRITE))
         .children(writer_rows(forge, &writers.items, owner, cx, ladder, theme))
         .into_any_element()
 }
@@ -944,12 +925,8 @@ fn default_head(
     ladder: &Ladder,
     theme: &Theme,
 ) -> AnyElement {
-    let mut row = Row::titled(id(Menu::Head.key()), "Default head", ladder)
-        .caption(parts::caption(
-            "What a clone checks out and where changes point by default.",
-            ladder,
-            theme,
-        ))
+    let mut row = Row::titled(id(Menu::Head.key()), words::DEFAULT_HEAD, ladder)
+        .caption(parts::caption(words::DEFAULT_HEAD_RULE, ladder, theme))
         .tail(parts::data(ref_label(head)).text_type(ladder.secondary));
     if owner {
         row = row.chevron();
@@ -1008,15 +985,15 @@ fn switches(
     [
         flag(
             "forge-settings-force",
-            "Allow force pushes",
-            "Let writers rewrite a branch's history.",
+            words::ALLOW_FORCE_PUSHES,
+            words::ALLOW_FORCE_PUSHES_RULE,
             settings.allow_force,
             Box::new(force),
         ),
         flag(
             "forge-settings-delete",
-            "Allow ref deletion",
-            "Let writers delete branches and tags.",
+            words::ALLOW_REF_DELETION,
+            words::ALLOW_REF_DELETION_RULE,
             settings.allow_delete,
             Box::new(delete),
         ),
@@ -1062,7 +1039,7 @@ fn writer_rows(
         rows.push(
             parts::quiet(
                 id("forge-writers-none"),
-                "Only the owner writes here.",
+                words::ONLY_THE_OWNER,
                 ladder,
                 theme,
             )
@@ -1070,14 +1047,9 @@ fn writer_rows(
         );
     }
     if owner {
-        let grant =
-            cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_sheet(Some(Sheet::Grant), cx));
+        let grant = cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_sheet(Sheet::Grant, cx));
         let row = Row::titled(id("forge-grant"), "Grant write access…", ladder)
-            .caption(parts::caption(
-                "Pick a member. They can push and merge here.",
-                ladder,
-                theme,
-            ))
+            .caption(parts::caption(words::PICK_A_WRITER, ladder, theme))
             .chevron()
             .draw(ladder, theme)
             .role(Role::Button)

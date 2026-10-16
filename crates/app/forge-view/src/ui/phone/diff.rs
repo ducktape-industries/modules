@@ -13,9 +13,10 @@ use view::prelude::*;
 
 use super::lines::{self, Notes, Published, Shown};
 use super::parts::{self, Back};
+use crate::id;
+use crate::select::path_of;
 use crate::state::change_key;
-use crate::ui::components::{id, path_text};
-use crate::ui::diff::path_of;
+use crate::words::{self, path_text};
 use crate::{Forge, Stage};
 use forge::{FileDiff, Reply, Side};
 
@@ -118,8 +119,8 @@ fn body(
 ) -> AnyElement {
     let Some(query) = forge.diff_query() else {
         let waiting = match forge.change() {
-            Some(_) => "Comparing the endpoints…",
-            None => "Reading this change…",
+            Some(_) => words::COMPARING_ENDPOINTS,
+            None => words::READING_CHANGE,
         };
         return parts::quiet(id("forge-diff-waiting"), waiting, ladder, theme)
             .flex_1()
@@ -132,7 +133,7 @@ fn body(
                 forge,
                 &query,
                 "forge-diff",
-                "Reading the diff…",
+                words::READING_DIFF,
                 cx,
                 (ladder, theme),
             )
@@ -244,7 +245,7 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &T
             .child(
                 design::button(
                     id("forge-start-review"),
-                    "Start review",
+                    words::START_REVIEW,
                     ladder,
                     theme,
                     start,

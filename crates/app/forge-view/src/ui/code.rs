@@ -2,7 +2,6 @@
 //! children inline beneath it; a text file is drawn highlighted with a
 //! numbered gutter, a markdown file rendered; a binary or oversize blob is
 //! the header the program returned and nothing else.
-use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::ops::Range;
 use std::rc::Rc;
@@ -12,9 +11,11 @@ use view::prelude::*;
 use view::{Div, Stateful};
 
 use crate::Forge;
+use crate::highlight;
 use crate::tree::{Key, Row, Slot};
 use crate::ui::components::{button, empty_state, heading, id, path_text, quiet};
-use crate::ui::{highlight, markdown, staged};
+use crate::ui::{markdown, staged};
+use crate::words;
 use forge::{BlobView, Content, EntryKind, Query, Reply};
 use view::design::Ladder;
 
@@ -59,7 +60,7 @@ fn tree(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) 
         // on "Resolving the ref…" forever instead of saying so.
         let waiting = match forge.refs() {
             Some(_) => no_commits(forge, theme),
-            None => quiet("Resolving the ref…", theme).into_any_element(),
+            None => quiet(words::RESOLVING_REF, theme).into_any_element(),
         };
         return column.child(waiting).into_any_element();
     };
@@ -67,7 +68,7 @@ fn tree(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) 
         forge,
         &query,
         "forge-tree-list",
-        "Reading the tree…",
+        words::READING_TREE,
         cx,
         theme,
         ladder,
@@ -79,8 +80,8 @@ fn tree(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) 
         return column
             .child(empty_state(
                 id("forge-tree-empty"),
-                "Nothing here",
-                "This tree holds no file the filter keeps.",
+                words::NOTHING_HERE,
+                words::NO_FILE_KEPT,
                 theme,
             ))
             .into_any_element();
@@ -113,7 +114,7 @@ fn tree_column(forge: &Forge, theme: &Theme) -> Stateful<Div> {
                 .border_color(theme.border_strong)
                 .bg(theme.surface)
                 .text_color(theme.foreground)
-                .placeholder("Filter files"),
+                .placeholder(words::FILTER_FILES),
             ),
         )
 }
@@ -209,7 +210,7 @@ fn tree_row(
         Slot::Loading | Slot::Failed(_) => {
             let text = match &entry.slot {
                 Slot::Failed(sentence) => sentence.clone(),
-                _ => "Reading…".to_owned(),
+                _ => words::READING.to_owned(),
             };
             // a row's height, so a virtual tree measures one and knows all
             return div()
@@ -278,10 +279,10 @@ fn tree_row(
 }
 
 pub(crate) fn no_commits(forge: &Forge, theme: &Theme) -> AnyElement {
-    let address = crate::ui::repo_link(forge, &forge.repo_name());
+    let address = forge.repo_link(&forge.repo_name());
     empty_state(
         id("forge-tree-no-commits"),
-        "No commits yet",
+        words::NO_COMMITS_YET,
         format!("Push code to this ref to browse it here: `git push {address} main`."),
         theme,
     )
@@ -318,7 +319,7 @@ fn body(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) 
         forge,
         &query,
         "forge-blob",
-        "Reading the file…",
+        words::READING_FILE,
         cx,
         theme,
         ladder,
@@ -389,92 +390,37 @@ fn blob_content(
                 "forge-blob-markdown",
                 &forge.blob_cache.doc(oid, &blob.bytes),
                 theme,
-                &links(dir, cx),
+                &crate::markdown::links(dir, cx),
             ))
             .into_any_element(),
         Content::Text => lines(forge.blob_cache.lines(oid, &name, &blob.bytes), theme),
         Content::Binary => empty_state(
             id("forge-blob-binary"),
-            "Binary file",
-            format!("{} bytes. Nothing here reads as text.", blob.size),
+            words::BINARY_FILE,
+            words::not_text(blob.size),
             theme,
         )
         .into_any_element(),
         Content::Oversize => empty_state(
             id("forge-blob-oversize"),
-            "Too large to show",
-            format!(
-                "{} bytes, above this network's inline blob bound. Fetch the repository to read it.",
-                blob.size
-            ),
+            words::TOO_LARGE_TO_SHOW,
+            words::too_large(blob.size),
             theme,
         )
         .into_any_element(),
         Content::Gitlink => empty_state(
             id("forge-blob-gitlink"),
             "Submodule",
-            "This entry points at another repository.",
+            words::SUBMODULE_POINTS_AWAY,
             theme,
         )
         .into_any_element(),
     }
 }
 
-/// A document's links, a relative one resolved against `dir`, its folder
-/// (the root for a change's body).
-pub(crate) fn links(dir: Vec<u8>, cx: &mut Context<Forge>) -> markdown::OnLink {
-    Rc::new(cx.listener(move |forge, dest: &String, _, cx| forge.follow_link(&dir, dest, cx)))
-}
-
 fn is_markdown(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     lower.ends_with(".md") || lower.ends_with(".markdown")
-}
-
-/// A text blob's rows and their highlight tokens.
-pub(crate) struct Lines {
-    pub(crate) rows: Vec<String>,
-    pub(crate) tokens: Vec<Vec<(Range<usize>, highlight::Token)>>,
-}
-
-/// The open blob decoded once: its lines and tokens (by blob id and name,
-/// since the name picks the language) and its markdown blocks (by blob id),
-/// so a frame redraws a file without decoding and tokenizing it again. One
-/// entry each: the pane shows one file at a time.
-#[derive(Default)]
-pub(crate) struct BlobCache {
-    lines: RefCell<Option<(String, String, Rc<Lines>)>>,
-    doc: RefCell<Option<(String, Rc<Vec<markdown::Block>>)>>,
-}
-
-impl BlobCache {
-    pub(crate) fn lines(&self, oid: &str, name: &str, bytes: &[u8]) -> Rc<Lines> {
-        let mut slot = self.lines.borrow_mut();
-        if let Some((o, n, lines)) = slot.as_ref()
-            && o == oid
-            && n == name
-        {
-            return lines.clone();
-        }
-        let text = String::from_utf8_lossy(bytes);
-        let rows: Vec<String> = text.split('\n').map(str::to_owned).collect();
-        let tokens = highlight::tokens(name, &rows.iter().map(String::as_str).collect::<Vec<_>>());
-        let lines = Rc::new(Lines { rows, tokens });
-        *slot = Some((oid.to_owned(), name.to_owned(), lines.clone()));
-        lines
-    }
-
-    pub(crate) fn doc(&self, oid: &str, bytes: &[u8]) -> Rc<Vec<markdown::Block>> {
-        let mut slot = self.doc.borrow_mut();
-        if let Some((o, blocks)) = slot.as_ref()
-            && o == oid
-        {
-            return blocks.clone();
-        }
-        let blocks = Rc::new(markdown::parse(&String::from_utf8_lossy(bytes)));
-        *slot = Some((oid.to_owned(), blocks.clone()));
-        blocks
-    }
 }
 
 /// One digit's advance in [`design::fonts::FAMILY_MONO`], in ems: the
@@ -483,7 +429,7 @@ impl BlobCache {
 const MONO_DIGIT_EM: f32 = 0.6;
 
 /// Source lines, highlighted, numbered in a mono gutter.
-fn lines(lines: Rc<Lines>, theme: &Theme) -> AnyElement {
+fn lines(lines: Rc<crate::blob::Lines>, theme: &Theme) -> AnyElement {
     let count = lines.rows.len();
     let digit = design::type_scale::SECONDARY as f32 * MONO_DIGIT_EM;
     let gutter = px(count.to_string().len() as f32 * digit) + space::BLOCK; // plus its padding and edge
@@ -511,7 +457,7 @@ fn lines(lines: Rc<Lines>, theme: &Theme) -> AnyElement {
                     .text_color(theme.faint)
                     .child((index + 1).to_string()),
             )
-            .child(highlight::line(
+            .child(source_line(
                 id(format!("forge-blob-text-{}", index + 1)),
                 &lines.rows[index],
                 &lines.tokens[index],
@@ -532,20 +478,26 @@ pub(crate) fn join(dir: &[u8], name: &[u8]) -> Vec<u8> {
     path
 }
 
-#[cfg(test)]
-mod tests {
-    use super::BlobCache;
-    use std::rc::Rc;
-
-    #[test]
-    fn a_blob_is_decoded_once_per_id_and_name() {
-        let cache = BlobCache::default();
-        let first = cache.lines("a1", "x.rs", b"fn a() {}\n");
-        assert!(Rc::ptr_eq(&first, &cache.lines("a1", "x.rs", b"")));
-        assert!(!Rc::ptr_eq(&first, &cache.lines("a1", "x.toml", b"")));
-        assert!(!Rc::ptr_eq(&first, &cache.lines("b2", "x.toml", b"")));
-        let doc = cache.doc("a1", b"# Hi");
-        assert!(Rc::ptr_eq(&doc, &cache.doc("a1", b"")));
-        assert!(!Rc::ptr_eq(&doc, &cache.doc("b2", b"# Hi")));
-    }
+/// One source line as mono rich text in its tokens' colours.
+pub(crate) fn source_line(
+    element_id: ElementId,
+    text: &str,
+    tokens: &[(Range<usize>, highlight::Token)],
+    theme: &Theme,
+) -> AnyElement {
+    let styled = StyledText::new(text.to_owned()).with_highlights(
+        tokens
+            .iter()
+            .map(|(range, token)| (range.clone(), highlight::style(*token, theme))),
+    );
+    div()
+        .id(element_id)
+        .flex_1()
+        .min_w(px(0.))
+        .font_family(design::fonts::FAMILY_MONO)
+        .text_size(design::text::SECONDARY)
+        .text_color(theme.foreground)
+        .whitespace_nowrap()
+        .child(styled)
+        .into_any_element()
 }

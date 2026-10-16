@@ -11,9 +11,10 @@ use view::wire;
 use view::{Div, Stateful};
 
 use super::parts::{self, Row};
+use crate::id;
 use crate::queries::PAGE;
 use crate::state::NewRepo;
-use crate::ui::components::id;
+use crate::words;
 use crate::{Forge, Stage};
 use forge::{Judgment, Query, Reply, RepoInfo};
 
@@ -32,7 +33,7 @@ pub(super) fn render(
         .trailing(design::icon_button(
             id("forge-new-repo"),
             design::icon("plus", ladder.icon),
-            "New repository",
+            words::NEW_REPOSITORY,
             ladder,
             theme,
             new,
@@ -69,11 +70,15 @@ fn place(forge: &Forge) -> String {
 
 /// "Filter by name", 16 in, 8 under.
 fn filter(forge: &Forge, ladder: &Ladder, theme: &Theme) -> Div {
-    let input = Input::new(id("forge-repos-search"), &forge.search, "Filter by name")
-        .autocorrect(false)
-        .autocapitalize(Autocapitalize::None)
-        .virtual_keyboard(VirtualKeyboard::Search)
-        .placeholder("Filter by name");
+    let input = Input::new(
+        id("forge-repos-search"),
+        &forge.search,
+        words::FILTER_BY_NAME,
+    )
+    .autocorrect(false)
+    .autocapitalize(Autocapitalize::None)
+    .virtual_keyboard(VirtualKeyboard::Search)
+    .placeholder(words::FILTER_BY_NAME);
     div()
         .px(design::space::BLOCK)
         .pb(design::space::SM)
@@ -163,7 +168,7 @@ fn repositories(
         forge,
         &query,
         "forge-repos-list",
-        "Reading the repositories…",
+        words::READING_REPOSITORIES,
         cx,
         (ladder, theme),
     ) {
@@ -180,8 +185,8 @@ fn repositories(
         (true, true) => parts::empty_state(
             id("forge-repos-empty"),
             "hammer",
-            "No repositories yet",
-            "Create one with New repository, then push to it.",
+            words::NO_REPOSITORIES_YET,
+            words::CREATE_ONE,
             ladder,
             theme,
         )
@@ -189,8 +194,8 @@ fn repositories(
         (true, false) => parts::empty_state(
             id("forge-repos-empty"),
             "search",
-            "Nothing matches",
-            "No repository here reads like that.",
+            words::NOTHING_MATCHES,
+            words::NO_REPOSITORY_MATCHES,
             ladder,
             theme,
         )
@@ -281,16 +286,21 @@ pub(super) fn new_repository(
         .child(name_field(form, cx, ladder, theme))
         .child(format_choice(form, cx, ladder, theme))
         .child(new_repository_actions(cx, ladder, theme));
-    design::sheet(id("forge-new-repo-sheet"), "New repository", ladder, theme)
-        .on_dismiss(close)
-        .child(parts::sheet_head(
-            "forge-new-repo-title",
-            "New repository",
-            ladder,
-            theme,
-        ))
-        .child(body)
-        .into_any_element()
+    design::sheet(
+        id("forge-new-repo-sheet"),
+        words::NEW_REPOSITORY,
+        ladder,
+        theme,
+    )
+    .on_dismiss(close)
+    .child(parts::sheet_head(
+        "forge-new-repo-title",
+        words::NEW_REPOSITORY,
+        ladder,
+        theme,
+    ))
+    .child(body)
+    .into_any_element()
 }
 
 /// "Name": the field, its rule, and why a name was refused.
@@ -306,18 +316,13 @@ fn name_field(form: &NewRepo, cx: &mut Context<Forge>, ladder: &Ladder, theme: &
     let input = Input::new(id("forge-new-repo-name"), &form.name, "Name")
         .autocorrect(false)
         .autocapitalize(Autocapitalize::None)
-        .placeholder("Repository name")
+        .placeholder(words::REPOSITORY_NAME)
         .on_change(typed)
         .on_submit(create);
-    let field = design::field(input, ladder, theme)
-        .w_full()
-        .when(!form.error.is_empty(), |field| {
-            field.border_color(theme.danger)
-        });
-    parts::field_lines(
+    parts::input_field(
         Some("Name"),
-        field,
-        (&form.error, Some("letters, digits, dot, dash, underscore")),
+        input,
+        (&form.error, Some(words::NAME_RULE)),
         ladder,
         theme,
     )
@@ -333,7 +338,7 @@ fn format_choice(form: &NewRepo, cx: &mut Context<Forge>, ladder: &Ladder, theme
     });
     let formats = design::segmented(
         id("forge-new-repo-format"),
-        "Object format",
+        words::OBJECT_FORMAT,
         ladder,
         theme,
         Some(usize::from(!form.sha1)),
@@ -353,11 +358,9 @@ fn format_choice(form: &NewRepo, cx: &mut Context<Forge>, ladder: &Ladder, theme
         .flex()
         .flex_col()
         .gap(design::space::XS)
-        .child(line("Object format"))
+        .child(line(words::OBJECT_FORMAT))
         .child(formats)
-        .child(line(
-            "Pick SHA-1 to push an existing Git project. The format is fixed once created.",
-        ))
+        .child(line(words::FORMAT_RULE))
 }
 
 /// Cancel and Create, at the right.

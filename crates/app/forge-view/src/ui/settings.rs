@@ -9,6 +9,7 @@ use crate::state::{Menu, SettingsForm};
 use crate::ui::changes::people_picker;
 use crate::ui::components::{button, dropdown, id, ref_label};
 use crate::ui::{PAGE_X, pending, scroller, staged};
+use crate::words;
 use forge::Reply;
 use view::design::Ladder;
 
@@ -32,7 +33,7 @@ pub(crate) fn render(
         forge,
         &forge.repo_query(),
         "forge-settings-repo",
-        "Reading this repository…",
+        words::READING_REPOSITORY,
         cx,
         theme,
         ladder,
@@ -55,8 +56,8 @@ pub(crate) fn render(
         .child(group("forge-settings-title", "Refs", theme))
         .child(design::setting_row(
             id("forge-settings-heads"),
-            "Default head",
-            "What a clone checks out and where changes point by default.",
+            words::DEFAULT_HEAD,
+            words::DEFAULT_HEAD_RULE,
             heads(forge, &form, cx, theme),
             ladder,
             theme,
@@ -135,11 +136,11 @@ fn flags(
     [
         design::setting_row(
             id("forge-settings-force-row"),
-            "Allow force pushes",
-            "Let writers rewrite a branch's history.",
+            words::ALLOW_FORCE_PUSHES,
+            words::ALLOW_FORCE_PUSHES_RULE,
             design::switch(
                 id("forge-settings-force"),
-                "Allow force pushes",
+                words::ALLOW_FORCE_PUSHES,
                 form.allow_force,
                 owns,
                 ladder,
@@ -151,11 +152,11 @@ fn flags(
         ),
         design::setting_row(
             id("forge-settings-delete-row"),
-            "Allow ref deletion",
-            "Let writers delete branches and tags.",
+            words::ALLOW_REF_DELETION,
+            words::ALLOW_REF_DELETION_RULE,
             design::switch(
                 id("forge-settings-delete"),
-                "Allow ref deletion",
+                words::ALLOW_REF_DELETION,
                 form.allow_delete,
                 owns,
                 ladder,
@@ -250,7 +251,7 @@ fn grant_field(
             Input::new(
                 id("forge-settings-grant-input"),
                 &form.grant,
-                "Grant write access",
+                words::GRANT_WRITE_ACCESS,
             )
             .h(design::size::CONTROL)
             .w(GRANT_W)
@@ -259,7 +260,7 @@ fn grant_field(
             .border_color(theme.border_strong)
             .bg(theme.background)
             .text_color(theme.foreground)
-            .placeholder("Search members")
+            .placeholder(words::SEARCH_MEMBERS)
             .when(forge.owns_repo(), |input| {
                 input.on_submit(cx.listener(|forge, _: &(), _, cx| forge.grant(cx)))
             }),
@@ -275,8 +276,8 @@ fn grant_field(
         .flex_col()
         .child(design::setting_row(
             id("forge-settings-grant-row"),
-            "Grant write access",
-            "Pick a member. They can push and merge here.",
+            words::GRANT_WRITE_ACCESS,
+            words::PICK_A_WRITER,
             control,
             ladder,
             theme,
@@ -327,7 +328,7 @@ fn writer_rows(
             access_row(
                 &principal_id(key),
                 forge.principal_name(key),
-                "Can write",
+                words::CAN_WRITE,
                 Some(action.into_any_element()),
                 theme,
             )

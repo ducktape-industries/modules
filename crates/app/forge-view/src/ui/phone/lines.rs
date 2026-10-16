@@ -23,9 +23,12 @@ use view::{Div, FontWeight, ListAlignment, ListOffset, ListState, Stateful};
 use super::document;
 use super::parts::{self, Tint};
 use crate::Forge;
-use crate::ui::components::{id, path_text};
-use crate::ui::diff::{Anchor, path_of, status_label, why};
-use crate::ui::highlight::{self, Token};
+use crate::highlight::{self, Token};
+use crate::id;
+use crate::select::path_of;
+use crate::state::Anchor;
+use crate::words::path_text;
+use crate::words::{self, file_status, why_no_lines};
 use forge::{FileDiff, LineKind};
 
 /// The gutter's width and the marker's column (`Lines.tsx` `GUTTER`,
@@ -159,12 +162,12 @@ fn file_rows(file: &FileDiff, notes: &Notes, rows: &mut Vec<Item>) {
     let path = path_of(file).unwrap_or_default();
     rows.push(Item::File {
         path: file_header(file),
-        status: status_label(file.status),
+        status: file_status(file.status),
         additions: file.additions,
         deletions: file.deletions,
     });
     if file.hunks.is_empty() {
-        rows.push(Item::Hunk(why(file).to_owned()));
+        rows.push(Item::Hunk(why_no_lines(file).to_owned()));
         return;
     }
     let texts: Vec<String> = file
@@ -695,7 +698,7 @@ fn comment_card(index: usize, comment: &Published, look: &Look) -> Stateful<Div>
         .children(comment.outdated.then(|| {
             parts::badge(
                 id(format!("{}-outdated-{index}", look.key)),
-                "outdated",
+                words::OUTDATED,
                 Tint::Warn,
                 ladder,
                 theme,
@@ -745,7 +748,7 @@ fn draft_card(
                 .flex_1()
                 .text_type(ladder.secondary)
                 .font_weight(FontWeight::MEDIUM)
-                .child("Your pending comment"),
+                .child(words::YOUR_PENDING_COMMENT),
         )
         .children(edit);
     let (outer, inner) = card(format!("{}-draft-{index}", look.key), true, look);
@@ -776,7 +779,7 @@ fn composer_card(forge: &Forge, look: &Look, cx: &mut Context<Forge>) -> Statefu
             div()
                 .text_type(ladder.secondary)
                 .font_weight(FontWeight::MEDIUM)
-                .child("Your pending comment"),
+                .child(words::YOUR_PENDING_COMMENT),
         )
         .child(parts::badge(
             id("forge-comment-reviewing"),
@@ -788,14 +791,8 @@ fn composer_card(forge: &Forge, look: &Look, cx: &mut Context<Forge>) -> Statefu
     let field = Textarea::new(id("forge-comment-body"), &open.body, "Comment")
         .autocorrect(true)
         .autocapitalize(Autocapitalize::Sentences)
-        .placeholder("What should change here?");
-    let field = parts::field_lines(
-        None,
-        parts::text_area(field, ladder, theme),
-        (&error, None),
-        ladder,
-        theme,
-    );
+        .placeholder(words::COMMENT_PROMPT);
+    let field = parts::text_area_field(None, field, &error, ladder, theme);
     let cancel = cx.listener(|forge, _: &ClickEvent, _, cx| forge.discard_comment(cx));
     let stage = cx.listener(|forge, _: &ClickEvent, _, cx| forge.stage_comment(cx));
     let buttons = div()

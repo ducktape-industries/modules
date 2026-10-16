@@ -11,6 +11,7 @@ use crate::state::{ChangeForm, Filter};
 use crate::ui::components::{badge, button, empty_state, heading, id, quiet, ref_label};
 use crate::ui::diff::Route;
 use crate::ui::{pending, staged};
+use crate::words;
 use forge::{ChangeState, ChangeSummary, Judgment, Reply, ReviewCounts};
 use view::design::Ladder;
 
@@ -36,8 +37,8 @@ pub(crate) fn render(
         return column
             .child(empty_state(
                 id("forge-changes-nobody"),
-                "No account",
-                "Create an account to see the changes that involve you.",
+                words::NO_ACCOUNT,
+                words::CREATE_AN_ACCOUNT,
                 theme,
             ))
             .into_any_element();
@@ -46,7 +47,7 @@ pub(crate) fn render(
         forge,
         &query,
         "forge-changes-list",
-        "Reading the changes…",
+        words::READING_CHANGES,
         cx,
         theme,
         &ladder,
@@ -72,14 +73,14 @@ pub(crate) fn render(
             .child(empty_state(
                 id("forge-changes-empty"),
                 if forge.filter == Filter::Judgment {
-                    "Nothing waits on you"
+                    words::NOTHING_WAITS
                 } else {
-                    "No changes here"
+                    words::NO_CHANGES_HERE
                 },
                 if forge.filter == Filter::Judgment {
-                    "No review is requested of you and no thread of yours has an answer."
+                    words::NOTHING_ASKED
                 } else {
-                    "Compare a branch from the Refs tab to open one."
+                    words::COMPARE_TO_OPEN
                 },
                 theme,
             ))
@@ -229,7 +230,7 @@ fn change_row(
                 .rounded_full()
                 .bg(dot)
                 .role(Role::Image)
-                .aria_label(state_label(summary.state)),
+                .aria_label(words::change_state(summary.state)),
         )
         .child(
             div()
@@ -255,7 +256,7 @@ fn change_row(
                 .child(
                     design::mono(format!(
                         "{} → {} · {author}",
-                        ref_label(&revision_name(&summary.from)),
+                        ref_label(&crate::select::revision_name(&summary.from)),
                         ref_label(&summary.into)
                     ))
                     .text_size(design::text::CAPTION)
@@ -266,7 +267,7 @@ fn change_row(
         if judgment.requested {
             line = line.child(badge(
                 id(format!("forge-change-requested-{n}")),
-                "review requested",
+                words::REVIEW_REQUESTED,
                 ladder,
                 theme.accent_foreground,
                 theme.accent_soft,
@@ -275,7 +276,7 @@ fn change_row(
         if judgment.replies.is_some() {
             line = line.child(badge(
                 id(format!("forge-change-unread-{n}")),
-                "new reply",
+                words::NEW_REPLY,
                 ladder,
                 theme.warning,
                 theme.warning_soft,
@@ -283,27 +284,13 @@ fn change_row(
         }
     }
     let line = line.child(verdicts(&summary.verdicts, n, theme)).child(
-        div().w(px(90.)).flex().justify_end().child(quiet(
-            design::plural(summary.comment_count, "comment", "comments"),
-            theme,
-        )),
+        div()
+            .w(px(90.))
+            .flex()
+            .justify_end()
+            .child(quiet(words::comments(summary.comment_count), theme)),
     );
     design::item(line, Role::ListBoxOption, active).into_any_element()
-}
-
-fn state_label(state: ChangeState) -> &'static str {
-    match state {
-        ChangeState::Open => "open",
-        ChangeState::Merged => "merged",
-        ChangeState::Closed => "closed",
-    }
-}
-
-pub(crate) fn revision_name(revision: &forge::Revision) -> Vec<u8> {
-    match revision {
-        forge::Revision::Ref(name) => name.clone(),
-        forge::Revision::Oid(oid) => oid.clone().into_bytes(),
-    }
 }
 
 pub(crate) fn state_chip(state: ChangeState, n: u64, theme: &Theme, ladder: &Ladder) -> AnyElement {
@@ -314,7 +301,7 @@ pub(crate) fn state_chip(state: ChangeState, n: u64, theme: &Theme, ladder: &Lad
     };
     badge(
         id(format!("forge-change-state-{n}")),
-        state_label(state),
+        words::change_state(state),
         ladder,
         foreground,
         background,
@@ -399,7 +386,7 @@ fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladde
             .border_color(theme.border_strong)
             .bg(theme.background)
             .text_color(theme.foreground)
-            .placeholder("Search titles"),
+            .placeholder(words::SEARCH_TITLES),
         ),
     )
     .into_any_element()
@@ -428,8 +415,8 @@ pub(crate) fn form(
         .child(heading(
             id("forge-change-form-title"),
             match form.edit {
-                Some(n) => format!("Edit change #{n}"),
-                None => "New change".to_owned(),
+                Some(n) => words::edit_change(n),
+                None => words::NEW_CHANGE.to_owned(),
             },
             2,
             theme,
@@ -498,7 +485,7 @@ fn form_fields(form: &ChangeForm, forge: &Forge, cx: &mut Context<Forge>, theme:
                 .border_color(theme.border_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .placeholder("What this change does")
+                .placeholder(words::TITLE_PROMPT)
                 .on_change(title)
                 .when(forge.may_write(), |title| {
                     title.on_submit(cx.listener(|forge, _: &(), _, cx| forge.submit_change(cx)))
@@ -506,7 +493,7 @@ fn form_fields(form: &ChangeForm, forge: &Forge, cx: &mut Context<Forge>, theme:
         )
         .child(
             Textarea::new(id("forge-change-body"), &form.body, "Change body")
-                .placeholder("Why it changes")
+                .placeholder(words::BODY_PROMPT)
                 .min_h(design::size::CONTROL * 4.)
                 .w_full()
                 .px_2()
@@ -526,7 +513,7 @@ fn reviewers(
     ladder: &Ladder,
 ) -> AnyElement {
     if forge.names.ready().is_none() {
-        return quiet("Reading the roster…", theme);
+        return quiet(words::READING_ROSTER, theme);
     }
     let toggle = |forge: &mut Forge, key: forge::Principal| {
         if let Some(form) = &mut forge.form {

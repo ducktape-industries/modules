@@ -11,11 +11,13 @@ use std::rc::Rc;
 
 use view::design::{Kind, Ladder, TextType};
 use view::prelude::*;
-use view::{Div, FontWeight, HighlightStyle, Stateful, StyledText};
+use view::{Div, FontWeight, HighlightStyle, Stateful, StyledText, accesskit};
 
+use crate::id;
+use crate::list;
+use crate::select::revision_name;
 use crate::state::{Menu, Progress};
-use crate::ui::changes::revision_name;
-use crate::ui::components::{self, id, ref_label};
+use crate::words::{self, ref_label};
 use crate::{Forge, Stage};
 use forge::{ChangeState, ChangeSummary, CommitInfo, Judgment, Query, Reply, Revision};
 
@@ -268,10 +270,10 @@ pub(crate) fn rows_list(
     cx: &mut Context<Forge>,
     (ladder, theme): (&Ladder, &Theme),
 ) -> Stateful<Div> {
-    let (at, _) = components::cursor(forge, list_id);
-    let walked = components::walked(forge, list_id);
+    let (at, _) = list::cursor(forge, list_id);
+    let walked = list::walked(forge, list_id);
     let at = at.min(rows.len().saturating_sub(1));
-    let mut list = components::list(list_id, label, rows.len(), None, forge, cx, open).flex_none();
+    let mut list = list::list(list_id, label, rows.len(), None, forge, cx, open).flex_none();
     for (index, (row, press)) in rows.into_iter().enumerate() {
         let row = row.draw(ladder, theme).on_click(press);
         list = list.child(option(row, walked && index == at));
@@ -285,7 +287,7 @@ pub(crate) fn option(row: Stateful<Div>, active: bool) -> Stateful<Div> {
     design::item(row.aria_selected(active), Role::ListBoxOption, active)
 }
 
-/// A virtual list of `count` rows as one Tab stop (`components::list`),
+/// A virtual list of `count` rows as one Tab stop ([`list::list`]),
 /// named `label`: the arrows walk them, the list scrolled to the active
 /// one; `paint` draws row `index` (and whether it is the active one) as
 /// it comes into view, `open` presses it.
@@ -298,17 +300,21 @@ pub(crate) fn virtual_list(
     forge: &Forge,
     cx: &mut Context<Forge>,
 ) -> Stateful<Div> {
-    let (at, _) = components::cursor(forge, list_id);
-    let walked = components::walked(forge, list_id);
+    let (at, _) = list::cursor(forge, list_id);
+    let walked = list::walked(forge, list_id);
     let at = at.min(count.saturating_sub(1));
-    let rows = components::rows(
+    let rows = list::window(
         &format!("{list_id}-rows"),
         count,
         None,
         Some(scroll),
-        move |index| paint(index, walked && index == at),
+        move |range, _, _| {
+            range
+                .map(|index| paint(index, walked && index == at))
+                .collect()
+        },
     );
-    components::list(list_id, label, count, Some(scroll), forge, cx, open).child(rows)
+    list::list(list_id, label, count, Some(scroll), forge, cx, open).child(rows)
 }
 
 /// A key/value row (`Facts.tsx` `KeyValue`): at least a control tall, the
@@ -340,9 +346,52 @@ pub(crate) fn key_value(
         .child(div().flex_1().min_w(px(0.)).child(value))
 }
 
+/// A one-line field with its lines (`Field.tsx`): the kit's box, edged in
+/// danger while something is wrong. What is wrong marks the input invalid
+/// and is its description, so a screen reader hears why (rule 18); with
+/// nothing wrong its rule is.
+// SDK gap: the labelled field with its problem, swap when feat/phone-kit lands
+pub(crate) fn input_field(
+    label: Option<&str>,
+    input: Input,
+    (problem, rule): (&str, Option<&str>),
+    ladder: &Ladder,
+    theme: &Theme,
+) -> Div {
+    let wrong = !problem.is_empty();
+    let said = if wrong { Some(problem) } else { rule };
+    let input = input
+        .when(wrong, |input| input.invalid(accesskit::Invalid::True))
+        .when_some(said, |input, said| input.description(said));
+    let field = design::field(input, ladder, theme)
+        .w_full()
+        .when(wrong, |field| field.border_color(theme.danger));
+    field_lines(label, field, (problem, rule), ladder, theme)
+}
+
+/// A field of many lines with its lines ([`text_area`] in [`field_lines`]).
+// SDK gap: `Textarea` takes no `invalid` or `description`, so what is
+// wrong is drawn under it but not said to a screen reader; swap when
+// feat/phone-kit lands
+pub(crate) fn text_area_field(
+    label: Option<&str>,
+    area: Textarea,
+    problem: &str,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> Div {
+    field_lines(
+        label,
+        text_area(area, ladder, theme),
+        (problem, None),
+        ladder,
+        theme,
+    )
+}
+
 /// A field with its lines (`Field.tsx`): its label over it, caption
 /// muted, and under it what is wrong in danger, else its rule muted.
-pub(crate) fn field_lines(
+fn field_lines(
     label: Option<&str>,
     field: impl IntoElement,
     (problem, rule): (&str, Option<&str>),
@@ -597,8 +646,8 @@ pub(crate) fn pending(
         .into_iter()
         .map(|op| {
             let (tone, said) = match &op.progress {
-                Progress::Submitting => (Tone::Quiet, "Submitting…".to_owned()),
-                Progress::Accepted => (Tone::Quiet, "Waiting for the next block…".to_owned()),
+                Progress::Submitting => (Tone::Quiet, words::SUBMITTING.to_owned()),
+                Progress::Accepted => (Tone::Quiet, words::WAITING_FOR_BLOCK.to_owned()),
                 Progress::Refused(sentence) => (Tone::Danger, sentence.clone()),
             };
             notice(
@@ -1114,12 +1163,18 @@ pub(crate) fn state_badge(
     ladder: &Ladder,
     theme: &Theme,
 ) -> Stateful<Div> {
-    let (label, tint) = match state {
-        ChangeState::Open => ("open", Tint::Ok),
-        ChangeState::Merged => ("merged", Tint::Agent),
-        ChangeState::Closed => ("closed", Tint::Plain),
+    let tint = match state {
+        ChangeState::Open => Tint::Ok,
+        ChangeState::Merged => Tint::Agent,
+        ChangeState::Closed => Tint::Plain,
     };
-    badge(id(key.to_owned()), label, tint, ladder, theme)
+    badge(
+        id(key.to_owned()),
+        words::change_state(state),
+        tint,
+        ladder,
+        theme,
+    )
 }
 
 /// The dot a change row leads with (`parts.tsx` `StateDot`).
@@ -1146,11 +1201,16 @@ pub(crate) fn change_row(
 ) -> Row {
     let author = forge.principal_name(&summary.author);
     let asks = judgment.into_iter().flat_map(|judgment| {
-        let requested = judgment.requested.then_some("review requested".to_owned());
-        let replied = judgment.replies.is_some().then(|| "new reply".to_owned());
+        let requested = judgment
+            .requested
+            .then_some(words::REVIEW_REQUESTED.to_owned());
+        let replied = judgment
+            .replies
+            .is_some()
+            .then(|| words::NEW_REPLY.to_owned());
         requested.into_iter().chain(replied)
     });
-    let comments = design::plural(summary.comment_count, "comment", "comments");
+    let comments = words::comments(summary.comment_count);
     let words: Vec<String> = across
         .then(|| summary.repo.clone())
         .into_iter()
@@ -1197,7 +1257,7 @@ pub(crate) fn when(seconds: i64) -> String {
 /// One commit (`parts.tsx` `CommitRow`): its title, `<short> · <author> ·
 /// <date, time>`, and `· N parents` for a merge.
 pub(crate) fn commit_row(commit: &CommitInfo, ladder: &Ladder, theme: &Theme) -> Row {
-    let short = components::short_hex(&commit.oid);
+    let short = design::short_hex(&commit.oid);
     let merge = match commit.parents.len() {
         0 | 1 => String::new(),
         parents => format!(" · {parents} parents"),
@@ -1263,7 +1323,7 @@ fn ref_sheet_controls(
     let kinds = (menu == Menu::Ref).then(|| {
         design::segmented(
             id(format!("{key}-kind")),
-            "Branches or tags",
+            words::BRANCHES_OR_TAGS,
             ladder,
             theme,
             Some(usize::from(forge.menu_tags)),
@@ -1346,7 +1406,7 @@ fn ref_rows(
             .map(|index| {
                 let name = &names[index];
                 let mut row = Row::data(
-                    id(format!("forge-ref-{}", components::path_text(name))),
+                    id(format!("forge-ref-{}", crate::words::path_text(name))),
                     ref_label(name),
                     &ladder,
                 );
@@ -1398,16 +1458,16 @@ pub(crate) fn people_sheet(
     ladder: &Ladder,
     theme: &Theme,
 ) -> AnyElement {
-    let close = cx.listener(|forge, _: &(), _, cx| forge.open_sheet(None, cx));
+    let close = cx.listener(|forge, _: &(), _, cx| forge.close_sheet(cx));
     let filter = Input::new(
         id(format!("{}-filter", ask.key)),
         &forge.people_search,
-        "Search members",
+        words::SEARCH_MEMBERS,
     )
     .autocorrect(false)
     .autocapitalize(Autocapitalize::None)
     .virtual_keyboard(VirtualKeyboard::Search)
-    .placeholder("Search members");
+    .placeholder(words::SEARCH_MEMBERS);
     let head = sheet_head(&format!("{}-head", ask.key), ask.title, ladder, theme)
         .children(ask.caption.map(|said| caption(said, ladder, theme)));
     let body = div()
@@ -1440,7 +1500,7 @@ fn people_rows(
     let Some(names) = forge.names.ready() else {
         return quiet(
             id(format!("{}-reading", ask.key)),
-            "Reading the roster…",
+            words::READING_ROSTER,
             ladder,
             theme,
         )
@@ -1472,7 +1532,7 @@ fn people_rows(
         let pick = pick.clone();
         let chosen = person.clone();
         let press = cx.listener(move |forge, _: &ClickEvent, _, cx| {
-            forge.open_sheet(None, cx);
+            forge.close_sheet(cx);
             pick(forge, chosen.clone(), cx);
         });
         Row::titled(id(format!("{}-{number}", ask.key)), name.clone(), ladder)

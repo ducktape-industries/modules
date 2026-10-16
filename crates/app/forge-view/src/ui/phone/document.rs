@@ -15,9 +15,9 @@ use view::{
     StyledText, UnderlineStyle,
 };
 
-use crate::ui::components::id;
-use crate::ui::highlight::{self, Token};
-use crate::ui::markdown::{Block, OnLink, Text};
+use crate::highlight::{self, Token};
+use crate::id;
+use crate::markdown::{Block, OnLink, Text};
 
 /// A list item's marker column and how far its marker sits down to meet
 /// the body's first line (`Document.tsx` `item`).
@@ -258,19 +258,13 @@ pub(super) fn code_line(
         .child(styled)
 }
 
+/// The tokens' shared colours ([`highlight::style`]), types and keys at
+/// the Expo app's medium where the desktop sets them semibold (`Document.tsx` `Code`).
 fn token_style(token: Token, theme: &Theme) -> HighlightStyle {
-    let color = match token {
-        Token::Keyword => Some(theme.agent),
-        Token::String => Some(theme.success),
-        Token::Number => Some(theme.warning),
-        Token::Comment => Some(theme.muted),
-        Token::Type | Token::Property => None,
-    };
+    let style = highlight::style(token, theme);
     HighlightStyle {
-        color,
-        font_weight: matches!(token, Token::Type | Token::Property).then_some(FontWeight::MEDIUM),
-        font_style: (token == Token::Comment).then_some(FontStyle::Italic),
-        ..Default::default()
+        font_weight: style.font_weight.map(|_| FontWeight::MEDIUM),
+        ..style
     }
 }
 

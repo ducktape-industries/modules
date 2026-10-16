@@ -9,7 +9,6 @@ pub(crate) mod components;
 pub(crate) mod conversation;
 pub(crate) mod diff;
 pub(crate) mod dock;
-pub(crate) mod highlight;
 pub(crate) mod markdown;
 pub(crate) mod phone;
 pub(crate) mod readme;
@@ -22,6 +21,7 @@ use view::{Div, FontWeight, Stateful};
 
 use crate::Forge;
 use crate::state::{Dock, Menu, Progress, RepoTab};
+use crate::words;
 use components::{button, heading, id, quiet};
 use forge::Reply;
 use view::design::Ladder;
@@ -83,14 +83,14 @@ pub(crate) fn render(forge: &mut Forge, cx: &mut Context<Forge>) -> impl IntoEle
     let (label, floating) = match forge.menu {
         None => ("", None),
         Some(menu @ Menu::Ref) => (
-            "Pick a ref",
+            words::PICK_A_REF,
             Some(components::menu(menu, "Refs", forge, cx, &theme, ladder)),
         ),
         Some(menu @ Menu::Head) => (
             "Pick the default head",
             Some(components::menu(
                 menu,
-                "Default head",
+                words::DEFAULT_HEAD,
                 forge,
                 cx,
                 &theme,
@@ -249,7 +249,7 @@ fn title(
     theme: &Theme,
     ladder: &Ladder,
 ) -> AnyElement {
-    let url = repo_link(forge, name);
+    let url = forge.repo_link(name);
     let copy = cx.listener({
         let (name, url) = (name.to_owned(), url.clone());
         move |forge, _: &ClickEvent, _, cx| {
@@ -317,14 +317,6 @@ fn title(
         .into_any_element()
 }
 
-/// `duck://<chain>/forge/<name>`: the repository's clone address and link,
-/// minted by ducklink from the session's chain id (`<label>#<salt>`); a
-/// placeholder `duck://<network>/forge/<name>` while no chain is known.
-pub(crate) fn repo_link(forge: &Forge, name: &str) -> String {
-    ducklink::mint(&forge.session.chain_id, forge::PROGRAM, &[name])
-        .unwrap_or_else(|| format!("duck://<network>/forge/{name}"))
-}
-
 /// `duck://explorer/block/<height>`: the host's short link to a view on
 /// this connection, Explorer at that block.
 pub(crate) fn block_href(height: u64) -> String {
@@ -338,7 +330,7 @@ pub(crate) fn block_link(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Stateful<Div> {
-    let label = format!("block {}", design::grouped(height));
+    let label = words::block(height);
     design::link(id, label.clone(), block_href(height), ladder, theme)
         .aria_label(format!("Open {label} in Explorer"))
 }
@@ -348,7 +340,7 @@ pub(crate) fn block_link(
 fn ref_picker(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     let head = forge.head_name();
     let label = match forge.refs() {
-        Some([]) => "no refs".to_owned(),
+        Some([]) => words::NO_REFS_YET.to_owned(),
         _ => components::ref_label(&head),
     };
     components::dropdown(
@@ -455,7 +447,7 @@ fn panel(
 
 fn about(forge: &Forge, theme: &Theme) -> AnyElement {
     let Some((info, bounds, writers)) = forge.repo() else {
-        return quiet("Reading this repository…", theme);
+        return quiet(words::READING_REPOSITORY, theme);
     };
     let mut column = div()
         .id(id("forge-about"))
@@ -463,7 +455,7 @@ fn about(forge: &Forge, theme: &Theme) -> AnyElement {
         .flex_col()
         .gap_2()
         .child(fact(
-            "Default head",
+            words::DEFAULT_HEAD,
             components::ref_label(&info.repo.settings.head),
             theme,
         ))
@@ -476,15 +468,15 @@ fn about(forge: &Forge, theme: &Theme) -> AnyElement {
             theme,
         ))
         .child(fact("Owner", forge.principal_name(&info.repo.owner), theme))
-        .child(fact("Page size", bounds.page_size.to_string(), theme))
+        .child(fact(words::PAGE_SIZE, bounds.page_size.to_string(), theme))
         .child(fact(
-            "Inline blob bound",
-            format!("{} bytes", bounds.blob_bytes),
+            words::INLINE_BLOB_BOUND,
+            words::bytes(bounds.blob_bytes),
             theme,
         ))
         .child(heading(id("forge-about-access"), "Access", 3, theme));
     if writers.items.is_empty() {
-        column = column.child(quiet("Only the owner writes here.", theme));
+        column = column.child(quiet(words::ONLY_THE_OWNER, theme));
     }
     for key in &writers.items {
         column = column.child(quiet(forge.principal_name(key), theme));
@@ -522,11 +514,8 @@ pub(crate) fn pending(forge: &Forge, scope: &str, theme: &Theme) -> AnyElement {
         .py_1();
     for op in ops {
         let (tone, status) = match &op.progress {
-            Progress::Submitting => (theme.surface_raised, "Submitting…".to_owned()),
-            Progress::Accepted => (
-                theme.surface_raised,
-                "Waiting for the next block…".to_owned(),
-            ),
+            Progress::Submitting => (theme.surface_raised, words::SUBMITTING.to_owned()),
+            Progress::Accepted => (theme.surface_raised, words::WAITING_FOR_BLOCK.to_owned()),
             Progress::Refused(sentence) => (theme.danger_soft, format!("Refused: {sentence}")),
         };
         column = column.child(

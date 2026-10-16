@@ -13,8 +13,9 @@ use view::{Div, Stateful};
 use super::parts::{self, Back};
 use super::tabs;
 use crate::Forge;
+use crate::id;
 use crate::state::{Dock, Menu, RepoTab};
-use crate::ui::components::{id, ref_label};
+use crate::words::{self, ref_label};
 
 pub(super) fn render(
     forge: &Forge,
@@ -52,7 +53,7 @@ fn copy_button(
     ladder: &Ladder,
     theme: &Theme,
 ) -> impl IntoElement {
-    let url = crate::ui::repo_link(forge, name);
+    let url = forge.repo_link(name);
     let copied = forge.copied.as_deref() == Some(name);
     let copy = cx.listener({
         let name = name.to_owned();
@@ -99,13 +100,13 @@ fn ref_row(
     theme: &Theme,
 ) -> Stateful<Div> {
     let label = match forge.refs() {
-        Some([]) => "no refs".to_owned(),
+        Some([]) => words::NO_REFS_YET.to_owned(),
         _ => ref_label(&forge.head_name()),
     };
     let open = cx.listener(|forge, event: &ClickEvent, window, cx| {
         forge.open_dropdown(Menu::Ref, event, window, cx)
     });
-    let address = parts::caption(crate::ui::repo_link(forge, name), ladder, theme)
+    let address = parts::caption(forge.repo_link(name), ladder, theme)
         .font_family(design::fonts::FAMILY_MONO)
         .flex_1()
         .min_w(px(0.))
@@ -199,14 +200,14 @@ fn about(forge: &Forge, ladder: &Ladder, theme: &Theme) -> AnyElement {
     let Some((info, bounds, writers)) = forge.repo() else {
         return parts::quiet(
             id("forge-about-loading"),
-            "Reading this repository…",
+            words::READING_REPOSITORY,
             ladder,
             theme,
         )
         .into_any_element();
     };
     let access = match writers.items.is_empty() {
-        true => "Only the owner writes here.".to_owned(),
+        true => words::ONLY_THE_OWNER.to_owned(),
         false => writers
             .items
             .iter()
@@ -224,7 +225,7 @@ fn about(forge: &Forge, ladder: &Ladder, theme: &Theme) -> AnyElement {
         .flex()
         .flex_col()
         .child(fact(
-            "Default head",
+            words::DEFAULT_HEAD,
             parts::data(ref_label(&info.repo.settings.head)),
         ))
         .child(fact("Hash", parts::data(hash)))
@@ -232,10 +233,13 @@ fn about(forge: &Forge, ladder: &Ladder, theme: &Theme) -> AnyElement {
             "Owner",
             div().child(forge.principal_name(&info.repo.owner)),
         ))
-        .child(fact("Page size", parts::data(bounds.page_size.to_string())))
         .child(fact(
-            "Inline blob bound",
-            parts::data(format!("{} bytes", bounds.blob_bytes)),
+            words::PAGE_SIZE,
+            parts::data(bounds.page_size.to_string()),
+        ))
+        .child(fact(
+            words::INLINE_BLOB_BOUND,
+            parts::data(words::bytes(bounds.blob_bytes)),
         ))
         .child(fact("Access", div().child(access)))
         .into_any_element()

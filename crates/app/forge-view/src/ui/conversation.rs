@@ -4,10 +4,9 @@ use view::prelude::*;
 
 use crate::Forge;
 use crate::state::verdict_verb;
-use crate::ui::components::{
-    badge, button, empty_state, id, path_text, quiet, ref_label, short_hex,
-};
+use crate::ui::components::{badge, button, empty_state, id, path_text, quiet};
 use crate::ui::scroller;
+use crate::words;
 use forge::ChangeState;
 use view::design::Ladder;
 
@@ -39,7 +38,7 @@ pub(crate) fn render(
                     "forge-change-body-text",
                     &change.body,
                     theme,
-                    &crate::ui::code::links(Vec::new(), cx),
+                    &crate::markdown::links(Vec::new(), cx),
                 )),
         );
     }
@@ -81,7 +80,7 @@ fn review_card(
     if outdated {
         head = head.child(badge(
             id(format!("forge-review-outdated-{}", review.id)),
-            "outdated",
+            words::OUTDATED,
             ladder,
             theme.warning,
             theme.warning_soft,
@@ -146,7 +145,7 @@ fn timeline_head(
                 .child(quiet(what.to_owned(), theme)),
         )
         .child(
-            design::mono(format!("block {}", design::grouped(height)))
+            design::mono(words::block(height))
                 .text_size(design::text::CAPTION)
                 .text_color(theme.faint),
         )
@@ -186,7 +185,7 @@ fn forge_line(
         return Some(event(
             key,
             Some(author),
-            "opened this change".into(),
+            words::OPENED_IT.into(),
             row.height,
             theme,
         ));
@@ -204,18 +203,14 @@ fn forge_line(
         (ChangeState::Merged, Some(oid)) => Some(event(
             key,
             actor(&change.merged_by),
-            format!(
-                "merged into {} as {}",
-                ref_label(&change.into),
-                short_hex(oid)
-            ),
+            words::merged_into(&change.into, oid),
             row.height,
             theme,
         )),
         (ChangeState::Closed, _) => Some(event(
             key,
             actor(&change.closed_by),
-            "closed this change".into(),
+            words::CLOSED_IT.into(),
             row.height,
             theme,
         )),
@@ -242,10 +237,10 @@ fn messages(forge: &Forge, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let naming = forge.names.is_idle() || forge.names.is_loading();
     match forge.messages.get(&change.channel) {
         None | Some(Loadable::Idle) | Some(Loadable::Loading(_)) => {
-            quiet("Reading the conversation…", theme)
+            quiet(words::READING_CONVERSATION, theme)
         }
         Some(Loadable::Ready(_) | Loadable::Reloading(_, _)) if naming => {
-            quiet("Reading the conversation…", theme)
+            quiet(words::READING_CONVERSATION, theme)
         }
         Some(Loadable::Failed(refusal)) => div()
             .id(id("forge-conversation-refused"))
@@ -324,7 +319,7 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladd
                 .border_color(theme.border_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .placeholder("Reply in this change"),
+                .placeholder(words::REPLY_IN_CHANGE),
         )
         .child(
             button(id("forge-reply-send"), "Send", ladder, theme, send)

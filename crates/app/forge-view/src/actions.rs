@@ -119,7 +119,7 @@ impl Forge {
 
     pub(crate) fn start_repo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.new_repo = Some(NewRepo::default());
-        window.focus(crate::ui::components::id("forge-new-repo-name"));
+        window.focus(crate::id("forge-new-repo-name"));
         cx.notify();
     }
 
@@ -141,7 +141,7 @@ impl Forge {
             into: self.default_head(),
             ..ChangeForm::default()
         });
-        window.focus(crate::ui::components::id("forge-change-title"));
+        window.focus(crate::id("forge-change-title"));
         cx.notify();
     }
 
@@ -162,7 +162,7 @@ impl Forge {
             reviewers: change.reviewers.clone(),
             error: String::new(),
         });
-        window.focus(crate::ui::components::id("forge-change-title"));
+        window.focus(crate::id("forge-change-title"));
         cx.notify();
     }
 

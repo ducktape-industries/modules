@@ -5,11 +5,11 @@ use view::prelude::*;
 
 use crate::queries::PAGE;
 use crate::state::{self, ChangeTab, Forge, Menu, Nav, change_key};
-use crate::ui::components::ref_label;
+use crate::words::ref_label;
 use forge::Principal;
 use forge::{
-    Bounds, Change, CommitInfo, Comparison, PageRequest, PageResponse, Query, RefInfo, Reply,
-    RepoInfo, Review, Revision,
+    Bounds, Change, CommitInfo, Comparison, FileDiff, PageRequest, PageResponse, Query, RefInfo,
+    Reply, RepoInfo, Review, Revision,
 };
 
 /// The open change, as its screens read it: the record, its two current
@@ -20,6 +20,19 @@ pub(crate) type OpenChange<'a> = (
     &'a Option<String>,
     &'a PageResponse<Review>,
 );
+
+/// A diff file's path: its new one, or the old one of a file it deletes.
+pub(crate) fn path_of(file: &FileDiff) -> Option<Vec<u8>> {
+    file.new_path.clone().or_else(|| file.old_path.clone())
+}
+
+/// A revision's name as bytes: a ref's full name, or a commit's hex.
+pub(crate) fn revision_name(revision: &Revision) -> Vec<u8> {
+    match revision {
+        Revision::Ref(name) => name.clone(),
+        Revision::Oid(oid) => oid.clone().into_bytes(),
+    }
+}
 
 /// A read, in the three states a screen draws.
 pub(crate) enum Stage<'a> {
@@ -89,6 +102,15 @@ impl Forge {
 
     pub(crate) fn repo_name(&self) -> String {
         self.nav.repo.clone().unwrap_or_default()
+    }
+
+    /// `duck://<chain>/forge/<name>`: the repository's clone address and
+    /// link, minted by ducklink from the session's chain id
+    /// (`<label>#<salt>`); a placeholder `duck://<network>/forge/<name>`
+    /// while no chain is known.
+    pub(crate) fn repo_link(&self, name: &str) -> String {
+        ducklink::mint(&self.session.chain_id, forge::PROGRAM, &[name])
+            .unwrap_or_else(|| format!("duck://<network>/forge/{name}"))
     }
 
     pub(crate) fn repo_query(&self) -> Query {

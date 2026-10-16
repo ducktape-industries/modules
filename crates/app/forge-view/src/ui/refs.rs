@@ -10,7 +10,8 @@ use crate::ui::components::{
 };
 use crate::ui::diff::Route;
 use crate::ui::{pending, staged};
-use forge::{Mergeability, Query, RefInfo, Reply, Revision};
+use crate::words;
+use forge::{Query, RefInfo, Reply, Revision};
 use view::design::Ladder;
 
 pub(crate) fn render(
@@ -35,7 +36,7 @@ pub(crate) fn render(
         forge,
         &forge.refs_query(),
         "forge-refs-list",
-        "Reading refs…",
+        words::READING_REFS,
         cx,
         theme,
         &ladder,
@@ -50,8 +51,8 @@ pub(crate) fn render(
         return column
             .child(empty_state(
                 id("forge-refs-empty"),
-                "No refs",
-                "This repository is unborn: nothing has been pushed to it yet.",
+                words::NO_REFS,
+                words::UNBORN,
                 theme,
             ))
             .into_any_element();
@@ -228,13 +229,7 @@ fn forbidden(forge: &Forge) -> Option<String> {
             )
         })
         .unwrap_or((false, false));
-    let what = match allow {
-        (false, false) => "force pushes and ref deletions",
-        (false, true) => "force pushes",
-        (true, false) => "ref deletions",
-        (true, true) => return None,
-    };
-    Some(format!("This repository forbids {what}."))
+    words::forbids(allow.0, allow.1)
 }
 
 fn standings(forge: &Forge, names: &[Vec<u8>], head: &[u8]) -> Vec<Option<String>> {
@@ -242,7 +237,7 @@ fn standings(forge: &Forge, names: &[Vec<u8>], head: &[u8]) -> Vec<Option<String
         .iter()
         .map(|name| {
             if name == head {
-                return Some("browsing".to_owned());
+                return Some(words::BROWSING.to_owned());
             }
             let branch = name.starts_with(b"refs/heads/");
             if !branch {
@@ -254,19 +249,8 @@ fn standings(forge: &Forge, names: &[Vec<u8>], head: &[u8]) -> Vec<Option<String
                 into: Revision::Ref(head.to_vec()),
             };
             Some(match forge.ready(&query) {
-                Some(Reply::Compare { comparison, .. }) => {
-                    let word = match comparison.mergeability {
-                        Mergeability::UpToDate => "merged",
-                        Mergeability::FastForward => "fast-forward",
-                        Mergeability::Diverged => "diverged",
-                        Mergeability::Unrelated => "unrelated",
-                    };
-                    format!(
-                        "{} ahead · {} behind · {word}",
-                        comparison.ahead, comparison.behind
-                    )
-                }
-                _ => "comparing…".to_owned(),
+                Some(Reply::Compare { comparison, .. }) => words::compared(comparison),
+                _ => words::COMPARING.to_owned(),
             })
         })
         .collect()

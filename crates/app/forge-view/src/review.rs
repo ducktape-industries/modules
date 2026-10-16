@@ -69,7 +69,7 @@ impl Forge {
             });
         }
         crate::ui::diff::reveal_composer(self);
-        window.focus(crate::ui::components::id("forge-comment-body"));
+        window.focus(crate::id("forge-comment-body"));
         cx.notify();
     }
 

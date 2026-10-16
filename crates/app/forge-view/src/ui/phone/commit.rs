@@ -15,9 +15,11 @@ use view::{Div, Stateful};
 use super::lines::{self, Item, Notes, Shown};
 use super::parts::{self, Back, Row};
 use crate::Forge;
-use crate::ui::components::{id, path_text, ref_label, short_hex};
-use crate::ui::diff::path_of;
+use crate::id;
+use crate::select::path_of;
+use crate::words::{self, path_text, ref_label};
 use forge::{CommitInfo, FileDiff, Reply};
+use view::design::short_hex;
 
 pub(super) fn render(
     forge: &Forge,
@@ -120,7 +122,7 @@ fn head(forge: &Forge, oid: &str, cx: &mut Context<Forge>) -> AnyElement {
             forge,
             &query,
             "forge-commit-files",
-            "Reading the diff…",
+            words::READING_DIFF,
             cx,
             (ladder, &theme),
         ) {
@@ -144,7 +146,7 @@ fn head(forge: &Forge, oid: &str, cx: &mut Context<Forge>) -> AnyElement {
 /// than its first line.
 fn facts(commit: &CommitInfo, ladder: &Ladder, theme: &Theme) -> Div {
     let parents = match commit.parents.is_empty() {
-        true => "root commit".to_owned(),
+        true => words::ROOT_COMMIT.to_owned(),
         false => commit
             .parents
             .iter()
@@ -208,8 +210,8 @@ fn file_rows(
         let none = parts::empty_state(
             id("forge-commit-empty"),
             "git-commit-horizontal",
-            "No changes",
-            "These endpoints hold the same tree.",
+            words::NO_CHANGES,
+            words::SAME_TREE,
             ladder,
             theme,
         );

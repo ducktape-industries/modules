@@ -8,6 +8,7 @@ use crate::Forge;
 use crate::queries::PAGE;
 use crate::ui::components::{badge, button, empty_state, heading, id, quiet, short_hex};
 use crate::ui::{diff, fact, refused};
+use crate::words;
 use forge::{CommitInfo, Query};
 use view::design::Ladder;
 
@@ -39,7 +40,7 @@ pub(crate) fn render(
     if forge.tree_query(Vec::new()).is_none() {
         return match forge.refs() {
             Some(_) => crate::ui::code::no_commits(forge, theme),
-            None => quiet("Resolving the ref…", theme),
+            None => quiet(words::RESOLVING_REF, theme),
         };
     }
     log(forge, &forge.log_query(), "forge-log", cx, theme, ladder)
@@ -85,8 +86,8 @@ pub(crate) fn log(
     if held == 0 {
         return empty_state(
             id(format!("{element_id}-empty")),
-            "No commits",
-            "This ref carries no history yet.",
+            words::NO_COMMITS,
+            words::NO_HISTORY,
             theme,
         )
         .into_any_element();
@@ -139,7 +140,7 @@ pub(crate) fn log(
 }
 
 /// What a log says while a page of it is on its way.
-const READING: &str = "Reading the history…";
+const READING: &str = words::READING_HISTORY;
 
 /// The row past the commits held: the loading line, at a row's height.
 fn reading_on(key: &str, theme: &Theme) -> AnyElement {
@@ -202,7 +203,7 @@ fn row(
 /// A commit's ids, parents, author and message.
 fn facts(commit: &CommitInfo, theme: &Theme) -> Stateful<Div> {
     let parents = if commit.parents.is_empty() {
-        "root commit".to_owned()
+        words::ROOT_COMMIT.to_owned()
     } else {
         commit
             .parents
@@ -295,7 +296,7 @@ pub(crate) fn detail(
                     header.child(
                         button(
                             id("forge-commit-files-all"),
-                            "All files",
+                            words::ALL_FILES,
                             ladder,
                             theme,
                             all,
@@ -324,7 +325,7 @@ pub(crate) fn detail(
                 forge,
                 &own,
                 "forge-commit-diff",
-                "Reading the diff…",
+                words::READING_DIFF,
                 cx,
                 theme,
                 ladder,

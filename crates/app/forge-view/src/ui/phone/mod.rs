@@ -12,8 +12,8 @@
 //! markdown they render, [`lines`] the code and diff rows, [`parts`] what
 //! several of them draw.
 //!
-//! Reads the route ([`Nav::pages`](crate::state::Nav::pages)), the open
-//! sheet and the open form; writes Back.
+//! Reads the route ([`Nav::pages`](crate::state::Nav::pages)), what lies
+//! over the page ([`Forge::overlay`]) and the open form; writes Back.
 mod change;
 mod code;
 mod commit;
@@ -31,21 +31,24 @@ use view::design::Ladder;
 use view::prelude::*;
 
 use crate::Forge;
-use crate::state::{Dock, Menu, Page, Sheet};
-use crate::ui::components::id;
+use crate::id;
+use crate::state::{Menu, Overlay, Page, Sheet};
+use crate::words;
 use parts::Back;
 
 pub(crate) use lines::Block;
 
 /// The phone's screen: the top page of the route (or the change form
-/// over it), the one sheet open over that, and Back while there is
-/// somewhere to go back to (rule 13).
+/// over it), the one overlay over that, and Back while there is somewhere
+/// to go back to (rule 13): the overlay drawn, the form, or a page.
 pub(crate) fn render(forge: &mut Forge, cx: &mut Context<Forge>) -> AnyElement {
     let theme = *cx.global::<Theme>();
     let ladder = &design::TOUCH;
     let page = page(forge, cx, ladder, &theme);
-    let sheet = sheet(forge, cx, ladder, &theme);
-    let somewhere = forge.nav().depth() > 0 || forge.sheet_open() || forge.change_form().is_some();
+    let sheet = forge
+        .overlay()
+        .and_then(|overlay| sheet(overlay, forge, cx, ladder, &theme));
+    let somewhere = sheet.is_some() || forge.change_form().is_some() || forge.nav().depth() > 0;
     div()
         .id(id("forge"))
         .size_full()
@@ -82,38 +85,33 @@ fn page(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
     }
 }
 
-/// The one sheet open over the page, if any: a ref picker, a change's
-/// actions, a member to grant or to ask for a review, About, New
-/// repository, or Finish your review.
+/// The overlay's sheet, as long as what it shows is held: a ref picker, a change's actions, a member to
+/// grant or to ask for a review, About, New repository, or Finish your
+/// review.
 fn sheet(
+    overlay: Overlay,
     forge: &Forge,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
 ) -> Option<AnyElement> {
-    if let Some(menu) = forge.menu {
-        let title = match menu {
-            Menu::Ref => "Pick a ref",
-            Menu::Head => "Default head",
-        };
-        return Some(parts::ref_sheet(menu, title, forge, cx, ladder, theme));
-    }
-    match forge.sheet {
-        Some(Sheet::ChangeActions) => return Some(change::actions_sheet(forge, cx, ladder, theme)),
-        Some(Sheet::Grant) => return Some(grant_sheet(forge, cx, ladder, theme)),
-        Some(Sheet::Reviewers) => {
-            return Some(new_change::reviewers_sheet(forge, cx, ladder, theme));
+    Some(match overlay {
+        Overlay::Menu(menu) => {
+            let title = match menu {
+                Menu::Ref => words::PICK_A_REF,
+                Menu::Head => words::DEFAULT_HEAD,
+            };
+            parts::ref_sheet(menu, title, forge, cx, ladder, theme)
         }
-        None => {}
-    }
-    if forge.nav().dock == Some(Dock::About) && forge.nav().change.is_none() {
-        return Some(repo::about_sheet(forge, cx, ladder, theme));
-    }
-    if let Some(form) = &forge.new_repo {
-        return Some(repos::new_repository(form, cx, ladder, theme));
-    }
-    let review = forge.review().filter(|review| review.finishing)?;
-    Some(review::render(forge, review, cx, ladder, theme))
+        Overlay::Sheet(Sheet::ChangeActions) => change::actions_sheet(forge, cx, ladder, theme),
+        Overlay::Sheet(Sheet::Grant) => grant_sheet(forge, cx, ladder, theme),
+        Overlay::Sheet(Sheet::Reviewers) => new_change::reviewers_sheet(forge, cx, ladder, theme),
+        Overlay::About => repo::about_sheet(forge, cx, ladder, theme),
+        Overlay::NewRepository => {
+            repos::new_repository(forge.new_repo.as_ref()?, cx, ladder, theme)
+        }
+        Overlay::FinishReview => review::render(forge, forge.review()?, cx, ladder, theme),
+    })
 }
 
 /// A member to grant write access to (`SettingsTab`'s `PeopleSheet`):
@@ -134,8 +132,8 @@ fn grant_sheet(
         .unwrap_or_default();
     let ask = parts::PeopleAsk {
         key: "forge-grant-sheet",
-        title: "Grant write access",
-        caption: Some("Pick a member. They can push and merge here."),
+        title: words::GRANT_WRITE_ACCESS,
+        caption: Some(words::PICK_A_WRITER),
         skip: &skip,
     };
     let grant = |forge: &mut Forge, person: forge::Principal, cx: &mut Context<Forge>| {

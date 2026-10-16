@@ -317,30 +317,6 @@ pub(crate) fn style(token: Token, theme: &Theme) -> HighlightStyle {
     }
 }
 
-/// One source line as mono rich text in its tokens' colours.
-pub(crate) fn line(
-    element_id: ElementId,
-    text: &str,
-    tokens: &[(Range<usize>, Token)],
-    theme: &Theme,
-) -> AnyElement {
-    let styled = StyledText::new(text.to_owned()).with_highlights(
-        tokens
-            .iter()
-            .map(|(range, token)| (range.clone(), style(*token, theme))),
-    );
-    div()
-        .id(element_id)
-        .flex_1()
-        .min_w(px(0.))
-        .font_family(design::fonts::FAMILY_MONO)
-        .text_size(design::text::SECONDARY)
-        .text_color(theme.foreground)
-        .whitespace_nowrap()
-        .child(styled)
-        .into_any_element()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

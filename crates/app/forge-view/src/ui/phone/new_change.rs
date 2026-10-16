@@ -12,9 +12,10 @@ use view::{Div, FontWeight, Stateful, wire};
 
 use super::parts;
 use crate::Forge;
+use crate::id;
 use crate::state::{ChangeForm, Sheet, change_key};
-use crate::ui::components::{id, ref_label};
-use forge::{Mergeability, Query, Reply, Revision};
+use crate::words::{self, ref_label};
+use forge::{Query, Reply, Revision};
 
 /// A removable chip's cross (`Choice.tsx` `RemovableChip`).
 const CHIP_CROSS: Pixels = px(14.);
@@ -27,12 +28,8 @@ pub(super) fn render(
     theme: &Theme,
 ) -> AnyElement {
     let (title, verb, scope) = match form.edit {
-        Some(n) => (
-            format!("Edit change #{n}"),
-            "Save",
-            change_key(&form.repo, n),
-        ),
-        None => ("New change".to_owned(), "Open", "changes".to_owned()),
+        Some(n) => (words::edit_change(n), "Save", change_key(&form.repo, n)),
+        None => (words::NEW_CHANGE.to_owned(), "Open", "changes".to_owned()),
     };
     let back = cx.listener(|forge, _: &ClickEvent, _, cx| forge.cancel_change(cx));
     let body = div()
@@ -136,16 +133,7 @@ fn comparison(forge: &Forge, form: &ChangeForm) -> Option<String> {
     let Reply::Compare { comparison, .. } = forge.ready(&query)? else {
         return None;
     };
-    let word = match comparison.mergeability {
-        Mergeability::UpToDate => "merged",
-        Mergeability::FastForward => "fast-forward",
-        Mergeability::Diverged => "diverged",
-        Mergeability::Unrelated => "unrelated",
-    };
-    Some(format!(
-        "{} ahead · {} behind · {word}",
-        comparison.ahead, comparison.behind
-    ))
+    Some(words::compared(comparison))
 }
 
 /// "Title", and why the form was refused; typing takes the refusal away.
@@ -159,14 +147,9 @@ fn title_field(form: &ChangeForm, cx: &mut Context<Forge>, ladder: &Ladder, them
     let input = Input::new(id("forge-change-title"), &form.title, "Title")
         .autocorrect(true)
         .autocapitalize(Autocapitalize::Sentences)
-        .placeholder("What this change does")
+        .placeholder(words::TITLE_PROMPT)
         .on_change(typed);
-    let field = design::field(input, ladder, theme)
-        .w_full()
-        .when(!form.error.is_empty(), |field| {
-            field.border_color(theme.danger)
-        });
-    parts::field_lines(Some("Title"), field, (&form.error, None), ladder, theme)
+    parts::input_field(Some("Title"), input, (&form.error, None), ladder, theme)
 }
 
 /// "Body": many lines.
@@ -174,14 +157,8 @@ fn body_field(form: &ChangeForm, ladder: &Ladder, theme: &Theme) -> Div {
     let field = Textarea::new(id("forge-change-body"), &form.body, "Body")
         .autocorrect(true)
         .autocapitalize(Autocapitalize::Sentences)
-        .placeholder("Why it changes");
-    parts::field_lines(
-        Some("Body"),
-        parts::text_area(field, ladder, theme),
-        ("", None),
-        ladder,
-        theme,
-    )
+        .placeholder(words::BODY_PROMPT);
+    parts::text_area_field(Some("Body"), field, "", ladder, theme)
 }
 
 /// "Reviewers": a chip each that removes them, and Add.
@@ -203,8 +180,7 @@ fn reviewers(
         });
         removable_chip(&name, ladder, theme, remove)
     });
-    let add =
-        cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_sheet(Some(Sheet::Reviewers), cx));
+    let add = cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_sheet(Sheet::Reviewers, cx));
     let row = div()
         .flex()
         .flex_wrap()

@@ -15,8 +15,9 @@ use super::document;
 use super::lines::{self, Shown};
 use super::parts::{self, Back};
 use crate::Forge;
-use crate::ui::components::{id, path_text, ref_label};
-use crate::ui::highlight;
+use crate::highlight;
+use crate::id;
+use crate::words::{self, path_text, ref_label};
 use forge::{BlobView, Content, Query, Reply};
 
 pub(super) fn render(
@@ -109,7 +110,7 @@ fn body(
         forge,
         &query,
         "forge-blob",
-        "Reading the file…",
+        words::READING_FILE,
         cx,
         (ladder, theme),
     ) {
@@ -138,7 +139,7 @@ fn body(
     let content = match markdown && !forge.source {
         true => {
             let blocks = forge.blob_cache.doc(oid, &blob.bytes);
-            let links = crate::ui::code::links(dir.as_bytes().to_vec(), cx);
+            let links = crate::markdown::links(dir.as_bytes().to_vec(), cx);
             div()
                 .id(id("forge-blob-document"))
                 .flex_1()
@@ -179,21 +180,9 @@ fn body(
 fn unreadable(blob: &BlobView, ladder: &Ladder, theme: &Theme) -> Option<AnyElement> {
     let (title, body) = match blob.content {
         Content::Text => return None,
-        Content::Binary => (
-            "Binary file",
-            format!("{} bytes. Nothing here reads as text.", blob.size),
-        ),
-        Content::Oversize => (
-            "Too large to show",
-            format!(
-                "{} bytes, above this network's inline blob bound. Fetch the repository to read it.",
-                blob.size
-            ),
-        ),
-        Content::Gitlink => (
-            "Submodule",
-            "This entry points at another repository.".to_owned(),
-        ),
+        Content::Binary => (words::BINARY_FILE, words::not_text(blob.size)),
+        Content::Oversize => (words::TOO_LARGE_TO_SHOW, words::too_large(blob.size)),
+        Content::Gitlink => ("Submodule", words::SUBMODULE_POINTS_AWAY.to_owned()),
     };
     Some(
         parts::empty_state(

@@ -3,10 +3,10 @@
 use view::prelude::*;
 
 use crate::Stage;
+use crate::markdown::Target;
 use crate::state::{
-    ChangeTab, Dock, Filter, Forge, Menu, Page, RepoTab, SettingsForm, Sheet, change_key,
+    ChangeTab, Dock, Filter, Forge, Menu, Overlay, Page, RepoTab, SettingsForm, Sheet, change_key,
 };
-use crate::ui::markdown::Target;
 use forge::Reply;
 
 impl Forge {
@@ -30,36 +30,39 @@ impl Forge {
         self.moved(cx);
     }
 
-    /// Whether a sheet lies over the phone's page: a picker, a change's
-    /// actions, About, New repository, or the finish-review form. Back closes it before it
-    /// pops a page, and the phone's root sets `on_back` while one is open
-    /// (rule 13).
-    pub(crate) fn sheet_open(&self) -> bool {
-        self.menu.is_some()
-            || self.sheet.is_some()
-            || self.nav.dock == Some(Dock::About)
-            || self.new_repo.is_some()
-            || self.review().is_some_and(|review| review.finishing)
+    /// What lies over the phone's page, the one sheet at a time: a ref
+    /// picker, a sheet a page opened, a repository's About (not over a
+    /// change, which has its own details), New repository, or Finish your
+    /// review. The phone draws this and its Back closes this, so the two
+    /// never disagree (rule 13).
+    pub(crate) fn overlay(&self) -> Option<Overlay> {
+        if let Some(menu) = self.menu {
+            return Some(Overlay::Menu(menu));
+        }
+        if let Some(sheet) = self.sheet {
+            return Some(Overlay::Sheet(sheet));
+        }
+        if self.nav.dock == Some(Dock::About) && self.nav.change.is_none() {
+            return Some(Overlay::About);
+        }
+        if self.new_repo.is_some() {
+            return Some(Overlay::NewRepository);
+        }
+        let finishing = self.review().is_some_and(|review| review.finishing);
+        finishing.then_some(Overlay::FinishReview)
     }
 
-    /// The phone's Back: the open sheet closes, else the open change form;
+    /// The phone's Back: the overlay closes, else the open change form;
     /// else the top page pops to the one under it
     /// ([`crate::state::Nav::pages`]). Nothing at the root.
     pub(crate) fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(menu) = self.menu {
-            return self.close_dropdown(menu, window, cx);
-        }
-        if self.sheet.take().is_some() {
-            return cx.notify();
-        }
-        if self.nav.dock == Some(Dock::About) {
-            return self.toggle_dock(Dock::About, cx);
-        }
-        if self.review().is_some_and(|review| review.finishing) {
-            return self.finishing(false, cx);
-        }
-        if self.new_repo.is_some() {
-            return self.cancel_repo(cx);
+        match self.overlay() {
+            Some(Overlay::Menu(menu)) => return self.close_dropdown(menu, window, cx),
+            Some(Overlay::Sheet(_)) => return self.close_sheet(cx),
+            Some(Overlay::About) => return self.toggle_dock(Dock::About, cx),
+            Some(Overlay::NewRepository) => return self.cancel_repo(cx),
+            Some(Overlay::FinishReview) => return self.finishing(false, cx),
+            None => {}
         }
         if self.change_form().is_some() {
             return self.cancel_change(cx);
@@ -74,8 +77,13 @@ impl Forge {
         }
     }
 
-    pub(crate) fn open_sheet(&mut self, sheet: Option<Sheet>, cx: &mut Context<Self>) {
-        self.sheet = sheet;
+    pub(crate) fn open_sheet(&mut self, sheet: Sheet, cx: &mut Context<Self>) {
+        self.sheet = Some(sheet);
+        cx.notify();
+    }
+
+    pub(crate) fn close_sheet(&mut self, cx: &mut Context<Self>) {
+        self.sheet = None;
         cx.notify();
     }
 
@@ -160,7 +168,7 @@ impl Forge {
         self.menu_scroll
             .scroll_to_item(self.menu_cursor, ScrollStrategy::Center);
         self.open_menu(Some(menu), cx);
-        window.focus(crate::ui::components::id(format!("{}-filter", menu.key())));
+        window.focus(crate::id(format!("{}-filter", menu.key())));
     }
 
     /// The arrows are on item `index` of the open dropdown, scrolled to.
@@ -199,7 +207,7 @@ impl Forge {
         cx: &mut Context<Self>,
     ) {
         self.menu = None;
-        window.focus(crate::ui::components::id(menu.key().to_owned()));
+        window.focus(crate::id(menu.key().to_owned()));
         cx.notify();
     }
 
@@ -226,7 +234,7 @@ impl Forge {
     /// the host, a file of this repository in the Code tab (the root README
     /// in its own tab).
     pub(crate) fn follow_link(&mut self, dir: &[u8], dest: &str, cx: &mut Context<Self>) {
-        match crate::ui::markdown::target(dir, dest) {
+        match crate::markdown::target(dir, dest) {
             Some(Target::Web(url)) => cx.host().open_link(&url),
             Some(Target::Path(path)) => self.open_path(path, cx),
             None => {}
@@ -374,7 +382,7 @@ impl Forge {
             Stage::Ready(Reply::Diff { page, .. }) => page
                 .items
                 .iter()
-                .position(|file| crate::ui::diff::path_of(file).as_ref() == Some(&path)),
+                .position(|file| crate::select::path_of(file).as_ref() == Some(&path)),
             Stage::Ready(_) | Stage::Failed(_) => None,
         };
         self.reveal = None;

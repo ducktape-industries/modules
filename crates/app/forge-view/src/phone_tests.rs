@@ -131,7 +131,17 @@ fn new_repository_opens_a_sheet_that_refuses_a_bad_name_then_creates() {
     assert!(cx.back_handler().is_some(), "Back closes the sheet");
     cx.simulate_input("forge-new-repo-name", "bad name");
     press(&mut cx, "forge-new-repo-create");
-    assert!(cx.has_text("A repository name is letters, digits, dot, dash or underscore"));
+    let refusal = "A repository name is letters, digits, dot, dash or underscore";
+    assert!(cx.has_text(refusal));
+    let view::wire::Node::Field { options, .. } = cx.node("forge-new-repo-name") else {
+        panic!("the name is a field");
+    };
+    assert_eq!(options.invalid, Some(view::accesskit::Invalid::True));
+    assert_eq!(
+        options.description.as_deref(),
+        Some(refusal),
+        "a screen reader hears why"
+    );
     cx.simulate_input("forge-new-repo-name", "garden");
     press(&mut cx, "forge-new-repo-create");
     assert!(cx.find("forge-new-repo-sheet").is_none());
@@ -170,6 +180,25 @@ fn about_opens_as_a_sheet_and_back_closes_it_first() {
     cx.run_until_parked();
     assert!(cx.find("forge-about-sheet").is_none());
     assert!(cx.find("forge-page-repo").is_some(), "the page stays");
+}
+
+#[test]
+fn back_closes_what_is_drawn_not_an_about_left_open_under_a_change() {
+    let mut cx = repository("default");
+    press(&mut cx, "forge-dock-about");
+    press(&mut cx, "forge-tab-changes");
+    press(&mut cx, "forge-change-project-1");
+    assert!(
+        cx.find("forge-about-sheet").is_none(),
+        "a change has no About"
+    );
+    cx.simulate_back();
+    cx.run_until_parked();
+    assert!(
+        cx.find("forge-page-change").is_none(),
+        "Back pops the change"
+    );
+    assert!(cx.find("forge-page-repo").is_some());
 }
 
 #[test]

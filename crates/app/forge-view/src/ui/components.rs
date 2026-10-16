@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use crate::Forge;
 use crate::state::Menu;
+use crate::words;
 use view::design::Ladder;
 pub(crate) use view::design::{badge, button, empty_state, heading, short_hex};
 use view::prelude::*;
@@ -17,9 +18,9 @@ use view::{AnchoredPositionMode, Div, Edges, Point, Stateful, accesskit};
 /// The smallest box a pointer presses, each way (the door's AX-017).
 pub(crate) const PRESS_TARGET: Pixels = px(24.);
 
-pub(crate) fn id(text: impl Into<String>) -> ElementId {
-    ElementId::Name(text.into().into())
-}
+pub(crate) use crate::id;
+pub(crate) use crate::list::{cursor, list, walked, window};
+pub(crate) use crate::words::{path_text, ref_label};
 
 /// A list row: the one interactive line every list of this view uses. A
 /// row that acts is a list item holding a button of its cells, its
@@ -179,61 +180,6 @@ where
     }
 }
 
-/// Which row of the list `id` the arrows are on, and which of its cells:
-/// the view's cursor there, else the first row.
-pub(crate) fn cursor(forge: &Forge, id: &'static str) -> (usize, usize) {
-    match forge.list_cursor {
-        Some((list, row, cell)) if list == id => (row, cell),
-        _ => (0, 0),
-    }
-}
-
-/// Whether the arrows have walked the list `id`: only then is its active
-/// row drawn. At rest every list claims its first row for the keys and
-/// draws none, as a view cannot see whether the list holds the focus.
-pub(crate) fn walked(forge: &Forge, id: &'static str) -> bool {
-    matches!(forge.list_cursor, Some((list, ..)) if list == id)
-}
-
-/// A list of [`row`]s as one Tab stop: ↑ ↓ walk the rows (a virtual list
-/// tracking `scroll` is scrolled to the active one before it claims), Enter
-/// presses the active one (`on_press`). The rows go in as the list's
-/// children: drawn whole (no `scroll`) they scroll here; a virtual list
-/// scrolls itself, and the one bar and its gutter are that list's.
-pub(crate) fn list(
-    id_: &'static str,
-    label: &str,
-    count: usize,
-    scroll: Option<&UniformListScrollHandle>,
-    forge: &Forge,
-    cx: &mut Context<Forge>,
-    on_press: impl Fn(&mut Forge, usize, &mut Window, &mut Context<Forge>) + 'static,
-) -> Stateful<Div> {
-    let (at, _) = cursor(forge, id_);
-    let mut list = design::composite(id(id_), Role::ListBox, label.to_owned())
-        .active(at.min(count.saturating_sub(1)), count);
-    if let Some(scroll) = scroll {
-        list = list.track_scroll(scroll);
-    }
-    let list = list
-        .on_move(cx.processor(move |forge, index: usize, _, cx| {
-            forge.list_cursor = Some((id_, index, 0));
-            cx.notify();
-        }))
-        .on_press(
-            cx.processor(move |forge, index: usize, window, cx| on_press(forge, index, window, cx)),
-        )
-        .build()
-        .flex_1()
-        .min_h(px(0.))
-        .flex()
-        .flex_col();
-    match scroll {
-        Some(_) => list,
-        None => list.overflow_y_scroll(),
-    }
-}
-
 /// A grid of [`row`]s (each [`Row::in_grid`]) as one Tab stop: ↑ ↓ walk the rows,
 /// ← → a row's cells (its press, then each control), Enter presses the
 /// active cell (`on_press(row, cell)`). `cells` is the active row's count.
@@ -307,40 +253,9 @@ pub(crate) fn rows(
     })
 }
 
-/// [`rows`], painted a window at a time: `paint` is handed the rows the
-/// list lowers, so a list that reads on as it is scrolled hears how far.
-pub(crate) fn window(
-    element_id: &str,
-    count: usize,
-    widest: Option<usize>,
-    scroll: Option<&UniformListScrollHandle>,
-    paint: impl Fn(Range<usize>, &mut Window, &mut App) -> Vec<AnyElement> + 'static,
-) -> AnyElement {
-    let mut list =
-        uniform_list(id(element_id.to_owned()), count, paint).with_width_from_item(widest);
-    if let Some(scroll) = scroll {
-        list = list.track_scroll(scroll);
-    }
-    list.flex_1().min_h(px(0.)).into_any_element()
-}
-
 /// [`design::quiet`], as the screens that return it hand it on.
 pub(crate) fn quiet(text: impl Into<SharedString>, theme: &Theme) -> AnyElement {
     design::quiet(text, theme).into_any_element()
-}
-
-/// A path's bytes as something a screen can say out loud.
-pub(crate) fn path_text(path: &[u8]) -> String {
-    String::from_utf8_lossy(path).into_owned()
-}
-
-/// A ref's full name shortened to what a reader calls it.
-pub(crate) fn ref_label(name: &[u8]) -> String {
-    let text = path_text(name);
-    text.strip_prefix("refs/heads/")
-        .or_else(|| text.strip_prefix("refs/tags/"))
-        .unwrap_or(&text)
-        .to_owned()
 }
 
 /// A dropdown's width, at most: a narrower window takes it in.
@@ -554,7 +469,7 @@ pub(crate) fn menu(
         head = head.child(
             design::segmented(
                 id(format!("{key}-kind")),
-                "Branches or tags",
+                words::BRANCHES_OR_TAGS,
                 ladder,
                 theme,
                 Some(usize::from(forge.menu_tags)),
@@ -585,7 +500,7 @@ pub(crate) fn menu(
     };
     let shown = MENU_ROWS.min(fits).min(total.max(1));
     let body: AnyElement = match forge.refs() {
-        None => quiet("Reading refs…", theme),
+        None => quiet(words::READING_REFS, theme),
         Some(_) if refs.is_empty() => {
             let none = match forge.menu_search.is_blank() {
                 true => format!("No {what}"),
