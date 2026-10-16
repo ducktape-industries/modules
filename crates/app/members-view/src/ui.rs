@@ -23,9 +23,11 @@ const DETAIL_MIN: Pixels = px(440.);
 const KEY_COLUMN: Pixels = px(180.);
 const MARK: Pixels = px(6.);
 
-pub(crate) fn render(view: &Members, touch: bool, cx: &mut Context<Members>) -> impl IntoElement {
+/// The desk's members, under a pointer: the list, and the chosen account
+/// docked beside it or floating over it.
+pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
-    let ladder = &design::ladder(touch);
+    let ladder = &design::POINTER;
     // too narrow for the detail beside the list: the list takes the pane
     // and the chosen account floats over it
     let list = list_width(view);

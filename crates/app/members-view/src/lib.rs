@@ -239,10 +239,9 @@ impl Render for Members {
         self.width = window.viewport_size().width.into();
         // a finger draws the phone's screens (the Expo app's), a pointer
         // the desk's: two trees over the one model, picked here once
-        let touch = window.touch();
-        match touch {
+        match window.touch() {
             true => ui::phone::render(self, cx).into_any_element(),
-            false => ui::render(self, touch, cx).into_any_element(),
+            false => ui::render(self, cx).into_any_element(),
         }
     }
 }
