@@ -116,6 +116,123 @@ fn a_pushed_head_is_drawn_with_the_page_it_brings_not_before() {
     assert!(cx.has_text("12") && !cx.has_text("40"), "{:?}", cx.texts());
 }
 
+/// The node's tip runs on while a head's page is asked (a block a second
+/// on garage), so the page read down from it stops short of the window.
+/// The phone's Overview keeps its rows on every frame while the view reads
+/// on to the window's top, and the window lands once, whole. (It was
+/// started again from the one block: on the owner's iPhone the Latest
+/// activity list fell to one row and filled again, every block.)
+#[test]
+fn a_tip_past_the_pushed_head_keeps_the_overviews_rows_on_every_frame() {
+    let mut cx = TestAppContext::new();
+    let heads = cx.host().stream::<ChainHeads>();
+    let tip = Rc::new(RefCell::new(12));
+    node(&mut cx, tip.clone());
+    let explorer = cx.open::<Explorer>();
+    cx.simulate_touch(true);
+    cx.simulate_resize(390., 844.);
+    cx.run_until_parked();
+    let rows = [
+        "explorer-block-12",
+        "explorer-block-11",
+        "explorer-tx-12-0",
+        "explorer-tx-11-1",
+        "explorer-tx-11-0",
+    ];
+    assert!(
+        rows.iter().all(|row| cx.find(row).is_some()),
+        "{:?}",
+        cx.texts()
+    );
+    let asked = cx.host().requests::<ChainBlocks>().len();
+    // the head says 13; the node is at 14 by the time its page is read
+    *tip.borrow_mut() = 14;
+    heads.send(Head {
+        height: 13,
+        time: T0 + 13_000,
+        id: [113; 32],
+    });
+    for tick in 0..6 {
+        cx.tick(Vec::new());
+        for row in rows {
+            assert!(
+                cx.find(row).is_some(),
+                "tick {tick}: {row} left the frame: {:?}",
+                cx.texts()
+            );
+        }
+        let held = cx.update(&explorer, |view, _, _| view.chain.blocks.len());
+        assert!(held >= 13, "tick {tick}: the window fell to {held} blocks");
+    }
+    cx.run_until_parked();
+    assert!(cx.has_text("13–14 · 2 empty blocks"), "{:?}", cx.texts());
+    let heights = cx.update(&explorer, |view, _, _| {
+        view.chain
+            .blocks
+            .iter()
+            .map(|block| block.height)
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(heights, (0..=14).rev().collect::<Vec<_>>());
+    let new: Vec<_> = cx.host().requests::<ChainBlocks>()[asked..]
+        .iter()
+        .map(|ask| (ask.before, ask.limit))
+        .collect();
+    assert_eq!(new, [(None, 1), (Some(14), 1)], "only the blocks it lacks");
+}
+
+/// A node that answers the read below with the same page again moves
+/// nothing: the read stops after that one ask, the window stays drawn, and
+/// the next head reads on as ever.
+#[test]
+fn a_read_below_that_reaches_no_lower_stops_and_keeps_the_window() {
+    let mut cx = TestAppContext::new();
+    let heads = cx.host().stream::<ChainHeads>();
+    let tip = Rc::new(RefCell::new(12));
+    node(&mut cx, tip.clone());
+    let explorer = cx.open::<Explorer>();
+    cx.run_until_parked();
+    let asked = cx.host().requests::<ChainBlocks>().len();
+    // block 14, whatever is asked
+    cx.host().handle::<ChainBlocks>(|_| {
+        let top = BlockPage {
+            before: None,
+            limit: 1,
+            most: 0,
+        };
+        Ok(page(&chain(14), &top))
+    });
+    let head = |height: u64| Head {
+        height,
+        time: T0 + height * 1000,
+        id: [(height as u8).wrapping_add(100); 32],
+    };
+    heads.send(head(13));
+    cx.run_until_parked();
+    let new: Vec<_> = cx.host().requests::<ChainBlocks>()[asked..]
+        .iter()
+        .map(|ask| (ask.before, ask.limit))
+        .collect();
+    assert_eq!(new, [(None, 1), (Some(14), 1)]);
+    let heights = |cx: &mut TestAppContext| {
+        cx.update(&explorer, |view, _, _| {
+            view.chain
+                .blocks
+                .iter()
+                .map(|block| block.height)
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(heights(&mut cx), (0..=12).rev().collect::<Vec<_>>());
+    assert!(cx.find("explorer-tx-11-0").is_some(), "{:?}", cx.texts());
+    // the node answers as it should again: the next head joins
+    *tip.borrow_mut() = 14;
+    serve(&cx, move || chain(*tip.borrow()));
+    heads.send(head(14));
+    cx.run_until_parked();
+    assert_eq!(heights(&mut cx), (0..=14).rev().collect::<Vec<_>>());
+}
+
 #[test]
 fn a_refused_window_says_why_and_retry_reads_again() {
     let mut cx = TestAppContext::new();

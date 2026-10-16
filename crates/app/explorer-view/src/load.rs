@@ -161,13 +161,52 @@ impl Explorer {
             _ => return,
         };
         self.pulling = true;
-        let page = BlockPage {
-            before,
-            limit,
-            most: 0,
+        let (host, top) = (cx.host(), self.chain.top());
+        let read = async move {
+            let mut page = host
+                .ask::<ChainBlocks>(BlockPage {
+                    before,
+                    limit,
+                    most: 0,
+                })
+                .await?;
+            // the node's tip moves on while the ask travels, so a page read
+            // down from it can stop short of the window: read on below it
+            // until it joins (Expo `advance`), and the window, the rows on
+            // screen, stays whole until it lands. An answer a whole window
+            // past the top starts it again.
+            let Some(top) = top.filter(|_| before.is_none()) else {
+                return Ok(page);
+            };
+            let newest = page.blocks.first().map_or(top, |block| block.height);
+            while let Some(oldest) = page.blocks.last().map(|block| block.height)
+                && oldest > top + 1
+                && newest.saturating_sub(top) <= WINDOW as u64
+            {
+                let below = host
+                    .ask::<ChainBlocks>(BlockPage {
+                        before: Some(oldest),
+                        limit: u32::try_from(oldest - top - 1).unwrap_or(u32::MAX),
+                        most: 0,
+                    })
+                    .await?;
+                match below.blocks.last() {
+                    // the archive moved past the window: it starts again
+                    None => break,
+                    // an answer that reaches no lower moves nothing: the
+                    // window stays, and the next head reads again
+                    Some(block) if block.height >= oldest => {
+                        page.blocks.clear();
+                        break;
+                    }
+                    Some(_) => {}
+                }
+                page.listed_from = below.listed_from;
+                page.blocks.extend(below.blocks);
+            }
+            Ok::<_, Error>(page)
         };
-        let ask = cx.host().ask::<ChainBlocks>(page);
-        cx.land(ask, move |view, page, cx| {
+        cx.land(read, move |view, page, cx| {
             view.pulling = false;
             match page {
                 Ok(page) => {
