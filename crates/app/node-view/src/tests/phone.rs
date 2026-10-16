@@ -242,7 +242,8 @@ fn a_member_on_an_agent_says_who_operates_it_on_its_row_and_its_page() {
     let mut cx =
         phone_where(|cx| serve_identity(cx, vec![(OTHER.to_vec(), 11)], operators().to_vec()));
     assert!(
-        texts_of(&cx, "nodes-member-9c1e").contains(&" · operated by ada (validator vps)".to_owned())
+        texts_of(&cx, "nodes-member-9c1e")
+            .contains(&" · operated by ada (validator vps)".to_owned())
     );
     click(&mut cx, "nodes-member-9c1e");
     shows(&cx, &["Operator", "operated by ada (validator vps)"]);
@@ -451,7 +452,10 @@ fn a_landed_vote_says_so_on_the_screen_it_was_pressed_on_only() {
     click(&mut cx, "nodes-door");
     click(&mut cx, "nodes-door-open");
     click(&mut cx, "nodes-member-9c1e");
-    assert!(cx.find("nodes-outcome").is_none(), "the list's, not the page's");
+    assert!(
+        cx.find("nodes-outcome").is_none(),
+        "the list's, not the page's"
+    );
     click(&mut cx, "nodes-node-back");
     assert!(cx.has_text("Enacted"), "the list kept its message");
     click(&mut cx, "nodes-outcome-dismiss");
@@ -462,7 +466,10 @@ fn a_landed_vote_says_so_on_the_screen_it_was_pressed_on_only() {
     cx.run_until_parked();
     assert!(cx.find("nodes-outcome").is_none(), "gone with its page");
     click(&mut cx, "nodes-member-9c1e");
-    assert!(cx.find("nodes-outcome").is_none(), "and not back on a new one");
+    assert!(
+        cx.find("nodes-outcome").is_none(),
+        "and not back on a new one"
+    );
 }
 
 #[test]

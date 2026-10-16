@@ -301,12 +301,7 @@ fn roster(view: &Nodes, nodes: &[Node], cx: &Context<Nodes>, theme: &Theme) -> S
 /// A member as the kit's tall `Row`: its dot, its key (and who operates
 /// it) over its address, a validator's status word, a chevron. The row
 /// opens the member's page.
-fn member_row(
-    view: &Nodes,
-    node: &Node,
-    cx: &Context<Nodes>,
-    theme: &Theme,
-) -> Stateful<Div> {
+fn member_row(view: &Nodes, node: &Node, cx: &Context<Nodes>, theme: &Theme) -> Stateful<Div> {
     let status = view.cells(node).status;
     let live = view.answering();
     let (tone, _) = tint(&status, live, theme);
