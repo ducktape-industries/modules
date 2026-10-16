@@ -20,7 +20,7 @@ const SERVICE: &str = "ccs";
 const ADA: &[u8] = b"ada-key";
 const BO: &[u8] = b"bo-key";
 const MODEL: &str = "claude-test";
-const CONFIG: &str = "/home/ada/agents/scout.md";
+const CONFIG: &str = "/home/Ada/agents/scout.md";
 
 struct World {
     chain: MockChain,
@@ -698,10 +698,20 @@ fn a_write_is_the_agents_and_reaches_only_where_the_agent_may_write() {
             "files_write",
             json!({ "path": "/etc/motd", "content": "x" })
         ),
+        tool_use(
+            "toolu_h",
+            "files_write",
+            json!({ "path": "/home/Scout/notes.md", "content": "mine" })
+        ),
+        tool_use(
+            "toolu_m",
+            "files_write",
+            json!({ "path": CONFIG, "content": "x" })
+        ),
     ]);
     model_says(chain, calls, "tool_use");
     chain.at(4, 0);
-    for call in ["toolu_p", "toolu_c", "toolu_e"] {
+    for call in ["toolu_p", "toolu_c", "toolu_e", "toolu_h", "toolu_m"] {
         relay_back(chain, call);
     }
     assert!(!result_of(chain, thread, "toolu_p").1);
@@ -709,6 +719,13 @@ fn a_write_is_the_agents_and_reaches_only_where_the_agent_may_write() {
     assert!(failed && closed.starts_with(code::UNAUTHORIZED), "{closed}");
     let (etc, failed) = result_of(chain, thread, "toolu_e");
     assert!(failed && etc.starts_with(code::UNAUTHORIZED), "{etc}");
+    let (home, failed) = result_of(chain, thread, "toolu_h");
+    assert!(!failed, "{home}");
+    let (manager, failed) = result_of(chain, thread, "toolu_m");
+    assert!(
+        failed && manager.starts_with(code::UNAUTHORIZED),
+        "{manager}"
+    );
     let asked = chat::Query::MessageById {
         message_id: format!("harness-{thread}-toolu_p"),
     };

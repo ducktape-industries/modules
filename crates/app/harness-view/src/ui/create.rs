@@ -67,7 +67,9 @@ pub(super) fn render(
                 .child(design::heading("create-title", title, 1, theme))
                 .child(caption(intro, theme)),
         )
-        .when(!draft.again, |form| form.child(steps(draft, theme)))
+        .when(!draft.again, |form| {
+            form.child(steps(draft, view.home(), theme))
+        })
         .child(fields(view, cx, theme, ladder))
         .children(draft.problem.clone().map(|problem| {
             div()
@@ -85,11 +87,11 @@ pub(super) fn render(
         .into_any_element()
 }
 
-fn steps(draft: &Draft, theme: &Theme) -> impl IntoElement + use<> {
+fn steps(draft: &Draft, home: Option<&str>, theme: &Theme) -> impl IntoElement + use<> {
     let created = draft
         .created
         .map(|agent| format!("Account {agent} created"));
-    let committed = draft.committed.then(|| draft.path());
+    let committed = draft.committed.then(|| draft.path(home)).flatten();
     let rows = [
         (
             "Create the account",
@@ -191,12 +193,12 @@ fn fields(
     }
     form.child(labelled(
         "Configuration file",
-        "Where in files its configuration lives. The script names this path; harness reads it at each model call.",
+        "Where in files its configuration lives. The script names this path; harness reads it at each model call. Only your account writes under your home, /home/<your name>/; any account may rewrite a file under /shared/.",
         input(
             Input::new("create-path", &draft.path, "Configuration file"),
             theme,
         )
-        .placeholder(proposed_path(&draft.name.text())),
+        .placeholder(proposed_path(view.home(), &draft.name.text()).unwrap_or_default()),
         theme,
     ))
     .child(models(view, cx, theme, ladder))

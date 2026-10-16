@@ -1,5 +1,6 @@
 //! files founded on ducktape's host: chunks staged as kernel blobs, referenced by a
-//! later frame of the same block, read back, and dropped with a refused commit.
+//! later frame of the same block, read back, and dropped with a refused commit; an
+//! account writes its own home, named after it in identity, and is refused another's.
 use super::*;
 
 use files::{BlobId, CHUNK_SIZE, Change, Content, Op, Query, Reply};
@@ -125,6 +126,23 @@ fn files_keeps_its_bytes_as_kernel_blobs_and_its_refs_in_state() {
                 &stranger,
                 files::PROGRAM,
                 &commit(None, vec![put("/shared/s", b"s")])
+            )
+            .await,
+            reason::UNAUTHORIZED
+        );
+
+        net.apply(
+            &ada,
+            files::PROGRAM,
+            &commit(Some(snapshot), vec![put("/home/Ada/notes", b"mine")]),
+        )
+        .await;
+        assert_eq!(net.read("/home/Ada/notes", 0, 100).await.bytes, b"mine");
+        assert_eq!(
+            net.refuse(
+                &ada,
+                files::PROGRAM,
+                &commit(None, vec![put("/home/Bo/notes", b"theirs")])
             )
             .await,
             reason::UNAUTHORIZED

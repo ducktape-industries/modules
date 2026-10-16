@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 const NODE: u64 = 1;
 const ADA: u64 = 11;
 const SERVICE: &str = "ccs";
-const CONFIG: &str = "/home/ada/agents/scout.md";
+const CONFIG: &str = "/home/Ada/agents/scout.md";
 
 fn apps() -> Vec<Founding> {
     ["egress", "attribution", "harness", "files", "chat"]
