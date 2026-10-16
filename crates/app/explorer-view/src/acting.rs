@@ -1,6 +1,6 @@
 //! What the reader changes on the Programs page, and how: by a grant it
 //! holds (the op goes to the programs role), else by the validators' vote (the
-//! op goes to valset wrapped in a `Programs` motion), else not at all. The
+//! op goes to valset wrapped in a `Role` motion for the programs role), else not at all. The
 //! app's confirm card is the yes for every op; nothing here asks again.
 //! The forms' ops are built by pure functions, each a unit test.
 use programs::{Change, Grant, NOTICE, Programs, Scheduled, Scope};
@@ -513,7 +513,8 @@ impl Explorer {
                 cx.land(ask, landed).detach();
             }
             Path::Vote => {
-                let motion = Motion::Programs {
+                let motion = Motion::Role {
+                    role: abi::role::PROGRAMS.into(),
                     op: abi::encode(&op),
                 };
                 let ask = cx.host().ask::<Submit<Valset>>(valset::Op::Vote(motion));

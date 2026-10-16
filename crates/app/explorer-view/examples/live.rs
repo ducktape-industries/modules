@@ -8,12 +8,12 @@
 use chat::{Block, Op, PostPolicy};
 use programs::{Change, Grant, Scheduled, Scope};
 use valset::{Motion, Valset};
-use view::live;
 use view::methods::Query;
+use view::rig;
 
 fn main() {
     let unprivileged = std::env::var_os("READER").is_some_and(|reader| reader == "none");
-    live::run("explorer", |net| {
+    rig::run("explorer", |net| {
         // told of every frame from here, as on a network: who did what
         net.hook::<activity::Activity>(activity::PROGRAM);
         net.seat::<chat::Chat>(chat::PROGRAM);
@@ -46,7 +46,8 @@ fn main() {
         // the dev key is the one validator: its vote enacts at once
         let me = net.me();
         let vote = |op: &programs::Op| {
-            let motion = Motion::Programs {
+            let motion = Motion::Role {
+                role: abi::role::PROGRAMS.into(),
                 op: abi::encode(op),
             };
             net.submit(me, valset::PROGRAM, &valset::Op::Vote(motion))

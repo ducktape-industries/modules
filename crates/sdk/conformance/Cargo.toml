@@ -16,6 +16,7 @@ program = { workspace = true }
 awaits = { workspace = true }
 blob = { workspace = true }
 blobs = { workspace = true }
+halo = { workspace = true }
 identity = { workspace = true }
 valset = { workspace = true }
 programs = { workspace = true }

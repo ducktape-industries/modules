@@ -1,10 +1,10 @@
 //! `cargo run -p members-view --example live`: Members in the real app
 //! over a fake node with a few people, an agent and a resident node.
 use valset::{Motion, Op};
-use view::live;
+use view::rig;
 
 fn main() {
-    live::run(identity::PROGRAM, |net| {
+    rig::run(identity::PROGRAM, |net| {
         let ada = net.person("ada");
         net.person("bob");
         net.submit(
