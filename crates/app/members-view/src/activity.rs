@@ -98,15 +98,15 @@ async fn title(host: &Host, frame: &Frame) -> Result<Option<String>, Error> {
         return Ok(None);
     };
     let described = match tx.payload {
-        // a describe that cannot read the bytes leaves the size, as
-        // Expo's does
-        Some(payload) => host
-            .ask::<ProgramDescribe>((tx.target.clone(), payload))
-            .await
-            .ok()
-            .flatten(),
-        None => None,
+        Some(payload) => host.ask::<ProgramDescribe>((tx.target.clone(), payload)).await,
+        None => Ok(None),
     };
+    // a describe that cannot read the bytes leaves the size, as Expo's does
+    let described = described.unwrap_or_else(|refusal| {
+        let name = <crate::Members as View>::NAME;
+        host.log(format!("{name}: a description refused: {refusal}"));
+        None
+    });
     let title = described
         .map(|op| op.title)
         .filter(|title| !title.is_empty());

@@ -87,8 +87,9 @@ pub struct Members {
     /// the pane's width, read from the window each render
     #[serde(skip)]
     width: f32,
-    /// the device's pointer is a finger, read from the window each render:
-    /// a phone's activity rows are titled by what each transaction did
+    /// the device's pointer is a finger, read from the window on attach and
+    /// each render: a phone's activity rows are titled by what each
+    /// transaction did
     #[serde(skip)]
     touch: bool,
     /// the list's dragged width; `None` until the first drag
@@ -357,7 +358,9 @@ impl View for Members {
     // the list and the detail fit at 320, the desk's smallest window
     const MIN_WINDOW_WIDTH: u32 = 320;
 
-    fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn attach(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // a restore reads a member's activity before the first render
+        self.touch = window.touch();
         cx.follow::<HostSession>((), |view, session, cx| match session {
             Ok(session) => {
                 let now = (session.account, &session.chain_id, &session.signer);

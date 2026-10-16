@@ -434,6 +434,19 @@ fn a_phone_titles_activity_by_what_each_transaction_did() {
     assert!(cx.has_text("chat · 2 bytes"), "{:?}", cx.texts());
 }
 
+/// A phone restored onto a member page titles its activity as before:
+/// the read the restore starts knows it is a phone's.
+#[test]
+fn a_restored_phone_titles_its_activity() {
+    let mut cx = phone();
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    let bytes = cx.snapshot().unwrap();
+    cx.restore::<Members>(&bytes).unwrap();
+    cx.run_until_parked();
+    assert!(cx.has_text("Post in #general"), "{:?}", cx.texts());
+}
+
 #[test]
 fn a_member_page_says_it_is_reading_its_activity() {
     let mut cx = phone();
