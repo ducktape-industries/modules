@@ -232,6 +232,105 @@ impl Styled for ModalOverlay {
     }
 }
 
+/// A panel the host draws over a scrim, holding the view's content: a
+/// bottom sheet under a Compact body, a centred modal elsewhere
+/// ([`wire::Node::Sheet`]). The view owns what is inside and whether it is
+/// open (it renders the sheet or not); the host owns the drag, the scrim,
+/// the snap and the keyboard lift. `label` names the dialog, as
+/// [`modal_overlay`]'s does.
+pub struct Sheet {
+    id: ElementId,
+    label: String,
+    child: Option<AnyElement>,
+    detents: Vec<f32>,
+    style: Box<StyleRefinement>,
+    on_dismiss: Option<EventListener<()>>,
+}
+
+/// A [`Sheet`] named `label`, opened at the first of its `detents`
+/// (`[0.6, 1.0]` until told otherwise). An open sheet is a dialog, and a
+/// dialog has a name: an empty `label` panics.
+pub fn sheet(id: impl Into<ElementId>, label: impl Into<String>) -> Sheet {
+    let label = label.into();
+    assert!(
+        !label.is_empty(),
+        "a sheet is a dialog, and a dialog has a name: its label is empty"
+    );
+    Sheet {
+        id: id.into(),
+        label,
+        child: None,
+        detents: vec![0.6, 1.0],
+        style: Box::default(),
+        on_dismiss: None,
+    }
+}
+
+impl Sheet {
+    /// Where the sheet rests, as fractions of the body's height above zero,
+    /// ascending, one to eight; the first is where it opens, and a drag
+    /// below the first dismisses. Anything else panics here, where the
+    /// author sees it, instead of the host refusing the whole frame.
+    pub fn detents(mut self, detents: impl IntoIterator<Item = f32>) -> Self {
+        self.detents = detents.into_iter().collect();
+        assert!(
+            (1..=8).contains(&self.detents.len())
+                && self.detents.iter().all(|d| *d > 0. && *d <= 1.)
+                && self.detents.windows(2).all(|pair| pair[0] < pair[1]),
+            "sheet detents are one to eight fractions of the body above zero, ascending: the host refuses {:?}",
+            self.detents
+        );
+        self
+    }
+    /// The scrim was pressed, the panel dragged down, or Escape pressed:
+    /// the view closes the sheet (stops rendering it).
+    pub fn on_dismiss(mut self, listener: impl Fn(&(), &mut Window, &mut App) + 'static) -> Self {
+        self.on_dismiss = Some(Box::new(listener));
+        self
+    }
+    /// What the sheet holds; the last `child` given is the one.
+    pub fn child(mut self, child: impl IntoElement) -> Self {
+        self.child = Some(child.into_any_element());
+        self
+    }
+}
+
+impl IntoElement for Sheet {
+    type Element = Self;
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for Sheet {
+    fn id(&self) -> Option<ElementId> {
+        Some(self.id.clone())
+    }
+
+    fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
+        let child = match self.child {
+            Some(child) => lowering.lower(child),
+            None => wire::Node::empty(),
+        };
+        wire::Node::Sheet {
+            id: wire_id(self.id),
+            label: Some(self.label),
+            style: lowering.style(&self.style),
+            detents: self.detents,
+            on_dismiss: self
+                .on_dismiss
+                .map(|listener| lowering.route(crate::slots::Kind::Dismiss, listener)),
+            child: Box::new(child),
+        }
+    }
+}
+
+impl Styled for Sheet {
+    fn style(&mut self) -> &mut StyleRefinement {
+        &mut self.style
+    }
+}
+
 fn wire_cursor(cursor: CursorStyle) -> wire::mouse::Cursor {
     use wire::mouse::Cursor;
     match cursor {
@@ -261,6 +360,7 @@ fn wire_cursor(cursor: CursorStyle) -> wire::mouse::Cursor {
 impl gpui::prelude::FluentBuilder for Sensor {}
 impl gpui::prelude::FluentBuilder for ResizeHandle {}
 impl gpui::prelude::FluentBuilder for ModalOverlay {}
+impl gpui::prelude::FluentBuilder for Sheet {}
 
 #[cfg(test)]
 mod tests;

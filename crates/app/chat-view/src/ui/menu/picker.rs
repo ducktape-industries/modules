@@ -8,6 +8,7 @@ use super::{
     focus_key,
 };
 use crate::{Chat, Menu, Mode, emoji};
+use view::design::Ladder;
 
 /// The reaction picker: a search field that takes the keys, the reader's
 /// frequent row, one tab of emoji at a time under a strip of tabs, or the
@@ -17,6 +18,7 @@ pub(super) fn reactions(
     menu: &Menu,
     cx: &mut Context<Chat>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let picker = div()
         .id("chat-reaction-picker")
@@ -27,7 +29,7 @@ pub(super) fn reactions(
         .p(px(PICKER_INSET))
         .child(search_field(chat, menu, cx, theme));
     let body = match chat.picker.query.is_blank() {
-        true => browse(chat, menu.seq, cx, theme),
+        true => browse(chat, menu.seq, cx, theme, ladder),
         false => matches(chat, menu.seq, cx, theme),
     };
     picker.children(body).into_any_element()
@@ -71,7 +73,13 @@ fn search_field(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme)
 }
 
 /// With no search: the frequent row, the tabs, and the open tab's emoji.
-fn browse(chat: &Chat, seq: u64, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
+fn browse(
+    chat: &Chat,
+    seq: u64,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Vec<AnyElement> {
     let frequent = emoji::frequent(&chat.recent_emoji);
     let frequent = grid(
         "chat-reaction-frequent",
@@ -108,14 +116,14 @@ fn browse(chat: &Chat, seq: u64, cx: &mut Context<Chat>, theme: &Theme) -> Vec<A
     vec![
         caption("Frequently used", theme).into_any_element(),
         frequent.into_any_element(),
-        tabs(tab, cx, theme).into_any_element(),
+        tabs(tab, cx, theme, ladder).into_any_element(),
         caption(category.name, theme).into_any_element(),
         cells.into_any_element(),
     ]
 }
 
 /// A tab per emoji category, `chosen` marked.
-fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> impl IntoElement {
     // one Tab stop; ← → open the next category
     let mut tabs = design::composite("chat-reaction-tabs", Role::TabList, "Emoji categories")
         .orientation(design::Orientation::Horizontal)
@@ -137,7 +145,7 @@ fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
         });
         let id = format!("chat-reaction-tab-{}", category.name);
         tabs = tabs.child(design::item(
-            design::tab(id, category.glyph, index == chosen, theme, open)
+            design::tab(id, category.glyph, index == chosen, ladder, theme, open)
                 .flex_1()
                 .h_full()
                 .justify_center()

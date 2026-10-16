@@ -8,12 +8,14 @@ use view::{Div, Stateful};
 
 use crate::voting;
 use crate::{Nodes, ui};
+use view::design::Ladder;
 
 /// A press about to enact: what will happen, asked once.
 pub(crate) fn confirm(
     view: &Nodes,
     cx: &mut Context<Nodes>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Option<Stateful<Div>> {
     let motion = view.voting.confirming.as_ref()?;
     let yes = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.confirm(cx));
@@ -43,8 +45,8 @@ pub(crate) fn confirm(
                             .child("Your vote reaches the quorum: this happens now, and a vote can't be taken back."),
                     ),
             )
-            .child(design::button("nodes-confirm-yes", "Vote and enact", theme, yes).kind(Kind::Primary))
-            .child(design::button("nodes-confirm-no", "Not now", theme, no).kind(Kind::Outline)),
+            .child(design::button("nodes-confirm-yes", "Vote and enact", ladder,  theme, yes).kind(Kind::Primary))
+            .child(design::button("nodes-confirm-no", "Not now", ladder,  theme, no).kind(Kind::Outline)),
     )
 }
 
@@ -53,6 +55,7 @@ pub(crate) fn outcome(
     view: &Nodes,
     cx: &mut Context<Nodes>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Option<Stateful<Div>> {
     let outcome = view.voting.outcome.as_ref()?;
     let (text, color, background) = match outcome {
@@ -76,6 +79,7 @@ pub(crate) fn outcome(
                 "nodes-outcome-dismiss",
                 "✕",
                 "Dismiss",
+                ladder,
                 theme,
                 dismiss,
             )),
@@ -84,7 +88,12 @@ pub(crate) fn outcome(
 
 /// The vote's sections under the table, and where a program is changed:
 /// nothing for a reader who does not vote.
-pub(crate) fn sections(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Option<Div> {
+pub(crate) fn sections(
+    view: &Nodes,
+    cx: &mut Context<Nodes>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Option<Div> {
     if !view.voting.votes() {
         return None;
     }
@@ -94,8 +103,8 @@ pub(crate) fn sections(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> 
             .flex_col()
             .gap_3()
             .pt_4()
-            .child(pending(view, cx, theme))
-            .child(scheduled(view, cx, theme))
+            .child(pending(view, cx, theme, ladder))
+            .child(scheduled(view, cx, theme, ladder))
             .child(quiet(
                 "nodes-change-elsewhere",
                 "Change a program in Explorer, Programs.",
@@ -125,7 +134,7 @@ fn line(id: impl Into<ElementId>, words: String, caption: String, theme: &Theme)
 
 /// Each motion that waits: its words, its votes of the quorum, which of the
 /// reader's validators voted, and Vote while one has not.
-fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Div {
+fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -> Div {
     let voting = &view.voting;
     let lines: Vec<AnyElement> = match &voting.motions {
         Loadable::Ready(motions) | Loadable::Reloading(motions, _)
@@ -165,6 +174,7 @@ fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Div {
                     design::button(
                         ElementId::Name(format!("nodes-motion-vote-{index}").into()),
                         "Vote",
+                        ladder,
                         theme,
                         vote,
                     )
@@ -205,7 +215,7 @@ fn yours(cast: usize, voices: usize) -> String {
 /// one a maintainer's grant made, how long the vote has to cancel it; and
 /// Propose cancel. One at or below the tip has landed and is not listed.
 /// Until the node's status is read, no wait is told.
-fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Div {
+fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -> Div {
     let voting = &view.voting;
     let status = view.status.ready();
     let tip = status.map_or(0, |status| status.height);
@@ -258,6 +268,7 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Div {
                             design::button(
                                 ElementId::Name(format!("nodes-scheduled-cancel-{index}").into()),
                                 "Propose cancel",
+                                ladder,
                                 theme,
                                 press,
                             )

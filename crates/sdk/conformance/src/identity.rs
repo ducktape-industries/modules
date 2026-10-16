@@ -18,7 +18,7 @@ pub trait Fixture {
     fn account(&self, host: &MockHost, key: &[u8]) -> AccountNumber;
 
     /// `key` comes to hold a new account that does not act (a suspended
-    /// agent); its number.
+    /// program account); its number.
     fn stopped(&self, host: &MockHost, key: &[u8]) -> AccountNumber;
 
     /// `account`, which `key` holds (an account [`Fixture::account`]
@@ -26,15 +26,15 @@ pub trait Fixture {
     /// first, if yours keeps a last one.
     fn drop_key(&self, host: &MockHost, account: AccountNumber, key: &[u8]);
 
-    /// `key` comes to hold a new managed account that acts (an active
-    /// agent); its number.
+    /// `key` comes to hold a new program account that acts (an active
+    /// one, managed by a user); its number.
     fn managed(&self, host: &MockHost, key: &[u8]) -> AccountNumber;
 
-    /// The managed `account` ([`Fixture::managed`]'s) is revoked, by its
-    /// manager.
+    /// The program account `account` ([`Fixture::managed`]'s) is revoked,
+    /// by its manager.
     fn revoke(&self, host: &MockHost, account: AccountNumber);
 
-    fn hand(&self, host: &MockHost, account: AccountNumber, program: &str);
+    fn script(&self, host: &MockHost, account: AccountNumber, program: &str);
 }
 
 /// Every identity rule, each on a fresh host.
@@ -51,7 +51,7 @@ pub fn run(fixture: &impl Fixture) {
     profiles_page_ascending(fixture);
     profiles_of_limit_zero_is_a_page(fixture);
     program_profiles_agree_with_of_program(fixture);
-    a_program_runs_only_the_managed_account_handed_to_it(fixture);
+    a_program_runs_only_the_program_account_whose_script_calls_it(fixture);
 }
 
 fn program() -> String {
@@ -168,8 +168,8 @@ pub fn the_role_is_the_first_variants<F: Fixture>(_: &F) {
     let profile = Profile {
         number: 1,
         name: "Scout".into(),
-        kind: Kind::Managed {
-            runner: None,
+        kind: Kind::Program {
+            script: None,
             manager: 2,
             category: Category::Agent,
             standing: Standing::Suspended,
@@ -225,8 +225,8 @@ pub fn register_program_is_root_only_and_idempotent<F: Fixture>(fixture: &F) {
     );
     assert_eq!(
         profile::<F>(&host, number).map(|p| p.kind),
-        Some(Kind::Program("probe".into())),
-        "identity: a registered program's profile is Kind::Program"
+        Some(Kind::System("probe".into())),
+        "identity: a registered program's profile is Kind::System"
     );
 }
 
@@ -236,13 +236,13 @@ pub fn register_program_is_root_only_and_idempotent<F: Fixture>(fixture: &F) {
 /// though the frame has a sender: the system is the origin, not a sender.
 pub fn register_program_is_refused_to_a_frame_that_acts<F: Fixture>(fixture: &F) {
     let host = fixture.host();
-    let person = fixture.account(&host, b"someone");
+    let user = fixture.account(&host, b"someone");
     register::<F>(&host, Origin::Root, None, "chat")
         .unwrap_or_else(|e| panic!("identity: the system registers chat: {e:?}"));
     let chat = account_of::<F>(&host, Query::OfProgram("chat".into()))
         .expect("identity: OfProgram answers the account RegisterProgram gave");
     for (origin, sender) in [
-        (Origin::Signed(b"someone".to_vec()), person),
+        (Origin::Signed(b"someone".to_vec()), user),
         (Origin::Program("chat".into()), chat),
     ] {
         let sender = Some(Principal::Account(sender));
@@ -272,7 +272,7 @@ pub fn an_unknown_key_or_program_holds_nothing<F: Fixture>(fixture: &F) {
 }
 
 /// A key that holds an acting account resolves to it, and its profile is a
-/// person or an active managed account.
+/// user or an active program account.
 pub fn a_held_key_resolves_to_an_acting_account<F: Fixture>(fixture: &F) {
     let host = fixture.host();
     let number = fixture.account(&host, b"held key");
@@ -290,13 +290,13 @@ pub fn a_held_key_resolves_to_an_acting_account<F: Fixture>(fixture: &F) {
     assert!(
         matches!(
             kind,
-            Some(Kind::Person)
-                | Some(Kind::Managed {
+            Some(Kind::User)
+                | Some(Kind::Program {
                     standing: Standing::Active,
                     ..
                 })
         ),
-        "identity: an account a key acts as is a person or an active managed one, not {kind:?}"
+        "identity: an account a key acts as is a user or an active program account, not {kind:?}"
     );
 }
 
@@ -318,8 +318,8 @@ pub fn an_account_that_does_not_act_is_refused<F: Fixture>(fixture: &F) {
     }
     let kind = profile::<F>(&host, number).map(|p| p.kind);
     assert!(
-        matches!(kind, Some(Kind::Managed { standing, .. }) if standing != Standing::Active),
-        "identity: an account that does not act is managed and not active, not {kind:?}"
+        matches!(kind, Some(Kind::Program { standing, .. }) if standing != Standing::Active),
+        "identity: an account that does not act is a program account and not active, not {kind:?}"
     );
 }
 
@@ -335,7 +335,7 @@ pub fn a_dropped_key_holds_nothing<F: Fixture>(fixture: &F) {
     );
 }
 
-/// A revoked managed account's keys never act as it again: `Account` of
+/// A revoked program account's keys never act as it again: `Account` of
 /// one is `None` (the keys dropped) or refused `unauthorized` (the account
 /// does not act), and its profile is `Revoked`.
 pub fn a_revoked_account_s_keys_stop_resolving<F: Fixture>(fixture: &F) {
@@ -345,7 +345,7 @@ pub fn a_revoked_account_s_keys_stop_resolving<F: Fixture>(fixture: &F) {
     assert_eq!(
         account_of::<F>(&host, asked.clone()),
         Some(number),
-        "identity: Account of an active managed account's key answers it"
+        "identity: Account of an active program account's key answers it"
     );
     fixture.revoke(&host, number);
     match query::<F>(&host, asked) {
@@ -360,21 +360,21 @@ pub fn a_revoked_account_s_keys_stop_resolving<F: Fixture>(fixture: &F) {
     assert!(
         matches!(
             kind,
-            Some(Kind::Managed {
+            Some(Kind::Program {
                 standing: Standing::Revoked,
                 ..
             })
         ),
-        "identity: a revoked account's profile is managed and Revoked, not {kind:?}"
+        "identity: a revoked account's profile is a program account and Revoked, not {kind:?}"
     );
 }
 
-pub fn a_program_runs_only_the_managed_account_handed_to_it<F: Fixture>(fixture: &F) {
+pub fn a_program_runs_only_the_program_account_whose_script_calls_it<F: Fixture>(fixture: &F) {
     let host = fixture.host();
     for name in ["harness", "chat"] {
         register::<F>(&host, Origin::Root, None, name).unwrap();
     }
-    let person = fixture.account(&host, b"person key");
+    let user = fixture.account(&host, b"user key");
     let agent = fixture.managed(&host, b"agent key");
     let runs = |program: &str, account| {
         query::<F>(
@@ -390,18 +390,18 @@ pub fn a_program_runs_only_the_managed_account_handed_to_it<F: Fixture>(fixture:
         other => panic!("identity: Runs {{ {program}, {account} }} is refused, not {other:?}"),
     };
     refused("harness", agent);
-    refused("harness", person);
-    fixture.hand(&host, agent, "harness");
+    refused("harness", user);
+    fixture.script(&host, agent, "harness");
     match runs("harness", agent) {
         Ok(Reply::Account(Some(number))) if number == agent => {}
         other => panic!(
-            "identity: Runs of the managed account {agent} handed to harness answers it, not {other:?}"
+            "identity: Runs of the program account {agent} whose script calls harness answers it, not {other:?}"
         ),
     }
     let kind = profile::<F>(&host, agent).map(|p| p.kind);
     assert!(
-        matches!(&kind, Some(Kind::Managed { runner: Some(runner), .. }) if runner == "harness"),
-        "identity: the profile of an account handed to harness names it its runner, not {kind:?}"
+        matches!(&kind, Some(Kind::Program { script: Some(script), .. }) if script.calls == "harness"),
+        "identity: the profile of an account whose script calls harness names it, not {kind:?}"
     );
     refused("chat", agent);
     fixture.revoke(&host, agent);
@@ -451,25 +451,25 @@ pub fn profiles_page_ascending<F: Fixture>(fixture: &F) {
     }
 }
 
-/// Every `Kind::Program(id)` profile is the account `OfProgram(id)` answers.
+/// Every `Kind::System(id)` profile is the account `OfProgram(id)` answers.
 pub fn program_profiles_agree_with_of_program<F: Fixture>(fixture: &F) {
     let host = fixture.host();
     for name in ["probe", "other"] {
         register::<F>(&host, Origin::Root, None, name)
             .unwrap_or_else(|e| panic!("identity: the system registers {name}: {e:?}"));
     }
-    fixture.account(&host, b"person");
+    fixture.account(&host, b"user");
     let listed = every_profile::<F>(&host, 50);
     for name in ["probe", "other"] {
         assert!(
             listed
                 .iter()
-                .any(|p| matches!(&p.kind, Kind::Program(id) if id == name)),
+                .any(|p| matches!(&p.kind, Kind::System(id) if id == name)),
             "identity: Profiles lists the registered program {name}"
         );
     }
     for listed in listed {
-        if let Kind::Program(id) = &listed.kind {
+        if let Kind::System(id) = &listed.kind {
             assert_eq!(
                 account_of::<F>(&host, Query::OfProgram(id.clone())),
                 Some(listed.number),

@@ -27,6 +27,8 @@ pub(crate) fn append(ctx: &ExecCtx, thread: &mut ThreadRow, body: Body) {
         time: ctx.env().time,
         body,
     };
+    thread.last_height = frame.height;
+    thread.last_time = frame.time;
     FRAMES.put(ctx, &(thread.id, seq), &frame);
 }
 
@@ -80,7 +82,10 @@ fn serves(ctx: &QueryCtx, service: &str) -> Result<bool, Error> {
 }
 
 async fn request(ctx: &Ctx, request: egress::Request) -> Result<Vec<u8>, Error> {
-    let op = egress::Op::Request(request);
+    let op = egress::Op::Request {
+        request,
+        wait: None,
+    };
     ctx.call_raw(bound(ctx)?, abi::encode(&op)).await
 }
 

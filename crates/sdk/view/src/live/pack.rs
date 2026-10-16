@@ -1,7 +1,7 @@
 //! A program's code blob as genesis packs it: a core wasm module that is
 //! nothing but custom sections, the view in `ducktape.view` and the
 //! describe module in `ducktape.describe`, which the app reads out by name
-//! (`backend::views::view_section`, `describe::host::section`).
+//! (`backend::views::view_section`, `describe::section`).
 
 /// A core module holding `sections` and nothing else.
 pub fn wrapper(sections: &[(&str, &[u8])]) -> Vec<u8> {
@@ -17,6 +17,39 @@ pub fn wrapper(sections: &[(&str, &[u8])]) -> Vec<u8> {
         program.extend_from_slice(&body);
     }
     program
+}
+
+/// The custom section `name` of a core module, as [`wrapper`] wrote it or
+/// as any core module carries it: the first by that name, so a view's
+/// manifest is read as the rig's host reads it, not checked for a twin.
+pub fn section<'a>(bytes: &'a [u8], name: &str) -> Option<&'a [u8]> {
+    let mut rest = bytes.strip_prefix(b"\0asm\x01\0\0\0")?;
+    while let Some((&id, after)) = rest.split_first() {
+        let (size, after) = unleb128(after)?;
+        let (body, after) = after.split_at_checked(size)?;
+        rest = after;
+        if id != 0 {
+            continue;
+        }
+        let (len, body) = unleb128(body)?;
+        let (found, data) = body.split_at_checked(len)?;
+        if found == name.as_bytes() {
+            return Some(data);
+        }
+    }
+    None
+}
+
+/// A LEB128 length and the bytes after it.
+fn unleb128(bytes: &[u8]) -> Option<(usize, &[u8])> {
+    let mut value: u64 = 0;
+    for (at, byte) in bytes.iter().enumerate().take(10) {
+        value |= u64::from(byte & 0x7f) << (7 * at);
+        if byte & 0x80 == 0 {
+            return Some((usize::try_from(value).ok()?, &bytes[at + 1..]));
+        }
+    }
+    None
 }
 
 fn leb128(out: &mut Vec<u8>, mut value: u64) {
@@ -48,6 +81,23 @@ mod tests {
         expected.push(section.len() as u8);
         expected.extend_from_slice(&section);
         assert_eq!(program, expected);
+    }
+
+    /// `section` reads back what `wrapper` wrote, by name, past a section
+    /// long enough for a two-byte size, and nothing out of a module that
+    /// is not one or ends mid-section.
+    #[test]
+    fn a_section_is_read_back_by_name() {
+        let long = vec![7u8; 200];
+        let program = wrapper(&[("ducktape.view", &long), ("ducktape.describe", b"d")]);
+        assert_eq!(section(&program, "ducktape.view"), Some(&long[..]));
+        assert_eq!(section(&program, "ducktape.describe"), Some(&b"d"[..]));
+        assert_eq!(section(&program, "ducktape.view.manifest"), None);
+        assert_eq!(section(b"not a module", "ducktape.view"), None);
+        assert_eq!(
+            section(&program[..program.len() - 1], "ducktape.describe"),
+            None
+        );
     }
 
     #[test]

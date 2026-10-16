@@ -1,6 +1,7 @@
 //! What a press does: the message menus, the writes (reactions, deletes,
 //! the channel's details, new channels), copying and links.
 use chat::{MsgRow, Op, PostPolicy, Principal};
+use view::methods::Submitted;
 use view::prelude::*;
 
 use crate::composer::Target;
@@ -419,9 +420,12 @@ impl Chat {
         cx.land(submit, |chat, result, cx| {
             cx.notify();
             match result {
-                Ok(_) => chat.refresh(cx),
-                Err(refusal) => {
+                Ok(Submitted::Applied { .. }) => chat.refresh(cx),
+                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
                     chat.notice = format!("That didn’t go through: {}", refusal.message)
+                }
+                Ok(Submitted::InDoubt { .. }) => {
+                    chat.notice = "No answer came back: it may have gone through.".into()
                 }
             }
         })
@@ -446,23 +450,28 @@ impl Chat {
         let created = async move {
             let channel_id = host.ask::<HostId>("channel".into()).await?;
             let op = new_channel(channel_id.clone(), name, members_only);
-            host.ask::<Submit<::chat::Chat>>(op).await?;
-            Ok::<_, Error>(channel_id)
+            let submitted = host.ask::<Submit<::chat::Chat>>(op).await?;
+            Ok::<_, Error>((channel_id, submitted))
         };
         cx.land(created, |chat, result, cx| {
             cx.notify();
-            match result {
-                Ok(id) => {
+            let problem = match result {
+                Ok((id, Submitted::Applied { .. })) => {
                     chat.create = None;
                     chat.reread_channels(cx);
                     chat.choose(id, cx);
+                    return;
                 }
-                Err(refusal) => {
-                    if let Some(create) = &mut chat.create {
-                        create.busy = false;
-                        create.error = format!("Couldn’t create this channel: {}", refusal.message);
-                    }
+                Ok((_, Submitted::Refused { refusal, .. })) | Err(refusal) => {
+                    format!("Couldn’t create this channel: {}", refusal.message)
                 }
+                Ok((_, Submitted::InDoubt { .. })) => {
+                    "No answer came back: it may have gone through.".into()
+                }
+            };
+            if let Some(create) = &mut chat.create {
+                create.busy = false;
+                create.error = problem;
             }
         })
         .detach();

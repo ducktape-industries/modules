@@ -13,7 +13,9 @@ use abi::{HostOp, HostReply};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::ctx::Frame;
-use crate::{AccountNumber, Cause, Env, Error, ExecCtx, Program, ProgramId, Ticket, decoded};
+use crate::{
+    AccountNumber, Cause, EntryId, Env, Error, ExecCtx, Program, ProgramId, Ticket, decoded,
+};
 
 pub type Answer = Result<Vec<u8>, Error>;
 
@@ -79,6 +81,27 @@ impl Ctx {
     ) -> Result<R, Error> {
         let answer = self.call_raw_as(account, target, abi::encode(op)).await?;
         abi::decode(&answer).map_err(crate::kernel::error_from)
+    }
+
+    pub async fn schedule<O: BorshSerialize>(
+        &self,
+        height: u64,
+        target: impl Into<ProgramId>,
+        op: &O,
+    ) -> Result<EntryId, Error> {
+        let scheduler = self.env().role(abi::role::SCHEDULER)?.clone();
+        let schedule = abi::role::scheduler::Op::Schedule {
+            height,
+            target: target.into(),
+            payload: abi::encode(op),
+        };
+        self.call(scheduler, &schedule).await
+    }
+
+    pub async fn cancel(&self, entry: EntryId) -> Result<(), Error> {
+        let scheduler = self.env().role(abi::role::SCHEDULER)?.clone();
+        let cancel = abi::role::scheduler::Op::Cancel { entry };
+        self.call(scheduler, &cancel).await
     }
 }
 

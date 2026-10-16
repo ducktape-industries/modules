@@ -100,7 +100,7 @@ pub(crate) fn grant(
     principal: Principal,
 ) -> Result<(), Error> {
     require_owner(&load_repo(ctx, name)?, actor)?;
-    require_person_or_agent(ctx, &principal)?;
+    require_user_or_program_account(ctx, &principal)?;
     WRITERS.insert(ctx, &(name.to_owned(), principal));
     Ok(())
 }
@@ -242,12 +242,15 @@ pub(crate) fn require_named(principal: &Principal) -> Result<(), Error> {
 }
 
 /// Whom a person asks to write or review: an account the identity role
-/// profiles as a person or an agent that acts.
-pub(crate) fn require_person_or_agent(ctx: &QueryCtx, principal: &Principal) -> Result<(), Error> {
+/// profiles as a user or a program account that acts.
+pub(crate) fn require_user_or_program_account(
+    ctx: &QueryCtx,
+    principal: &Principal,
+) -> Result<(), Error> {
     let Some(number) = principal.account() else {
         return Err(invalid("only an account is named here"));
     };
-    ctx.require_person_or_agent(number)
+    ctx.require_user_or_program_account(number)
 }
 
 pub fn limits_of(bounds: &Bounds) -> Limits {

@@ -103,8 +103,8 @@ fn configure(cx: &mut TestAppContext) {
                 person(7, "eddy"),
                 // an agent eddy manages
                 chat::Profile {
-                    kind: chat::Kind::Managed {
-                        runner: None,
+                    kind: chat::Kind::Program {
+                        script: None,
                         manager: 7,
                         category: chat::Category::Agent,
                         standing: chat::Standing::Active,
@@ -113,7 +113,7 @@ fn configure(cx: &mut TestAppContext) {
                 },
                 // forge's own account
                 chat::Profile {
-                    kind: chat::Kind::Program("forge".into()),
+                    kind: chat::Kind::System("forge".into()),
                     ..person(9, "forge")
                 },
                 // a person eddy has no room with yet
@@ -151,7 +151,8 @@ fn configure(cx: &mut TestAppContext) {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
+    cx.host()
+        .handle::<Submit<::chat::Chat>>(|_| Ok(view::testing::applied(Vec::new())));
 }
 
 /// The reader the host seats: key `0102`, account 7, on testnet.
@@ -345,6 +346,6 @@ fn person(number: u64, name: &str) -> chat::Profile {
     chat::Profile {
         number,
         name: name.into(),
-        kind: chat::Kind::Person,
+        kind: chat::Kind::User,
     }
 }

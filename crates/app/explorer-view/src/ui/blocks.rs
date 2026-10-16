@@ -1,5 +1,6 @@
 //! The Blocks tab and one block.
 use super::*;
+use view::design::Ladder;
 
 pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
     let held = view.chain.blocks.len() as u64;
@@ -33,7 +34,13 @@ pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         .into_any_element()
 }
 
-pub(super) fn block(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> AnyElement {
+pub(super) fn block(
+    view: &Explorer,
+    height: u64,
+    cx: Cx,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let Some((block, txs)) = view.block(height) else {
         return match &view.opened {
             Loadable::Ready(None) | Loadable::Reloading(None, _) => {
@@ -50,7 +57,7 @@ pub(super) fn block(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> AnyE
                 )
                 .into_any_element()
             }
-            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
+            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme, ladder),
             Loadable::Idle
             | Loadable::Loading(_)
             | Loadable::Ready(Some(_))

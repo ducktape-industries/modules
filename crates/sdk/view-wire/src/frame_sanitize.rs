@@ -41,9 +41,18 @@ fn sanitize_against(frame: &mut Frame, styles: &Styles) -> Result<SanitizeReport
     if let Some(root) = &mut frame.root {
         sanitize_tree_with(root, &mut walk)?;
     }
+    // a tooltip's content hangs under a node of the tree: not a root (no
+    // `on_back`), and under its one dialog layer (no sheet)
+    walk.in_tooltip = true;
     for response in &mut frame.tooltip_responses {
         if let Some(content) = &mut response.content {
-            sanitize_tree_with(content, &mut walk)?;
+            sanitize_node(
+                content,
+                1,
+                &mut walk,
+                &mut identity::Scopes::default(),
+                None,
+            )?;
         }
     }
     Ok(walk.cuts)
@@ -135,6 +144,12 @@ pub(crate) struct Walk {
     styles: usize,
     /// A node already claimed the active descendant.
     pub(crate) active_descendant: bool,
+    /// The walk is inside a sheet: a second one is refused.
+    pub(crate) in_sheet: bool,
+    /// The frame already holds a sheet: one layer means one scrim.
+    pub(crate) sheet_seen: bool,
+    /// The walk is in a tooltip's content, which no sheet opens from.
+    pub(crate) in_tooltip: bool,
     /// The child indices from the root to the node being walked.
     pub(crate) at: Vec<u32>,
     /// What the walk has cut so far.
@@ -146,6 +161,9 @@ impl Walk {
         Self {
             styles: styles.len(),
             active_descendant: false,
+            in_sheet: false,
+            sheet_seen: false,
+            in_tooltip: false,
             at: Vec::new(),
             cuts: SanitizeReport::default(),
         }

@@ -69,6 +69,7 @@ pub(crate) enum Kind {
     WebState,
     Drag,
     Dismiss,
+    Back,
     ListRequest,
     ListScroll,
     RichClick,

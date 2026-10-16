@@ -1,4 +1,4 @@
-use abi::role::awaits::{EXPIRY_BLOCKS, Op, Query, Reply, Ticket, TicketRow, expired};
+use abi::role::awaits::{Op, Query, Reply, Ticket, TicketRow};
 use borsh::{BorshDeserialize, BorshSerialize};
 use program::{
     Awaiting, Ctx, Error, ExecCtx, MessageId, MockChain, Origin, Outcome, Program, QueryCtx, code,
@@ -182,8 +182,8 @@ fn a_deferred_call_parks_the_frame_until_the_called_program_resolves_it() {
     assert_eq!(chain.frames(), 1);
     let row = ticket(&chain, 0).expect("the call holds a ticket");
     assert_eq!(
-        (row.caller.as_str(), row.target.as_str(), row.deadline),
-        ("asker", "teller", 1 + EXPIRY_BLOCKS)
+        (row.caller.as_str(), row.target.as_str(), row.opened),
+        ("asker", "teller", 1)
     );
     assert_eq!(
         tickets(
@@ -261,49 +261,6 @@ fn only_the_called_program_resolves_and_only_the_kernel_parks_or_closes() {
     }
     assert!(ticket(&chain, 0).is_some());
     assert_eq!(chain.frames(), 1);
-}
-
-#[test]
-fn an_overdue_call_expires_and_the_frame_resumes_with_the_refusal() {
-    let chain = chain();
-    chain
-        .submit(ada(), "asker", &plan("teller", vec![Tell::Later], false))
-        .unwrap();
-    let expire = Op::Expire { ticket: 0 };
-    chain.at(2, 20);
-    assert_eq!(
-        chain.submit(ada(), PROGRAM, &expire).unwrap_err().code,
-        code::NOT_YET
-    );
-    assert!(
-        tickets(
-            &chain,
-            Query::Overdue {
-                height: 2,
-                after: None,
-                limit: 9
-            }
-        )
-        .is_empty()
-    );
-    let deadline = 1 + EXPIRY_BLOCKS;
-    assert_eq!(
-        tickets(
-            &chain,
-            Query::Overdue {
-                height: deadline,
-                after: None,
-                limit: 9
-            }
-        ),
-        [0]
-    );
-    chain.at(deadline, 640);
-    chain.submit(ada(), PROGRAM, &expire).unwrap();
-    let refusal = program::kernel::error_from(expired(0, deadline));
-    assert_eq!(answers(&chain, "asker"), vec![Err(refusal)]);
-    assert_eq!(chain.frames(), 0);
-    answer(&chain, 0, b"late").unwrap();
 }
 
 #[test]

@@ -1,5 +1,5 @@
-//! The `harness` program: agents that consensus runs. A manager hires an agent it handed to
-//! harness; a mention or a direct message reaches it through `attribution`, and the model is
+//! The `harness` program: agents that consensus runs. A manager hires an agent whose script
+//! calls harness; a mention or a direct message reaches it through `attribution`, and the model is
 //! called through the egress role. Every tool call runs in a later block, as the agent.
 mod agents;
 mod anthropic;
@@ -203,6 +203,8 @@ pub struct ThreadRow {
     pub summary: Option<u64>,
     pub context: Context,
     pub compact_before: Option<u64>,
+    pub last_height: u64,
+    pub last_time: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -224,6 +226,12 @@ impl ThreadRow {
         let paused = self.last_stop == Some(Stop::Pause);
         unseen_input || paused
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct WithheldFrame {
+    pub seq: u64,
+    pub size: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -280,6 +288,15 @@ pub enum Query {
     Calls { thread: u64, page: PageRequest },
     #[ask(Reply::Tools(Vec<ToolInfo>))]
     Tools,
+    #[ask(Reply::Thread(Option<ThreadRow>))]
+    #[reads(state::PLACES, state::THREADS)]
+    ThreadAt { agent: AccountNumber, place: String },
+    #[ask(Reply::Window(Option<Option<u64>>))]
+    #[reads(state::WINDOWS)]
+    Window { model: String },
+    #[ask(Reply::Withheld(Vec<WithheldFrame>))]
+    #[reads(state::WITHHELD, state::FRAMES)]
+    Withheld { thread: u64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -292,6 +309,8 @@ pub enum Reply {
     Held(Vec<Body>),
     Calls(PageResponse<CallRow>),
     Tools(Vec<ToolInfo>),
+    Window(Option<Option<u64>>),
+    Withheld(Vec<WithheldFrame>),
 }
 
 pub fn attributed_as() -> Vec<u8> {
@@ -334,6 +353,17 @@ fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
         ["Hire", "Dismiss", "Close", "Attributed"]
+    );
+}
+
+#[test]
+fn query_variants_only_append() {
+    assert_eq!(
+        describe::variants::<Query>(),
+        [
+            "Agent", "Agents", "Thread", "Threads", "Frames", "Held", "Calls", "Tools", "ThreadAt",
+            "Window", "Withheld"
+        ]
     );
 }
 

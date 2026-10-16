@@ -432,6 +432,41 @@ impl Input {
         self
     }
 
+    // What a software keyboard is told (`TextInputConfiguration`'s fields
+    // but `secure`, which is `Input::secure`). gpui's default turns every
+    // assistance OFF (no autocorrect, no capitalization, no suggestions),
+    // so a field of free prose sets them on at the call site, and a field
+    // whose text is not prose (a name, a code, an address) says what it is
+    // (rule 7).
+
+    /// The platform may correct what is typed: off for a name, a code, an address.
+    pub fn autocorrect(mut self, autocorrect: bool) -> Self {
+        self.options.text_input.autocorrect = autocorrect;
+        self
+    }
+    pub fn autocapitalize(mut self, autocapitalize: gpui::Autocapitalize) -> Self {
+        self.options.text_input.autocapitalize = autocapitalize.into();
+        self
+    }
+    /// The keyboard may offer words and spellcheck.
+    pub fn suggestions(mut self, suggestions: bool) -> Self {
+        self.options.text_input.suggestions = suggestions;
+        self
+    }
+    /// The label of the keyboard's confirm key (`Go`, `Send`, `Search`);
+    /// pressing it is still input: a many-line field's Return inserts a
+    /// newline whatever the label, and the view's Send button sends.
+    pub fn input_action(mut self, action: gpui::TextInputAction) -> Self {
+        self.options.text_input.input_action = action.into();
+        self
+    }
+    /// The keyboard that opens: numbers for a member number, a URL
+    /// keyboard for an address.
+    pub fn virtual_keyboard(mut self, keyboard: wire::VirtualKeyboard) -> Self {
+        self.options.text_input.virtual_keyboard = keyboard;
+        self
+    }
+
     /// Hears the host's text whenever it moves: typed, pasted, undone, or
     /// an asked-for edit landed. For a view that does more on a change than
     /// keep the text: the bound field already holds the change, and the
@@ -565,6 +600,28 @@ impl Textarea {
 
     pub fn read_only(self, read_only: bool) -> Self {
         Self(self.0.read_only(read_only))
+    }
+
+    /// See [`Input::autocorrect`].
+    pub fn autocorrect(self, autocorrect: bool) -> Self {
+        Self(self.0.autocorrect(autocorrect))
+    }
+    /// See [`Input::autocapitalize`].
+    pub fn autocapitalize(self, autocapitalize: gpui::Autocapitalize) -> Self {
+        Self(self.0.autocapitalize(autocapitalize))
+    }
+    /// See [`Input::suggestions`].
+    pub fn suggestions(self, suggestions: bool) -> Self {
+        Self(self.0.suggestions(suggestions))
+    }
+    /// See [`Input::input_action`]: `Send` labels the key; the view's
+    /// button sends.
+    pub fn input_action(self, action: gpui::TextInputAction) -> Self {
+        Self(self.0.input_action(action))
+    }
+    /// See [`Input::virtual_keyboard`].
+    pub fn virtual_keyboard(self, keyboard: wire::VirtualKeyboard) -> Self {
+        Self(self.0.virtual_keyboard(keyboard))
     }
 
     /// See [`Input::claim`].

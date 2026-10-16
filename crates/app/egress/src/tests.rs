@@ -1,10 +1,11 @@
-//! egress on a `MockChain` beside identity, valset, the awaits role and a program that calls it:
-//! registering and assigning a service, serving, the election's turns, answers that resolve the
-//! call, refusals and expiry.
+//! egress on a `MockChain` beside identity, valset, the awaits and scheduler roles and a program
+//! that calls it: registering and assigning a service, serving, the election's turns, answers that
+//! resolve the call, refusals, and the expiry each request schedules for itself.
 use ::program::{
-    Awaiting, Blob, Ctx, Error, HashKind, MockChain, Origin, Program, QueryCtx, Reply as Wanted,
-    Scheme, blob_id, code,
+    Awaiting, Blob, Ctx, Error, HashKind, MockChain, MockHost, Origin, Program, QueryCtx,
+    Reply as Wanted, Roles, Scheme, blob_id, code,
 };
+use abi::role::scheduler::{self, Entry};
 use borsh::{BorshDeserialize, BorshSerialize};
 use store::Item;
 use valset::{Genesis, Member, Valset};
@@ -22,7 +23,7 @@ const MESSAGES: &str = "https://api.anthropic.com/v1/messages";
 
 #[derive(Debug, BorshSerialize, BorshDeserialize)]
 enum Ask {
-    Call(Request),
+    Call(Request, Option<u64>),
     Emit(Request),
 }
 
@@ -46,15 +47,17 @@ impl Program for Asker {
 impl Awaiting for Asker {
     async fn execute(ctx: Ctx, ask: Ask) -> Result<(), Error> {
         let request = match ask {
-            Ask::Call(request) => request,
+            Ask::Call(request, wait) => Op::Request { request, wait },
             Ask::Emit(request) => {
-                ctx.emit(PROGRAM, &Op::Request(request), Wanted::None);
+                let request = Op::Request {
+                    request,
+                    wait: None,
+                };
+                ctx.emit(PROGRAM, &request, Wanted::None);
                 return Ok(());
             }
         };
-        let answer = ctx
-            .call_raw(PROGRAM, abi::encode(&Op::Request(request)))
-            .await;
+        let answer = ctx.call_raw(PROGRAM, abi::encode(&request)).await;
         let refused = answer.as_deref() == Ok(b"refuse me".as_slice());
         if refused {
             return Err(::program::invalid("the asker refuses this answer"));
@@ -67,11 +70,16 @@ impl Awaiting for Asker {
 }
 
 fn chain() -> MockChain {
-    let mut chain = MockChain::default();
+    chain_with(MockHost::roles())
+}
+
+fn chain_with(roles: Roles) -> MockChain {
+    let mut chain = MockChain::founded(roles);
     chain.seat::<identity::Identity>(identity::PROGRAM);
     chain.seat::<Valset>("valset");
     chain.seat::<awaits::Awaits>(awaits::PROGRAM);
-    chain.seat::<Egress>(PROGRAM);
+    chain.seat::<::scheduler::Scheduler>(::scheduler::PROGRAM);
+    chain.seat_awaiting::<Egress>(PROGRAM);
     chain.seat_awaiting::<Asker>(ASKER);
     let members = [ADA, BO].map(|key| Member {
         key: key.to_vec(),
@@ -123,13 +131,32 @@ fn http_request(service: &str, target: &str, body: Vec<BlobId>) -> Request {
 }
 
 fn ask(chain: &MockChain, request: Request) {
+    ask_waiting(chain, request, None);
+}
+
+fn ask_waiting(chain: &MockChain, request: Request, wait: Option<u64>) {
     chain
         .submit(
             Origin::Signed(STRANGER.to_vec()),
             ASKER,
-            &Ask::Call(request),
+            &Ask::Call(request, wait),
         )
         .unwrap();
+}
+
+fn entry(chain: &MockChain, id: scheduler::EntryId) -> Option<Entry> {
+    let asked = scheduler::Query::Entry { id };
+    let scheduler::Reply::Entry(entry) = chain.query(::scheduler::PROGRAM, &asked).unwrap() else {
+        panic!()
+    };
+    entry
+}
+
+fn request_row(chain: &MockChain, id: u64) -> Option<RequestRow> {
+    let Reply::Request(row) = chain.query(PROGRAM, &Query::Request { id }).unwrap() else {
+        panic!()
+    };
+    row
 }
 
 fn assigned(chain: &MockChain, key: [u8; 32]) -> Vec<RequestRow> {
@@ -172,8 +199,8 @@ fn the_election_takes_turns_and_only_the_elected_node_answers() {
     assert_eq!((ada, bo), (vec![1, 3, 4], vec![2]));
     let row = &assigned(&chain, BO)[0];
     assert_eq!(
-        (row.requester.as_str(), &row.request, row.deadline),
-        (ASKER, &relay(b"ping"), 1 + EXPIRY_BLOCKS)
+        (row.requester.as_str(), &row.request, row.made),
+        (ASKER, &relay(b"ping"), 1)
     );
 
     let same_block = answer(&chain, BO, 2, Answer::Output(Vec::new())).unwrap_err();
@@ -284,7 +311,10 @@ fn only_a_member_node_serves_and_only_a_program_calling_requests() {
     let [unserved] = answers(&chain).try_into().unwrap();
     assert_eq!(unserved.unwrap_err().code, code::NOT_FOUND);
     serve(&chain, ADA, &[RELAY]).unwrap();
-    let direct = Op::Request(relay(b""));
+    let direct = Op::Request {
+        request: relay(b""),
+        wait: None,
+    };
     let signed = submit(&chain, &ADA, &direct).unwrap_err();
     assert_eq!(signed.code, code::UNAUTHORIZED);
     let emitted = chain
@@ -305,38 +335,118 @@ fn only_a_member_node_serves_and_only_a_program_calling_requests() {
 }
 
 #[test]
-fn an_unanswered_request_expires_after_its_window_and_answers_the_call() {
+fn a_request_schedules_its_own_expiry_and_an_answer_cancels_it() {
+    let chain = chain();
+    serve(&chain, ADA, &[RELAY]).unwrap();
+    ask(&chain, relay(b""));
+    let row = request_row(&chain, 1).expect("the request is open");
+    let expiry = entry(&chain, row.expiry).expect("the request scheduled its expiry");
+    assert_eq!(
+        (
+            expiry.scheduler.as_str(),
+            expiry.target.as_str(),
+            expiry.height
+        ),
+        (PROGRAM, PROGRAM, 1 + DEFAULT_WAIT)
+    );
+    assert_eq!(expiry.payload, abi::encode(&Op::Expire { id: 1 }));
+    chain.at(2, 0);
+    answer(&chain, ADA, 1, Answer::Output(b"pong".to_vec())).unwrap();
+    assert_eq!(entry(&chain, row.expiry), None);
+    let [pong] = answers(&chain).try_into().unwrap();
+    assert_eq!(pong.unwrap(), b"pong");
+    chain.at(2 + DEFAULT_WAIT, 0);
+    assert_eq!(answers(&chain).len(), 1);
+}
+
+#[test]
+fn an_unanswered_request_expires_by_its_own_run_and_a_late_answer_is_refused() {
+    let chain = chain();
+    serve(&chain, ADA, &[RELAY]).unwrap();
+    ask_waiting(&chain, relay(b""), Some(3));
+    let row = request_row(&chain, 1).expect("the request is open");
+    assert_eq!(entry(&chain, row.expiry).unwrap().height, 4);
+    chain.at(4, 0);
+    assert!(answers(&chain).is_empty());
+    assert!(request_row(&chain, 1).is_some());
+    chain.at(5, 0);
+    let [expired] = answers(&chain).try_into().unwrap();
+    let expired = expired.unwrap_err();
+    assert_eq!(
+        (expired.code.as_str(), expired.message.as_str()),
+        (code::WRONG_STATE, "request 1 expired after 3 blocks")
+    );
+    assert_eq!(request_row(&chain, 1), None);
+    assert!(assigned(&chain, ADA).is_empty());
+    let ran = entry(&chain, row.expiry)
+        .unwrap()
+        .receipt
+        .expect("the expiry ran");
+    assert!(matches!(ran.outcome, abi::Outcome::Applied { .. }));
+    let late = answer(&chain, ADA, 1, Answer::Output(Vec::new())).unwrap_err();
+    assert_eq!(late.code, code::NOT_FOUND);
+    assert_eq!(chain.frames(), 0);
+}
+
+#[test]
+fn an_expire_not_from_the_requests_own_scheduled_run_is_refused() {
     let chain = chain();
     serve(&chain, ADA, &[RELAY]).unwrap();
     ask(&chain, relay(b""));
     let expire = Op::Expire { id: 1 };
-    let early = submit(&chain, &STRANGER, &expire).unwrap_err();
-    assert_eq!(early.code, code::WRONG_STATE);
-    let overdue = |chain: &MockChain| {
-        let Reply::Requests(due) = chain.query(PROGRAM, &Query::Overdue).unwrap() else {
-            panic!()
+    let signed = submit(&chain, &STRANGER, &expire).unwrap_err();
+    assert_eq!(signed.code, code::UNAUTHORIZED);
+    let sent = chain
+        .submit(Origin::Program(ASKER.into()), PROGRAM, &expire)
+        .unwrap_err();
+    assert_eq!(sent.code, code::UNAUTHORIZED);
+    let scheduled_by = |program: &str| {
+        let schedule = scheduler::Op::Schedule {
+            height: 2,
+            target: PROGRAM.into(),
+            payload: abi::encode(&expire),
         };
-        due
+        let id = chain
+            .submit(
+                Origin::Program(program.into()),
+                ::scheduler::PROGRAM,
+                &schedule,
+            )
+            .unwrap();
+        abi::decode::<scheduler::EntryId>(&id).unwrap()
     };
-    chain.at(1 + EXPIRY_BLOCKS, 0);
-    assert!(overdue(&chain).is_empty());
-    chain.at(2 + EXPIRY_BLOCKS, 0);
-    let late = answer(&chain, ADA, 1, Answer::Output(Vec::new())).unwrap_err();
-    assert_eq!(late.code, code::WRONG_STATE);
-    assert_eq!(overdue(&chain).len(), 1);
-    submit(&chain, &STRANGER, &expire).unwrap();
-    let [expired] = answers(&chain).try_into().unwrap();
-    let expired = expired.unwrap_err();
-    assert_eq!(expired.code, code::WRONG_STATE);
-    assert!(
-        expired
-            .message
-            .ends_with(&format!("expired at height {}", 2 + EXPIRY_BLOCKS))
-    );
-    let Reply::Request(gone) = chain.query(PROGRAM, &Query::Request { id: 1 }).unwrap() else {
-        panic!()
-    };
-    assert_eq!(gone, None);
+    let by_asker = scheduled_by(ASKER);
+    let other_entry = scheduled_by(PROGRAM);
+    chain.at(3, 0);
+    for id in [by_asker, other_entry] {
+        let ran = entry(&chain, id).unwrap().receipt.expect("the run ran");
+        let abi::Outcome::Rejected(refusal) = ran.outcome else {
+            panic!("entry {id} expired the request");
+        };
+        assert_eq!(refusal.reason, code::UNAUTHORIZED);
+    }
+    assert!(request_row(&chain, 1).is_some());
+    assert!(answers(&chain).is_empty());
+}
+
+#[test]
+fn a_request_waits_at_least_one_block_and_needs_the_scheduler_role() {
+    let chain = chain();
+    serve(&chain, ADA, &[RELAY]).unwrap();
+    ask_waiting(&chain, relay(b""), Some(0));
+    let unscheduled: Roles = MockHost::roles()
+        .iter()
+        .filter(|(role, _)| *role != abi::role::SCHEDULER)
+        .collect();
+    let bare = chain_with(unscheduled);
+    serve(&bare, ADA, &[RELAY]).unwrap();
+    ask(&bare, relay(b""));
+    let [no_wait] = answers(&chain).try_into().unwrap();
+    assert_eq!(no_wait.unwrap_err().code, code::INVALID_INPUT);
+    let [unbound] = answers(&bare).try_into().unwrap();
+    assert_eq!(unbound.unwrap_err().code, code::UNSUPPORTED);
+    assert!(assigned(&chain, ADA).is_empty());
+    assert!(assigned(&bare, ADA).is_empty());
 }
 
 #[test]
@@ -362,7 +472,7 @@ fn a_request_names_parts_already_on_the_network() {
         .submit(
             Origin::Signed(STRANGER.to_vec()),
             ASKER,
-            &Ask::Call(with_part(part)),
+            &Ask::Call(with_part(part), None),
         )
         .unwrap();
     let [missing] = answers(&chain).try_into().unwrap();
@@ -378,7 +488,7 @@ fn a_request_names_parts_already_on_the_network() {
         .submit(
             Origin::Signed(STRANGER.to_vec()),
             ASKER,
-            &Ask::Call(with_part(part)),
+            &Ask::Call(with_part(part), None),
         )
         .unwrap();
     assert_eq!(assigned(&chain, ADA)[0].request.parts(), [part]);

@@ -6,7 +6,7 @@
 use view::prelude::*;
 
 use crate::chain::{self, BlockRow, TxRow};
-use crate::state::Route;
+use crate::state::{Route, blob_ref};
 use crate::{Explorer, WINDOW, decode, queries};
 
 impl Explorer {
@@ -19,7 +19,31 @@ impl Explorer {
         self.read_frames(cx);
         self.read_used(cx);
         self.read_acted(cx);
+        self.manifest_of = None;
+        self.read_manifest(cx);
         self.pull(cx);
+    }
+
+    /// What the code behind the program page on screen declares, asked once
+    /// per code id (`blob.manifest`): on every draw, so a page opened before
+    /// the roster landed asks when it does, and a page that names other
+    /// code blanks the one shown. Nothing to ask while no program page is
+    /// open or the roster does not name it.
+    pub(crate) fn read_manifest(&mut self, cx: &mut Context<Self>) {
+        let Route::Program(name) = &self.route else {
+            return;
+        };
+        let Some(code) = self.code_of(name) else {
+            return;
+        };
+        let id = blob_ref(&code);
+        if self.manifest_of.as_deref() == Some(id.as_str()) {
+            return;
+        }
+        self.manifest_of = Some(id.clone());
+        self.manifest = Loadable::Idle;
+        let ask = cx.host().ask::<BlobManifest>(id);
+        cx.load(self, ask, |view| &mut view.manifest);
     }
 
     /// A head `chain.heads` pushed: the window follows it without a read,

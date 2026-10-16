@@ -8,6 +8,7 @@ use crate::queries::PAGE;
 use crate::ui::components::{PRESS_TARGET, button, empty_state, heading, id, ref_label};
 use crate::ui::{pending, staged};
 use forge::{Query, Reply, RepoInfo};
+use view::design::Ladder;
 
 fn query() -> Query {
     Query::Repos { page: PAGE }
@@ -85,6 +86,10 @@ const CELLS: usize = 3;
 /// One repository: its name over the address it clones from, then its
 /// owner, default branch, refs and last activity, in their columns when
 /// `table`, else on one line under the name.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the ladder rides beside the theme into every sized helper; the phone rework of this view reshapes the row"
+)]
 fn repo_row(
     forge: &Forge,
     info: &RepoInfo,
@@ -93,6 +98,7 @@ fn repo_row(
     active: Option<usize>,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let name = info.name.clone();
     let group = format!("forge-repo-{name}-row");
@@ -143,7 +149,14 @@ fn repo_row(
             cx,
             theme,
         ))
-        .child(repo_facts(info, owner, table, active == Some(2), theme))
+        .child(repo_facts(
+            info,
+            owner,
+            table,
+            active == Some(2),
+            theme,
+            ladder,
+        ))
         .into_any_element()
 }
 
@@ -245,7 +258,14 @@ fn copy_button(
 /// table each holds its column, the refs a bare count under their header;
 /// wrapped, they share one line under the name, each as wide as it reads,
 /// the refs with their unit.
-fn repo_facts(info: &RepoInfo, owner: String, table: bool, active: bool, theme: &Theme) -> Div {
+fn repo_facts(
+    info: &RepoInfo,
+    owner: String,
+    table: bool,
+    active: bool,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Div {
     let column = |cell: Div, width: Pixels| cell.when(table, |cell| cell.w(width));
     let refs = info.repo.refs_count;
     div()
@@ -298,6 +318,7 @@ fn repo_facts(info: &RepoInfo, owner: String, table: bool, active: bool, theme: 
                         id(format!("forge-repo-{}-activity", info.name)),
                         info.repo.last_activity,
                         theme,
+                        ladder,
                     ),
                     Role::Link,
                     active,
@@ -306,7 +327,12 @@ fn repo_facts(info: &RepoInfo, owner: String, table: bool, active: bool, theme: 
 }
 
 /// The screen: every repository of this network, newest activity first.
-pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+pub(crate) fn overview(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let body = staged(
         forge,
         &query(),
@@ -314,6 +340,7 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
         "Reading the repositories…",
         cx,
         theme,
+        ladder,
     );
     let count = body.as_ref().ok().map(|reply| listed(forge, reply).len());
     let mut column = div()
@@ -322,9 +349,16 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
         .flex_col()
         .flex_1()
         .min_h(px(0.))
-        .child(header(forge, count, cx, theme, "forge-repos-search"));
+        .child(header(
+            forge,
+            count,
+            cx,
+            theme,
+            ladder,
+            "forge-repos-search",
+        ));
     if let Some(form) = &forge.new_repo {
-        column = column.child(dialog(form, cx, theme));
+        column = column.child(dialog(form, cx, theme, ladder));
     }
     column = column.child(pending(forge, "repos", theme));
     let body = match body {
@@ -401,13 +435,20 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
     for (index, info) in rows.into_iter().enumerate() {
         let owner = forge.principal_name(&info.repo.owner);
         let active = (index == at).then_some(cell);
-        list = list.child(repo_row(forge, info, owner, table, active, cx, theme));
+        list = list.child(repo_row(
+            forge, info, owner, table, active, cx, theme, ladder,
+        ));
     }
     column.child(list).into_any_element()
 }
 
 /// The rail: the same repositories, compact, while one of them is open.
-pub(crate) fn rail(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+pub(crate) fn rail(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let column = div()
         .id(id("forge-rail"))
         .w(px(forge.layout.tree))
@@ -425,6 +466,7 @@ pub(crate) fn rail(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Any
         "Reading the repositories…",
         cx,
         theme,
+        ladder,
     ) {
         Ok(reply) => reply,
         Err(state) => return column.child(state).into_any_element(),
@@ -540,6 +582,7 @@ fn header(
     count: Option<usize>,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
     search_id: &str,
 ) -> AnyElement {
     let new = cx.listener(|forge, _: &ClickEvent, window, cx| forge.start_repo(window, cx));
@@ -574,14 +617,19 @@ fn header(
         )
         .child(div().flex_1())
         .child(
-            button(id("forge-new-repo"), "New repository", theme, new)
+            button(id("forge-new-repo"), "New repository", ladder, theme, new)
                 .kind(design::Kind::Primary)
                 .enabled(forge.may_write()),
         )
         .into_any_element()
 }
 
-fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+fn dialog(
+    form: &crate::state::NewRepo,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     // a name typed again takes the last refusal with it
     let typed = cx.listener(|forge, _: &wire::TextChange, _, cx| {
         if let Some(form) = &mut forge.new_repo {
@@ -592,6 +640,7 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
     let formats = design::segmented(
         id("forge-new-repo-format"),
         "Object format",
+        ladder,
         theme,
         Some(usize::from(form.sha1)),
         [
@@ -689,11 +738,11 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
             .justify_end()
             .gap_2()
             .child(
-                button(id("forge-new-repo-cancel"), "Cancel", theme, cancel)
+                button(id("forge-new-repo-cancel"), "Cancel", ladder, theme, cancel)
                     .kind(design::Kind::Quiet),
             )
             .child(
-                button(id("forge-new-repo-submit"), "Create", theme, create)
+                button(id("forge-new-repo-submit"), "Create", ladder, theme, create)
                     .kind(design::Kind::Primary),
             ),
     )

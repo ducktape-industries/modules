@@ -11,13 +11,16 @@ use crate::ui::components::{
 use crate::ui::diff::Route;
 use crate::ui::{pending, staged};
 use forge::{Mergeability, Query, RefInfo, Reply, Revision};
+use view::design::Ladder;
 
 pub(crate) fn render(
     forge: &Forge,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
     head: &[u8],
 ) -> AnyElement {
+    let ladder = *ladder;
     let mut column = div()
         .id(id("forge-refs"))
         .flex()
@@ -26,7 +29,7 @@ pub(crate) fn render(
         .min_h(px(0.))
         .child(pending(forge, "changes", theme));
     if let Some(form) = forge.change_form() {
-        column = column.child(crate::ui::changes::form(form, forge, cx, theme));
+        column = column.child(crate::ui::changes::form(form, forge, cx, theme, &ladder));
     }
     let reply = match staged(
         forge,
@@ -35,6 +38,7 @@ pub(crate) fn render(
         "Reading refs…",
         cx,
         theme,
+        &ladder,
     ) {
         Ok(reply) => reply,
         Err(state) => return column.child(state).into_any_element(),
@@ -107,7 +111,7 @@ pub(crate) fn render(
                 return div().into_any_element();
             };
             match page.items.get(index) {
-                Some(info) => ref_row(info, index, &marks, &pick, &start, &theme),
+                Some(info) => ref_row(info, index, &marks, &pick, &start, &theme, &ladder),
                 None => div()
                     .id(id("forge-refs-forbidden"))
                     .min_h(design::size::CONTROL)
@@ -148,6 +152,7 @@ fn ref_row(
     pick: &Route<Vec<u8>>,
     start: &Route<Vec<u8>>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let name = info.name.clone();
     let label = ref_label(&name);
@@ -174,6 +179,7 @@ fn ref_row(
         .cell(badge(
             id(format!("forge-ref-kind-{label}")),
             if tag { "tag" } else { "branch" },
+            ladder,
             theme.muted,
             theme.surface_raised,
         ))
@@ -196,6 +202,7 @@ fn ref_row(
             button(
                 id(format!("forge-compare-{label}")),
                 "Compare →",
+                ladder,
                 theme,
                 press(start),
             )

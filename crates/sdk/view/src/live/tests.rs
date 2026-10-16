@@ -180,7 +180,13 @@ fn the_chain_backs_a_fake_host() {
         channel.fulfill(id, result, done);
     }
     assert_eq!(futures::executor::block_on(asked).unwrap(), Some(net.me()));
-    let agent: u64 = methods::decode(&futures::executor::block_on(created).unwrap()).unwrap();
+    let methods::Submitted::Applied { output, until, .. } =
+        futures::executor::block_on(created).unwrap()
+    else {
+        panic!("the live node applies a CreateAgent")
+    };
+    assert_eq!(until, net.height() - 1 + 256, "anchor plus the window");
+    let agent: u64 = methods::decode(&output).unwrap();
     assert!(agent > net.me());
     let change = futures::executor::block_on(changes.next())
         .unwrap()
@@ -227,6 +233,53 @@ fn a_held_blob_is_put_receipted_by_the_dev_validator_and_served() {
     };
     assert_eq!(holding.kind, "pack");
     assert_eq!(net.blob(&id), Some(wire::framed("pack", b"PACK")));
+}
+
+/// `blob.manifest` answers off the roster's code as the app does: a
+/// program's view out of its `ducktape.view` section with the manifest it
+/// carries, a view-only blob as the view itself, a program with no view
+/// as none, and a blob the chain does not name as `None`.
+#[test]
+fn blob_manifest_answers_what_the_rosters_code_declares() {
+    let net = Network::new();
+    let text = "ducktape.view.manifest\nChat\nRooms.\nchain,clipboard,\n480\n0123abcd\n\n";
+    let view = pack::wrapper(&[("ducktape.view.manifest", text.as_bytes())]);
+    net.code("chat", &pack::wrapper(&[("ducktape.view", &view)]));
+    net.code("quiet", &pack::wrapper(&[("ducktape.describe", b"d")]));
+    net.code_bare("explorer", &view);
+    let ask = |program: &str| -> Option<methods::Manifested> {
+        let id = match program {
+            "explorer" => net.0.borrow().bare.as_ref().unwrap().1,
+            _ => net.0.borrow().codes[program].0,
+        };
+        let name = format!("sha256:{}", abi::hex(id.digest()));
+        let answer = net
+            .answer("blob.manifest", None, &methods::encode(&name))
+            .unwrap();
+        methods::decode(&answer).unwrap()
+    };
+    let manifest = view_wire::manifest::Manifest::parse(text).unwrap();
+    let carried = |size: usize| {
+        Some(methods::CarriedView {
+            size: size as u64,
+            manifest: Some(manifest.clone()),
+        })
+    };
+    let chat = ask("chat").unwrap();
+    assert!(chat.size > view.len() as u64);
+    assert_eq!(chat.view, carried(view.len()));
+    let explorer = ask("explorer").unwrap();
+    assert_eq!(explorer.size, view.len() as u64);
+    assert_eq!(explorer.view, carried(view.len()));
+    assert_eq!(ask("quiet").unwrap().view, None);
+    let unnamed = format!("sha256:{}", "00".repeat(32));
+    let answer = net
+        .answer("blob.manifest", None, &methods::encode(&unnamed))
+        .unwrap();
+    assert_eq!(
+        methods::decode::<Option<methods::Manifested>>(&answer).unwrap(),
+        None
+    );
 }
 
 #[test]

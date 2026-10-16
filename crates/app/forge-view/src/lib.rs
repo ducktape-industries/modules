@@ -112,7 +112,7 @@ impl Render for Forge {
         // a change's title lands async: the frame is the one place that
         // sees each
         self.settle_title(cx);
-        ui::render(self, cx)
+        ui::render(self, window.touch(), cx)
     }
 }
 

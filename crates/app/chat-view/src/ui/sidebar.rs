@@ -6,8 +6,14 @@ use chat::{ChannelInfo, Principal};
 
 use crate::names::dm_peer_of;
 use crate::{ChannelCreate, Chat};
+use view::design::Ladder;
 
-pub fn render(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+pub fn render(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     div()
         .id("chat-sidebar")
         .flex()
@@ -23,13 +29,13 @@ pub fn render(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEl
                 .items_center()
                 .gap_1()
                 .p_2()
-                .child(search(chat, cx, theme)),
+                .child(search(chat, cx, theme, ladder)),
         )
-        .child(rooms(chat, cx, theme))
+        .child(rooms(chat, cx, theme, ladder))
 }
 
 /// The message search field, and its clear button once it holds a search.
-fn search(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+fn search(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> impl IntoElement {
     let submit = cx.listener(|chat, _: &(), _window, cx| {
         cx.notify();
         chat.search_submit(cx)
@@ -63,6 +69,7 @@ fn search(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
                     "chat-sidebar-clear-search",
                     "✕",
                     "Clear search",
+                    ladder,
                     theme,
                     clear,
                 )
@@ -73,7 +80,7 @@ fn search(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
 
 /// The rooms in two sections: channels, direct messages.
 /// A program's own rooms (`forge:…` review threads) are its to show.
-fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> impl IntoElement {
     let mut list = div()
         .id("chat-sidebar-rooms")
         .flex_1()
@@ -171,7 +178,17 @@ fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement
         ));
         for (info, peer, id) in dms {
             let selected = open == Some(id.as_str());
-            let row = dm_button(chat, info, peer, id, selected, index == at, cx, theme);
+            let row = dm_button(
+                chat,
+                info,
+                peer,
+                id,
+                selected,
+                index == at,
+                cx,
+                theme,
+                ladder,
+            );
             box_ = box_.child(row);
             index += 1;
         }
@@ -319,6 +336,7 @@ fn dm_button(
     active: bool,
     cx: &mut Context<Chat>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> impl IntoElement {
     let names = chat.names.ready();
     let name = names.map_or_else(
@@ -372,6 +390,7 @@ fn dm_button(
         row = row.child(super::badge(
             format!("chat-sidebar-dm-{peer}-agent"),
             "Agent",
+            ladder,
             theme.agent,
             theme.agent_soft,
         ));
