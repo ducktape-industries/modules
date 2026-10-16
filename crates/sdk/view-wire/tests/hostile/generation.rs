@@ -46,9 +46,10 @@ fn gen_tree(rng: &mut Rng, depth: usize, width: usize) -> Node {
     node
 }
 
-/// A sheet's detents: usually sound (one to three, ascending in `0..=1`),
-/// so most random sheets reach the Sheet checks; one in four a hostile
-/// sender's (empty, descending, past 1, not finite, too many).
+/// A sheet's detents: usually sound (none, a sheet fitted to what it
+/// holds, or one to three ascending in `0..=1`), so most random sheets
+/// reach the Sheet checks; one in five a hostile sender's (descending,
+/// past 1, not finite, too many).
 fn gen_detents(rng: &mut Rng) -> Vec<f32> {
     match rng.next_range(20) {
         0 => Vec::new(),

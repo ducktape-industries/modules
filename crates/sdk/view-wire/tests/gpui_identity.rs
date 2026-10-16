@@ -14,6 +14,7 @@ fn text(id: ElementIdWire, content: &str) -> Node {
         id: Some(id),
         style: PLAIN,
         content: content.into(),
+        transform: None,
     })
 }
 

@@ -24,6 +24,9 @@ const SHEET_INSET: Pixels = px(20.);
 /// The kit's small button's height (Expo `src/design/theme.ts:76`
 /// `size.small`, `Button.tsx:60`).
 const SMALL_BUTTON: Pixels = px(36.);
+/// The small button's edge, its `border_1` hairline, which its press
+/// reaches past.
+const SMALL_BUTTON_EDGE: Pixels = px(1.);
 // SDK gap: the notice and its action (with `notice`, `action`, `alert`);
 // the SDK builds it later
 /// A notice's action: its secondary line (18) with 6 over and under, its
@@ -294,7 +297,7 @@ pub(super) fn small_button(
         true => (theme.border_strong, theme.foreground),
         false => (theme.border, theme.faint),
     };
-    let hit = design::hit(id, LADDER.hit, SMALL_BUTTON, px(1.), &LADDER)
+    let hit = design::hit(id, LADDER.hit, SMALL_BUTTON, SMALL_BUTTON_EDGE, &LADDER)
         .role(Role::Button)
         .aria_label(label);
     let hit = match pressable {

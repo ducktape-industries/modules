@@ -6,6 +6,7 @@ fn text(content: &str) -> Node {
         id: None,
         style: StyleId(0),
         content: content.into(),
+        transform: None,
     })
 }
 

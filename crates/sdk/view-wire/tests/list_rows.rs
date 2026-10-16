@@ -30,6 +30,7 @@ fn list(start: usize, len: usize, edited: Option<usize>) -> Node {
                         true => format!("row {item} edited"),
                         false => format!("row {item}"),
                     },
+                    transform: None,
                 })
             })
             .collect(),

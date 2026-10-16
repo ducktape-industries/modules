@@ -273,8 +273,10 @@ pub enum Node {
     /// Compact body (`design::width::COMPACT_BELOW`) the host docks it to
     /// the bottom edge, opened at the first of `detents` (fractions of the
     /// body's height, ascending, each in `0..=1`), dragged between them and
-    /// down to dismiss; at a wider body it is a centred modal, as
-    /// [`Node::Overlay`]'s second child. The host owns the drag, the scrim
+    /// down to dismiss; with no `detents` the panel is as tall as its child
+    /// (the host lays it out), at most the body, and rests there. At a
+    /// wider body it is a centred modal, as [`Node::Overlay`]'s second
+    /// child. The host owns the drag, the scrim
     /// (an accessible "Close" control), the snap and the keyboard lift; the
     /// view owns what is inside. `label` is the dialog's name. A sheet
     /// inside a sheet is refused.
