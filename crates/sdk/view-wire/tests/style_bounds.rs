@@ -87,7 +87,8 @@ fn whole_frames_bound_base_and_every_conditional_style() {
 fn actual_gpui_styled_payloads_roundtrip_and_patch_without_replacing_children() {
     let text = StyleRefinement::default()
         .text_size(px(13.))
-        .text_color(gpui::rgb(0xabcdef));
+        .text_color(gpui::rgb(0xabcdef))
+        .letter_spacing(px(-0.22));
     let row = StyleRefinement::default()
         .flex()
         .gap_2()

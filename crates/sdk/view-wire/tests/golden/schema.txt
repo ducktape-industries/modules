@@ -1566,6 +1566,7 @@ TextStyleRefinement struct
   text_overflow: Option(TypeName("TextOverflow"))
   text_align: Option(TypeName("TextAlign"))
   line_clamp: Option(U64)
+  letter_spacing: Option(TypeName("Pixels"))
 Visibility enum
   0 Visible: Unit
   1 Hidden: Unit
