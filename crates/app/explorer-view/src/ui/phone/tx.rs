@@ -131,8 +131,11 @@ fn status(run: &Receipt, id: &str, k: &Kit) -> Div {
         .flex_col()
         .items_start()
         .gap(space::XXS)
-        .child(badge)
-        .children(refusal.map(|refusal| div().child(words::refusal(refusal))))
+        // Expo's Badge centres itself (`Badge.tsx:20` `alignSelf`) over the
+        // column's start
+        .child(div().w_full().flex().justify_center().child(badge))
+        // the receipt's own sentence, as Expo draws it (`tx/[hash].tsx:123`)
+        .children(refusal.map(|refusal| div().child(refusal.message.clone())))
         .children(refusal.map(|refusal| {
             data(refusal.code.clone())
                 .text_type(k.ladder.caption)
