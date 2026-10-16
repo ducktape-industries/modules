@@ -2,7 +2,7 @@
 //! answer, said before the reader writes; where their work is shown; and
 //! the card an agent's face opens.
 use super::*;
-use identity::Audience;
+use identity::Ownership;
 
 /// An agent ada (10) manages, its script calling `calls`.
 fn agent(number: u64, name: &str, calls: Option<&str>) -> chat::Profile {
@@ -53,10 +53,10 @@ fn agents() -> (TestAppContext, Entity<Chat>) {
     });
     cx.host().handle::<Ask<Identity>>(|query| {
         Ok(match query {
-            identity::Query::Audience { number } => identity::Reply::Audience(match number {
-                11 => Audience::Manager,
-                12 => Audience::Accounts(vec![14]),
-                13 => Audience::Anyone,
+            identity::Query::Ownership { number } => identity::Reply::Ownership(match number {
+                11 => Ownership::Owner,
+                12 => Ownership::Accounts(vec![14]),
+                13 => Ownership::Anyone,
                 number => panic!("account {number} is no agent"),
             }),
             query => panic!("unexpected identity query: {query:?}"),

@@ -257,6 +257,14 @@ forge's reviewers. Ask a role at the program genesis bound to it,
 themselves (`abi::role::identity::{Profile, Kind, Standing}`) are what a
 view shows beside a name.
 
+A rule of who may act on something an account owns is a `program::Ownership`:
+`Owner` (the owner alone), `Accounts(numbers)` (the owner and the account
+numbers listed) or `Anyone`. `allows(owner, account)` decides, and
+`settled(owner)` keeps each listed number once and never the owner, an empty
+list being `Owner`. identity keeps one per agent for whom it answers; files
+keeps one per path for who writes under it. A list holds account numbers,
+never names, so renaming an account changes nothing it allows.
+
 `Env::authority()` admits only a message from the program bound to the
 validators role, which sends one when its validators' vote passes a
 `Motion::Role` for the programs role; the programs role admits it, or a maintainer's signed frame

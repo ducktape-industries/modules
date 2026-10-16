@@ -101,6 +101,7 @@ fn full_style() -> gpui::StyleRefinement {
     style.text.text_overflow = Some(gpui::TextOverflow::TruncateMiddle("...".into()));
     style.text.text_align = Some(gpui::TextAlign::Center);
     style.text.line_clamp = Some(3);
+    style.text.letter_spacing = Some(gpui::px(-0.5));
     style
 }
 

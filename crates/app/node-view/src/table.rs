@@ -8,9 +8,8 @@ use view::{Div, Stateful};
 
 use crate::queries::Node;
 use crate::recent::{Recent, WINDOW};
-use crate::row::{self, QUIET, Row, Status};
-use crate::{Nodes, ui};
-use valset::Motion;
+use crate::row::{Row, Status};
+use crate::{Nodes, Unheard, ui, voting, words};
 use view::design::Ladder;
 
 const KEY_W: Pixels = px(104.);
@@ -35,9 +34,6 @@ const GUTTER: f32 = 16.;
 /// font's published metric, since no text measurement reaches a view. The
 /// strip's column is kept as wide as its name.
 const MONO_EM: f32 = 0.6;
-/// What a node without `chain.network` shows over the table.
-pub(crate) const NO_NETWORK: &str =
-    "This node doesn't report its validators' votes. Update the node.";
 
 /// The width beside the columns every width keeps, in the sheet's width
 /// less its inset and the scroller's gutter.
@@ -89,25 +85,11 @@ pub(crate) fn table(
     ladder: &Ladder,
 ) -> Stateful<Div> {
     let head = view.status.ready().map_or(0, |status| status.height);
-    let this = view.status.ready().map(|status| status.identity.as_slice());
     let validators = nodes.iter().filter(|node| node.validator).count() as u64;
-    // the votes, where this node hears them: only a node seated as a
-    // validator does, its own among them; without its own, it hears none (a
-    // resident, one not seated yet, one catching up after a restart)
-    let heard = view.network.ready().filter(|network| {
-        network
-            .members
-            .iter()
-            .any(|peer| this == Some(peer.key.as_slice()) && peer.signed.is_some())
-    });
+    let heard = view.heard();
     let answering = view.answering();
     let span = Recent::span(head);
-    let label = format!(
-        "Proposed · last {} · {} → {}",
-        design::plural(span.end() - span.start() + 1, "block", "blocks"),
-        design::grouped(*span.start()),
-        design::grouped(*span.end()),
-    );
+    let label = format!("{} · {}", words::PROPOSED, words::span(&span));
     let label_w =
         (label.chars().count() as f32 * f32::from(design::text::CAPTION) * MONO_EM).ceil();
     let (address, gap) = (address_fits(view), gap_beside(view, label_w));
@@ -119,13 +101,11 @@ pub(crate) fn table(
             .enumerate()
             .filter(move |(_, node)| node.validator == validator)
             .map(move |(index, node)| {
-                let this = this == Some(node.key.as_slice());
-                let cells = heard.map_or(row::BLANK, |network| row::synced(node, network));
+                let cells = view.cells(node);
                 let marks = strip(node, head, gap.unwrap_or(GAPS[0]), &view.recent, theme);
                 line(
                     index,
                     node,
-                    this,
                     cells,
                     place(marks, column),
                     view,
@@ -136,21 +116,18 @@ pub(crate) fn table(
             })
     };
     let residents = nodes.len() as u64 - validators;
-    // why the validators' cells are empty: this node hears no votes, or
-    // does not report them (before its first answer, no line)
-    let no_votes = match &view.network {
-        Loadable::Ready(_) | Loadable::Reloading(_, _) if heard.is_none() => Some((
-            "nodes-no-votes",
-            "This node isn't voting right now, so it can't see the validators' votes.",
-        )),
-        Loadable::Failed(_) => Some(("nodes-no-network", NO_NETWORK)),
-        _ => None,
-    }
-    .map(|(id, text)| note(id, text.into(), theme));
+    // why the validators' cells are empty
+    let no_votes = view.unheard().map(|why| {
+        let id = match why {
+            Unheard::NotVoting => "nodes-no-votes",
+            Unheard::NoNetwork => "nodes-no-network",
+        };
+        note(id, words::unheard(why).into(), theme)
+    });
     // the rows are what the node last said: how long ago, once it is silent
     let silent = (!answering).then(|| {
-        let age = design::ago((view.ticks - view.answered) * 1000, 0);
-        note("nodes-last-answer", format!("Last answer {age} ago"), theme)
+        let seconds = view.ticks - view.answered;
+        note("nodes-last-answer", words::last_answer(seconds), theme)
     });
     div()
         .id("nodes-table")
@@ -165,23 +142,19 @@ pub(crate) fn table(
         .child(columns(label, address, column, theme))
         .child(ui::section(
             "nodes-validators",
-            format!("Validators · {validators}"),
+            format!("{} · {validators}", words::VALIDATORS),
             theme,
         ))
         .children(rows(true))
         .child(ui::section(
             "nodes-residents",
-            format!("Residents · {residents}"),
+            format!("{} · {residents}", words::RESIDENTS),
             theme,
         ))
         .children(rows(false))
         // with no votes to read, the line above says why the cells are empty
         .children(heard.is_some().then(|| {
-            let footnote = format!(
-                "Height: the newest block the validator voted to finalize. Quiet: none for {}.",
-                design::plural(QUIET, "block", "blocks")
-            );
-            design::quiet(footnote, theme)
+            design::quiet(words::footnote(), theme)
                 .id("nodes-footnote")
                 .pt_2()
                 .px_2()
@@ -207,12 +180,12 @@ fn columns(
         .flex()
         .items_center()
         .h(design::size::CONTROL)
-        .child(name("Key".into(), KEY_W, false))
-        .children(address.then(|| name("Address".into(), ADDRESS_W, false)))
+        .child(name(words::KEY.into(), KEY_W, false))
+        .children(address.then(|| name(words::ADDRESS.into(), ADDRESS_W, false)))
         .child(stretch(beside))
-        .child(name("Height".into(), HEIGHT_W, true))
-        .child(name("Behind".into(), BEHIND_W, true))
-        .child(name("Status".into(), STATUS_W, false).pl_4());
+        .child(name(words::HEIGHT.into(), HEIGHT_W, true))
+        .child(name(words::BEHIND.into(), BEHIND_W, true))
+        .child(name(words::STATUS.into(), STATUS_W, false).pl_4());
     ruled("nodes-columns", names, below, theme)
         .font_family(design::fonts::FAMILY_MONO)
         .text_size(design::text::CAPTION)
@@ -273,20 +246,17 @@ fn cell(width: Pixels, right: bool) -> Div {
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the ladder rides beside the theme into every sized helper; the phone rework of this view reshapes the row"
-)]
 fn line(
     index: usize,
     node: &Node,
-    this: bool,
     cells: Row,
     (beside, below): (Option<(Pixels, Div)>, Option<Div>),
     view: &Nodes,
     theme: &Theme,
     ladder: &Ladder,
 ) -> Stateful<Div> {
+    // this node's row says so
+    let this = view.is_this(node);
     let muted = |text: String| div().text_color(theme.muted).child(text);
     let address = address_fits(view);
     // without the Address column, this node's mark goes under its key
@@ -297,25 +267,28 @@ fn line(
             .items_start()
             .gap_0()
             .child(key)
-            .child(muted("this node".into()).text_size(design::text::CAPTION)),
+            .child(muted(words::THIS_NODE.into()).text_size(design::text::CAPTION)),
         false => cell(KEY_W, false).child(key),
     };
     let address = address.then(|| {
-        let address = node.address.clone().unwrap_or_else(|| "—".to_owned());
         cell(ADDRESS_W, false)
-            .child(design::mono(address).text_color(theme.muted).truncate())
-            .children(this.then(|| muted("this node".into())))
+            .child(
+                design::mono(node.shown_address().to_owned())
+                    .text_color(theme.muted)
+                    .truncate(),
+            )
+            .children(this.then(|| muted(words::THIS_NODE.into())))
     });
     let height = match cells.signed {
         Some(signed) => cell(HEIGHT_W, true)
             .child(design::mono(design::grouped(signed)))
-            .child(muted("voted".into())),
-        None => cell(HEIGHT_W, true).child(muted("—".into())),
+            .child(muted(words::VOTED.into())),
+        None => cell(HEIGHT_W, true).child(muted(words::NO_VALUE.into())),
     };
     // an empty cell reads as Height's and Status's do: a quiet dash
     let behind = match cells.behind {
         Some(behind) => design::mono(design::grouped(behind)),
-        None => muted("—".into()),
+        None => muted(words::NO_VALUE.into()),
     };
     let cells = div()
         .flex()
@@ -355,23 +328,17 @@ fn under(
             .child(operator)
     });
     let motions = view.voting.votes().then(|| {
-        let key = node.key.clone();
-        let motions = match node.validator {
-            true => vec![
-                ("demote", "Demote", Motion::Demote { key: key.clone() }),
-                ("remove", "Remove", Motion::Remove { key }),
-            ],
-            false => vec![("promote", "Promote", Motion::Promote { key })],
-        };
-        motions.into_iter().map(|(name, label, motion)| {
-            let press = cx.listener(move |view: &mut Nodes, _: &ClickEvent, _, cx| {
-                view.press(motion.clone(), cx)
-            });
-            let id = ElementId::Name(format!("nodes-{name}-{index}").into());
-            design::button(id, label, ladder, theme, press)
-                .kind(design::Kind::Quiet)
-                .enabled(view.voting.pressable())
-        })
+        voting::motions_on(node)
+            .into_iter()
+            .map(|(name, label, motion)| {
+                let press = cx.listener(move |view: &mut Nodes, _: &ClickEvent, _, cx| {
+                    view.press(motion.clone(), cx)
+                });
+                let id = ElementId::Name(format!("nodes-{name}-{index}").into());
+                design::button(id, label, ladder, theme, press)
+                    .kind(design::Kind::Quiet)
+                    .enabled(view.voting.pressable())
+            })
     });
     if operator.is_none() && motions.is_none() {
         return None;
@@ -395,7 +362,7 @@ fn under(
 /// proposer; the tip framed. A resident leads none.
 fn strip(node: &Node, head: u64, gap: f32, recent: &Recent, theme: &Theme) -> Div {
     if !node.validator {
-        return div().text_color(theme.muted).child("Doesn't propose");
+        return div().text_color(theme.muted).child(words::DOESNT_PROPOSE);
     }
     let marks = Recent::span(head).map(|height| {
         let fill = match recent.led(&node.key, height) {
