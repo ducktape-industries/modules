@@ -20,11 +20,13 @@ const TITLE_GAP: Pixels = px(1.);
 
 /// An account that no longer acts shows its face at this opacity
 /// (`Avatar.tsx:38`, `off`).
+// SDK gap: the kit's face, 0.5 when off; the SDK builds it later
 const OFF: f32 = 0.5;
 
 /// An account's initial (the kit's `Avatar`): round for a person, the
 /// agent tint for an agent, square and in the data face for a program;
 /// faded when it no longer acts.
+// SDK gap: the kit's face, 0.5 when off; the SDK builds it later
 pub(super) fn face(row: &Row, size: Face, theme: &Theme) -> Div {
     let avatar = row
         .group()
@@ -105,8 +107,7 @@ pub(super) fn quiet(
 }
 
 /// A refused roster read (`crate::refused`) in the phone's padding.
-// SDK gap: the kit's `Notice` strip for a refusal, swap when feat/phone-kit
-// lands
+// SDK gap: the kit's `Notice` strip for a refusal; the SDK builds it later
 pub(super) fn refused(
     refusal: &Error,
     cx: &mut Context<Members>,

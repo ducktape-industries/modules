@@ -16,7 +16,7 @@ use super::parts::{
 use crate::{Group, Members, Roster, Row, name_or_number, standing_badge, words};
 
 /// A filter chip is this tall (`theme.ts:78`, `size.chip`).
-// SDK gap: the kit's `Chips`, swap when feat/phone-kit lands
+// SDK gap: the kit's `Chips`; the SDK builds it later
 const CHIP: Pixels = px(32.);
 /// A chosen chip's count shows at this opacity on the ink (`Choice.tsx:72`).
 const COUNT_ON_INK: f32 = 0.7;
@@ -59,10 +59,12 @@ pub(super) fn page(
     let page = design::page(
         "members-roster",
         words::MEMBERS,
+        // SDK gap: a root page with no Back still types its `None`; the SDK builds it later
         None::<fn(&ClickEvent, &mut Window, &mut App)>,
         ladder,
         theme,
     );
+    // SDK gap: the network caption; the SDK builds it later
     let page = match view.network() {
         "" => page,
         network => page.caption(format!("{network} · {}", words::accounts(count))),
@@ -82,8 +84,8 @@ pub(super) fn page(
 /// The title row while the filter is open (the kit's `Header` with its
 /// `center`): the field, its magnifier inside the edge, and Close filter,
 /// which empties it.
-// SDK gap: a `center` slot on `design::page` and the kit's `Field`, swap
-// when feat/phone-kit lands
+// SDK gap: a `center` slot on `design::page`, which the SDK builds it later;
+// the kit's `Field`, swap when feat/phone-kit lands
 fn filter_row(
     view: &Members,
     cx: &mut Context<Members>,
@@ -141,7 +143,7 @@ fn filter_row(
 
 /// The kit's `Chips`, one per `Members::choices`; the row scrolls
 /// sideways.
-// SDK gap: the kit's `Chips`, swap when feat/phone-kit lands
+// SDK gap: the kit's `Chips`; the SDK builds it later
 fn chips(
     view: &Members,
     cx: &mut Context<Members>,

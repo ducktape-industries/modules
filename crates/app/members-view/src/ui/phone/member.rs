@@ -21,7 +21,7 @@ use crate::{
 };
 
 /// A small button is this tall (`theme.ts:76`, `size.small`).
-// SDK gap: the kit's small outline `Button`, swap when feat/phone-kit lands
+// SDK gap: the kit's small outline `Button`; the SDK builds it later
 const SMALL: Pixels = px(36.);
 
 /// The member's page: Back, the name over `account N`, Explorer; then the
@@ -438,7 +438,7 @@ fn signed_row(
 
 /// The kit's small outline button (36 tall, 12 in, secondary medium),
 /// opening `link` through the host; its press reaches 44 up and down.
-// SDK gap: the kit's small outline `Button`, swap when feat/phone-kit lands
+// SDK gap: the kit's small outline `Button`; the SDK builds it later
 fn small_button(
     id: &'static str,
     label: &'static str,
@@ -473,7 +473,7 @@ fn small_button(
 /// the data face, underlined, in the foreground. Its press reaches 44 up
 /// and down and half of 44 past each side, as wide as the word is unknown
 /// here.
-// SDK gap: the explorer kit's `Linked`, swap when feat/phone-kit lands
+// SDK gap: the explorer kit's `Linked`; the SDK builds it later
 fn inline_link(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
