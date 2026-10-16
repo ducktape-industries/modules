@@ -15,6 +15,7 @@ fn text(style: StyleId) -> Node {
         id: None,
         style,
         content: "row".into(),
+        transform: None,
     })
 }
 
@@ -529,13 +530,13 @@ fn a_sparse_struct_refuses_a_field_this_build_does_not_have() {
 }
 
 /// A node on the wire: the variant's index (`Text` is `Node`'s variant 8),
-/// then its fields in order, the style as its id. No field or variant name
-/// is in a frame's bytes.
+/// then its fields in order, the style as its id, an unset one as nil. No
+/// field or variant name is in a frame's bytes.
 #[test]
 fn a_node_is_its_fields_in_order_with_no_name() {
     assert_eq!(
         encode(&text(StyleId(3))),
-        [0x81, 0x08, 0x93, 0xc0, 0x03, 0xa3, b'r', b'o', b'w']
+        [0x81, 0x08, 0x94, 0xc0, 0x03, 0xa3, b'r', b'o', b'w', 0xc0]
     );
     let frame = Frame {
         root: Some(container(

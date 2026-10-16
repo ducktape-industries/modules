@@ -427,6 +427,7 @@ fn resize_handle_round_trip_retains_routes_and_checks_its_child() {
             id: None,
             style: StyleId(1),
             content: String::new(),
+            transform: None,
         })),
         style: PLAIN,
         interactivity: Default::default(),

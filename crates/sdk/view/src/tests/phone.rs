@@ -11,12 +11,15 @@ use crate::{BackEvent, Div, Stateful, View, wire};
 struct Phone {
     pages: Pages<String>,
     picking: bool,
+    /// the reader's account name, empty while it is still being read
+    reader: String,
 }
 impl Default for Phone {
     fn default() -> Self {
         Self {
             pages: Pages::root("rooms".into()),
             picking: false,
+            reader: "mina".into(),
         }
     }
 }
@@ -34,12 +37,15 @@ impl Render for Phone {
             cx.notify();
         };
         let nav = match depth {
-            0 => Nav::Root,
+            0 => Nav::root(self.reader.clone()),
             _ => Nav::back(cx.listener(move |view, _: &ClickEvent, _, cx| pop(view, cx))),
         };
         let page = design::page("rooms", self.pages.top().clone(), nav, &ladder, &theme)
             .caption(format!("{} deep", depth))
-            .leading(div().id("avatar").size(ladder.avatar.side).rounded_full())
+            // a room's peer, on the pages after the first
+            .when(depth > 0, |page| {
+                page.leading(div().id("avatar").size(ladder.avatar.side).rounded_full())
+            })
             .trailing(design::button(
                 "new",
                 "New",
@@ -209,6 +215,7 @@ fn under_touch_a_page_is_the_expo_header() {
     let root = text(&cx, "rooms-heading");
     assert_eq!(root.font_size, Some(px(22.).into()));
     assert_eq!(root.line_height, Some(px(27.).into()));
+    assert_eq!(root.letter_spacing, Some(px(-0.22)));
     assert_eq!(root.font_weight, Some(gpui::FontWeight::MEDIUM));
     let hairline = |cx: &TestAppContext| {
         let row = cx.style("rooms-title");
@@ -220,6 +227,7 @@ fn under_touch_a_page_is_the_expo_header() {
     let detail = text(&cx, "rooms-heading");
     assert_eq!(detail.font_size, Some(px(17.).into()));
     assert_eq!(detail.line_height, Some(px(21.).into()));
+    assert_eq!(detail.letter_spacing, None);
     let theme = crate::Theme::light();
     assert_eq!(hairline(&cx), (Some(px(1.).into()), Some(theme.border)));
     assert_eq!(
@@ -237,6 +245,43 @@ fn under_touch_a_page_is_the_expo_header() {
             if path == "icons/arrow-left.svg"),
         "{arrow:?}"
     );
+}
+
+/// Under a finger a view's first page leads its title row with the
+/// reader's avatar in a press target, named "Account", undimmed by a
+/// press; a press asks the host to bring up the reader's account, and an
+/// avatar whose name is still being read draws `•`. A pointer draws none,
+/// and no page after the first does.
+#[test]
+fn a_first_page_leads_with_the_readers_account() {
+    let mut cx = TestAppContext::new();
+    let phone = cx.open::<Phone>();
+    assert!(cx.find("rooms-account").is_none(), "none under a pointer");
+    cx.simulate_touch(true);
+    let row = cx.node("rooms-title").children();
+    assert_eq!(row[0].key(), Some("rooms-account"));
+    let account = cx.interactivity("rooms-account");
+    assert_eq!(account.role, Some(crate::Role::Button));
+    assert_eq!(account.aria.label.as_deref(), Some("Account"));
+    assert_eq!(account.active, None, "no dim on a press");
+    let hit = cx.style("rooms-account");
+    assert_eq!(
+        (hit.size.width, hit.size.height),
+        (Some(px(44.).into()), Some(px(44.).into()))
+    );
+    let avatar = cx.node("rooms-account").children()[0].style().unwrap();
+    assert_eq!(cx.styles()[avatar].size.width, Some(px(32.).into()));
+    assert!(cx.has_text("M"));
+    cx.simulate_click("Account");
+    assert_eq!(cx.host().requests::<HostShow>(), [Place::Account]);
+    cx.update(&phone, |phone, _, cx| {
+        phone.reader.clear();
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(cx.has_text("•"));
+    cx.simulate_click("Open");
+    assert!(cx.find("rooms-account").is_none(), "none after Back");
 }
 
 #[derive(Default, Serialize, Deserialize)]

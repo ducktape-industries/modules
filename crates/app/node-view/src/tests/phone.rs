@@ -103,10 +103,10 @@ fn the_list_reads_the_network_its_numbers_and_every_member() {
         &[
             "Workshop",
             "● In sync · this node abcd",
-            "HEIGHT",
+            "Height",
             "4,200",
             "last block just now",
-            "BLOCK TIME",
+            "Block time",
             "1,000 ms",
             "Epoch 42 · 1 / 100",
             "Next epoch in 99 blocks",
