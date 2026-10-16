@@ -75,6 +75,8 @@ fn found(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> AnyElement {
     scroller("explorer-page")
         .child(key_value("Block", block, k))
         .children(status)
+        // SDK gap: selectable text (Expo's hash is `selectable`, a long
+        // press copies it), swap when the SDK has it
         .child(key_value("Hash", data(abi::hex(&tx.hash)).id("tx-hash"), k))
         .child(key_value("From", from(view, tx, cx, k), k))
         .child(key_value("Program", program(view, tx, k), k))
