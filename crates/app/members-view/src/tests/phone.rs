@@ -40,6 +40,9 @@ fn sweep() {
     let mut cx = phone();
     view::testing::sweep(&mut cx, |cx| {
         assert_eq!(cx.back_handler(), None);
+        for chip in 0..4 {
+            presses_44(cx, &format!("members-chip-{chip}"), 32.);
+        }
         cx.simulate_click("members-filter-open");
         cx.simulate_input("members-filter", "sc");
         cx.simulate_click("members-filter-close");
@@ -404,4 +407,59 @@ fn a_program_named_apart_from_its_program_says_which_it_runs() {
     cx.simulate_click("members-row-12");
     cx.run_until_parked();
     assert!(cx.has_text("account 12 · Program · relay"));
+}
+
+/// The node whose child `key` is.
+fn parent<'a>(node: &'a Node, key: &str) -> Option<&'a Node> {
+    node.children()
+        .iter()
+        .find_map(|child| match child.key() == Some(key) {
+            true => Some(node),
+            false => parent(child, key),
+        })
+}
+
+/// The press `key` reaches 44 tall from a frame `drawn` tall: the frame
+/// declares that height and no border (the press is pinned inside the
+/// border, so one would take 2 off it: a 32 chip pressed at 42), and the
+/// press reaches half the difference past its top and bottom.
+fn presses_44(cx: &TestAppContext, key: &str, drawn: f32) {
+    let frame = parent(cx.root(), key).unwrap_or_else(|| panic!("no {key}"));
+    let frame = &cx.styles()[frame.style().expect("a styled frame")];
+    let declared = StyleRefinement::default().h(view::px(drawn));
+    assert_eq!(frame.size.height, declared.size.height, "{key}'s frame");
+    assert_eq!(
+        (frame.border_widths.top, frame.border_widths.bottom),
+        (None, None),
+        "{key}'s frame draws a border inside its press"
+    );
+    let reach = (drawn - 44.) / 2.;
+    let pinned = StyleRefinement::default()
+        .top(view::px(reach))
+        .bottom(view::px(reach));
+    let press = style(cx, key);
+    assert_eq!(
+        (press.inset.top, press.inset.bottom),
+        (pinned.inset.top, pinned.inset.bottom),
+        "{key}"
+    );
+}
+
+#[test]
+fn every_chip_and_small_button_presses_44_tall_within_its_row() {
+    let mut cx = phone();
+    for chip in 0..4 {
+        presses_44(&cx, &format!("members-chip-{chip}"), 32.);
+    }
+    // the chips' row keeps 8 above and below, the 6 each press reaches
+    let row = style(&cx, "members-chips");
+    let padded = StyleRefinement::default().py(view::px(8.));
+    assert_eq!(
+        (row.padding.top, row.padding.bottom),
+        (padded.padding.top, padded.padding.bottom)
+    );
+    cx.simulate_click("members-row-11");
+    cx.run_until_parked();
+    presses_44(&cx, "members-open-dm", 36.);
+    presses_44(&cx, "members-explorer", 36.);
 }

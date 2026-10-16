@@ -446,10 +446,7 @@ fn small_button(
     ladder: &Ladder,
     theme: &Theme,
 ) -> Div {
-    div()
-        .relative()
-        .flex_none()
-        .h(SMALL)
+    let drawn = div()
         .flex()
         .items_center()
         .justify_center()
@@ -459,7 +456,17 @@ fn small_button(
         .text_type(ladder.secondary)
         .font_weight(FontWeight::MEDIUM)
         .whitespace_nowrap()
-        .child(label)
+        .child(label);
+    // the press is pinned inside its frame's border, so the frame draws
+    // none and the outline is its child: the press reaches 4 past a 36
+    // frame (44); both buttons are wider than 44, so it reaches no further
+    // sideways
+    div()
+        .relative()
+        .flex_none()
+        .h(SMALL)
+        .flex()
+        .child(drawn)
         .child(
             design::hit(id, ladder.hit, SMALL, ladder)
                 .role(Role::Button)

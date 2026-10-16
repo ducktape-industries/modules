@@ -168,7 +168,8 @@ fn chips(
 }
 
 /// One chip: an outline, the chosen one in ink, its count in the data face
-/// two spaces after the label; its press reaches 44 up and down.
+/// two spaces after the label (`Choice.tsx:51-78`); its press reaches 44
+/// up and down.
 fn chip(
     view: &Members,
     index: usize,
@@ -191,10 +192,7 @@ fn chip(
         view.cursor = None;
         cx.notify();
     });
-    div()
-        .relative()
-        .flex_none()
-        .h(CHIP)
+    let drawn = div()
         .flex()
         .items_center()
         .px(space::MD)
@@ -211,7 +209,18 @@ fn chip(
                 .text_size(ladder.tiny.size)
                 .text_color(number)
                 .child(format!("  {count}")),
-        )
+        );
+    // the press is pinned inside its frame's border, so the frame draws
+    // none and the chip's outline is its child: the press reaches 6 past
+    // a 32 frame into the row's 8 above and below (44), never over the
+    // row's neighbours; it is as wide as the chip, every chip being wider
+    // than 44, so it never reaches the next chip either
+    div()
+        .relative()
+        .flex_none()
+        .h(CHIP)
+        .flex()
+        .child(drawn)
         .child(
             design::hit(format!("members-chip-{index}"), ladder.hit, CHIP, ladder)
                 .role(Role::Button)
