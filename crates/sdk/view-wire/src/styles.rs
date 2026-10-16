@@ -360,6 +360,7 @@ pub(crate) mod testing {
         if frame.styles.is_empty() {
             frame.styles = plain();
         }
-        crate::sanitize(frame, &mut Styles::default())
+        // what is refused: where is the location tests' business
+        crate::sanitize(frame, &mut Styles::default()).map_err(|refused| refused.reason().clone())
     }
 }
