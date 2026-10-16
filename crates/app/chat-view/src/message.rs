@@ -5,6 +5,7 @@ use chat::{Block, Mark, MsgRow, Principal, Reaction, Span};
 use view::HighlightStyle;
 use view::prelude::*;
 
+#[cfg(not(feature = "notifier"))]
 use crate::Chat;
 use crate::names::mention_token;
 use crate::words;
@@ -342,6 +343,7 @@ impl Run {
     }
 }
 
+#[cfg(not(feature = "notifier"))]
 /// A line of `spans`, each run drawn by `run` (one design's), a press on a
 /// link or mention opening it.
 pub(crate) fn line(

@@ -83,6 +83,8 @@ fn release(dir: &Path) {
     for (program, view) in founding::PROGRAMS {
         fs::write(dir.join(format!("{program}.wasm")), module(program)).unwrap();
         fs::write(dir.join(format!("{view}.wasm")), module(view)).unwrap();
+        let notify = format!("{view}.notify");
+        fs::write(dir.join(format!("{notify}.wasm")), module(&notify)).unwrap();
         let describe = format!("{program}.describe");
         fs::write(dir.join(format!("{describe}.wasm")), module(&describe)).unwrap();
     }
@@ -109,11 +111,21 @@ fn the_bundle_names_every_file_it_holds_and_packs_each_program_with_its_own_view
         assert_eq!(section(&packed, founding::VIEW_SECTION), [module(view)]);
         let describe = module(&format!("{program}.describe"));
         assert_eq!(section(&packed, founding::DESCRIBE_SECTION), [describe]);
+        // chat and forge carry their notifier; the others none
+        let notifier = founding::NOTIFIERS
+            .iter()
+            .find(|(name, _)| *name == program)
+            .map(|(_, view)| module(&format!("{view}.notify")));
+        assert_eq!(
+            section(&packed, founding::NOTIFY_SECTION),
+            Vec::from_iter(notifier)
+        );
     }
     for program in founding::UNVIEWED {
         let packed = fs::read(out.path().join(format!("{program}.wasm"))).unwrap();
         assert_eq!(section(&packed, "tag"), [program.as_bytes().to_vec()]);
         assert!(section(&packed, founding::VIEW_SECTION).is_empty());
+        assert!(section(&packed, founding::NOTIFY_SECTION).is_empty());
         let describe = module(&format!("{program}.describe"));
         assert_eq!(section(&packed, founding::DESCRIBE_SECTION), [describe]);
     }

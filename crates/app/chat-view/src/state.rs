@@ -68,19 +68,12 @@ pub struct Chat {
     pub(crate) timeline_drawn: RefCell<Drawn>,
     #[serde(skip)]
     pub(crate) thread_drawn: RefCell<Drawn>,
-    /// messages meant for the reader in rooms they have not read, by room
-    #[serde(skip)]
-    pub(crate) attention: BTreeMap<String, i64>,
-    /// the tab badge last sent
-    #[serde(skip)]
-    pub(crate) badge: Option<i64>,
     /// the window's title last sent
     #[serde(skip)]
     pub(crate) title: Option<String>,
-    /// `attention` was counted again from the read cursors since this view
-    /// (re)started
+    /// the room last named to the host as the one shown (`host.showing`)
     #[serde(skip)]
-    pub(crate) recounted: bool,
+    pub(crate) showing: Option<String>,
     /// the channel list read again while the one on screen stays
     #[serde(skip)]
     pub(crate) rereading_channels: Option<view::Task<()>>,

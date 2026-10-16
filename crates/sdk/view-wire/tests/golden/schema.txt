@@ -17,8 +17,10 @@ host.id None String -> String
 host.log None String -> ()
 host.placement None () -> Placement
 host.route None () -> String
+host.screen None () -> Vec<String>
 host.session None () -> Session
 host.show None Place -> ()
+host.showing None String -> ()
 host.title None String -> ()
 host.unfloat None () -> ()
 host.visible None () -> bool
@@ -37,6 +39,7 @@ op.submit Some("P") ProgramOp -> Submitted
 program.changes Some("P") () -> Option<Change>
 program.describe None (String, Vec<u8>) -> Option<Description>
 program.query Some("P") ProgramQuery -> ProgramReply
+store.changes None () -> String
 store.get None String -> Option<Vec<u8>>
 store.set None (String, Option<Vec<u8>>) -> ()
 
@@ -1651,6 +1654,22 @@ Visibility enum
 WhiteSpace enum
   0 Normal: Unit
   1 Nowrap: Unit
+
+# notifier: what its tick takes -> what it answers, borsh
+tick Vec<Answer> -> Turn
+Answer = Struct { fields: NamedFields([("id", "u64"), ("result", "Result<Vec<u8>, Error>"), ("done", "bool")]) }
+Error = Struct { fields: NamedFields([("code", "String"), ("message", "String")]) }
+Request = Struct { fields: NamedFields([("id", "u64"), ("kind", "String"), ("payload", "Vec<u8>")]) }
+Result<Vec<u8>, Error> = Enum { tag_width: 1, variants: [(1, "Ok", "Vec<u8>"), (0, "Err", "Error")] }
+String = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u8" }
+Turn = Struct { fields: NamedFields([("requests", "Vec<Request>"), ("cancels", "Vec<u64>"), ("busy", "bool")]) }
+Vec<Answer> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Answer" }
+Vec<Request> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Request" }
+Vec<u64> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u64" }
+Vec<u8> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u8" }
+bool = Primitive(1)
+u64 = Primitive(8)
+u8 = Primitive(1)
 
 # manifest: one line each, in order
 ducktape.view.manifest

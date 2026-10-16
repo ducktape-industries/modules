@@ -1,5 +1,6 @@
-//! Packs what `make wasm-modules` builds into a founding: each program with its describe module
-//! and any view embedded, forge's and halo's params, and a founding file `ducktape init` reads.
+//! Packs what `make wasm-modules` builds into a founding: each program with its describe module,
+//! any view and any notifier embedded, forge's and halo's params, and a founding file `ducktape
+//! init` reads.
 
 use std::borrow::Cow;
 use std::fs;
@@ -13,6 +14,9 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub const VIEW_SECTION: &str = "ducktape.view";
 pub const DESCRIBE_SECTION: &str = "ducktape.describe";
+/// A program's notifier: the headless module of its view crate the app runs
+/// once per network to post the program's notices (`view::Notifier`).
+pub const NOTIFY_SECTION: &str = "ducktape.notify";
 pub const FOUNDING: &str = include_str!("../founding.toml");
 
 pub const PROGRAMS: [(&str, &str); 7] = [
@@ -34,6 +38,9 @@ pub const UNVIEWED: &[&str] = &[
     "attribution",
 ];
 pub const VIEWS: [&str; 1] = ["explorer_view"];
+/// The programs that ship a notifier, and the module `make wasm-notifiers`
+/// builds it as (`<view>.notify.wasm`).
+pub const NOTIFIERS: [(&str, &str); 2] = [("chat", "chat_view"), ("forge", "forge_view")];
 
 pub fn forge_bounds() -> forge::Bounds {
     forge::Bounds {
@@ -82,7 +89,10 @@ pub fn bundle(release: &Path, out: &Path) -> Result<()> {
     };
     for (program, view) in PROGRAMS {
         let packed = embed(&read(program)?, &read(view)?)?;
-        let packed = embed_describe(&packed, &read(&format!("{program}.describe"))?)?;
+        let mut packed = embed_describe(&packed, &read(&format!("{program}.describe"))?)?;
+        if let Some((_, view)) = NOTIFIERS.iter().find(|(name, _)| *name == program) {
+            packed = embed_notify(&packed, &read(&format!("{view}.notify"))?)?;
+        }
         fs::write(out.join(format!("{program}.wasm")), packed)?;
     }
     for program in UNVIEWED {
@@ -139,6 +149,11 @@ pub fn strip_section(program: &[u8], name: &str) -> Result<Vec<u8>> {
 pub fn embed(program: &[u8], view: &[u8]) -> Result<Vec<u8>> {
     validate(view)?;
     embed_section(program, VIEW_SECTION, view)
+}
+
+pub fn embed_notify(program: &[u8], notifier: &[u8]) -> Result<Vec<u8>> {
+    validate(notifier)?;
+    embed_section(program, NOTIFY_SECTION, notifier)
 }
 
 pub fn embed_describe(program: &[u8], module: &[u8]) -> Result<Vec<u8>> {

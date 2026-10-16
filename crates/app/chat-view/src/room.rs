@@ -44,7 +44,6 @@ impl Chat {
             self.channels_arrived(list, cx);
             self.save_reads(cx);
         }
-        self.settle_badge(cx);
     }
 
     pub(crate) fn open(&mut self, id: String, cx: &mut Context<Self>) {
@@ -382,7 +381,6 @@ impl Chat {
             self.channels_arrived(list, cx);
             self.save_reads(cx);
         }
-        self.settle_badge(cx);
     }
 
     /// Settled native list geometry drives paging and tail state. Wheel deltas
