@@ -251,15 +251,18 @@ pub fn sweep(cx: &mut TestAppContext, mut drive: impl FnMut(&mut TestAppContext)
 /// click route, a field) whose height is under `ladder.hit`, or that is
 /// invisible. Its height is its own declared one, else the nearest row
 /// above it that declares one; for a node pinned absolute to its parent's
-/// top and bottom, that row's less the two insets, so a negative inset
-/// reaches past it (`design::hit`). Also a many-line field with an
-/// `on_submit` (the software Return is a newline); the root's `on_back`
-/// not exactly when there is somewhere to go back to (a sheet open, or a
-/// Back control drawn: a node named "Back", as `design::page` names it
-/// below the root of a `Pages` stack). Declared sizes only: the harness has no layout
-/// engine, so a width or height left to layout is not judged here (the qa
-/// phone-layout goldens are). A long press has no wire signal of its own,
-/// so its custom-action twin (rule 5) is the review's.
+/// top and bottom, that row's less the two insets. A node that reaches
+/// past its parent (negative insets, `design::hit`) is measured off its
+/// parent alone, which must declare its height: the reach is sized to
+/// that parent, so a taller row further up says nothing about the box.
+/// Also a many-line field with an `on_submit` (the software Return is a
+/// newline); the root's `on_back` not exactly when there is somewhere to
+/// go back to (a sheet open, or a Back control drawn: a node named "Back",
+/// as `design::page` names it below the root of a `Pages` stack). Declared
+/// sizes only: the harness has no layout engine, so a width or height left
+/// to layout is not judged here (the qa phone-layout goldens are). A long
+/// press has no wire signal of its own, so its custom-action twin (rule 5)
+/// is the review's.
 pub fn assert_fits(
     tree: &Node,
     styles: &crate::wire::Styles,
@@ -319,15 +322,24 @@ pub fn assert_fits(
             if invisible {
                 faults.push(format!("a pressable node is invisible at {}", path()));
             }
-            let nearest = height_of(node).or_else(|| {
-                let above = chain
+            let parent = chain.len().checked_sub(2).map(|at| chain[at]);
+            let reach = pinned(node).filter(|insets| *insets < 0.);
+            let nearest = match (height_of(node), reach) {
+                (Some(own), _) => Some(own),
+                (None, Some(reach)) => parent.and_then(&height_of).map(|h| h - reach),
+                (None, None) => chain
                     .iter()
                     .rev()
                     .skip(1)
-                    .find_map(|node| height_of(node))?;
-                Some(above - pinned(node).unwrap_or(0.))
-            });
-            if !nearest.is_some_and(|h| h >= hit) {
+                    .find_map(|node| height_of(node))
+                    .map(|above| above - pinned(node).unwrap_or(0.)),
+            };
+            if reach.is_some() && nearest.is_none() {
+                faults.push(format!(
+                    "a press box reaches past a parent that declares no height at {}",
+                    path()
+                ));
+            } else if !nearest.is_some_and(|h| h >= hit) {
                 faults.push(format!(
                     "a pressable node declares no height of at least {hit} (itself or the nearest row above it that declares one) at {}",
                     path()

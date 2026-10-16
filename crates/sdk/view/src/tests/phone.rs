@@ -33,9 +33,12 @@ impl Render for Phone {
             view.pages.pop();
             cx.notify();
         };
-        let back =
-            (depth > 0).then(|| cx.listener(move |view, _: &ClickEvent, _, cx| pop(view, cx)));
-        let page = design::page("rooms", self.pages.top().clone(), back, &ladder, &theme)
+        let page = design::page("rooms", self.pages.top().clone(), &ladder, &theme);
+        let page = match depth {
+            0 => page.root(),
+            _ => page.back(cx.listener(move |view, _: &ClickEvent, _, cx| pop(view, cx))),
+        };
+        let page = page
             .caption(format!("{} deep", depth))
             .leading(div().id("avatar").size(ladder.avatar.side).rounded_full())
             .trailing(design::button(
@@ -178,8 +181,9 @@ fn page_draws_back_by_the_ladder_and_clears_the_capsule_under_touch() {
 }
 
 /// Under a finger the title row is the Expo kit's `Header`: a first page's
-/// title is the big one with no hairline under the row; a page with Back
-/// has the 17 medium title, the hairline, and the Lucide arrow in a 44 box.
+/// title is the big one over a clear hairline; a page with Back has the
+/// 17 medium title, the hairline in `border`, and the Lucide arrow in a 44
+/// box.
 #[test]
 fn under_touch_a_page_is_the_expo_header() {
     let mut cx = TestAppContext::new();
@@ -190,14 +194,22 @@ fn under_touch_a_page_is_the_expo_header() {
     assert_eq!(root.font_size, Some(px(22.).into()));
     assert_eq!(root.line_height, Some(px(27.).into()));
     assert_eq!(root.font_weight, Some(gpui::FontWeight::MEDIUM));
-    assert_eq!(cx.style("rooms-title").border_widths.bottom, None);
+    let hairline = |cx: &TestAppContext| {
+        let row = cx.style("rooms-title");
+        (row.border_widths.bottom, row.border_color)
+    };
+    let clear = crate::hsla(0., 0., 0., 0.);
+    assert_eq!(hairline(&cx), (Some(px(1.).into()), Some(clear)));
     cx.simulate_click("Open");
     let detail = text(&cx, "rooms-heading");
     assert_eq!(detail.font_size, Some(px(17.).into()));
     assert_eq!(detail.line_height, Some(px(21.).into()));
-    let row = cx.style("rooms-title");
-    assert_eq!(row.border_widths.bottom, Some(px(1.).into()));
-    assert_eq!(row.min_size.height, Some(px(56.).into()));
+    let theme = crate::Theme::light();
+    assert_eq!(hairline(&cx), (Some(px(1.).into()), Some(theme.border)));
+    assert_eq!(
+        cx.style("rooms-title").min_size.height,
+        Some(px(56.).into())
+    );
     let back = cx.style("rooms-back");
     assert_eq!(
         (back.size.width, back.size.height),
@@ -311,6 +323,60 @@ fn a_short_chip_without_a_hit_does_not_fit_a_phone() {
     let mut cx = TestAppContext::new();
     cx.open::<BareChip>();
     cx.simulate_touch(true);
+    testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
+}
+
+/// A chip that leaves its height to layout (about 20 tall: one line), in
+/// a row `row` tall, pressing through a `design::hit` sized as if it were
+/// 30: the hit's reach is measured off the chip alone, so the row's height
+/// says nothing about the box and the chip must declare its own.
+fn loose_chip(row: f32) -> Stateful<Div> {
+    div().id("row").h(px(row)).child(
+        div().id("chip").min_w(px(40.)).child("👍 2").child(
+            design::hit("react", px(40.), px(30.), &design::TOUCH)
+                .role(crate::Role::Button)
+                .aria_label("👍 2")
+                .focusable()
+                .on_click(|_, _, _| {}),
+        ),
+    )
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct LooseChipInATallRow;
+impl View for LooseChipInATallRow {
+    const NAME: &'static str = "LooseChipInATallRow";
+}
+impl Render for LooseChipInATallRow {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        loose_chip(48.)
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct LooseChipInAShortRow;
+impl View for LooseChipInAShortRow {
+    const NAME: &'static str = "LooseChipInAShortRow";
+}
+impl Render for LooseChipInAShortRow {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        loose_chip(30.)
+    }
+}
+
+#[test]
+#[should_panic(expected = "a press box reaches past a parent that declares no height")]
+fn a_hit_in_a_chip_of_no_declared_height_does_not_fit_in_a_tall_row() {
+    let mut cx = TestAppContext::new();
+    cx.open::<LooseChipInATallRow>();
+    testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
+}
+
+#[test]
+#[should_panic(expected = "a press box reaches past a parent that declares no height")]
+fn a_hit_in_a_chip_of_no_declared_height_does_not_fit_in_a_short_row() {
+    let mut cx = TestAppContext::new();
+    cx.open::<LooseChipInAShortRow>();
     testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
 }
 
