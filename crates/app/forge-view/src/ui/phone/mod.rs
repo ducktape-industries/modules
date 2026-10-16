@@ -100,6 +100,8 @@ fn sheet(
             let title = match menu {
                 Menu::Ref => words::PICK_A_REF,
                 Menu::Head => words::DEFAULT_HEAD,
+                Menu::Source => "Source",
+                Menu::Target => "Target",
             };
             parts::ref_sheet(menu, title, forge, cx, ladder, theme)
         }

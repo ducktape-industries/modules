@@ -273,6 +273,8 @@ impl Forge {
         wanted.push(Query::Activity { repo: repo.clone() });
         // the tab bar says how many changes are open, whichever tab shows
         wanted.extend(self.open_changes_query());
+        // a new change's form says how its endpoints compare
+        wanted.extend(self.form_compare_query());
         match self.nav.change {
             Some(n) => wanted.extend(self.change_reads(&repo, n)),
             None => wanted.extend(self.tab_reads(repo)),
@@ -349,7 +351,7 @@ impl Forge {
             n,
             page: PAGE,
         }];
-        let (Some((_, source_head, _, _)), Some(_)) = (self.change(), self.endpoints()) else {
+        let (Some(_), Some(_)) = (self.change(), self.endpoints()) else {
             return wanted;
         };
         wanted.extend(self.compare_query());
@@ -359,17 +361,8 @@ impl Forge {
             let open = self.nav.commit.as_deref();
             wanted.extend(open.into_iter().flat_map(|oid| self.commit_reads(oid)));
         }
-        if let (ChangeTab::Files, Some(head), Some(comparison)) =
-            (self.nav.change_tab, source_head.clone(), self.compare())
-        {
-            wanted.push(Query::Diff {
-                repo: repo.to_owned(),
-                base: comparison.base.clone(),
-                head,
-                path: None,
-                page: PAGE,
-            });
-        }
+        // the strip counts the files on every tab, as Expo's does
+        wanted.extend(self.diff_query());
         wanted
     }
 

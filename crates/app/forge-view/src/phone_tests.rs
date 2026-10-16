@@ -261,6 +261,21 @@ fn a_change_shows_its_state_who_wants_what_and_four_tabs() {
     assert!(cx.find("forge-reply").is_some());
 }
 
+/// The strip says each tab's count whichever tab is open, as Expo's
+/// does: the change's conversation and its diff are read with it.
+#[test]
+fn the_strip_counts_every_tab_whichever_is_open() {
+    let mut cx = change("reviewed");
+    let said = |cx: &TestAppContext, tab: &str| -> Vec<String> {
+        let tab = cx.node(&format!("forge-change-tab-{tab}"));
+        marked(tab).into_iter().map(|(text, _)| text).collect()
+    };
+    assert_eq!(said(&cx, "files").len(), 2, "{:?}", said(&cx, "files"));
+    press(&mut cx, "forge-change-tab-files");
+    let conversation = said(&cx, "conversation");
+    assert_eq!(conversation.len(), 2, "{conversation:?}");
+}
+
 #[test]
 fn the_conversation_lists_the_reviews_as_advisory_and_the_replies() {
     let cx = change("reviewed");
@@ -519,6 +534,45 @@ fn compare_opens_a_new_change_that_refuses_a_blank_title() {
     );
 }
 
+/// New change from the Changes tab (Expo 38): no source yet; Source opens
+/// the ref sheet titled "Source", a pick fills it and the endpoints
+/// compare; Open sends the change from it into the default head.
+#[test]
+fn new_change_from_the_changes_tab_picks_its_source_on_the_ref_sheet() {
+    let mut cx = repository("default");
+    press(&mut cx, "forge-tab-changes");
+    press(&mut cx, "forge-new-change");
+    assert!(cx.has_text("Pick a source"));
+    assert!(!cx.texts().iter().any(|text| text.contains(" ahead · ")));
+    press(&mut cx, "forge-change-from");
+    assert!(cx.find("forge-change-from-sheet").is_some());
+    assert!(cx.has_text("Source"));
+    press(&mut cx, "forge-ref-refs/heads/clean");
+    assert!(
+        cx.find("forge-change-from-sheet").is_none(),
+        "a pick closes it"
+    );
+    assert!(cx.has_text("clean"));
+    assert!(
+        cx.texts().iter().any(|text| text.contains(" ahead · ")),
+        "{:?}",
+        cx.texts()
+    );
+    cx.simulate_input("forge-change-title", "Clean up");
+    press(&mut cx, "forge-change-send");
+    let opened = submitted(&cx).into_iter().find_map(|op| match op {
+        forge::Op::ChangeOpen { from, into, .. } => Some((from, into)),
+        _ => None,
+    });
+    assert_eq!(
+        opened,
+        Some((
+            forge::Revision::Ref(b"refs/heads/clean".to_vec()),
+            b"refs/heads/main".to_vec()
+        ))
+    );
+}
+
 // ------------------------------------------------------------------ the sweep
 
 /// Every phone screen fits each phone width under the touch ladder, and
@@ -547,6 +601,11 @@ fn forge_fits_every_phone() {
         cx.simulate_back();
         cx.run_until_parked();
         press(cx, "forge-tab-changes");
+        press(cx, "forge-new-change");
+        press(cx, "forge-change-from");
+        cx.simulate_dismiss("forge-change-from-sheet");
+        cx.simulate_back();
+        cx.run_until_parked();
         press(cx, "forge-change-project-1");
         press(cx, "forge-change-more");
         cx.simulate_dismiss("forge-change-actions");

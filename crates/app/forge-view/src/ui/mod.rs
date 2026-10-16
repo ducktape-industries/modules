@@ -82,7 +82,7 @@ pub(crate) fn render(forge: &mut Forge, cx: &mut Context<Forge>) -> impl IntoEle
     // press outside closes it
     let (label, floating) = match forge.menu {
         None => ("", None),
-        Some(menu @ Menu::Ref) => (
+        Some(menu @ (Menu::Ref | Menu::Source | Menu::Target)) => (
             words::PICK_A_REF,
             Some(components::menu(menu, "Refs", forge, cx, &theme, ladder)),
         ),

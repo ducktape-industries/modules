@@ -401,7 +401,7 @@ pub(crate) fn menu(
 ) -> AnyElement {
     let key = menu.key();
     let refs = forge.menu_list(menu);
-    let what = match menu == Menu::Ref && forge.menu_tags {
+    let what = match menu != Menu::Head && forge.menu_tags {
         true => "tags",
         false => "branches",
     };
@@ -451,7 +451,7 @@ pub(crate) fn menu(
     // the rows the list has room for: the frame keeps one height as the
     // filter narrows it and as the tabs switch, and stays in the window
     let mut chrome = 2. * BORDER + 2. * design::spacing::SM as f32 + ROW + 2. * LIST_PAD + BORDER;
-    if menu == Menu::Ref {
+    if menu != Menu::Head {
         let counts = [false, true].map(|tags| forge.menu_refs(tags).len());
         let choices = [("branches", "Branches"), ("tags", "Tags")]
             .into_iter()
@@ -487,7 +487,7 @@ pub(crate) fn menu(
         chrome += design::spacing::SM as f32 + ROW + 2. * BORDER;
     }
     let total = match menu {
-        Menu::Ref => forge.refs().map_or(0, <[_]>::len),
+        Menu::Ref | Menu::Source | Menu::Target => forge.refs().map_or(0, <[_]>::len),
         Menu::Head => forge.branches().len(),
     };
     let (_, y) = forge.menu_at;

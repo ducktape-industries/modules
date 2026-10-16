@@ -125,7 +125,7 @@ impl Forge {
         let comments = review.line_comments();
         if matches!(verdict, Verdict::Comment) && review.body.is_blank() && comments.is_empty() {
             if let Some(review) = self.reviews.get_mut(&key) {
-                review.error = "A comment review needs a body or a line comment".into();
+                review.error = "Say something, or discard.".into();
             }
             cx.notify();
             return;

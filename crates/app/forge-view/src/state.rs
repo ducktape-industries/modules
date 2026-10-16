@@ -365,6 +365,10 @@ pub(crate) enum Menu {
     Ref,
     /// the default head in the repository's settings
     Head,
+    /// a new change's source (the phone's change form)
+    Source,
+    /// a new change's target (the phone's change form)
+    Target,
 }
 
 impl Menu {
@@ -374,6 +378,8 @@ impl Menu {
         match self {
             Menu::Ref => "forge-ref-picker",
             Menu::Head => "forge-settings-head",
+            Menu::Source => "forge-change-from",
+            Menu::Target => "forge-change-into",
         }
     }
 }

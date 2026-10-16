@@ -178,6 +178,10 @@ impl Forge {
             cx.notify();
             return;
         }
+        // a new change opens from a source: Open waits for one
+        if form.edit.is_none() && form.from.is_empty() {
+            return;
+        }
         let form = form.clone();
         self.form = None;
         let repo = form.repo.clone();

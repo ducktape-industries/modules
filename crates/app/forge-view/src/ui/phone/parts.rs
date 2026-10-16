@@ -1347,7 +1347,7 @@ fn ref_sheet_controls(
         forge.menu_tags = index == 1;
         forge.menu_step(0, cx);
     });
-    let kinds = (menu == Menu::Ref).then(|| {
+    let kinds = (menu != Menu::Head).then(|| {
         design::segmented(
             id(format!("{key}-kind")),
             words::BRANCHES_OR_TAGS,

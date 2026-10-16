@@ -161,7 +161,7 @@ impl Forge {
         self.menu_at = (at.x.into(), at.y.into());
         self.menu_search.reset("");
         let picked = self.menu_picked(menu);
-        self.menu_tags = menu == Menu::Ref && picked.starts_with(b"refs/tags/");
+        self.menu_tags = menu != Menu::Head && picked.starts_with(b"refs/tags/");
         let index = self.menu_list(menu).iter().position(|name| *name == picked);
         self.menu_cursor = index.unwrap_or(0);
         // centred, so the pick shows with its neighbours; arrows keep Nearest
@@ -179,8 +179,9 @@ impl Forge {
         cx.notify();
     }
 
-    /// `name` picked in `menu`: the ref every tab reads, or the settings
-    /// form's default head. The menu closes and gives the keys back.
+    /// `name` picked in `menu`: the ref every tab reads, the settings
+    /// form's default head, or the change form's source or target. The
+    /// menu closes and gives the keys back.
     pub(crate) fn menu_pick(
         &mut self,
         menu: Menu,
@@ -193,6 +194,16 @@ impl Forge {
             Menu::Head => {
                 if let Some(form) = &mut self.repo_settings {
                     form.head = name;
+                }
+            }
+            Menu::Source => {
+                if let Some(form) = &mut self.form {
+                    form.from = name;
+                }
+            }
+            Menu::Target => {
+                if let Some(form) = &mut self.form {
+                    form.into = name;
                 }
             }
         }

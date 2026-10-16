@@ -1244,7 +1244,9 @@ fn actions(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
 }
 
 /// Close asked again (`Dialog`): closing is final; Close for good, or
-/// Cancel.
+/// Cancel. Asked inside the More sheet, in Expo's words, until the SDK
+/// draws a dialog.
+// SDK gap: dialog (Expo `kit/Dialog.tsx`), swap when feat/phone-kit lands
 fn close_for_good(cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> Div {
     let confirm = cx.listener(|forge, _: &ClickEvent, _, cx| {
         forge.close_change(cx);

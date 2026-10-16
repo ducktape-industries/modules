@@ -4,7 +4,7 @@ use std::rc::Rc;
 use view::prelude::*;
 
 use crate::queries::PAGE;
-use crate::state::{self, ChangeTab, Forge, Menu, Nav, change_key};
+use crate::state::{self, Forge, Menu, Nav, change_key};
 use crate::words::ref_label;
 use forge::Principal;
 use forge::{
@@ -174,15 +174,16 @@ impl Forge {
         refs
     }
 
-    /// What `menu` lists: the ref picker its open tab, the default head
+    /// What `menu` lists: a ref picker its open tab, the default head
     /// the branches.
     pub(crate) fn menu_list(&self, menu: Menu) -> Vec<Vec<u8>> {
-        self.menu_refs(menu == Menu::Ref && self.menu_tags)
+        self.menu_refs(menu != Menu::Head && self.menu_tags)
     }
 
-    /// The ref `menu` has picked: the one browsed, or the settings form's
-    /// default head.
+    /// The ref `menu` has picked: the one browsed, the settings form's
+    /// default head, or the change form's source or target.
     pub(crate) fn menu_picked(&self, menu: Menu) -> Vec<u8> {
+        let form = self.form.as_ref();
         match menu {
             Menu::Ref => self.head_name(),
             Menu::Head => self
@@ -190,7 +191,23 @@ impl Forge {
                 .as_ref()
                 .map(|form| form.head.clone())
                 .unwrap_or_default(),
+            Menu::Source => form.map(|form| form.from.clone()).unwrap_or_default(),
+            Menu::Target => form.map(|form| form.into.clone()).unwrap_or_default(),
         }
+    }
+
+    /// How a new change's source compares with its target, once a source
+    /// is picked (`changes/new.tsx` `useCompare`).
+    pub(crate) fn form_compare_query(&self) -> Option<Query> {
+        let form = self.change_form()?;
+        if form.edit.is_some() || form.from.is_empty() {
+            return None;
+        }
+        Some(Query::Compare {
+            repo: form.repo.clone(),
+            from: Revision::Ref(form.from.clone()),
+            into: Revision::Ref(form.into.clone()),
+        })
     }
 
     /// The default head of the repo, or `refs/heads/main` before it lands.
@@ -399,10 +416,11 @@ impl Forge {
         }
     }
 
-    /// The hidden chat channel of the open change.
+    /// The hidden chat channel of the open change, read on every tab: the
+    /// strip counts its lines, as Expo's does.
     pub(crate) fn open_channel(&self) -> Option<String> {
         let (change, _, _, _) = self.change()?;
-        (self.nav.change_tab == ChangeTab::Conversation).then(|| change.channel.clone())
+        Some(change.channel.clone())
     }
 
     pub(crate) fn review(&self) -> Option<&state::ReviewSession> {

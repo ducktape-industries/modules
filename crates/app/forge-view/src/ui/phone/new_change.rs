@@ -1,8 +1,8 @@
 //! New change, or Edit change #n (Expo
 //! `app/(tabs)/forge/[repo]/changes/new.tsx`, board 72): its source and
 //! target with how they compare, the title, the body, the reviewers; Open
-//! (or Save) in the title row. The source and target are the ones the
-//! form was opened with (a ref's Compare, the change edited).
+//! (or Save) in the title row. The source and target are picked on the
+//! ref sheet (`RefSheet` "Source" / "Target"); an edit keeps its own.
 //!
 //! Reads the change form and the comparison of its endpoints; writes the
 //! form, and opens or saves the change (`submit_change`).
@@ -13,9 +13,9 @@ use view::{Div, FontWeight, Stateful, wire};
 use super::parts;
 use crate::Forge;
 use crate::id;
-use crate::state::{ChangeForm, Sheet, change_key};
+use crate::state::{ChangeForm, Menu, Sheet, change_key};
 use crate::words::{self, ref_label};
-use forge::{Query, Reply, Revision};
+use forge::Reply;
 
 /// A removable chip's cross (`Choice.tsx` `RemovableChip`).
 const CHIP_CROSS: Pixels = px(14.);
@@ -41,21 +41,27 @@ pub(super) fn render(
         .flex_col()
         .gap(design::space::XL)
         .p(design::space::BLOCK)
-        .child(endpoints(forge, form, ladder, theme))
+        .child(endpoints(forge, form, cx, ladder, theme))
         .child(title_field(form, cx, ladder, theme))
         .child(body_field(form, ladder, theme))
         .child(reviewers(forge, form, cx, ladder, theme));
     design::page("forge-page-change-form", title, Some(back), ladder, theme)
         .caption(form.repo.clone())
-        .trailing(send(verb, !parts::sending(forge), cx, ladder, theme))
+        .trailing(send(verb, ready(forge, form), cx, ladder, theme))
         .children(parts::notices(forge, ladder, theme))
         .children(parts::pending(forge, &scope, ladder, theme))
         .child(body)
         .into_any_element()
 }
 
+/// Open or Save is pressable: no write of this change is on its way, and
+/// a new change has its source.
+fn ready(forge: &Forge, form: &ChangeForm) -> bool {
+    !parts::sending(forge) && (form.edit.is_some() || !form.from.is_empty())
+}
+
 /// Open or Save in the title row (`HitText`): medium, a finger's height,
-/// faint while a write of this change is on its way.
+/// faint while it is not `ready`.
 fn send(
     verb: &'static str,
     ready: bool,
@@ -84,53 +90,49 @@ fn send(
     }
 }
 
-/// "Source → target": the two refs as the form holds them (off: the form
-/// keeps the endpoints it was opened with), and how they compare.
-fn endpoints(forge: &Forge, form: &ChangeForm, ladder: &Ladder, theme: &Theme) -> Div {
+/// "Source → target": a button each that opens the ref sheet (off for an
+/// edit, which keeps its endpoints), and how they compare.
+fn endpoints(
+    forge: &Forge,
+    form: &ChangeForm,
+    cx: &mut Context<Forge>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> Div {
     let source = match form.from.is_empty() {
         true => "Pick a source".to_owned(),
         false => ref_label(&form.from),
     };
-    let fixed = |key: &'static str, label: String| {
-        parts::small_button(
-            id(key),
-            label,
-            ladder,
-            theme,
-            |_: &ClickEvent, _: &mut Window, _: &mut App| {},
-        )
-        .icon("git-branch")
-        .enabled(false)
+    let editing = form.edit.is_some();
+    let mut picker = |menu: Menu, label: String| {
+        let open = cx.listener(move |forge, event: &ClickEvent, window, cx| {
+            forge.open_dropdown(menu, event, window, cx)
+        });
+        parts::small_button(id(menu.key()), label, ladder, theme, open)
+            .icon("git-branch")
+            .enabled(!editing)
     };
     let pair = div()
         .flex()
         .flex_wrap()
         .items_center()
         .gap(design::space::LG)
-        .child(fixed("forge-change-from", source))
+        .child(picker(Menu::Source, source))
         .child(design::icon("arrow-right", ladder.icon_row).text_color(theme.foreground))
-        .child(fixed("forge-change-into", ref_label(&form.into)));
+        .child(picker(Menu::Target, ref_label(&form.into)));
     div()
         .flex()
         .flex_col()
         .gap(design::space::SM)
         .child(parts::caption("Source → target", ladder, theme))
         .child(pair)
-        .children(comparison(forge, form).map(|said| parts::caption(said, ladder, theme)))
+        .children(comparison(forge).map(|said| parts::caption(said, ladder, theme)))
 }
 
 /// `N ahead · M behind · <word>` for a new change whose endpoints have
 /// been compared.
-fn comparison(forge: &Forge, form: &ChangeForm) -> Option<String> {
-    if form.edit.is_some() {
-        return None;
-    }
-    let query = Query::Compare {
-        repo: form.repo.clone(),
-        from: Revision::Ref(form.from.clone()),
-        into: Revision::Ref(form.into.clone()),
-    };
-    let Reply::Compare { comparison, .. } = forge.ready(&query)? else {
+fn comparison(forge: &Forge) -> Option<String> {
+    let Reply::Compare { comparison, .. } = forge.ready(&forge.form_compare_query()?)? else {
         return None;
     };
     Some(words::compared(comparison))

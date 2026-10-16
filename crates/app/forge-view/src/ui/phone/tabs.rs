@@ -5,7 +5,8 @@
 //! Reads the browsed ref's tree, README, history, the changes under the
 //! picked filter, the refs and their comparisons, and the repository's
 //! settings and writers; writes the settings (`configure`), revokes and
-//! grants, and opens a change from a ref (`start_change`).
+//! grants, and opens a change from a ref or from the Changes tab
+//! (`start_change`).
 use std::rc::Rc;
 
 use view::design::{Kind, Ladder, TextType};
@@ -495,13 +496,34 @@ fn changes(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
     .autocapitalize(Autocapitalize::None)
     .virtual_keyboard(VirtualKeyboard::Search)
     .placeholder(words::SEARCH_TITLES);
+    // a change opens from a source picked on its form; it takes an account
+    let start =
+        cx.listener(|forge, _: &ClickEvent, window, cx| forge.start_change(Vec::new(), window, cx));
+    let new_change = parts::small_button(
+        id("forge-new-change"),
+        words::NEW_CHANGE,
+        ladder,
+        theme,
+        start,
+    )
+    .icon("git-pull-request")
+    .enabled(forge.me_principal().is_some());
     let page = body("forge-changes")
         .child(filter_chips(forge, cx, ladder, theme))
         .child(
             div()
+                .flex()
+                .items_center()
+                .gap(design::space::SM)
                 .px(design::space::BLOCK)
                 .pb(design::space::SM)
-                .child(parts::search_field(search, "search", ladder, theme)),
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .child(parts::search_field(search, "search", ladder, theme)),
+                )
+                .child(new_change),
         )
         .children(parts::pending(forge, "changes", ladder, theme));
     let repo = forge.repo_name();
