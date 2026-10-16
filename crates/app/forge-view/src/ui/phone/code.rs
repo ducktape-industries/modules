@@ -1,0 +1,241 @@
+//! A file of the browsed ref (Expo
+//! `app/(tabs)/forge/[repo]/code/[...path].tsx`, board 63): its name over
+//! its folder and the ref, Copy the path and Copy link in the title row;
+//! `lang · N lines · size` with Wrap (and Source for markdown) over its
+//! lines, or the markdown rendered; why a file that is not text shows
+//! nothing.
+//!
+//! Reads the open blob (`Nav::blob`); writes the clipboard and the page's
+//! wrap and source toggles.
+use view::Div;
+use view::design::{Kind, Ladder};
+use view::prelude::*;
+
+use super::document;
+use super::lines::{self, Shown};
+use super::parts::{self, Back};
+use crate::Forge;
+use crate::ui::components::{id, path_text, ref_label};
+use crate::ui::highlight;
+use forge::{BlobView, Content, Query, Reply};
+
+pub(super) fn render(
+    forge: &Forge,
+    back: Back,
+    cx: &mut Context<Forge>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> AnyElement {
+    let (path, oid) = forge.nav().blob.clone().unwrap_or_default();
+    let path = path_text(&path);
+    let (dir, name) = path.rsplit_once('/').unwrap_or(("", &path));
+    let repo = forge.repo_name();
+    let folder = if dir.is_empty() { repo.as_str() } else { dir };
+    let caption = format!("{folder} · {}", ref_label(&forge.head_name()));
+    let segments: Vec<&str> = std::iter::once(repo.as_str())
+        .chain(path.split('/'))
+        .collect();
+    let link =
+        ducklink::mint(&forge.session.chain_id, forge::PROGRAM, &segments).unwrap_or_default();
+    design::page("forge-page-blob", name.to_owned(), back, ladder, theme)
+        .caption(caption)
+        .trailing(copy(
+            "forge-blob-copy-path",
+            ("copy", "Copy the path"),
+            path.clone(),
+            forge,
+            cx,
+            (ladder, theme),
+        ))
+        .trailing(copy(
+            "forge-blob-copy-link",
+            ("link", "Copy link"),
+            link,
+            forge,
+            cx,
+            (ladder, theme),
+        ))
+        .children(parts::notices(forge, ladder, theme))
+        .child(body(forge, (&oid, dir, name), cx, ladder, theme))
+        .into_any_element()
+}
+
+/// A copy control: `text` to the clipboard; its glyph turns to a check
+/// once it is there (the Expo app says so in a toast the view has none
+/// of).
+fn copy(
+    key: &'static str,
+    (glyph, name): (&'static str, &'static str),
+    text: String,
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    (ladder, theme): (&Ladder, &Theme),
+) -> impl IntoElement {
+    let glyph = if forge.copied.as_deref() == Some(text.as_str()) {
+        "check"
+    } else {
+        glyph
+    };
+    let press = cx.listener(move |forge, _: &ClickEvent, _, cx| {
+        cx.host()
+            .notify::<view::methods::ClipboardWrite>(text.clone());
+        forge.copied = Some(text.clone());
+        cx.notify();
+    });
+    design::icon_button(
+        id(key),
+        design::icon(glyph, ladder.icon),
+        name,
+        ladder,
+        theme,
+        press,
+    )
+}
+
+/// The file once read (`FileBody`), else the read in its place.
+fn body(
+    forge: &Forge,
+    (oid, dir, name): (&str, &str, &str),
+    cx: &mut Context<Forge>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> AnyElement {
+    let query = Query::Blob {
+        repo: forge.repo_name(),
+        oid: oid.to_owned(),
+        range: None,
+    };
+    let blob = match parts::stage(
+        forge,
+        &query,
+        "forge-blob",
+        "Reading the file…",
+        cx,
+        (ladder, theme),
+    ) {
+        Ok(Reply::Blob { blob, .. }) => blob,
+        Ok(_) => return div().into_any_element(),
+        Err(state) => return state,
+    };
+    if let Some(none) = unreadable(blob, ladder, theme) {
+        return none;
+    }
+    let markdown = highlight::language_of(name) == Some("markdown");
+    let shown = forge.blob_cache.lines(oid, name, &blob.bytes);
+    let facts = [
+        highlight::language_of(name).map(str::to_owned),
+        Some(design::plural(shown.rows.len() as u64, "line", "lines")),
+        Some(parts::size_of(blob.size)),
+    ];
+    let facts = facts.into_iter().flatten().collect::<Vec<_>>().join(" · ");
+    let bar = parts::bar(
+        "forge-blob-bar",
+        parts::caption(facts, ladder, theme).text_type(ladder.secondary),
+        toggles(forge, markdown, cx, ladder, theme),
+        ladder,
+        theme,
+    );
+    let content = match markdown && !forge.source {
+        true => {
+            let blocks = forge.blob_cache.doc(oid, &blob.bytes);
+            let links = crate::ui::code::links(dir.as_bytes().to_vec(), cx);
+            div()
+                .id(id("forge-blob-document"))
+                .flex_1()
+                .min_h(px(0.))
+                .overflow_y_scroll()
+                .p(design::space::BLOCK)
+                .child(document::markdown(
+                    "forge-blob-doc",
+                    &blocks,
+                    &links,
+                    ladder,
+                    theme,
+                ))
+                .into_any_element()
+        }
+        false => {
+            let shown = Shown {
+                key: "forge-blob-lines",
+                page: lines::page_of(oid),
+                rows: lines::file_lines(&shown.rows, &shown.tokens),
+                head: None,
+                wrapped: forge.wrap,
+            };
+            lines::block(shown, forge, cx, ladder, theme)
+        }
+    };
+    div()
+        .flex_1()
+        .min_h(px(0.))
+        .flex()
+        .flex_col()
+        .child(bar)
+        .child(content)
+        .into_any_element()
+}
+
+/// Why a file that is not text shows nothing (`FileBody`'s empty states).
+fn unreadable(blob: &BlobView, ladder: &Ladder, theme: &Theme) -> Option<AnyElement> {
+    let (title, body) = match blob.content {
+        Content::Text => return None,
+        Content::Binary => (
+            "Binary file",
+            format!("{} bytes. Nothing here reads as text.", blob.size),
+        ),
+        Content::Oversize => (
+            "Too large to show",
+            format!(
+                "{} bytes, above this network's inline blob bound. Fetch the repository to read it.",
+                blob.size
+            ),
+        ),
+        Content::Gitlink => (
+            "Submodule",
+            "This entry points at another repository.".to_owned(),
+        ),
+    };
+    Some(
+        parts::empty_state(
+            id("forge-blob-unreadable"),
+            "file-question",
+            title,
+            body,
+            ladder,
+            theme,
+        )
+        .into_any_element(),
+    )
+}
+
+/// Source (a markdown file) and Wrap (while the lines show), each ink
+/// while on.
+fn toggles(
+    forge: &Forge,
+    markdown: bool,
+    cx: &mut Context<Forge>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> Div {
+    let ink = |on: bool| if on { Kind::Primary } else { Kind::Outline };
+    let source = markdown.then(|| {
+        let flip = cx.listener(|forge, _: &ClickEvent, _, cx| {
+            forge.source = !forge.source;
+            cx.notify();
+        });
+        parts::small_button(id("forge-source"), "Source", ladder, theme, flip)
+            .kind(ink(forge.source))
+    });
+    let wrap = (!markdown || forge.source).then(|| {
+        let flip = cx.listener(|forge, _: &ClickEvent, _, cx| {
+            forge.wrap = !forge.wrap;
+            cx.notify();
+        });
+        parts::small_button(id("forge-wrap"), "Wrap", ladder, theme, flip).kind(ink(forge.wrap))
+    });
+    div()
+        .flex()
+        .gap(design::space::SM)
+        .children(source)
+        .children(wrap)
+}

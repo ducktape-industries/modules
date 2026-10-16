@@ -37,6 +37,9 @@ pub struct Forge {
     /// the window's title last sent
     #[serde(skip)]
     pub(crate) title: Option<String>,
+    /// the host badge last posted: 1 while a change waits on my judgment
+    #[serde(skip)]
+    pub(crate) badge: Option<i64>,
     pub(crate) layout: Layout,
     #[serde(skip)]
     /// every read on screen, keyed by the query that asked it
@@ -94,6 +97,28 @@ pub struct Forge {
     /// the dropdown open under its button, if any
     #[serde(skip)]
     pub(crate) menu: Option<Menu>,
+    /// the sheet open over the phone's page, if any (boards 21, 23)
+    #[serde(skip)]
+    pub(crate) sheet: Option<Sheet>,
+    /// the phone's change page shows its Details tab (board 23)
+    #[serde(skip)]
+    pub(crate) details: bool,
+    /// the phone's Refs tab lists the tags, not the branches
+    #[serde(skip)]
+    pub(crate) refs_tags: bool,
+    /// the phone's file page wraps its lines
+    #[serde(skip)]
+    pub(crate) wrap: bool,
+    /// the phone's file page shows a markdown file's source, not the
+    /// document
+    #[serde(skip)]
+    pub(crate) source: bool,
+    /// the list the phone's code and diff rows are drawn in
+    #[serde(skip)]
+    pub(crate) lines: crate::ui::phone::Block,
+    /// the phone's people sheet's filter (reviewers, a writer to grant)
+    #[serde(skip)]
+    pub(crate) people_search: TextField,
     /// where the open dropdown sits: under the press that opened it
     #[serde(skip)]
     pub(crate) menu_at: (f32, f32),
@@ -170,6 +195,66 @@ impl Nav {
     pub fn revision(&self, head: &[u8]) -> Revision {
         Revision::Ref(self.rev.clone().unwrap_or_else(|| head.to_vec()))
     }
+
+    /// The page stack this record projects to, root first: `Nav` is the one
+    /// route model (every screen reads it, a snapshot restores it), so the
+    /// stack is derived from it each render rather than kept beside it. The
+    /// phone shows the top page alone and Back pops one level
+    /// ([`Forge::back`](crate::Forge::back)); the desktop docks the same
+    /// pages as panes.
+    pub fn pages(&self) -> Vec<Page> {
+        let mut pages = vec![Page::Repos];
+        if self.repo.is_none() {
+            return pages;
+        }
+        pages.push(Page::Repo);
+        if self.change.is_some() {
+            pages.push(Page::Change);
+            match self.change_tab {
+                ChangeTab::Files if self.diff_path.is_some() => pages.push(Page::File),
+                ChangeTab::Commits if self.commit.is_some() => pages.push(Page::Commit),
+                _ => {}
+            }
+            return pages;
+        }
+        match self.tab {
+            RepoTab::Code if self.blob.is_some() => pages.push(Page::Blob),
+            RepoTab::Commits if self.commit.is_some() => pages.push(Page::Commit),
+            _ => {}
+        }
+        pages
+    }
+
+    /// `0` at the repositories: how many pages Back has to pop.
+    pub fn depth(&self) -> usize {
+        self.pages().len() - 1
+    }
+}
+
+/// One page of the stack [`Nav::pages`] projects, the screen the phone
+/// shows alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Page {
+    Repos,
+    Repo,
+    Change,
+    /// one file of a change's diff, shown alone
+    File,
+    /// one commit of a repository's or a change's log
+    Commit,
+    /// one file of the Code tab
+    Blob,
+}
+
+/// A sheet a phone page opens over itself; Back closes it first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Sheet {
+    /// what an open change offers its author and writers: Edit, Close
+    ChangeActions,
+    /// a member to grant write access to (the Settings tab)
+    Grant,
+    /// a member to ask for a review (the change form)
+    Reviewers,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -291,6 +291,17 @@ impl Forge {
         })
     }
 
+    /// The changes that wait on my judgment, across every repository: the
+    /// Changes tab's judgment filter, and the repositories page's top
+    /// section on the phone (board 20). Nobody (no account) has
+    /// none to ask for.
+    pub(crate) fn judgment_query(&self) -> Option<Query> {
+        Some(Query::Judgment {
+            principal: self.me_principal()?,
+            page: PAGE,
+        })
+    }
+
     pub(crate) fn change_query(&self) -> Option<Query> {
         Some(Query::Change {
             repo: self.nav.repo.clone()?,

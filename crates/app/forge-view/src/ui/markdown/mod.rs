@@ -12,5 +12,5 @@ mod parse;
 mod render;
 
 pub(crate) use links::{Target, target};
-pub(crate) use parse::{Block, parse};
+pub(crate) use parse::{Block, Text, parse};
 pub(crate) use render::{OnLink, render, render_blocks};

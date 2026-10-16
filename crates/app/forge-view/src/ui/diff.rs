@@ -757,7 +757,7 @@ pub(crate) fn path_of(file: &FileDiff) -> Option<Vec<u8>> {
     file.new_path.clone().or_else(|| file.old_path.clone())
 }
 
-fn status_label(status: FileStatus) -> &'static str {
+pub(crate) fn status_label(status: FileStatus) -> &'static str {
     match status {
         FileStatus::Added => "added",
         FileStatus::Deleted => "deleted",
@@ -811,7 +811,7 @@ fn counts(file: &FileDiff) -> Option<String> {
 }
 
 /// Why a file has no lines to show.
-fn why(file: &FileDiff) -> &'static str {
+pub(crate) fn why(file: &FileDiff) -> &'static str {
     match file.content {
         Content::Binary => "Binary file — no lines to show",
         Content::Oversize => "Too large to diff inline",

@@ -9,7 +9,8 @@ use view::prelude::*;
 
 use crate::queries::{self, PAGE};
 use crate::state::{ChangeTab, Filter, Forge, Progress, RepoTab};
-use forge::{ChangeFilter, ChangeState, PageRequest, Query, Revision};
+use forge::{ChangeFilter, ChangeState, PageRequest, Query, Reply, Revision};
+use view::methods::HostBadge;
 
 impl Forge {
     pub(crate) fn session_changed(&mut self, next: Session, cx: &mut Context<Self>) {
@@ -188,6 +189,17 @@ impl Forge {
         cx.load(self, queries::roster(cx.host()), |forge| &mut forge.names);
     }
 
+    /// Read the open change's conversation again, as the reader asked
+    /// after a refusal.
+    pub(crate) fn retry_conversation(&mut self, cx: &mut Context<Self>) {
+        if let Some(channel) = self.open_channel() {
+            self.rereading_messages.remove(&channel);
+            self.messages.remove(&channel);
+        }
+        self.sync(cx);
+        cx.notify();
+    }
+
     /// Retry one read the reader asked to retry.
     pub(crate) fn retry(&mut self, query: Query, cx: &mut Context<Self>) {
         self.rereading.remove(&query);
@@ -210,6 +222,7 @@ impl Forge {
         for query in needed {
             self.read(query, cx);
         }
+        self.settle_badge(cx);
         let Some(channel) = self.open_channel() else {
             self.messages.clear();
             self.rereading_messages.clear();
@@ -224,11 +237,34 @@ impl Forge {
         }
     }
 
+    /// The host's badge for this program: a dot (1) while a change waits
+    /// on my judgment, none (0) otherwise; never a count. Posted when it
+    /// changes, from the judgment read every screen keeps (the next block
+    /// re-reads it, so the dot follows the chain).
+    fn settle_badge(&mut self, cx: &mut Context<Self>) {
+        let waiting = self
+            .judgment_query()
+            .and_then(|query| match self.ready(&query)? {
+                Reply::Judgment { page, .. } => Some(!page.items.is_empty()),
+                _ => None,
+            })
+            .unwrap_or(false);
+        let badge = i64::from(waiting);
+        if self.badge != Some(badge) {
+            self.badge = Some(badge);
+            cx.host().notify::<HostBadge>(badge);
+        }
+    }
+
     /// Every question the current screen has. A question whose arguments are
     /// not known yet (a tree needs its commit) simply is not asked until the
     /// read that answers it lands.
     fn needed(&self) -> Vec<Query> {
+        // what waits on my judgment, on every screen: the repositories
+        // page lists it first, and the host's badge (`host.badge`) says
+        // whether anything does while the view ticks (rule 16)
         let mut wanted = vec![Query::Repos { page: PAGE }];
+        wanted.extend(self.judgment_query());
         let Some(repo) = self.nav.repo.clone() else {
             return wanted;
         };
@@ -342,12 +378,7 @@ impl Forge {
     pub(crate) fn changes_query(&self, repo: &str) -> Option<Query> {
         let me = self.me_principal();
         let state = match self.filter {
-            Filter::Judgment => {
-                return Some(Query::Judgment {
-                    principal: me?,
-                    page: PAGE,
-                });
-            }
+            Filter::Judgment => return self.judgment_query(),
             Filter::Merged => Some(ChangeState::Merged),
             Filter::Closed => Some(ChangeState::Closed),
             Filter::Open => Some(ChangeState::Open),

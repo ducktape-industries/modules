@@ -11,6 +11,7 @@ pub(crate) mod diff;
 pub(crate) mod dock;
 pub(crate) mod highlight;
 pub(crate) mod markdown;
+pub(crate) mod phone;
 pub(crate) mod readme;
 pub(crate) mod refs;
 pub(crate) mod repos;
@@ -34,9 +35,10 @@ pub(crate) const TAB_BAR_H: Pixels = px(38.);
 /// A fact's label column.
 const FACT_LABEL_W: Pixels = px(120.);
 
-pub(crate) fn render(forge: &mut Forge, touch: bool, cx: &mut Context<Forge>) -> impl IntoElement {
+pub(crate) fn render(forge: &mut Forge, cx: &mut Context<Forge>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
-    let ladder = &design::ladder(touch);
+    // under a finger the phone's tree draws instead (`phone::render`)
+    let ladder = &design::POINTER;
     let mut columns = div()
         .id(id("forge-columns"))
         .flex()

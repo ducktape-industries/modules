@@ -124,6 +124,25 @@ fn lang(name: &str) -> Option<&'static Lang> {
     })
 }
 
+/// The language a file's name says it is written in, as the phone's file
+/// bar names it (the Expo app's `highlight.ts` `languageOf`): the tables
+/// [`lang`] picks, by the same extensions; `None` for plain text.
+pub(crate) fn language_of(name: &str) -> Option<&'static str> {
+    let lower = name.to_ascii_lowercase();
+    let ext = lower.rsplit('.').next().unwrap_or("");
+    Some(match ext {
+        "md" | "markdown" => "markdown",
+        "rs" | "rust" => "rust",
+        "ts" | "tsx" => "typescript",
+        "js" | "mjs" | "cjs" | "jsx" | "javascript" | "typescript" => "javascript",
+        "sh" | "bash" | "zsh" | "shell" => "shell",
+        "toml" => "toml",
+        "yaml" | "yml" => "yaml",
+        "json" => "json",
+        _ => return None,
+    })
+}
+
 /// Tokens of every line of `text`, by line. Markdown source is its own
 /// case: a heading or a fence line is one token, the rest is prose.
 pub(crate) fn tokens(name: &str, lines: &[&str]) -> Vec<Vec<(Range<usize>, Token)>> {

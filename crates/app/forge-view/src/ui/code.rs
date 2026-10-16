@@ -433,8 +433,8 @@ fn is_markdown(name: &str) -> bool {
 
 /// A text blob's rows and their highlight tokens.
 pub(crate) struct Lines {
-    rows: Vec<String>,
-    tokens: Vec<Vec<(Range<usize>, highlight::Token)>>,
+    pub(crate) rows: Vec<String>,
+    pub(crate) tokens: Vec<Vec<(Range<usize>, highlight::Token)>>,
 }
 
 /// The open blob decoded once: its lines and tokens (by blob id and name,
@@ -448,7 +448,7 @@ pub(crate) struct BlobCache {
 }
 
 impl BlobCache {
-    fn lines(&self, oid: &str, name: &str, bytes: &[u8]) -> Rc<Lines> {
+    pub(crate) fn lines(&self, oid: &str, name: &str, bytes: &[u8]) -> Rc<Lines> {
         let mut slot = self.lines.borrow_mut();
         if let Some((o, n, lines)) = slot.as_ref()
             && o == oid

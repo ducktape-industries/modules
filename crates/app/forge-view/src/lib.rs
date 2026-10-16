@@ -112,7 +112,12 @@ impl Render for Forge {
         // a change's title lands async: the frame is the one place that
         // sees each
         self.settle_title(cx);
-        ui::render(self, window.touch(), cx)
+        // the one pick between the two designs: under a finger the Expo
+        // app's screens (`ui::phone`), under a pointer the desktop's
+        match window.touch() {
+            true => ui::phone::render(self, cx),
+            false => ui::render(self, cx).into_any_element(),
+        }
     }
 }
 

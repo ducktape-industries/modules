@@ -3,13 +3,17 @@
 use view::prelude::*;
 
 use crate::Stage;
-use crate::state::{ChangeTab, Dock, Filter, Forge, Menu, RepoTab, SettingsForm, change_key};
+use crate::state::{
+    ChangeTab, Dock, Filter, Forge, Menu, Page, RepoTab, SettingsForm, Sheet, change_key,
+};
 use crate::ui::markdown::Target;
 use forge::Reply;
 
 impl Forge {
     fn moved(&mut self, cx: &mut Context<Self>) {
         self.notice.clear();
+        self.sheet = None;
+        self.details = false;
         // a walk of a list ends where the reader moves: none stays lit
         self.list_cursor = None;
         self.repos_cursor = None;
@@ -24,6 +28,55 @@ impl Forge {
     pub(crate) fn open_repos(&mut self, cx: &mut Context<Self>) {
         self.nav = Default::default();
         self.moved(cx);
+    }
+
+    /// Whether a sheet lies over the phone's page: a picker, a change's
+    /// actions, About, New repository, or the finish-review form. Back closes it before it
+    /// pops a page, and the phone's root sets `on_back` while one is open
+    /// (rule 13).
+    pub(crate) fn sheet_open(&self) -> bool {
+        self.menu.is_some()
+            || self.sheet.is_some()
+            || self.nav.dock == Some(Dock::About)
+            || self.new_repo.is_some()
+            || self.review().is_some_and(|review| review.finishing)
+    }
+
+    /// The phone's Back: the open sheet closes, else the open change form;
+    /// else the top page pops to the one under it
+    /// ([`crate::state::Nav::pages`]). Nothing at the root.
+    pub(crate) fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(menu) = self.menu {
+            return self.close_dropdown(menu, window, cx);
+        }
+        if self.sheet.take().is_some() {
+            return cx.notify();
+        }
+        if self.nav.dock == Some(Dock::About) {
+            return self.toggle_dock(Dock::About, cx);
+        }
+        if self.review().is_some_and(|review| review.finishing) {
+            return self.finishing(false, cx);
+        }
+        if self.new_repo.is_some() {
+            return self.cancel_repo(cx);
+        }
+        if self.change_form().is_some() {
+            return self.cancel_change(cx);
+        }
+        match self.nav.pages().last().copied().unwrap_or(Page::Repos) {
+            Page::Repos => {}
+            Page::Repo => self.open_repos(cx),
+            Page::Change => self.open_change(None, cx),
+            Page::File => self.single_file(None, cx),
+            Page::Commit => self.open_commit(None, cx),
+            Page::Blob => self.nav_close_blob(cx),
+        }
+    }
+
+    pub(crate) fn open_sheet(&mut self, sheet: Option<Sheet>, cx: &mut Context<Self>) {
+        self.sheet = sheet;
+        cx.notify();
     }
 
     /// A `host.route` item: `<name>` opens that repository, `<name>/<n>`
@@ -161,6 +214,9 @@ impl Forge {
     }
 
     pub(crate) fn open_file(&mut self, path: Vec<u8>, oid: String, cx: &mut Context<Self>) {
+        // a file opens unwrapped, a markdown one as its document
+        self.wrap = false;
+        self.source = false;
         self.nav.cursor = Some(path.clone());
         self.nav.blob = Some((path, oid));
         self.moved(cx);
@@ -256,6 +312,14 @@ impl Forge {
         self.nav.diff_path = None;
         self.nav.commit = None;
         self.moved(cx);
+    }
+
+    /// The phone's Details tab: the change's sidebar as a page of its own
+    /// (board 23). Any move leaves it.
+    pub(crate) fn open_details(&mut self, cx: &mut Context<Self>) {
+        self.change_tab_cursor = None;
+        self.details = true;
+        cx.notify();
     }
 
     pub(crate) fn set_filter(&mut self, filter: Filter, cx: &mut Context<Self>) {
