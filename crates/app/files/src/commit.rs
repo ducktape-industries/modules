@@ -7,7 +7,7 @@ use ::program::{BlobId, Error, ExecCtx, Principal, QueryCtx, invalid, stale};
 use crate::objects::{
     FileObj, SnapshotObj, check_chunks, digest, put_bytes, put_file, put_snapshot,
 };
-use crate::paths::{join, writable_path};
+use crate::paths::{Writer, join, writable_path, writer};
 use crate::state::{COUNT, HEAD, HISTORY, SNAPSHOTS, minted, newest_first};
 use crate::tree::{TreeEdit, node_at};
 use crate::{Change, Content, Node, SnapshotRow};
@@ -53,7 +53,7 @@ pub(crate) fn commit(
         .map(|row| row.root);
     let head = HEAD.get(ctx)?;
     let head_root = head.as_ref().map(|row| row.root);
-    let plan = plan(ctx, &author, changes)?;
+    let plan = plan(ctx, &writer(ctx, &author)?, changes)?;
     unchanged_since_base(ctx, base_root, head_root, &plan.touched)?;
     let mut edit = TreeEdit::over(head_root);
     for step in plan.steps {
@@ -74,7 +74,7 @@ pub(crate) fn commit(
     Ok(())
 }
 
-fn plan(ctx: &QueryCtx, author: &Principal, changes: Vec<Change>) -> Result<Plan, Error> {
+fn plan(ctx: &QueryCtx, author: &Writer, changes: Vec<Change>) -> Result<Plan, Error> {
     let mut touched = Vec::new();
     let mut seen = BTreeSet::new();
     let mut touch = |segments: &Vec<String>| {

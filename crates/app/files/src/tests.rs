@@ -3,8 +3,25 @@
 use std::collections::BTreeMap;
 
 use ::program::{BlobId, Env, Error, MockHost, Program, code};
+use abi::role::identity::{Kind, Profile};
 
 use crate::*;
+
+mod homes;
+
+fn profile(number: u64, name: &str) -> Profile {
+    Profile {
+        number,
+        name: name.into(),
+        kind: Kind::User,
+    }
+}
+
+fn host() -> MockHost {
+    let host = MockHost::default();
+    host.identity(vec![profile(1, "ada"), profile(2, "bo")]);
+    host
+}
 
 fn ada() -> Env {
     MockHost::env(PROGRAM)
@@ -86,7 +103,7 @@ fn text(host: &MockHost, path: &str, at: Option<BlobId>) -> Result<String, Error
 
 #[test]
 fn a_commit_writes_files_that_a_reader_lists_stats_and_reads() {
-    let host = MockHost::default();
+    let host = host();
     let id = commit(
         &host,
         ada(),
@@ -143,7 +160,7 @@ fn a_commit_writes_files_that_a_reader_lists_stats_and_reads() {
 
 #[test]
 fn an_empty_filesystem_lists_its_roots_and_has_nothing_to_read() {
-    let host = MockHost::default();
+    let host = host();
     assert_eq!(head(&host), None);
     for root in ["/", "/home", "/home/ada", "/shared"] {
         assert!(names(&host, root, None).is_empty(), "{root}");
@@ -165,9 +182,9 @@ fn an_empty_filesystem_lists_its_roots_and_has_nothing_to_read() {
 }
 
 #[test]
-fn an_account_writes_only_under_a_home_or_shared_and_a_refusal_leaves_nothing() {
-    let host = MockHost::default();
-    for path in ["/etc/passwd", "/home/ada", "/shared"] {
+fn an_account_writes_only_under_its_own_home_or_shared_and_a_refusal_leaves_nothing() {
+    let host = host();
+    for path in ["/etc/passwd", "/home/ada", "/shared", "/home/bo/notes"] {
         let op = Op::Commit {
             base: None,
             message: String::new(),
@@ -195,7 +212,7 @@ fn an_account_writes_only_under_a_home_or_shared_and_a_refusal_leaves_nothing() 
 
 #[test]
 fn a_base_is_stale_only_for_the_paths_that_changed_since() {
-    let host = MockHost::default();
+    let host = host();
     let first = commit(&host, ada(), None, vec![put("/shared/x", "1")]).unwrap();
     commit(&host, bo(), None, vec![put("/shared/y", "2")]).unwrap();
     let op = Op::Commit {
@@ -217,7 +234,7 @@ fn a_base_is_stale_only_for_the_paths_that_changed_since() {
 
 #[test]
 fn directories_are_made_moved_and_removed_and_each_rule_refuses_alone() {
-    let host = MockHost::default();
+    let host = host();
     commit(
         &host,
         ada(),
@@ -305,7 +322,7 @@ fn directories_are_made_moved_and_removed_and_each_rule_refuses_alone() {
 
 #[test]
 fn a_large_file_is_staged_in_chunks_and_read_across_them() {
-    let host = MockHost::default();
+    let host = host();
     let full = vec![b'a'; CHUNK_SIZE as usize];
     let tail = b"tail".to_vec();
     let stage = |bytes: Vec<u8>| -> BlobId {
@@ -386,7 +403,7 @@ fn a_large_file_is_staged_in_chunks_and_read_across_them() {
 
 #[test]
 fn an_older_snapshot_keeps_its_tree_and_history_lists_newest_first() {
-    let host = MockHost::default();
+    let host = host();
     let first = commit(&host, ada(), None, vec![put("/shared/x", "old")]).unwrap();
     let second = commit(&host, ada(), Some(first), vec![put("/shared/x", "new")]).unwrap();
     assert_eq!(text(&host, "/shared/x", Some(first)).unwrap(), "old");
@@ -422,7 +439,7 @@ fn an_older_snapshot_keeps_its_tree_and_history_lists_newest_first() {
 
 #[test]
 fn find_and_grep_page_through_a_snapshot_and_keep_their_cursor_to_it() {
-    let host = MockHost::default();
+    let host = host();
     let files: Vec<Change> = ["/shared/a/1", "/shared/a/2", "/shared/a-b", "/shared/b/3"]
         .into_iter()
         .map(|path| put(path, &format!("needle in {path}\nhay\nneedle again")))
@@ -504,7 +521,7 @@ fn find_and_grep_page_through_a_snapshot_and_keep_their_cursor_to_it() {
 
 #[test]
 fn a_diff_names_what_was_added_removed_and_modified_under_a_prefix() {
-    let host = MockHost::default();
+    let host = host();
     let from = commit(
         &host,
         ada(),
@@ -557,7 +574,7 @@ fn a_diff_names_what_was_added_removed_and_modified_under_a_prefix() {
 
 #[test]
 fn a_pin_names_a_minted_snapshot_and_only_its_owner_removes_it() {
-    let host = MockHost::default();
+    let host = host();
     let id = commit(&host, ada(), None, vec![put("/shared/x", "x")]).unwrap();
     Files::execute(
         &host.exec(ada()),
@@ -612,7 +629,7 @@ fn a_pin_names_a_minted_snapshot_and_only_its_owner_removes_it() {
 
 #[test]
 fn a_symlink_reads_as_its_target_and_a_commit_carries_a_change() {
-    let host = MockHost::default();
+    let host = host();
     commit(
         &host,
         ada(),

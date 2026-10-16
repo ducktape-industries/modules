@@ -329,7 +329,7 @@ pub(crate) struct Write;
 
 impl Tool for Write {
     const NAME: &'static str = "files_write";
-    const DESCRIPTION: &'static str = "Write a text file to the network's filesystem, creating its directories, in one commit. Your account writes under /home/<your name>/ and /shared/.";
+    const DESCRIPTION: &'static str = "Write a text file to the network's filesystem, creating its directories, in one commit. Your account writes only under /shared/ and its own home, /home/<your name>/ with your name exactly as the network shows it; every other home is its own account's.";
     const WRITES: bool = true;
     type Args = WriteArgs;
 
@@ -372,8 +372,7 @@ pub(crate) struct Remove;
 
 impl Tool for Remove {
     const NAME: &'static str = "files_remove";
-    const DESCRIPTION: &'static str =
-        "Remove a file or a whole directory from the network's filesystem, in one commit.";
+    const DESCRIPTION: &'static str = "Remove a file or a whole directory from the network's filesystem, in one commit. Your account removes only under /shared/ and its own home, /home/<your name>/.";
     const WRITES: bool = true;
     type Args = RemoveArgs;
 
@@ -410,7 +409,7 @@ pub(crate) struct Move;
 
 impl Tool for Move {
     const NAME: &'static str = "files_move";
-    const DESCRIPTION: &'static str = "Move or rename a file or directory of the network's filesystem, in one commit. The destination must not exist.";
+    const DESCRIPTION: &'static str = "Move or rename a file or directory of the network's filesystem, in one commit. The destination must not exist. Both paths are under /shared/ or your own home, /home/<your name>/.";
     const WRITES: bool = true;
     type Args = MoveArgs;
 

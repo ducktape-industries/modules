@@ -290,6 +290,11 @@ impl Agents {
         cx.notify();
     }
 
+    pub(crate) fn home(&self) -> Option<&str> {
+        let me = self.me?;
+        self.roster.ready()?.names.get(&me).map(String::as_str)
+    }
+
     /// The window's title: `Agents` over the list, an agent's name, a thread's place.
     fn settle_title(&mut self, cx: &mut Context<Self>) {
         let roster = self.roster.ready();

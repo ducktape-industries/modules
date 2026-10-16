@@ -1,9 +1,10 @@
 //! The create form: a new agent is identity's `CreateAgent`, a `files` commit of its
-//! configuration file, identity's `SetScript` with a script that calls harness and names that
-//! file, then identity's `SetAudience` when it answers more than its manager. A step that is
-//! refused keeps the steps before it, so pressing on resumes where it stopped. Editing an agent
-//! is the same form at its commit: a new version of its file, and a new script when its path
-//! moves.
+//! configuration file (proposed in its manager's home, `/home/<manager's name>/agents/`, which
+//! files lets that account alone write), identity's `SetScript` with a script that calls
+//! harness and names that file, then identity's `SetAudience` when it answers more than its
+//! manager. A step that is refused keeps the steps before it, so pressing on resumes where it
+//! stopped. Editing an agent is the same form at its commit: a new version of its file, and a
+//! new script when its path moves.
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -59,7 +60,8 @@ enum Next {
     Done(u64),
 }
 
-pub(crate) fn proposed_path(name: &str) -> String {
+pub(crate) fn proposed_path(home: Option<&str>, name: &str) -> Option<String> {
+    let home = home?;
     let slug: String = name
         .trim()
         .to_lowercase()
@@ -69,22 +71,27 @@ pub(crate) fn proposed_path(name: &str) -> String {
             false => '-',
         })
         .collect();
-    format!("/shared/agents/{slug}.md")
+    Some(format!("/home/{home}/agents/{slug}.md"))
 }
 
 impl Draft {
-    pub fn path(&self) -> String {
+    pub fn path(&self, home: Option<&str>) -> Option<String> {
         let typed = self.path.text().trim().to_owned();
         match typed.is_empty() {
-            true => proposed_path(&self.name.text()),
-            false => typed,
+            true => proposed_path(home, &self.name.text()),
+            false => Some(typed),
         }
     }
 
-    pub fn checked(&self) -> Result<Form, String> {
+    pub fn checked(&self, home: Option<&str>) -> Result<Form, String> {
         if self.name.text().trim().is_empty() {
             return Err("Name the agent.".into());
         }
+        let Some(path) = self.path(home) else {
+            return Err(
+                "Your account's name is not read yet, so no home is proposed: type the configuration file's path.".into(),
+            );
+        };
         let Some(model) = self.model.clone() else {
             return Err("Pick the model it asks.".into());
         };
@@ -118,7 +125,7 @@ impl Draft {
             }
         };
         Ok(Form {
-            path: self.path(),
+            path,
             config: Config {
                 model,
                 max_tokens,
@@ -204,7 +211,7 @@ impl Agents {
         if self.draft.sending.is_some() {
             return;
         }
-        let form = match self.draft.checked() {
+        let form = match self.draft.checked(self.home()) {
             Ok(form) => form,
             Err(problem) => {
                 self.draft.problem = Some(problem);
