@@ -1,0 +1,110 @@
+//! The root screen, "Files": the places (the reader's home, or why there
+//! is none; `/shared`; the whole tree) and the history. New design in the
+//! kit's look; nearest Expo screen
+//! `mobile/app/(tabs)/forge/[repo]/code/[...path].tsx`. Reads the reader
+//! and the history; writes the route.
+use super::*;
+use crate::state::{Home, ROOT, SHARED};
+
+pub(super) fn places(view: &Files, cx: Cx, k: &Kit) -> AnyElement {
+    let history = history_caption(view);
+    page("files-places", words::TITLE, view, cx, k)
+        .child(
+            scroller("files-page")
+                .child(design::section_head(
+                    "files/places-head",
+                    words::PLACES,
+                    &k.ladder,
+                    &k.theme,
+                ))
+                .child(home(view, cx, k))
+                .child(place(
+                    "shared",
+                    "users",
+                    words::SHARED,
+                    SHARED,
+                    words::SHARED_CAPTION,
+                    cx,
+                    k,
+                ))
+                .child(place(
+                    "everything",
+                    "hard-drive",
+                    words::EVERYTHING,
+                    ROOT,
+                    words::EVERYTHING_CAPTION,
+                    cx,
+                    k,
+                ))
+                .child(design::section_head(
+                    "files/history-head",
+                    words::HISTORY,
+                    &k.ladder,
+                    &k.theme,
+                ))
+                .child(opening_row(
+                    "files/place/history",
+                    "clock",
+                    words::HISTORY,
+                    history,
+                    k,
+                    cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| {
+                        view.open(Route::History, cx)
+                    }),
+                )),
+        )
+        .into_any_element()
+}
+
+/// The reader's home: a place like the others once identity names it,
+/// else a row that says why there is none.
+fn home(view: &Files, cx: Cx, k: &Kit) -> Stateful<Div> {
+    let why = match view.reader.home() {
+        Home::At(path) => {
+            let caption = path.clone();
+            return place("home", "house", words::HOME, &path, &caption, cx, k);
+        }
+        Home::SignedOut => words::SIGNED_OUT,
+        Home::Asking => words::FINDING_HOME,
+        Home::Unnamed => words::NO_NAME,
+        Home::Refused(why) => why,
+    };
+    still_row("files/place/home", "house", words::HOME, why.to_owned(), k)
+}
+
+fn place(
+    key: &str,
+    glyph: &'static str,
+    title: &'static str,
+    path: &str,
+    caption: &str,
+    cx: Cx,
+    k: &Kit,
+) -> Stateful<Div> {
+    let route = Route::Folder(path.to_owned());
+    let open =
+        cx.listener(move |view: &mut Files, _: &ClickEvent, _, cx| view.open(route.clone(), cx));
+    opening_row(
+        ElementId::Name(format!("files/place/{key}").into()),
+        glyph,
+        title,
+        caption.to_owned(),
+        k,
+        open,
+    )
+}
+
+/// What the history row says under its title: the newest snapshot's
+/// message, that there is none yet, or why it could not be read.
+fn history_caption(view: &Files) -> String {
+    match &view.history {
+        Loadable::Ready(history) | Loadable::Reloading(history, _) => {
+            match history.snapshots.first() {
+                Some(newest) => words::message_or_none(&newest.message).to_owned(),
+                None => words::NO_SNAPSHOTS.to_owned(),
+            }
+        }
+        Loadable::Failed(refusal) => refusal.message.clone(),
+        Loadable::Idle | Loadable::Loading(_) => words::READING_HISTORY.to_owned(),
+    }
+}
