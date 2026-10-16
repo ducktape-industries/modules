@@ -340,8 +340,9 @@ pub const fn ladder(touch: bool) -> Ladder {
 /// hairline reach both sides; what it holds pads itself ([`sheet_head`],
 /// [`sheet_row`]). Under a pointer the panel pads its content by
 /// [`space::BLOCK`]. `design::sheet("actions", "Message actions", ladder,
-/// theme).detents([0.6, 1.0]).on_dismiss(..).child(..)`; the host draws the
-/// scrim and the handle and docks or centres it by the body's width class.
+/// theme).on_dismiss(..).child(..)`; the host draws the scrim and the
+/// handle, docks or centres it by the body's width class, and makes it as
+/// tall as what it holds unless `.detents(..)` gives it snap points.
 pub fn sheet(
     id: impl Into<ElementId>,
     label: impl Into<String>,

@@ -12,7 +12,7 @@ const FIELD_REFUSALS: [&str; 5] = [
 /// What `sanitize` refuses a tree for on a sheet's or the root's account:
 /// a shape the generator draws at random too.
 const SHAPE_REFUSALS: [&str; 6] = [
-    "a sheet has one to eight detents",
+    "a sheet has at most eight detents",
     "a sheet detent is a fraction of the body",
     "sheet detents ascend",
     "a sheet inside a sheet",
