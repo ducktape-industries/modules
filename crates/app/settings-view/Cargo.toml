@@ -13,7 +13,6 @@ view.workspace = true
 identity.workspace = true
 valset.workspace = true
 serde.workspace = true
-# the fingerprint under this device's key
 
 [dev-dependencies]
 # `examples/live.rs`: the view in the real app over the fake node

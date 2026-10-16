@@ -580,7 +580,7 @@ fn person_row(
             )
             .kind(ButtonKind::Quiet)
             .small()
-            .busy(busy),
+            .enabled(!busy),
         )
 }
 
