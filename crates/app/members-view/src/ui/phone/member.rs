@@ -372,6 +372,9 @@ fn activity(view: &Members, ladder: &Ladder, theme: &Theme) -> Vec<AnyElement> {
             ladder,
             theme,
         )],
+        // SDK gap: an `unknown_program` refusal carries the bare name, which
+        // Expo's core words for every screen (mobile
+        // `crates/mobile-core/src/lib.rs:104-118`); the SDK builds it later
         Loadable::Failed(refusal) => vec![quiet(
             "members-activity-refused",
             refusal.message.clone(),

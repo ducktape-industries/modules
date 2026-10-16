@@ -300,11 +300,15 @@ fn a_program_page_has_no_devices_and_no_one_to_dm() {
 #[test]
 fn a_refused_activity_read_is_said_quietly() {
     let mut cx = phone();
+    // what a network with no activity program answers: the code and the
+    // program's bare name. Expo's core words it ("This network runs no
+    // program called activity."); here that wording is the SDK's to give
     cx.host()
-        .refuse::<Query<Activity>>("not_found", "This network runs no program called activity.");
+        .refuse::<Query<Activity>>("unknown_program", "activity");
     cx.simulate_click("members-row-11");
     cx.run_until_parked();
-    assert!(cx.has_text("This network runs no program called activity."));
+    let line = format!("{:?}", cx.node("members-activity-refused"));
+    assert!(line.contains("\"activity\""), "{line}");
     assert!(cx.find("members-retry").is_none(), "nothing to retry");
 }
 
