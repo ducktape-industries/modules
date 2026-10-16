@@ -310,6 +310,18 @@ fn a_refused_transaction_shows_the_refusal_and_its_reason() {
     shows(&cx, "unauthorized");
 }
 
+/// Ours mints `tx/<height>/<position>`; Expo's links name the hash
+/// (`tx/<hash>`), found as search finds one. Both open the same page.
+#[test]
+fn a_transaction_link_opens_by_its_place_or_by_its_hash() {
+    for path in ["tx/11/0".to_owned(), format!("tx/{}", abi::hex(&[0xa1; 32]))] {
+        let cx = opened(&path);
+        assert!(cx.find("tx-hash").is_some(), "{path}: {:?}", cx.texts());
+        shows(&cx, "In block 11");
+        shows(&cx, &abi::hex(&[0xa1; 32]));
+    }
+}
+
 #[test]
 fn a_transaction_the_node_does_not_keep_says_so() {
     let cx = opened("tx/11/7");
