@@ -2,7 +2,7 @@
 //! node that is not voting shows, a refusal after an answer, a node that
 //! does not serve it, a silent node, and the narrow widths.
 use super::*;
-use crate::table::NO_NETWORK;
+use crate::words::NO_NETWORK;
 
 /// How the app refuses `chain.network` for a node without the route.
 fn unsupported(cx: &TestAppContext) {

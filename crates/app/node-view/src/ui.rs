@@ -7,6 +7,7 @@ use abi::hex;
 use view::prelude::*;
 use view::{Div, FontWeight};
 
+use crate::words::{self, EpochPlace};
 use crate::{Nodes, motions, table};
 use valset::Motion;
 use view::design::Ladder;
@@ -60,7 +61,7 @@ fn head(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -
             .child(
                 design::button(
                     "nodes-door-open",
-                    "Open the door",
+                    words::door(true).0,
                     ladder,
                     theme,
                     press(true),
@@ -71,7 +72,7 @@ fn head(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -
             .child(
                 design::button(
                     "nodes-door-close",
-                    "Close the door",
+                    words::door(false).0,
                     ladder,
                     theme,
                     press(false),
@@ -93,9 +94,9 @@ fn head(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -
 
 /// A dot and the word: In sync or Not answering, then this node's key.
 fn pulse(answering: bool, status: &NodeStatus, theme: &Theme) -> impl IntoElement {
-    let (word, color) = match answering {
-        true => ("In sync", theme.success),
-        false => ("Not answering", theme.danger),
+    let color = match answering {
+        true => theme.success,
+        false => theme.danger,
     };
     div()
         .id("nodes-pulse")
@@ -104,8 +105,12 @@ fn pulse(answering: bool, status: &NodeStatus, theme: &Theme) -> impl IntoElemen
         .gap_2()
         .text_size(design::text::SECONDARY)
         .child(div().size_2().rounded_full().bg(color))
-        .child(word)
-        .child(div().text_color(theme.muted).child("· this node"))
+        .child(words::pulse(answering))
+        .child(
+            div()
+                .text_color(theme.muted)
+                .child(format!("· {}", words::THIS_NODE)),
+        )
         .child(design::mono(design::short_hex(&hex(&status.identity))).text_color(theme.muted))
 }
 
@@ -131,7 +136,7 @@ fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
             .into_any_element();
         }
         Loadable::Idle | Loadable::Loading(_) => {
-            return design::quiet("Reading node status…", theme)
+            return design::quiet(words::READING_STATUS, theme)
                 .id("nodes-status-loading")
                 .into_any_element();
         }
@@ -154,13 +159,19 @@ fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
         .border_color(theme.border)
         .child(fact(
             "height",
-            "Height",
+            words::HEIGHT,
             design::grouped(status.height),
             true,
             theme,
         ))
         .child(fact("last-block", "Last block", last, false, theme))
-        .child(fact("block-time", "Block time", block_time, false, theme))
+        .child(fact(
+            "block-time",
+            words::BLOCK_TIME,
+            block_time,
+            false,
+            theme,
+        ))
         .children(epoch(status, theme).into_iter().flatten())
         .into_any_element()
 }
@@ -188,20 +199,12 @@ fn quiet_label(label: impl Into<SharedString>, theme: &Theme) -> Div {
 }
 
 /// `Epoch 67 · 8 / 64` over a bar, and `Next epoch in 56 blocks` at the
-/// right. A block closes epoch `e` when `(height + 1)` reaches `(e + 1)`
-/// epochs, so the tip is `(height + 1) % length` blocks into its epoch.
+/// right ([`EpochPlace`]).
 fn epoch(status: &NodeStatus, theme: &Theme) -> Option<[AnyElement; 2]> {
-    let length = status.epoch_length;
-    if length == 0 {
-        return None;
-    }
-    let into = (status.height + 1) % length;
-    let share = into as f32 / length as f32;
+    let epoch = EpochPlace::of(status)?;
+    let share = epoch.into as f32 / epoch.length as f32;
     const BAR: f32 = 180.;
-    let label = format!(
-        "Epoch {} · {into} / {length}",
-        design::grouped(status.epoch)
-    );
+    let label = epoch.place();
     let progress = div()
         .id("nodes-status-epoch")
         .flex()
@@ -216,23 +219,17 @@ fn epoch(status: &NodeStatus, theme: &Theme) -> Option<[AnyElement; 2]> {
                 .child(div().h_full().w(px(BAR * share)).bg(theme.foreground)),
         )
         .into_any_element();
-    let next = quiet_label(
-        format!(
-            "Next epoch in {}",
-            design::plural(length - into, "block", "blocks")
-        ),
-        theme,
-    )
-    .id("nodes-status-next-epoch")
-    .ml_auto()
-    .into_any_element();
+    let next = quiet_label(epoch.next(), theme)
+        .id("nodes-status-next-epoch")
+        .ml_auto()
+        .into_any_element();
     Some([progress, next])
 }
 
 /// The four states of the members: loading, refused, empty, ready.
 fn body(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     match &view.nodes {
-        Loadable::Idle | Loadable::Loading(_) => design::quiet("Reading the members…", theme)
+        Loadable::Idle | Loadable::Loading(_) => design::quiet(words::READING_MEMBERS, theme)
             .id("nodes-loading")
             .into_any_element(),
         Loadable::Failed(refusal) => {
@@ -243,8 +240,8 @@ fn body(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -
         Loadable::Ready(nodes) | Loadable::Reloading(nodes, _) if nodes.is_empty() => {
             design::empty_state(
                 "nodes-empty",
-                "No members",
-                "The validator set of this network is empty.",
+                words::NO_MEMBERS,
+                words::NO_MEMBERS_WHY,
                 theme,
             )
             .into_any_element()

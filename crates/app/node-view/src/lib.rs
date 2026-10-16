@@ -19,7 +19,8 @@
 //!
 //! Under a finger the view is the Expo app's Nodes tab instead
 //! (`ui/phone/`): the list, a member's own page, the door and a press that
-//! enacts as sheets; the desktop's sheet is unchanged.
+//! enacts as sheets; the desktop's sheet is unchanged. Every word both
+//! show is `words.rs`'s.
 use programs::Programs;
 use serde::{Deserialize, Serialize};
 use valset::Valset;
@@ -33,6 +34,7 @@ mod row;
 mod table;
 mod ui;
 mod voting;
+mod words;
 
 use queries::Node;
 use recent::Recent;
@@ -77,6 +79,15 @@ pub struct Nodes {
 pub(crate) enum Page {
     Nodes,
     Node(Vec<u8>),
+}
+
+/// Why no validator's cells are filled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Unheard {
+    /// this node hears no votes: it reports none of its own
+    NotVoting,
+    /// this node does not serve `chain.network`
+    NoNetwork,
 }
 
 #[derive(Default)]
@@ -151,9 +162,10 @@ impl Render for Nodes {
         self.width = window.viewport_size().width.into();
         // the one pick between the two designs: a finger gets the phone's
         // screens (the Expo app's), a pointer the desktop's sheet
-        match window.touch() {
-            true => ui::phone::render(self, cx).into_any_element(),
-            false => ui::render(self, cx).into_any_element(),
+        if window.touch() {
+            ui::phone::render(self, cx).into_any_element()
+        } else {
+            ui::render(self, cx).into_any_element()
         }
     }
 }
@@ -269,12 +281,6 @@ impl Nodes {
         pages
     }
 
-    /// A sheet the reader is in (the phone's): the door, or a press that
-    /// waits for its yes.
-    pub(crate) fn sheet_open(&self) -> bool {
-        self.door || self.voting.confirming.is_some()
-    }
-
     /// The phone's Back: a sheet closes first, then the member's page.
     pub(crate) fn back(&mut self, cx: &mut Context<Self>) {
         if self.voting.confirming.take().is_none() && !std::mem::take(&mut self.door) {
@@ -286,6 +292,31 @@ impl Nodes {
     /// Whether the node answered its status within [`SILENT_TICKS`].
     pub(crate) fn answering(&self) -> bool {
         self.status.ready().is_some() && self.ticks - self.answered <= SILENT_TICKS
+    }
+
+    /// The votes, where this node hears them: only a node seated as a
+    /// validator does, its own among them; without its own, it hears none
+    /// (a resident, one not seated yet, one catching up after a restart).
+    pub(crate) fn heard(&self) -> Option<&NetworkStatus> {
+        let this = self.status.ready().map(|status| status.identity.as_slice());
+        self.network.ready().filter(|network| {
+            network
+                .members
+                .iter()
+                .any(|peer| this == Some(peer.key.as_slice()) && peer.signed.is_some())
+        })
+    }
+
+    /// Why the validators' cells are empty, once the node said anything of
+    /// the network.
+    pub(crate) fn unheard(&self) -> Option<Unheard> {
+        match &self.network {
+            Loadable::Failed(_) => Some(Unheard::NoNetwork),
+            network if network.ready().is_some() && self.heard().is_none() => {
+                Some(Unheard::NotVoting)
+            }
+            _ => None,
+        }
     }
 }
 

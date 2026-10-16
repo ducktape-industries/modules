@@ -2,14 +2,11 @@
 //! enact asks first, what the last vote did, the motions that wait, and
 //! the scheduled changes and who made each. `render` reads the state and
 //! changes nothing; presses land in `voting.rs`.
-use valset::Pending;
 use view::design::Kind;
 use view::prelude::*;
 use view::{Div, Stateful};
 
-use crate::queries::Schedule;
-use crate::voting::{self, Voting};
-use crate::{Nodes, ui};
+use crate::{Nodes, ui, voting, words};
 use view::design::Ladder;
 
 /// A press about to enact: what will happen, asked once.
@@ -40,15 +37,31 @@ pub(crate) fn confirm(
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(div().font_weight(view::FontWeight::MEDIUM).child(view.voting.words(motion)))
+                    .child(
+                        div()
+                            .font_weight(view::FontWeight::MEDIUM)
+                            .child(view.voting.words(motion)),
+                    )
                     .child(
                         div()
                             .text_size(design::text::SECONDARY)
-                            .child("Your vote reaches the quorum: this happens now, and a vote can't be taken back."),
+                            .child(words::ENACTS_NOW),
                     ),
             )
-            .child(design::button("nodes-confirm-yes", "Vote and enact", ladder,  theme, yes).kind(Kind::Primary))
-            .child(design::button("nodes-confirm-no", "Not now", ladder,  theme, no).kind(Kind::Outline)),
+            .child(
+                design::button(
+                    "nodes-confirm-yes",
+                    words::VOTE_AND_ENACT,
+                    ladder,
+                    theme,
+                    yes,
+                )
+                .kind(Kind::Primary),
+            )
+            .child(
+                design::button("nodes-confirm-no", words::NOT_NOW, ladder, theme, no)
+                    .kind(Kind::Outline),
+            ),
     )
 }
 
@@ -80,7 +93,7 @@ pub(crate) fn outcome(
             .child(design::icon_button(
                 "nodes-outcome-dismiss",
                 "✕",
-                "Dismiss",
+                words::DISMISS,
                 ladder,
                 theme,
                 dismiss,
@@ -109,7 +122,7 @@ pub(crate) fn sections(
             .child(scheduled(view, cx, theme, ladder))
             .child(quiet(
                 "nodes-change-elsewhere",
-                "Change a program in Explorer, Programs.",
+                words::CHANGE_ELSEWHERE,
                 theme,
             )),
     )
@@ -142,18 +155,14 @@ fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
         Loadable::Ready(motions) | Loadable::Reloading(motions, _)
             if motions.pending.is_empty() =>
         {
-            vec![quiet(
-                "nodes-motions-none",
-                "No motion waits for votes.",
-                theme,
-            )]
+            vec![quiet("nodes-motions-none", words::NO_MOTION, theme)]
         }
         Loadable::Ready(motions) | Loadable::Reloading(motions, _) => motions
             .pending
             .iter()
             .enumerate()
             .map(|(index, pending)| {
-                let caption = pending_caption(voting, pending, motions.needed);
+                let caption = words::pending_caption(voting, pending, motions.needed);
                 let words = voting.words(&pending.motion);
                 let row = line(
                     ElementId::Name(format!("nodes-motion-{index}").into()),
@@ -169,7 +178,7 @@ fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
                     });
                     design::button(
                         ElementId::Name(format!("nodes-motion-vote-{index}").into()),
-                        "Vote",
+                        words::VOTE,
                         ladder,
                         theme,
                         vote,
@@ -187,35 +196,15 @@ fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
         )],
         Loadable::Idle | Loadable::Loading(_) => vec![quiet(
             "nodes-motions-loading",
-            "Reading the motions…",
+            words::READING_MOTIONS,
             theme,
         )],
     };
     div()
         .flex()
         .flex_col()
-        .child(ui::section("nodes-motions", "Motions".into(), theme))
+        .child(ui::section("nodes-motions", words::MOTIONS.into(), theme))
         .children(lines)
-}
-
-/// A waiting motion's votes of the quorum, and which of the reader's
-/// validators voted: `1 of 2 · yours has not voted`.
-pub(crate) fn pending_caption(voting: &Voting, pending: &Pending, needed: u64) -> String {
-    let cast = voting.voices.len() - voting.uncast(&pending.motion);
-    format!(
-        "{} of {needed} · {}",
-        pending.voters.len(),
-        yours(cast, voting.voices.len())
-    )
-}
-
-/// Which of the reader's validators voted: "yours voted", "1 of 2 of yours".
-fn yours(cast: usize, voices: usize) -> String {
-    match (cast, voices) {
-        (0, 1) => "yours has not voted".into(),
-        (1, 1) => "yours voted".into(),
-        (cast, voices) => format!("{cast} of your {voices} voted"),
-    }
 }
 
 /// The programs role's changes still to land, each with who made it and, for
@@ -235,18 +224,14 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladd
                 .filter(|change| change.height > tip)
                 .collect();
             if ahead.is_empty() {
-                vec![quiet(
-                    "nodes-scheduled-none",
-                    "No change is scheduled.",
-                    theme,
-                )]
+                vec![quiet("nodes-scheduled-none", words::NO_CHANGE, theme)]
             } else {
                 ahead
                     .into_iter()
                     .enumerate()
                     .map(|(index, change)| {
                         let motion = voting::cancel(change);
-                        let caption = scheduled_caption(change, schedule, status);
+                        let caption = words::scheduled_caption(change, schedule, status);
                         let row = line(
                             ElementId::Name(format!("nodes-scheduled-{index}").into()),
                             voting::scheduled_words(change.height, &change.change, entries),
@@ -259,7 +244,7 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladd
                         row.child(
                             design::button(
                                 ElementId::Name(format!("nodes-scheduled-cancel-{index}").into()),
-                                "Propose cancel",
+                                words::PROPOSE_CANCEL,
                                 ladder,
                                 theme,
                                 press,
@@ -279,7 +264,7 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladd
         )],
         Loadable::Idle | Loadable::Loading(_) => vec![quiet(
             "nodes-scheduled-loading",
-            "Reading the schedule…",
+            words::READING_SCHEDULE,
             theme,
         )],
     };
@@ -288,35 +273,10 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladd
         .flex_col()
         .child(ui::section(
             "nodes-scheduled",
-            "Scheduled changes".into(),
+            words::SCHEDULED.into(),
             theme,
         ))
         .children(lines)
-}
-
-/// Who scheduled a change, and how long the vote has to cancel it: `by
-/// vote · in 300 blocks`, `by Dev · validators can cancel for 5 min`; who
-/// alone until the node's status is read.
-pub(crate) fn scheduled_caption(
-    change: &programs::Pending,
-    schedule: &Schedule,
-    status: Option<&NodeStatus>,
-) -> String {
-    let by = match change.by {
-        Some(account) => voting::named(&schedule.names, account),
-        None => "vote".into(),
-    };
-    let Some(status) = status else {
-        return format!("by {by}");
-    };
-    let blocks = change.height.saturating_sub(status.height);
-    match change.by {
-        Some(_) => format!(
-            "by {by} · validators can cancel for {} min",
-            (blocks * status.block_time_ms).div_ceil(60_000)
-        ),
-        None => format!("by {by} · in {}", design::plural(blocks, "block", "blocks")),
-    }
 }
 
 fn quiet(id: &'static str, text: impl Into<SharedString>, theme: &Theme) -> AnyElement {

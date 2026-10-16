@@ -20,7 +20,11 @@ use super::LADDER;
 use super::parts::{empty, last_answer, outcome, press, quiet, refused, scroller, small_button};
 use crate::queries::{Motions, Node, Schedule};
 use crate::row::{self, Status};
-use crate::{Nodes, motions, table, voting};
+use crate::words::{self, EpochPlace};
+use crate::{Nodes, voting};
+
+// SDK gap: the kit's tall row (`ROW_TALL`, `row_lines`), swap when
+// feat/phone-kit lands
 
 /// A list row with a caption under its title (Expo `src/kit/Row.tsx:44`
 /// `size.rowTall`).
@@ -35,6 +39,8 @@ const EPOCH_BAR: Pixels = px(6.);
 /// The list page: its title row, the vote's outcome strip, and what
 /// scrolls under them.
 pub(super) fn render(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Page {
+    // SDK gap: a root page's constructor without a typed `None` Back, swap
+    // when feat/phone-kit lands
     let page = design::page(
         "nodes-page",
         title(view),
@@ -58,30 +64,23 @@ pub(super) fn render(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Pa
         .child(scroller("nodes-scroll", body))
 }
 
-/// The network's name before its salt (`<label>#<salt>`), once the node
-/// says which it is on; Nodes before.
+/// The network's name, once the node says which it is on; Nodes before.
 fn title(view: &Nodes) -> String {
-    let Some(status) = view.status.ready() else {
-        return "Nodes".to_owned();
-    };
-    let chain_id = status.chain_id.as_str();
-    chain_id
-        .split_once('#')
-        .map_or(chain_id, |(label, _)| label)
+    view.status
+        .ready()
+        .map_or("Nodes", |status| words::network(&status.chain_id))
         .to_owned()
 }
 
-/// Whether this node answers, and which node it is. Expo draws the word in
-/// its tone and the key in the data face; the SDK's caption takes text in
-/// one tone (a SHARED row for the chief).
+/// Whether this node answers, and which node it is.
+// SDK gap: a caption that takes a node (Expo draws the word in its tone
+// and the key in the data face), swap when feat/phone-kit lands
 fn pulse(view: &Nodes) -> Option<String> {
     let status = view.status.ready()?;
-    let word = match view.answering() {
-        true => "In sync",
-        false => "Not answering",
-    };
     Some(format!(
-        "● {word} · this node {}",
+        "● {} · {} {}",
+        words::pulse(view.answering()),
+        words::THIS_NODE,
         design::short_hex(&hex(&status.identity))
     ))
 }
@@ -111,10 +110,10 @@ fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
             view.read_status(cx);
             cx.notify();
         });
-        return refused("nodes-status", &refusal.message, retry, theme).into_any_element();
+        return refused("nodes-status", &refusal.message, theme, retry).into_any_element();
     }
     let Some(status) = view.status.ready() else {
-        return quiet("nodes-status-loading", "Reading node status…", theme).into_any_element();
+        return quiet("nodes-status-loading", words::READING_STATUS, theme).into_any_element();
     };
     let last = match view.ticks - view.moved {
         0 => "last block just now".to_owned(),
@@ -122,23 +121,26 @@ fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
     };
     let height = Fact {
         key: "height",
-        label: "Height",
+        label: words::HEIGHT,
         value: design::grouped(status.height),
         mono: true,
         caption: Some(last),
     };
     let block_time = Fact {
         key: "block-time",
-        label: "Block time",
+        label: words::BLOCK_TIME,
         value: format!("{} ms", design::grouped(status.block_time_ms)),
         mono: false,
         caption: None,
     };
     div()
         .child(facts([height, block_time], theme))
-        .children(epoch(status, theme))
+        .children(EpochPlace::of(status).map(|place| epoch(&place, theme)))
         .into_any_element()
 }
+
+// SDK gap: the kit's `Facts` (`Fact`, `facts`, `fact_cell`), swap when
+// feat/phone-kit lands
 
 /// One of the kit's `Facts` (Expo `src/kit/Facts.tsx`): an eyebrow over a
 /// value over a caption.
@@ -159,14 +161,14 @@ fn facts(facts: impl IntoIterator<Item = Fact>, theme: &Theme) -> Stateful<Div> 
         facts
             .into_iter()
             .enumerate()
-            .map(|(index, fact)| fact_cell(fact, index % 2 == 0, theme)),
+            .map(|(index, fact)| fact_cell(fact, index, theme)),
     )
 }
 
-/// One fact's cell: the eyebrow (the data face, medium, muted, in
-/// capitals), the value in heading type, the caption muted; `first` of
-/// its row, it draws the hairline between the two.
-fn fact_cell(fact: Fact, first: bool, theme: &Theme) -> Stateful<Div> {
+/// The `index`th fact's cell: the eyebrow (the data face, medium, muted,
+/// in capitals), the value in heading type, the caption muted. The first
+/// of a row draws the hairline between the two (Expo `Facts.tsx:24`).
+fn fact_cell(fact: Fact, index: usize, theme: &Theme) -> Stateful<Div> {
     div()
         .id(ElementId::Name(format!("nodes-status-{}", fact.key).into()))
         .w_1_2()
@@ -176,7 +178,7 @@ fn fact_cell(fact: Fact, first: bool, theme: &Theme) -> Stateful<Div> {
         .py(space::LG)
         .px(space::BLOCK)
         .border_b_1()
-        .when(first, |cell| cell.border_r_1())
+        .when(index.is_multiple_of(2), |cell| cell.border_r_1())
         .border_color(theme.border)
         .child(
             div()
@@ -205,53 +207,36 @@ fn fact_cell(fact: Fact, first: bool, theme: &Theme) -> Stateful<Div> {
 }
 
 /// `Epoch 131 · 29 / 64` over a bar the width of the screen, and when the
-/// next one starts. A block closes epoch `e` when `(height + 1)` reaches
-/// `(e + 1)` epochs, so the tip is `(height + 1) % length` blocks into its
-/// epoch. Nothing on a network without epochs.
-fn epoch(status: &NodeStatus, theme: &Theme) -> Option<Stateful<Div>> {
-    let length = status.epoch_length;
-    if length == 0 {
-        return None;
-    }
-    let into = (status.height + 1) % length;
-    let place = format!(
-        "Epoch {} · {into} / {length}",
-        design::grouped(status.epoch)
-    );
-    let next = format!(
-        "Next epoch in {}",
-        design::plural(length - into, "block", "blocks")
-    );
-    Some(
-        div()
-            .id("nodes-status-epoch")
-            .flex()
-            .flex_col()
-            .gap(space::XS)
-            .px(space::BLOCK)
-            .py(space::LG)
-            .border_b_1()
-            .border_color(theme.border)
-            .child(
-                div()
-                    .text_type(LADDER.secondary)
-                    .text_color(theme.muted)
-                    .child(place),
-            )
-            .child(epoch_bar(into, length, theme))
-            .child(
-                div()
-                    .id("nodes-status-next-epoch")
-                    .text_type(LADDER.caption)
-                    .text_color(theme.muted)
-                    .child(next),
-            ),
-    )
+/// next one starts.
+fn epoch(place: &EpochPlace, theme: &Theme) -> Stateful<Div> {
+    div()
+        .id("nodes-status-epoch")
+        .flex()
+        .flex_col()
+        .gap(space::XS)
+        .px(space::BLOCK)
+        .py(space::LG)
+        .border_b_1()
+        .border_color(theme.border)
+        .child(
+            div()
+                .text_type(LADDER.secondary)
+                .text_color(theme.muted)
+                .child(place.place()),
+        )
+        .child(epoch_bar(place, theme))
+        .child(
+            div()
+                .id("nodes-status-next-epoch")
+                .text_type(LADDER.caption)
+                .text_color(theme.muted)
+                .child(place.next()),
+        )
 }
 
 /// The epoch's bar: ink for the blocks gone, the hairline's grey for those
 /// to come, sharing its width as the epoch does.
-fn epoch_bar(into: u64, length: u64, theme: &Theme) -> Div {
+fn epoch_bar(place: &EpochPlace, theme: &Theme) -> Div {
     let part = |blocks: u64, fill: Hsla| {
         let mut part = div().h_full().flex_basis(px(0.)).bg(fill);
         part.style().flex_grow = Some(blocks as f32);
@@ -261,8 +246,8 @@ fn epoch_bar(into: u64, length: u64, theme: &Theme) -> Div {
         .flex()
         .h(EPOCH_BAR)
         .bg(theme.border)
-        .child(part(into, theme.foreground))
-        .child(part(length - into, theme.border))
+        .child(part(place.into, theme.foreground))
+        .child(part(place.length - place.into, theme.border))
 }
 
 /// The members, or why they are not here: still being read, refused with
@@ -271,14 +256,14 @@ fn epoch_bar(into: u64, length: u64, theme: &Theme) -> Div {
 fn members(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
     if let Some(refusal) = view.nodes.failed() {
         let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.read(cx));
-        return refused("nodes", &refusal.message, retry, theme).into_any_element();
+        return refused("nodes", &refusal.message, theme, retry).into_any_element();
     }
     let Some(nodes) = view.nodes.ready() else {
-        return quiet("nodes-loading", "Reading the members…", theme).into_any_element();
+        return quiet("nodes-loading", words::READING_MEMBERS, theme).into_any_element();
     };
     if nodes.is_empty() {
-        let none = "The validator set of this network is empty.";
-        return empty("nodes-empty", "server", "No members", none, theme).into_any_element();
+        let (title, why) = (words::NO_MEMBERS, words::NO_MEMBERS_WHY);
+        return empty("nodes-empty", "server", title, why, theme).into_any_element();
     }
     match view.status.ready() {
         Some(_) => roster(view, nodes, cx, theme).into_any_element(),
@@ -290,7 +275,6 @@ fn members(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
 /// node has been silent, the validators then the residents under their
 /// counts, and what a validator's cells mean.
 fn roster(view: &Nodes, nodes: &[Node], cx: &Context<Nodes>, theme: &Theme) -> Stateful<Div> {
-    let heard = table::heard(view);
     let rows = |validators: bool| -> Vec<Stateful<Div>> {
         nodes
             .iter()
@@ -300,33 +284,27 @@ fn roster(view: &Nodes, nodes: &[Node], cx: &Context<Nodes>, theme: &Theme) -> S
             .collect()
     };
     let (seats, residents) = (rows(true), rows(false));
-    let footnote = format!(
-        "Height: the newest block the validator voted to finalize. Quiet: none for {}.",
-        design::plural(row::QUIET, "block", "blocks")
-    );
+    let unheard = view.unheard().map(words::unheard);
+    let footnote = view.heard().map(|_| words::footnote());
     div()
         .id("nodes-members")
-        .children(table::no_votes(view, heard).map(|(id, why)| quiet(id, why, theme)))
+        .children(unheard.map(|why| quiet("nodes-unheard", why, theme)))
         .children(last_answer(view, "nodes-last-answer", theme))
         .child(count_head(
             "nodes-validators",
-            "Validators",
+            words::VALIDATORS,
             seats.len(),
             theme,
         ))
         .children(seats)
         .child(count_head(
             "nodes-residents",
-            "Residents",
+            words::RESIDENTS,
             residents.len(),
             theme,
         ))
         .children(residents)
-        .children(
-            heard
-                .is_some()
-                .then(|| quiet("nodes-footnote", footnote, theme)),
-        )
+        .children(footnote.map(|footnote| quiet("nodes-footnote", footnote, theme)))
 }
 
 /// A section head with how many rows it heads at its right.
@@ -349,7 +327,8 @@ fn member_row(
     cx: &Context<Nodes>,
     theme: &Theme,
 ) -> Stateful<Div> {
-    let status = table::heard(view)
+    let status = view
+        .heard()
         .map_or(row::BLANK, |network| row::synced(node, network))
         .status;
     let (dot, tone) = tones(node, &status, view.answering(), theme);
@@ -433,7 +412,7 @@ fn member_address(view: &Nodes, node: &Node, theme: &Theme) -> Div {
         .ready()
         .is_some_and(|status| status.identity == node.key);
     let words = match this {
-        true => format!("{address} · this node"),
+        true => format!("{address} · {}", words::THIS_NODE),
         false => address,
     };
     div()
@@ -462,17 +441,17 @@ fn vote(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Option<Div> {
     if !view.voting.votes() {
         return None;
     }
-    let motions_head = design::section_head("nodes-motions", "Motions", None, &LADDER, theme);
+    let motions_head = design::section_head("nodes-motions", words::MOTIONS, None, &LADDER, theme);
     let scheduled_head =
-        design::section_head("nodes-scheduled", "Scheduled changes", None, &LADDER, theme);
-    let elsewhere = "Change a program in Explorer, Programs.";
+        design::section_head("nodes-scheduled", words::SCHEDULED, None, &LADDER, theme);
+    let elsewhere = quiet("nodes-change-elsewhere", words::CHANGE_ELSEWHERE, theme);
     Some(
         div()
             .child(motions_head)
             .children(waiting(view, cx, theme))
             .child(scheduled_head)
             .children(scheduled(view, cx, theme))
-            .child(quiet("nodes-change-elsewhere", elsewhere, theme)),
+            .child(elsewhere),
     )
 }
 
@@ -482,14 +461,14 @@ fn waiting(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Vec<AnyEleme
     let voting = &view.voting;
     if let Some(refusal) = voting.motions.failed() {
         let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.read_motions(cx));
-        return vec![refused("nodes-motions", &refusal.message, retry, theme).into_any_element()];
+        return vec![refused("nodes-motions", &refusal.message, theme, retry).into_any_element()];
     }
     let Some(motions) = voting.motions.ready() else {
-        let reading = quiet("nodes-motions-loading", "Reading the motions…", theme);
+        let reading = quiet("nodes-motions-loading", words::READING_MOTIONS, theme);
         return vec![reading.into_any_element()];
     };
     if motions.pending.is_empty() {
-        let none = quiet("nodes-motions-none", "No motion waits for votes.", theme);
+        let none = quiet("nodes-motions-none", words::NO_MOTION, theme);
         return vec![none.into_any_element()];
     }
     motions
@@ -517,7 +496,7 @@ fn motion_row(
     let tail = match voting.uncast(&pending.motion) > 0 {
         true => small_button(
             ElementId::Name(format!("nodes-motion-vote-{index}").into()),
-            "Vote",
+            words::VOTE,
             voting.pressable(),
             theme,
             press(cx, pending.motion.clone()),
@@ -525,7 +504,7 @@ fn motion_row(
         .into_any_element(),
         false => design::badge(
             ElementId::Name(format!("nodes-motion-voted-{index}").into()),
-            "voted",
+            words::VOTED,
             &LADDER,
             theme.muted,
             theme.surface_raised,
@@ -535,7 +514,7 @@ fn motion_row(
     line(
         ElementId::Name(format!("nodes-motion-{index}").into()),
         voting.words(&pending.motion),
-        motions::pending_caption(voting, pending, motions.needed),
+        words::pending_caption(voting, pending, motions.needed),
         tail,
         theme,
     )
@@ -551,7 +530,7 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Vec<AnyEle
         return vec![why.into_any_element()];
     }
     let Some(schedule) = voting.scheduled.ready() else {
-        let reading = quiet("nodes-scheduled-loading", "Reading the schedule…", theme);
+        let reading = quiet("nodes-scheduled-loading", words::READING_SCHEDULE, theme);
         return vec![reading.into_any_element()];
     };
     let tip = view.status.ready().map_or(0, |status| status.height);
@@ -561,7 +540,7 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Vec<AnyEle
         .filter(|change| change.height > tip)
         .collect();
     if ahead.is_empty() {
-        let none = quiet("nodes-scheduled-none", "No change is scheduled.", theme);
+        let none = quiet("nodes-scheduled-none", words::NO_CHANGE, theme);
         return vec![none.into_any_element()];
     }
     ahead
@@ -587,7 +566,7 @@ fn scheduled_row(
     let roster = voting.roster.ready().map_or(&[][..], Vec::as_slice);
     let cancel = small_button(
         ElementId::Name(format!("nodes-scheduled-cancel-{index}").into()),
-        "Propose cancel",
+        words::PROPOSE_CANCEL,
         voting.pressable(),
         theme,
         press(cx, voting::cancel(change)),
@@ -595,7 +574,7 @@ fn scheduled_row(
     line(
         ElementId::Name(format!("nodes-scheduled-{index}").into()),
         voting::scheduled_words(change.height, &change.change, roster),
-        motions::scheduled_caption(change, schedule, view.status.ready()),
+        words::scheduled_caption(change, schedule, view.status.ready()),
         cancel.into_any_element(),
         theme,
     )
@@ -632,22 +611,8 @@ pub(super) fn door(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Opti
         view.door = false;
         cx.notify();
     });
-    let open = door_row(
-        "nodes-door-open",
-        "Open the door",
-        "anyone enrolls without an invite",
-        Motion::Door { open: true },
-        cx,
-        theme,
-    );
-    let shut = door_row(
-        "nodes-door-close",
-        "Close the door",
-        "enrolling takes an invite",
-        Motion::Door { open: false },
-        cx,
-        theme,
-    );
+    let open = door_row("nodes-door-open", true, cx, theme);
+    let shut = door_row("nodes-door-close", false, cx, theme);
     Some(
         design::sheet("nodes-door-sheet", "The door", &LADDER, theme)
             .on_dismiss(close)
@@ -656,25 +621,21 @@ pub(super) fn door(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Opti
     )
 }
 
-/// One of the door's sheet rows: its label, and its hint (the kit's
-/// `SheetRow` hint: caption, muted, at the right).
-fn door_row(
-    id: &'static str,
-    label: &'static str,
-    hint: &'static str,
-    motion: Motion,
-    cx: &Context<Nodes>,
-    theme: &Theme,
-) -> impl IntoElement {
+/// One of the door's sheet rows: the motion that opens or closes the
+/// door, and what it means as the row's hint.
+fn door_row(id: &'static str, open: bool, cx: &Context<Nodes>, theme: &Theme) -> impl IntoElement {
+    let (label, meaning) = words::door(open);
     let vote = cx.listener(move |view: &mut Nodes, _: &ClickEvent, _, cx| {
         view.door = false;
-        view.press(motion.clone(), cx);
+        view.press(Motion::Door { open }, cx);
     });
+    // SDK gap: the sheet row's hint (caption, muted, at the right), swap
+    // when feat/phone-kit lands
     design::sheet_row(id, None, label, false, &LADDER, theme, vote).child(
         div()
             .flex_none()
             .text_type(LADDER.caption)
             .text_color(theme.muted)
-            .child(hint),
+            .child(meaning),
     )
 }

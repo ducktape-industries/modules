@@ -273,7 +273,7 @@ fn a_vote_that_enacts_asks_first_and_not_now_sends_nothing() {
             "This phone's key signs it. The node runs the program's rules; a refusal comes back in its words.",
         ],
     );
-    click(&mut cx, "nodes-confirm-no");
+    click(&mut cx, "nodes-confirm/cancel");
     assert!(cx.find("nodes-confirm-sheet").is_none() && submitted(&cx).is_empty());
     click(&mut cx, "nodes-motion-vote-0");
     cx.simulate_dismiss("nodes-confirm-sheet");
@@ -287,7 +287,7 @@ fn a_vote_that_enacts_goes_on_yes_and_its_outcome_stays_until_dismissed() {
     cx.host()
         .handle::<Submit<Valset>>(|_| Ok(testing::applied(abi::encode(&Voted::Enacted))));
     click(&mut cx, "nodes-motion-vote-0");
-    click(&mut cx, "nodes-confirm-yes");
+    click(&mut cx, "nodes-confirm/submit");
     let promote = Motion::Promote {
         key: RESIDENT.to_vec(),
     };
@@ -418,7 +418,7 @@ fn a_voter_promotes_a_resident_from_its_page() {
     assert!(cx.find("nodes-node-demote").is_none());
     click(&mut cx, "nodes-node-promote");
     // OTHER voted for it already: the reader's vote enacts, so it asks
-    click(&mut cx, "nodes-confirm-yes");
+    click(&mut cx, "nodes-confirm/submit");
     let promote = Motion::Promote {
         key: RESIDENT.to_vec(),
     };

@@ -13,7 +13,12 @@ use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
 use super::LADDER;
-use crate::Nodes;
+use crate::{Nodes, words};
+
+// SDK gap: the sheet's inset, the small button, the notice and its action,
+// the refused strip, the quiet line and the empty state with an icon
+// (`SHEET_INSET` to `EMPTY_BODY_W`, `share`, `refused` to `empty`), swap
+// when feat/phone-kit lands
 
 /// How far a sheet's content sits in from its sides (Expo
 /// `src/kit/Sheet.tsx:149,165` and `Confirm.tsx:65`: 20).
@@ -60,7 +65,7 @@ pub(super) fn outcome(
 ) -> Option<Stateful<Div>> {
     let outcome = view.voting.outcome.as_ref()?;
     let dismiss = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.dismiss_outcome(cx));
-    let action = action("nodes-outcome-dismiss", "Dismiss", dismiss);
+    let action = action("nodes-outcome-dismiss", words::DISMISS, dismiss);
     Some(match outcome {
         Ok(said) => notice("nodes-outcome", theme.success_soft, theme.success, said).child(action),
         Err(said) => alert(notice(
@@ -77,10 +82,7 @@ pub(super) fn outcome(
 /// is silent.
 pub(super) fn last_answer(view: &Nodes, id: &'static str, theme: &Theme) -> Option<Stateful<Div>> {
     let silent = view.status.ready().is_some() && !view.answering();
-    silent.then(|| {
-        let age = design::ago((view.ticks - view.answered) * 1000, 0);
-        quiet(id, format!("Last answer {age} ago"), theme)
-    })
+    silent.then(|| quiet(id, words::last_answer(view.ticks - view.answered), theme))
 }
 
 /// A press that enacts, asked as the kit's confirm card in a sheet: the
@@ -103,10 +105,16 @@ pub(super) fn confirm(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> O
 fn confirm_card(words: String, cx: &mut Context<Nodes>, theme: &Theme) -> Stateful<Div> {
     let no = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.hold(cx));
     let yes = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.confirm(cx));
-    let not_now =
-        design::button("nodes-confirm-no", "Not now", &LADDER, theme, no).kind(Kind::Quiet);
-    let enact = design::button("nodes-confirm-yes", "Vote and enact", &LADDER, theme, yes)
-        .kind(Kind::Primary);
+    let not_now = design::button("nodes-confirm/cancel", words::NOT_NOW, &LADDER, theme, no)
+        .kind(Kind::Quiet);
+    let enact = design::button(
+        "nodes-confirm/submit",
+        words::VOTE_AND_ENACT,
+        &LADDER,
+        theme,
+        yes,
+    )
+    .kind(Kind::Primary);
     div()
         .id("nodes-confirm")
         .flex()
@@ -127,7 +135,7 @@ fn confirm_card(words: String, cx: &mut Context<Nodes>, theme: &Theme) -> Statef
                 .pt(space::MD)
                 .text_type(LADDER.secondary)
                 .text_color(theme.warning)
-                .child("Your vote reaches the quorum: this happens now, and a vote can't be taken back."),
+                .child(words::ENACTS_NOW),
         )
         .child(
             div()
@@ -162,8 +170,8 @@ fn share(parts: f32, button: impl IntoElement) -> Div {
 pub(super) fn refused(
     name: &str,
     sentence: &str,
-    retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     theme: &Theme,
+    retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     let strip = notice(
         ElementId::Name(format!("{name}-refused").into()),

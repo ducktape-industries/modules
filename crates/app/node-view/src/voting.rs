@@ -15,7 +15,7 @@ use view::methods::{self, Submitted};
 use view::prelude::*;
 
 use crate::Nodes;
-use crate::queries::{self, Motions, Names, Schedule};
+use crate::queries::{self, Motions, Names, Node, Schedule};
 
 #[derive(Default)]
 pub(crate) struct Voting {
@@ -151,6 +151,7 @@ impl Nodes {
         cx.notify();
     }
 
+    /// The reader's yes to the press that waits for one: its vote goes.
     pub(crate) fn confirm(&mut self, cx: &mut Context<Self>) {
         if let Some(motion) = self.voting.confirming.take() {
             self.vote(motion, cx);
@@ -158,6 +159,7 @@ impl Nodes {
         cx.notify();
     }
 
+    /// The reader's Not now: the press that waits is dropped, unsent.
     pub(crate) fn hold(&mut self, cx: &mut Context<Self>) {
         self.voting.confirming = None;
         cx.notify();
@@ -176,6 +178,7 @@ impl Nodes {
         .detach();
     }
 
+    /// The reader is done with the last vote's outcome.
     pub(crate) fn dismiss_outcome(&mut self, cx: &mut Context<Self>) {
         self.voting.outcome = None;
         cx.notify();
@@ -207,6 +210,19 @@ pub(crate) fn said(answer: Result<Submitted, Error>) -> Result<String, String> {
         Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
             Err(format!("That didn’t go through: {}", refusal.message))
         }
+    }
+}
+
+/// The motions a voter can put on a member, each with its slug and its
+/// label: Demote and Remove a validator, Promote a resident.
+pub(crate) fn motions_on(node: &Node) -> Vec<(&'static str, &'static str, Motion)> {
+    let key = node.key.clone();
+    match node.validator {
+        true => vec![
+            ("demote", "Demote", Motion::Demote { key: key.clone() }),
+            ("remove", "Remove", Motion::Remove { key }),
+        ],
+        false => vec![("promote", "Promote", Motion::Promote { key })],
     }
 }
 
@@ -250,8 +266,10 @@ pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String 
         Motion::Promote { key } => format!("Promote {} to validator", key_words(key)),
         Motion::Demote { key } => format!("Demote {} to resident", key_words(key)),
         Motion::Remove { key } => format!("Remove {} from the network", key_words(key)),
-        Motion::Door { open: true } => "Open the door: anyone enrolls without an invite".into(),
-        Motion::Door { open: false } => "Close the door: enrolling takes an invite".into(),
+        Motion::Door { open } => {
+            let (door, meaning) = crate::words::door(*open);
+            format!("{door}: {meaning}")
+        }
         Motion::Role { role, op } if role == abi::role::PROGRAMS => match abi::decode(op) {
             Ok(programs::Op::Schedule(scheduled)) => {
                 scheduled_words(scheduled.height, &scheduled.change, roster)

@@ -22,16 +22,22 @@ mod parts;
 /// and kit, mobile `src/design/theme.ts`).
 const LADDER: Ladder = design::TOUCH;
 
-/// The open page, the sheet over it, and Back while either has somewhere
-/// to go (rule 13; the host leaves the program else).
+/// The open page, the sheets over it, and Back exactly while a sheet is
+/// drawn or a member's page is open (rule 13; the host leaves the program
+/// else): both read off what this frame draws.
 pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement {
     let theme = &cx.global::<Theme>().clone();
-    let back = (view.pages().depth() > 0 || view.sheet_open())
-        .then(|| cx.listener(|view: &mut Nodes, _: &BackEvent, _, cx| view.back(cx)));
-    let page = match view.pages().top() {
+    let pages = view.pages();
+    let page = match pages.top() {
         Page::Nodes => nodes::render(view, cx, theme).into_any_element(),
         Page::Node(key) => node::render(view, key, cx, theme).into_any_element(),
     };
+    let sheets: Vec<AnyElement> = nodes::door(view, cx, theme)
+        .into_iter()
+        .chain(parts::confirm(view, cx, theme))
+        .collect();
+    let back = (pages.depth() > 0 || !sheets.is_empty())
+        .then(|| cx.listener(|view: &mut Nodes, _: &BackEvent, _, cx| view.back(cx)));
     div()
         .id("nodes")
         .flex()
@@ -42,6 +48,5 @@ pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement 
         .text_type(LADDER.body)
         .when_some(back, |root, back| root.on_back(back))
         .child(page)
-        .children(nodes::door(view, cx, theme))
-        .children(parts::confirm(view, cx, theme))
+        .children(sheets)
 }

@@ -10,20 +10,19 @@
 //! `Nodes::open` (the page's Back) and a vote through `Nodes::press`.
 use abi::hex;
 use std::ops::RangeInclusive;
-use valset::Motion;
 use view::design::{Page, space};
 use view::prelude::*;
 use view::{Div, Stateful};
 
 use super::LADDER;
 use super::parts::{empty, last_answer, outcome, press, quiet, scroller, small_button};
-use crate::Nodes;
 use crate::queries::Node;
 use crate::recent::Recent;
 use crate::row::{self, Status};
-use crate::table;
+use crate::{Nodes, voting, words};
 
-/// How wide a key's label runs (Expo `src/kit/Facts.tsx:64`).
+/// How wide a key's label runs (Expo `src/kit/Facts.tsx:64`); SDK gap:
+/// the kit's `KeyValue` (`key_value`), swap when feat/phone-kit lands.
 const KEY_LABEL_W: Pixels = px(96.);
 /// How tall a block's mark is in the strip (Expo `[key].tsx:80`).
 const MARK: Pixels = px(14.);
@@ -72,7 +71,7 @@ fn missing(view: &Nodes, theme: &Theme) -> AnyElement {
             theme,
         )
         .into_any_element(),
-        None => quiet("nodes-node-loading", "Reading the members…", theme).into_any_element(),
+        None => quiet("nodes-node-loading", words::READING_MEMBERS, theme).into_any_element(),
     }
 }
 
@@ -94,12 +93,12 @@ fn identity(view: &Nodes, node: &Node, theme: &Theme) -> Div {
         .ready()
         .is_some_and(|status| status.identity == node.key);
     let address = match this {
-        true => format!("{address} · this node"),
+        true => format!("{address} · {}", words::THIS_NODE),
         false => address,
     };
     div()
-        .child(key_value("key", "Key", mono(hex(&node.key)), theme))
-        .child(key_value("address", "Address", mono(address), theme))
+        .child(key_value("key", words::KEY, mono(hex(&node.key)), theme))
+        .child(key_value("address", words::ADDRESS, mono(address), theme))
         .children(
             node.operator
                 .clone()
@@ -114,9 +113,11 @@ fn vote_facts(view: &Nodes, node: &Node, theme: &Theme) -> Div {
         signed,
         behind,
         status,
-    } = table::heard(view).map_or(row::BLANK, |network| row::synced(node, network));
+    } = view
+        .heard()
+        .map_or(row::BLANK, |network| row::synced(node, network));
     let height = signed.map_or("—".to_owned(), |signed| {
-        format!("{} voted", design::grouped(signed))
+        format!("{} {}", design::grouped(signed), words::VOTED)
     });
     let behind = behind.map_or("—".to_owned(), design::grouped);
     let (tone, ground) = tint(&status, view.answering(), theme);
@@ -128,9 +129,9 @@ fn vote_facts(view: &Nodes, node: &Node, theme: &Theme) -> Div {
         ground,
     );
     div()
-        .child(key_value("height", "Height", mono(height), theme))
-        .child(key_value("behind", "Behind", mono(behind), theme))
-        .child(key_value("status", "Status", badge, theme))
+        .child(key_value("height", words::HEIGHT, mono(height), theme))
+        .child(key_value("behind", words::BEHIND, mono(behind), theme))
+        .child(key_value("status", words::STATUS, badge, theme))
 }
 
 /// A status badge's tint (Expo `src/network/voting.tsx` `tintOf`): plain
@@ -189,15 +190,11 @@ fn span(view: &Nodes) -> Option<RangeInclusive<u64>> {
 
 /// `Proposed`, and at its right which blocks the strip spans.
 fn proposed_head(view: &Nodes, theme: &Theme) -> impl IntoElement {
-    let range = span(view).map(|span| {
-        format!(
-            "last {} · {} → {}",
-            design::plural(span.end() - span.start() + 1, "block", "blocks"),
-            design::grouped(*span.start()),
-            design::grouped(*span.end()),
-        )
-    });
-    design::section_head("nodes-node-proposed", "Proposed", None, &LADDER, theme).children(range)
+    let range = span(view).map(|span| words::span(&span));
+    // SDK gap: a section head's text at its right, swap when feat/phone-kit
+    // lands
+    design::section_head("nodes-node-proposed", words::PROPOSED, None, &LADDER, theme)
+        .children(range)
 }
 
 /// What the member proposed: a validator's strip once the tip is known; a
@@ -205,7 +202,10 @@ fn proposed_head(view: &Nodes, theme: &Theme) -> impl IntoElement {
 fn proposed(view: &Nodes, node: &Node, theme: &Theme) -> Option<AnyElement> {
     match node.validator {
         true => span(view).map(|span| strip(node, span, &view.recent, theme).into_any_element()),
-        false => Some(quiet("nodes-node-no-blocks", "Doesn't propose", theme).into_any_element()),
+        false => {
+            let none = quiet("nodes-node-no-blocks", words::DOESNT_PROPOSE, theme);
+            Some(none.into_any_element())
+        }
     }
 }
 
@@ -242,24 +242,18 @@ fn presses(view: &Nodes, node: &Node, cx: &Context<Nodes>, theme: &Theme) -> Opt
     if !view.voting.votes() {
         return None;
     }
-    let key = node.key.clone();
-    let motions = match node.validator {
-        true => vec![
-            ("demote", "Demote", Motion::Demote { key: key.clone() }),
-            ("remove", "Remove", Motion::Remove { key }),
-        ],
-        false => vec![("promote", "Promote", Motion::Promote { key })],
-    };
     let pressable = view.voting.pressable();
-    let buttons = motions.into_iter().map(|(name, label, motion)| {
-        small_button(
-            ElementId::Name(format!("nodes-node-{name}").into()),
-            label,
-            pressable,
-            theme,
-            press(cx, motion),
-        )
-    });
+    let buttons = voting::motions_on(node)
+        .into_iter()
+        .map(|(name, label, motion)| {
+            small_button(
+                ElementId::Name(format!("nodes-node-{name}").into()),
+                label,
+                pressable,
+                theme,
+                press(cx, motion),
+            )
+        });
     Some(
         div()
             .flex()
