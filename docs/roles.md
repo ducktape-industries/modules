@@ -19,7 +19,7 @@ the kernel never calls it: a node reads it, and `crates/app/egress` fills it.
 | `identity` | `identity` | as it admits a program (at founding, and later off the programs role), executes `RegisterProgram { program }` with the `System` origin; for each signed frame asks `Account(key)`; for each message and reply asks `OfProgram(sender)`, and for a message a program sends as another account asks `Runs { program, account }` |
 | `awaits` | `awaits` | when a frame parks waiting on calls, sends `Park { frame, program, calls }` with the `System` origin, and `Close { frame }` when the frame finishes or the programs role changes its code; the role opens a ticket per call, and a `Resolve { ticket, answer }` from the called program makes it hand the frame its answer through the host's `Resume`; a ticket has no deadline. A refusal of `Park` fails the frame |
 | `scheduler` | `scheduler` | at the end of each block, after its frames and hooks and before the epoch step, asks `Due { height }` page by page (no limit: every entry) and, for each entry still due (`Entry { id }` asked again first, so a run that cancels a later entry of the same block holds), runs `payload` on `target` as the program that scheduled the entry would send a message: `Origin::Program(scheduler)`, that program's account, `Cause::Scheduled { entry }`, the network's per-frame limits; a refused run undoes only its own writes. It then sends `Ran { entry, receipt }` with the `System` origin, and the role keeps the receipt on the entry; the block does not carry it. A program sends `Schedule { height, target, payload }` (the SDK's `ctx.schedule`), answered with the entry id: the role takes the scheduler from the origin, so a program schedules only as itself, and refuses a height not after the current one, so a scheduled run never lands in its own block. Only the scheduling program sends `Cancel { entry }`, before the run |
-| `egress` | `egress` | nothing: the node reads it. After each block a member node asks `Assigned { key }` with its own key and `Node { key }`; it calls each request elected to it, through the services its `egress.toml` names, and signs `Answer { id, answer }`, and `Serve { services }` while the role's record of it differs from its config. A program asks `Serving { service }` for the member nodes that would be elected, and calls the role with `Request { request, wait }`. The egress program expires a request itself: it schedules its own `Expire { id }` through the scheduler role `wait` blocks on (`DEFAULT_WAIT`, 64, when `wait` is `None`) and cancels it when the answer comes; no node signs an expiry |
+| `egress` | `egress` | nothing: the node reads it. After each block a member node asks `Assigned { key }` with its own key and `Node { key }`; it calls each request elected to it, through the services its `egress.toml` names, and signs `Answer { id, answer }` (for a request that asks `Delivery::Events`, a `text/event-stream` response's events instead, each as `Event { id, seq, data }` once a block carried the one before, then `EndStream { id, events, end }`), and `Serve { services }` while the role's record of it differs from its config. A program asks `Serving { service }` for the member nodes that would be elected, and calls the role with `Request { request, delivery, wait }`. An events request's requester hears each event as its own op, `deliver` followed by the encoded `Event`, and its call answers the stream's end: `Complete` as the encoded `StreamEnd`, a cut as a refusal; each event moves the request's expiry `wait` blocks past it. The egress program expires a request itself: it schedules its own `Expire { id }` through the scheduler role `wait` blocks on (`DEFAULT_WAIT`, 64, when `wait` is `None`) and cancels it when the answer comes; no node signs an expiry |
 | `blobs` | `blobs` | when a program reads a blob (`blob_get`) that no program put, and when the programs role admits code, asks `Held { blob }`: the blob is served only once a bundle naming it is held, which it is from the receipt that brings two thirds of the current validators. The node watches the role's writes: it gathers every bundle put, and a validator's node receipts a bundle once it holds every blob |
 | `halo` | `halo` | at founding, writes its params (`role::halo::Genesis`: the founding lanes, given ids in order from 0, each `Founded { name, cap, pinned }`); at boot and after any block that writes the role's state, the node asks `Lanes` and serves halo's lanes by that table: a lane's name to its wire id, the class its streams are served at most, whether it is served, and whether it is pinned. Only the validators' vote (`Motion::Role { role: "halo", op }`) changes it: `Open` lists a name at the next id, unpinned, `Set` changes its cap or pauses it, `Close` unlists it, and no id is handed out twice. A pinned lane is never paused or closed (`invalid_input`, refused as the vote enacts it): this repo's founding pins `ducktape/blobs`, over which a node fetches the blobs it needs to apply a block, so no vote can cut a node off from the block that would undo it |
 
@@ -63,14 +63,14 @@ hands it to the program as `Env.sender`:
 - a signed frame acts as the account its key holds (`Account(key)`); a key
   that holds none still runs, as no one (`sender: None`), which is how
   identity's own `Create` works; a key whose account does not act (a
-  suspended agent) is refused, and the host rejects the frame;
+  suspended program account) is refused, and the host rejects the frame;
 - a message or a reply from another program acts as that program's account
   (`OfProgram(program)`);
 - a message a program sends as another account (`ctx.emit_as(account, ..)`,
   `Message.acting`) acts as that account when identity answers
-  `Runs { program, account }` with it: an agent whose manager handed it to
-  that program, while the agent is active. Any other answer, or a refusal,
-  rejects the message, so no key is held anywhere for an agent a program
+  `Runs { program, account }` with it: a program account whose script calls
+  that program, while the account is active. Any other answer, or a refusal,
+  rejects the message, so no key is held anywhere for an account a program
   runs;
 - founding and the kernel's own calls act as the chain (`Root`).
 
@@ -87,33 +87,37 @@ Everything that acts is an account in `identity`:
 `Account { number, card, control }`. The `Card` is what it shows (name,
 avatar, bio); the `Control` is who acts as it:
 
-- `Person { keys }`: a person and the keys they hold.
-- `Managed { manager, category, life, runner }`: an agent. Its manager, a
-  person, gives it keys, hands it to a program to run (`runner`), and
-  decides its `Life`: `Active { keys }`, `Suspended { keys }` (keys kept,
-  frames refused) or `Revoked` (keys dropped, final).
-- `Program { program }`: a program's account, registered by the kernel as it
-  admits the program. It holds no keys; the program alone acts as it.
+- `User { keys }`: a person and the keys they hold.
+- `Program { manager, category, life, script }`: a program account. Its
+  manager, a user, declares its `category` (`Agent`), gives it keys, sets
+  its `script`, and decides its `Life`: `Active { keys }`,
+  `Suspended { keys }` (keys kept, frames refused) or `Revoked` (keys
+  dropped, final). A `Script { calls, config }` names the program that runs
+  the account's actions and hands it `config`, text only that program gives
+  a meaning. Not every program account is an agent; `Agent` is the one
+  category so far.
+- `System { program }`: a program's own account, registered by the kernel
+  as it admits the program. It holds no keys; the program alone acts as it.
 
 Who may do what (the acting account is `ctx.sender()`):
 
 | Op | Who |
 |---|---|
 | `RegisterProgram { program }` | the system (`Root` origin) alone; a program that has an account keeps it |
-| `Create { name, scheme }` | a key that holds no account; it becomes a person's first key |
-| `CreateAgent { name }` | a person; they become its manager |
-| `AddKey` | a person's account: the new key signs the frame and a key already on the account consents. An agent's: its manager signs and the new key consents to itself. Never a program's or a revoked agent's |
-| `RemoveKey` | a person removes their own key or a junior one, never their last. An agent's manager removes any of its keys |
-| `SetName`, `SetProfile` | a person or a program on its own account; an agent's manager on the agent's (not once revoked) |
-| `Suspend`, `Resume`, `Revoke` | the agent's manager |
-| `SetRunner { account, runner }` | the agent's manager, not once revoked. `Some(program)` names a program that has an account; that program then sends messages as the agent (`Runs`). `None` takes it back |
+| `Create { name, scheme }` | a key that holds no account; it becomes a user's first key |
+| `CreateAgent { name }` | a user; they become the manager of a new program account of the `Agent` category, with no key and no script |
+| `AddKey` | a user's account: the new key signs the frame and a key already on the account consents. A program account's: its manager signs and the new key consents to itself. Never a system account's or a revoked program account's |
+| `RemoveKey` | a user removes their own key or a junior one, never their last. A program account's manager removes any of its keys |
+| `SetName`, `SetProfile` | a user or a program on its own account; a program account's manager on that account's (not once revoked) |
+| `Suspend`, `Resume`, `Revoke` | the program account's manager |
+| `SetScript { account, script }` | the program account's manager, not once revoked. `Some(Script { calls, config })` names in `calls` a program that has an account; that program then sends messages as the account (`Runs`) and reads `config`. `None` takes it back |
 | `SetAudience { account, audience }` | the agent's manager, not once revoked. It records whom the agent answers: `Manager`, `Accounts` (the manager and the accounts named) or `Anyone`. The agent's runtime reads it with `Query::Audience`; nothing on the chain enforces it. An agent with no setting, or a revoked one, answers `Manager` |
 
 The role's queries, which views and other programs ask too, are
 `Account(key)`, `OfProgram(program)`, `Profile(number)`,
 `Profiles { after, limit }` and `Runs { program, account }`. A `Profile` is
-`{ number, name, kind }`, where `Kind` is `Person`,
-`Managed { manager, category, standing, runner }` or `Program(id)`. `Kind::badge` and `Kind::note` in `abi` turn it into what a view
+`{ number, name, kind }`, where `Kind` is `User`,
+`Program { manager, category, standing, script }` or `System(id)`. `Kind::badge` and `Kind::note` in `abi` turn it into what a view
 shows beside a name ("Agent · managed by Dev", "Program · chat", "suspended"),
 the one place that happens.
 
@@ -189,8 +193,8 @@ Who may schedule or cancel (putting a blob is open to any account):
   capped hook fuel. Only the vote sets, unsets or removes a hook
   (`SetHook`, `RemoveHook`, `Remove` of a hooked id).
 
-Only the vote grants (`Op::Grant`, to a person or an agent identity
-profiles, never a program's account); `Op::Revoke` is the vote's or the
+Only the vote grants (`Op::Grant`, to a user or a program account identity
+profiles, never a system account); `Op::Revoke` is the vote's or the
 holder's own, and drops every change the account made that it no longer
 covers. The vote wins: its change to an id takes every change a grant
 made to that id with it, and its removal of an id the id's `Program`

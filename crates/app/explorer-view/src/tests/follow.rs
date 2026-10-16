@@ -17,7 +17,7 @@ fn an_identity_head_re_reads_the_accounts() {
     let chess = account(
         8,
         "chess",
-        identity::Control::Program {
+        identity::Control::System {
             program: "chess".into(),
         },
     );

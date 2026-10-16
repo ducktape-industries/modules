@@ -6,7 +6,7 @@ use store::PageRequest;
 
 use crate::{
     Account, Admission, Audience, CONSENT_NAMESPACE, Category, Consent, Control, Identity, Kind,
-    Life, Op, Query, Reply, Standing,
+    Life, Op, Query, Reply, Script, Standing,
 };
 
 const ALICE: &[u8] = b"alice-key";
@@ -163,7 +163,7 @@ fn accounts_are_numbered_from_one_and_a_key_holds_one_account() {
     assert_eq!(create(&store, ALICE, "  Alice "), 1);
     let alice = get(&store, 1);
     assert_eq!(alice.card.name, "Alice");
-    assert!(matches!(alice.control, Control::Person { .. }));
+    assert!(matches!(alice.control, Control::User { .. }));
     assert_eq!(create(&store, BOB, "Bob"), 2);
     let again = refused(
         &store,
@@ -246,10 +246,10 @@ fn a_key_joins_by_consent_and_leaves_only_junior_to_its_remover() {
     assert_eq!(last.code, code::WRONG_STATE);
 }
 
-/// A person creates an agent and alone adds and removes its keys; the
+/// A user creates an agent and alone adds and removes its keys; the
 /// agent itself neither creates agents nor touches its own keys.
 #[test]
-fn a_person_manages_an_agent_and_its_keys() {
+fn a_user_manages_an_agent_and_its_keys() {
     let store = memory();
     create(&store, ALICE, "Alice");
     create(&store, BOB, "Bob");
@@ -257,8 +257,8 @@ fn a_person_manages_an_agent_and_its_keys() {
     assert_eq!(agent, 3);
     assert_eq!(
         get(&store, agent).control,
-        Control::Managed {
-            runner: None,
+        Control::Program {
+            script: None,
             manager: 1,
             category: Category::Agent,
             life: Life::Active { keys: Vec::new() },
@@ -292,10 +292,10 @@ fn a_person_manages_an_agent_and_its_keys() {
     assert_eq!(signed(&store, BOT).sender, None);
 }
 
-/// A card (name, avatar, bio) is a person's own, an agent's manager's alone
-/// (never the agent's own), and a program's own alone.
+/// A card (name, avatar, bio) is a user's own, an agent's manager's alone
+/// (never the agent's own), and a system account's program's alone.
 #[test]
-fn a_card_is_edited_by_its_person_its_manager_or_its_program() {
+fn a_card_is_edited_by_its_user_its_manager_or_its_program() {
     let store = memory();
     create(&store, ALICE, "Alice");
     create(&store, BOB, "Bob");
@@ -460,7 +460,7 @@ fn an_agent_is_suspended_resumed_or_revoked_by_its_manager_alone() {
         [agent]
     );
 
-    // a person is no one's agent: no one suspends them
+    // a user is no one's program account: no one suspends them
     let alice = refused(&store, &signed(&store, ALICE), Op::Suspend { account: 1 });
     assert_eq!(alice.code, code::WRONG_STATE);
     let bob = refused(&store, &signed(&store, BOB), Op::Suspend { account: 1 });
@@ -485,13 +485,13 @@ fn the_system_registers_a_program_which_alone_names_its_account() {
     assert_eq!(account.card.name, "forge");
     assert_eq!(
         account.control,
-        Control::Program {
+        Control::System {
             program: "forge".into()
         }
     );
     assert!(account.keys().is_empty());
 
-    // a program's account holds no keys and manages no one
+    // a system account holds no keys and manages no one
     let agent = refused(&store, &forge, Op::CreateAgent { name: "x".into() });
     assert_eq!(agent.code, code::UNAUTHORIZED);
     let key = refused(&store, &signed(&store, ALICE), agent_key(2, BOT, 0));
@@ -600,12 +600,12 @@ fn profiles_page_in_number_order_and_say_what_each_is() {
     assert_eq!(
         what,
         [
-            (1, "Alice", Kind::Person),
+            (1, "Alice", Kind::User),
             (
                 2,
                 "Scout",
-                Kind::Managed {
-                    runner: None,
+                Kind::Program {
+                    script: None,
                     manager: 1,
                     category: Category::Agent,
                     standing: Standing::Active
@@ -619,7 +619,7 @@ fn profiles_page_in_number_order_and_say_what_each_is() {
         rest.iter()
             .map(|p| (p.number, p.kind.clone()))
             .collect::<Vec<_>>(),
-        [(3, Kind::Program("chat".into()))]
+        [(3, Kind::System("chat".into()))]
     );
     assert_eq!(next, None);
     let one = |number| match query(&store, Query::Profile { number }) {
@@ -800,10 +800,17 @@ fn runs(store: &MockHost, program: &str, account: u64) -> Result<Option<u64>, ::
     }
 }
 
-fn run_by(account: u64, runner: Option<&str>) -> Op {
-    Op::SetRunner {
+fn script(calls: &str) -> Script {
+    Script {
+        calls: calls.into(),
+        config: "answer in the forge".into(),
+    }
+}
+
+fn run_by(account: u64, calls: Option<&str>) -> Op {
+    Op::SetScript {
         account,
-        runner: runner.map(Into::into),
+        script: calls.map(script),
     }
 }
 
@@ -834,12 +841,12 @@ fn a_manager_hands_an_agent_to_a_program_that_then_alone_runs_it() {
     assert_eq!(unknown.code, code::NOT_FOUND);
     let stranger = refused(&store, &signed(&store, BOB), run_by(agent, Some("harness")));
     assert_eq!(stranger.code, code::UNAUTHORIZED);
-    let person = refused(
+    let user = refused(
         &store,
         &signed(&store, ALICE),
         run_by(alice, Some("harness")),
     );
-    assert_eq!(person.code, code::WRONG_STATE);
+    assert_eq!(user.code, code::WRONG_STATE);
 
     run(
         &store,
@@ -861,11 +868,11 @@ fn a_manager_hands_an_agent_to_a_program_that_then_alone_runs_it() {
     };
     assert_eq!(
         profile.kind,
-        Kind::Managed {
+        Kind::Program {
             manager: alice,
             category: Category::Agent,
             standing: Standing::Active,
-            runner: Some("harness".into()),
+            script: Some(script("harness")),
         }
     );
 

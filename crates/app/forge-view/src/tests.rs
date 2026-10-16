@@ -200,10 +200,10 @@ fn accounts() -> chat::PageResponse<chat::Profile> {
     let row = |number, name: &str| chat::Profile {
         number,
         name: name.into(),
-        kind: chat::Kind::Person,
+        kind: chat::Kind::User,
     };
     let forge = chat::Profile {
-        kind: chat::Kind::Program(forge::PROGRAM.into()),
+        kind: chat::Kind::System(forge::PROGRAM.into()),
         ..row(FORGE, forge::PROGRAM)
     };
     chat::PageResponse {

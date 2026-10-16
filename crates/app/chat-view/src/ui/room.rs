@@ -217,6 +217,24 @@ fn header(
             theme.surface_raised,
         ));
     }
+    // a dm with an agent that would not answer the reader says so before
+    // they write; writing stays open
+    let unanswered = chat
+        .my_account()
+        .and_then(|me| crate::names::dm_peer_of(me, &room.id))
+        .map(chat::Principal::Account)
+        .and_then(|peer| {
+            let why = chat.unanswered(&peer)?;
+            let name = chat.names.ready()?.member(&peer);
+            Some(format!("{name} answers {why}. Messages here get no reply."))
+        })
+        .map(|line| {
+            div()
+                .id("chat-room-unanswered")
+                .text_size(design::text::SECONDARY)
+                .text_color(theme.muted)
+                .child(line)
+        });
     div()
         .id("chat-room-header")
         .flex()
@@ -225,7 +243,15 @@ fn header(
         .p_3()
         .border_b_1()
         .border_color(theme.border)
-        .child(div().flex_1().child(title))
+        .child(
+            div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(title)
+                .children(unanswered),
+        )
         .child(button(
             "chat-room-details",
             if direct {

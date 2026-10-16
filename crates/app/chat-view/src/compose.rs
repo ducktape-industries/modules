@@ -29,6 +29,9 @@ impl Chat {
             .into_iter()
             .map(|choice| MentionChoice {
                 token: mention_token(&choice.principal),
+                hint: self
+                    .unanswered(&choice.principal)
+                    .map(|why| format!("Answers {why}")),
                 label: choice.label,
             })
             .collect()

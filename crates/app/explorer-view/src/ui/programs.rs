@@ -589,7 +589,15 @@ fn holder(view: &Explorer, number: u64, theme: &Theme, ladder: &Ladder) -> AnyEl
     let account = view.account(number);
     let name = account.map_or_else(|| format!("account {number}"), |a| a.card.name.clone());
     let you = view.acting.account == Some(number);
-    let agent = account.is_some_and(|a| matches!(a.kind(), identity::Kind::Managed { .. }));
+    let agent = account.is_some_and(|a| {
+        matches!(
+            a.kind(),
+            identity::Kind::Program {
+                category: identity::Category::Agent,
+                ..
+            }
+        )
+    });
     div()
         .flex()
         .items_center()

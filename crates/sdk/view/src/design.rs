@@ -86,58 +86,196 @@ pub fn width_class(width: f32) -> WidthClass {
     }
 }
 
+/// A text role: its size, and the line height it is set on, if the role
+/// names one. Set on an element with [`TextType::text_type`]. A pointer's
+/// roles name none (the host's line height stands, as on the desktop
+/// today); a finger's are the Expo app's (`theme.ts` `type`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Type {
+    pub size: Pixels,
+    pub line: Option<Pixels>,
+}
+
+impl Type {
+    /// A role at `size` on the host's line height.
+    pub const fn size(size: Pixels) -> Self {
+        Self { size, line: None }
+    }
+    /// A role at `size` on a `line` tall line.
+    pub const fn lined(size: f64, line: f64) -> Self {
+        Self {
+            size: px(size as f32),
+            line: Some(px(line as f32)),
+        }
+    }
+}
+
+/// [`Type`] on any styled element: `div().text_type(ladder.body)`.
+pub trait TextType: Styled + Sized {
+    /// The role's size, and its line height where it names one.
+    fn text_type(self, role: Type) -> Self {
+        let element = self.text_size(role.size);
+        match role.line {
+            Some(line) => element.line_height(line),
+            None => element,
+        }
+    }
+}
+
+impl<E: Styled> TextType for E {}
+
+/// An [`avatar`]'s size: its side, its initial's text role and weight. A
+/// side alone (`design::size::AVATAR`) sets its initial at 0.45 of it; a
+/// finger's rungs ([`Ladder::avatar`] and the rest) are the Expo kit's
+/// `Avatar`, whose initial sizes are a table, not one ratio, and medium.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Face {
+    pub side: Pixels,
+    pub text: Type,
+    pub weight: Option<FontWeight>,
+}
+
+impl Face {
+    /// A side of `side` px with its initial at 0.45 of it, in the face's
+    /// own weight.
+    pub const fn of(side: f32) -> Self {
+        Self {
+            side: px(side),
+            text: Type::size(px(side * 0.45)),
+            weight: None,
+        }
+    }
+    /// The Expo kit's face: `text` medium on a line 1.25 times it.
+    const fn kit(side: f64, text: f64) -> Self {
+        Self {
+            side: px(side as f32),
+            text: Type::lined(text, text * 1.25),
+            weight: Some(FontWeight::MEDIUM),
+        }
+    }
+}
+
+impl From<Pixels> for Face {
+    fn from(side: Pixels) -> Self {
+        Self::of(side.into())
+    }
+}
+
 /// The sizes a view draws its controls, rows and text at: one set under a
 /// pointer ([`height`], [`type_scale`]), one under a finger (their `touch`
-/// modules; every pressable thing at least [`Ladder::hit`] each way). Two
-/// constant sets, nothing computed. Picked once per render from the
-/// device (`design::ladder(window.touch())`) and passed down to every
-/// helper that sizes something, so the choice is visible where it is made.
+/// modules, the Expo app's theme; every pressable thing at least
+/// [`Ladder::hit`] each way). Two constant sets, nothing computed. Picked
+/// once per render from the device (`design::ladder(window.touch())`) and
+/// passed down to every helper that sizes something, so the choice is
+/// visible where it is made.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ladder {
     /// The session's pointer is a finger: the set this is.
     pub touch: bool,
+    /// a page's title row
+    pub header: Pixels,
     /// a list row
     pub row: Pixels,
+    /// a row of a sheet
+    pub sheet_row: Pixels,
     /// a control on one line
     pub control: Pixels,
     /// the smallest box a press lands in, each way
     pub hit: Pixels,
-    /// a person's initial in a row
-    pub avatar: Pixels,
+    /// a person's initial in a row or beside a message
+    pub avatar: Face,
+    /// a person's initial inline: a title row, a mention
+    pub avatar_inline: Face,
+    /// a person's initial heading a sheet
+    pub avatar_sheet: Face,
+    /// a person's initial heading their own page
+    pub avatar_detail: Face,
+    /// an icon on an icon button or in a title row
+    pub icon: Pixels,
+    /// an icon leading a list row
+    pub icon_row: Pixels,
+    /// an icon leading a sheet row
+    pub icon_sheet: Pixels,
+    /// a view's first page's title
+    pub big_title: Type,
+    /// a detail head's name
+    pub heading: Type,
     /// a page title
-    pub title: Pixels,
+    pub title: Type,
     /// body text
-    pub body: Pixels,
+    pub body: Type,
     /// a control's label
-    pub label: Pixels,
-    /// a caption, a timestamp, a badge
-    pub caption: Pixels,
+    pub label: Type,
+    /// strip items, key/value rows
+    pub small: Type,
+    /// secondary copy
+    pub secondary: Type,
+    /// a caption, a timestamp
+    pub caption: Type,
+    /// a badge, a count
+    pub tiny: Type,
+    /// code, in the data face
+    pub code: Type,
 }
 
-/// The pointer's ladder: today's desktop numbers, unchanged.
+/// The pointer's ladder: today's desktop numbers, unchanged, on the host's
+/// line height.
 pub const POINTER: Ladder = Ladder {
     touch: false,
+    header: size::ROW,
     row: size::ROW,
+    sheet_row: size::ROW,
     control: size::CONTROL,
     hit: px(::design::height::HIT as f32),
-    avatar: size::AVATAR,
-    title: text::TITLE,
-    body: text::BODY,
-    label: text::SECONDARY,
-    caption: text::CAPTION,
+    avatar: Face::of(::design::height::AVATAR as f32),
+    avatar_inline: Face::of(::design::height::AVATAR_SM as f32),
+    avatar_sheet: Face::of(::design::height::AVATAR_LG as f32),
+    avatar_detail: Face::of(::design::height::AVATAR_LG as f32),
+    icon: px(::design::height::ICON as f32),
+    icon_row: px(::design::height::ICON as f32),
+    icon_sheet: px(::design::height::ICON as f32),
+    big_title: Type::size(text::TITLE),
+    heading: Type::size(text::TITLE),
+    title: Type::size(text::TITLE),
+    body: Type::size(text::BODY),
+    label: Type::size(text::SECONDARY),
+    small: Type::size(text::BODY),
+    secondary: Type::size(text::SECONDARY),
+    caption: Type::size(text::CAPTION),
+    tiny: Type::size(text::CAPTION),
+    code: Type::size(text::MONO),
 };
 
-/// The finger's ladder: the design canvas's numbers (views board 0).
-pub const TOUCH: Ladder = Ladder {
-    touch: true,
-    row: px(::design::height::touch::ROW as f32),
-    control: px(::design::height::touch::CONTROL as f32),
-    hit: px(::design::height::touch::HIT as f32),
-    avatar: px(::design::height::touch::AVATAR as f32),
-    title: px(::design::type_scale::touch::TITLE as f32),
-    body: px(::design::type_scale::touch::BODY as f32),
-    label: px(::design::type_scale::touch::BODY as f32),
-    caption: px(::design::type_scale::touch::CAPTION as f32),
+/// The finger's ladder: the Expo app's numbers (mobile `src/design/theme.ts`
+/// `type` and `size`).
+pub const TOUCH: Ladder = {
+    use ::design::{height::touch as h, type_scale::touch as t};
+    Ladder {
+        touch: true,
+        header: px(h::HEADER as f32),
+        row: px(h::ROW as f32),
+        sheet_row: px(h::SHEET_ROW as f32),
+        control: px(h::CONTROL as f32),
+        hit: px(h::HIT as f32),
+        avatar: Face::kit(h::AVATAR, h::AVATAR_TEXT),
+        avatar_inline: Face::kit(h::AVATAR_INLINE, h::AVATAR_INLINE_TEXT),
+        avatar_sheet: Face::kit(h::AVATAR_SHEET, h::AVATAR_SHEET_TEXT),
+        avatar_detail: Face::kit(h::AVATAR_DETAIL, h::AVATAR_DETAIL_TEXT),
+        icon: px(h::ICON as f32),
+        icon_row: px(h::ICON_ROW as f32),
+        icon_sheet: px(h::ICON_SHEET as f32),
+        big_title: Type::lined(t::BIG_TITLE, t::BIG_TITLE_LINE),
+        heading: Type::lined(t::HEADING, t::HEADING_LINE),
+        title: Type::lined(t::TITLE, t::TITLE_LINE),
+        body: Type::lined(t::BODY, t::BODY_LINE),
+        // a button's label is body text (Expo `Button`)
+        label: Type::lined(t::BODY, t::BODY_LINE),
+        small: Type::lined(t::SMALL, t::SMALL_LINE),
+        secondary: Type::lined(t::SECONDARY, t::SECONDARY_LINE),
+        caption: Type::lined(t::CAPTION, t::CAPTION_LINE),
+        tiny: Type::lined(t::TINY, t::TINY_LINE),
+        code: Type::lined(t::CODE, t::CODE_LINE),
+    }
 };
 
 /// The [`Ladder`] for a device: [`TOUCH`] when its primary pointer is a
@@ -146,13 +284,209 @@ pub const fn ladder(touch: bool) -> Ladder {
     if touch { TOUCH } else { POINTER }
 }
 
-/// A [`Sheet`](crate::Sheet) in the view's colours: its panel on the
-/// window's ground, padded like a card. `design::sheet("actions",
-/// "Message actions", theme).detents([0.6, 1.0]).on_dismiss(..).child(..)`;
-/// the host draws the scrim and docks or centres it by the body's width
-/// class.
-pub fn sheet(id: impl Into<ElementId>, label: impl Into<String>, theme: &Theme) -> crate::Sheet {
-    crate::sheet(id, label).bg(theme.background).p(space::BLOCK)
+/// A [`Sheet`](crate::Sheet) in the view's colours. Under a finger it is
+/// the Expo kit's `Sheet`: its panel on the window's ground under a
+/// `border_strong` hairline, edge to edge, so a row's ground and a hairline
+/// reach both sides; what it holds pads itself ([`sheet_head`],
+/// [`sheet_row`]). Under a pointer the panel pads its content by
+/// [`space::BLOCK`]. `design::sheet("actions", "Message actions", ladder,
+/// theme).detents([0.6, 1.0]).on_dismiss(..).child(..)`; the host draws the
+/// scrim and the handle and docks or centres it by the body's width class.
+pub fn sheet(
+    id: impl Into<ElementId>,
+    label: impl Into<String>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> crate::Sheet {
+    let sheet = crate::sheet(id, label).bg(theme.background);
+    if ladder.touch {
+        sheet.border_t_1().border_color(theme.border_strong)
+    } else {
+        sheet.p(space::BLOCK)
+    }
+}
+
+/// How far a sheet's head and rows sit in from its sides (the Expo kit's
+/// `SheetHead`, `SheetRow`).
+const SHEET_INSET: Pixels = px(20.);
+
+/// What a sheet is about, at its top (the Expo kit's `SheetHead`): 4 over,
+/// 12 under, [`SHEET_INSET`] in from each side, a hairline under it. The
+/// caller adds its lines (who and when in `ladder.caption`, then the
+/// subject in `ladder.body`).
+pub fn sheet_head(id: impl Into<ElementId>, theme: &Theme) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .flex_col()
+        .pt(space::XXS)
+        .pb(space::LG)
+        .px(SHEET_INSET)
+        .border_b_1()
+        .border_color(theme.border)
+}
+
+/// One action of a sheet (the Expo kit's `SheetRow`): [`Ladder::sheet_row`]
+/// tall, the whole row the press, an icon at [`Ladder::icon_sheet`] in
+/// muted (`None` for a row with none), then `label` in body text; a
+/// `danger` row (Delete) wears the danger tone on both.
+pub fn sheet_row(
+    id: impl Into<ElementId>,
+    icon: Option<&str>,
+    label: impl Into<SharedString>,
+    danger: bool,
+    ladder: &Ladder,
+    theme: &Theme,
+    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let (glyph, words) = match danger {
+        true => (theme.danger, theme.danger),
+        false => (theme.muted, theme.foreground),
+    };
+    div()
+        .id(id)
+        .w_full()
+        .h(ladder.sheet_row)
+        .flex()
+        .items_center()
+        .gap(px(14.))
+        .px(SHEET_INSET)
+        .when(ladder.touch, pressed)
+        .role(Role::Button)
+        .focusable()
+        .on_click(click)
+        .children(icon.map(|name| self::icon(name, ladder.icon_sheet).text_color(glyph)))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_type(ladder.body)
+                .text_color(words)
+                .child(label.into()),
+        )
+}
+
+/// A Lucide icon of the set the app bundles (`icons/<name>.svg`, the Expo
+/// kit's `Icon`), `size` each way, drawn in the text colour it is given or
+/// inherits: the caller names the tone (`.text_color(theme.muted)`). It
+/// says nothing to a screen reader; the control it sits in is named.
+///
+/// `name` is the icon's Lucide 1.x file name (the app registers gpui-kit's
+/// `AllAssets`, Lucide 1.43). An older name is an alias there and has no
+/// file: the Expo app's `Trash2` is `trash`, its `AlertCircle` is
+/// `circle-alert`.
+pub fn icon(name: &str, size: Pixels) -> crate::Svg {
+    crate::svg()
+        .path(format!("icons/{name}.svg"))
+        .size(size)
+        .flex_none()
+}
+
+/// A press target bigger than what it draws (React Native's `hitSlop`):
+/// a transparent box over its parent, taking no layout space, that
+/// carries the press and the Aria while the parent only draws. Under a
+/// finger it reaches past each edge of a `width` x `height` parent until
+/// it is [`Ladder::hit`] each way (an axis already that long gets no
+/// reach); under a pointer it covers the parent exactly. The reach lies
+/// over what sits around the parent, so rows keep their spacing. A
+/// reaction chip 30 tall and at least 40 wide:
+/// `div().h(px(30.)).min_w(px(40.)).child("👍 2").child(design::hit("react",
+/// px(40.), px(30.), &ladder).role(Role::Button).aria_label("👍 2")
+/// .focusable().on_click(..))`.
+pub fn hit(
+    id: impl Into<ElementId>,
+    width: Pixels,
+    height: Pixels,
+    ladder: &Ladder,
+) -> Stateful<Div> {
+    // the inset on each side of an axis: negative, it reaches past
+    let inset = |side: Pixels| match ladder.touch {
+        true => px(((f32::from(side) - f32::from(ladder.hit)) / 2.).min(0.)),
+        false => px(0.),
+    };
+    let (x, y) = (inset(width), inset(height));
+    div().id(id).absolute().top(y).bottom(y).left(x).right(x)
+}
+
+/// What a press shows under a finger: the control dims while it is held
+/// (the Expo kit's `platform.pressed`); a finger has no hover.
+fn pressed<E: StatefulInteractiveElement>(element: E) -> E {
+    element.active(|style| style.opacity(0.6))
+}
+
+/// A text field's box (the Expo kit's `Field`): at least
+/// [`Ladder::control`] tall, a `border_strong` hairline on the window's
+/// ground, body text 12 in from its sides. The host draws the edge the
+/// focused field wears.
+pub fn field(input: crate::Input, ladder: &Ladder, theme: &Theme) -> crate::Input {
+    input
+        .min_h(ladder.control)
+        .px(space::LG)
+        .border_1()
+        .border_color(theme.border_strong)
+        .bg(theme.background)
+        .text_color(theme.foreground)
+        .text_type(ladder.body)
+}
+
+/// The column a [`row`] leads with (the Expo kit's `Row` `lead`): 24 wide,
+/// its child centred in it: an icon at [`Ladder::icon_row`], an avatar.
+pub fn lead(child: impl IntoElement) -> Div {
+    div()
+        .w(px(24.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(child)
+}
+
+/// A list row (the Expo kit's `Row`): at least [`Ladder::row`] tall, 16 in
+/// from each side, 12 between its parts, a hairline under it. The caller
+/// adds a [`lead`], the title in `ladder.body` (with a caption under it in
+/// `ladder.caption`, and the row then at least 56: `.min_h(..)`), what
+/// trails it, and its press and role; the whole row is the press.
+pub fn row(id: impl Into<ElementId>, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
+    div()
+        .id(id)
+        .w_full()
+        .min_h(ladder.row)
+        .flex()
+        .items_center()
+        .gap(space::LG)
+        .py(space::XS)
+        .px(space::BLOCK)
+        .border_b_1()
+        .border_color(theme.border)
+        .when(ladder.touch, pressed)
+}
+
+/// A list's section head (the Expo kit's `SectionHead`): at least 40
+/// tall, 12 over and 4 under, 16 in; `label` in caption medium, `count`
+/// (how many rows the section has) at the right, both muted.
+pub fn section_head(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    count: Option<usize>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .min_h(px(40.))
+        .flex()
+        .items_center()
+        .justify_between()
+        .pt(space::LG)
+        .pb(space::XXS)
+        .px(space::BLOCK)
+        .text_type(ladder.caption)
+        .text_color(theme.muted)
+        .role(Role::Heading)
+        .aria_level(2)
+        .child(div().font_weight(FontWeight::MEDIUM).child(label.into()))
+        .children(count.map(|count| count.to_string()))
 }
 
 /// Nothing to show yet: what is missing, then what would fill it.
@@ -212,6 +546,8 @@ pub fn refused(
                 .w(px(64.))
                 .min_h(ladder.hit)
                 .bg(theme.surface)
+                // the Expo kit's `Notice` action: medium
+                .when(ladder.touch, |retry| retry.font_weight(FontWeight::MEDIUM))
                 .hover(move |style| style.bg(theme.surface_raised))
                 .role(Role::Button)
                 .focusable()
@@ -395,6 +731,9 @@ where
     F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        if self.ladder.touch {
+            return self.touched();
+        }
         let theme = self.theme;
         let selected = self.selected == Some(true);
         let mut element = div()
@@ -404,7 +743,7 @@ where
             .min_h(self.ladder.hit)
             .flex()
             .items_center()
-            .text_size(self.ladder.label)
+            .text_type(self.ladder.label)
             .role(Role::Button)
             .child(self.label);
         // The chosen one is the ink one: fg text on the window, an fg edge
@@ -472,35 +811,182 @@ where
     }
 }
 
-/// A control drawn as a glyph alone (a cross, a plus): muted until the
-/// pointer is on it. `name` is what it does, in words, since the glyph
-/// says nothing to a screen reader. The box is no smaller than
-/// [`Ladder::hit`] each way, the glyph centred in it.
-pub fn icon_button(
+impl<F> Button<F>
+where
+    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+{
+    /// Under a finger, the Expo kit's `Button`: square, [`Ladder::control`]
+    /// tall (48 for the primary), 16 in, a hairline edge; the label in body
+    /// text, medium but for a quiet one. A plain and an outline button draw
+    /// the kit's outline (it has no grey fill); a disabled one goes faint
+    /// on a quiet edge. No hover: a press dims it.
+    fn touched(self) -> Stateful<Div> {
+        let theme = self.theme;
+        let selected = self.selected == Some(true);
+        let clear = crate::hsla(0., 0., 0., 0.);
+        // (ground, edge, text)
+        let (ground, edge, tone) = match (self.kind, self.enabled, selected) {
+            (Kind::Primary, false, _) => (
+                Some(theme.surface_raised),
+                theme.surface_raised,
+                theme.faint,
+            ),
+            (_, false, _) => (None, theme.border, theme.faint),
+            (Kind::Primary, true, _) => {
+                (Some(theme.primary), theme.primary, theme.primary_foreground)
+            }
+            // the chosen one of a toggle wears the ink edge
+            (_, true, true) => (None, theme.foreground, theme.foreground),
+            (Kind::Quiet, true, false) => (None, clear, theme.muted),
+            (Kind::Plain | Kind::Outline, true, false) => {
+                (None, theme.border_strong, theme.foreground)
+            }
+        };
+        let height = match self.kind {
+            Kind::Primary => px(::design::height::touch::PRIMARY as f32),
+            _ => self.ladder.control,
+        };
+        let mut element = div()
+            .id(self.id)
+            .h(height)
+            .px(space::BLOCK)
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(space::SM)
+            .border_1()
+            .border_color(edge)
+            .text_color(tone)
+            .text_type(self.ladder.label)
+            .when(self.kind != Kind::Quiet || selected, |button| {
+                button.font_weight(FontWeight::MEDIUM)
+            })
+            .when_some(ground, |button, ground| button.bg(ground))
+            .role(Role::Button)
+            .child(self.label);
+        if let Some(pressed) = self.selected {
+            element = element.aria_toggled(pressed.into());
+        }
+        if !self.enabled {
+            return element.aria_disabled(true);
+        }
+        let mut element = pressed(element).on_click(self.click);
+        if self.kind == Kind::Primary {
+            element = focus_shown_on_ink(element, &theme);
+        }
+        match self.item {
+            Some(active) => item(element, Role::Button, active),
+            None => element.focusable(),
+        }
+    }
+}
+
+/// A control drawn as a glyph alone (the Expo kit's `Hit`): an
+/// [`icon`] at [`Ladder::icon`], a cross, a plus. `name` is what it does,
+/// in words, since the glyph says nothing to a screen reader. Under a
+/// pointer the box is no smaller than [`Ladder::hit`] each way and the
+/// glyph is muted until the pointer is on it; under a finger the box is
+/// [`Ladder::hit`] each way exactly, the glyph in the foreground, and a
+/// press dims it. A caller may recolour the glyph (`.text_color(..)`).
+pub fn icon_button<F>(
     id: impl Into<ElementId>,
     glyph: impl IntoElement,
     name: impl Into<SharedString>,
     ladder: &Ladder,
     theme: &Theme,
-    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> Stateful<Div> {
+    click: F,
+) -> IconButton<F>
+where
+    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+{
     let theme = *theme;
-    div()
-        .id(id)
-        .min_w(ladder.hit)
-        .min_h(ladder.hit)
-        .flex()
-        .items_center()
-        .justify_center()
-        .px_1()
-        .text_color(theme.muted)
-        .cursor_pointer()
-        .hover(move |style| style.text_color(theme.foreground))
-        .role(Role::Button)
-        .aria_label(name)
-        .focusable()
-        .on_click(click)
-        .child(glyph)
+    let element = div().id(id).flex().items_center().justify_center();
+    let element = match ladder.touch {
+        true => element
+            .size(ladder.hit)
+            .flex_none()
+            .text_color(theme.foreground),
+        false => element
+            .min_w(ladder.hit)
+            .min_h(ladder.hit)
+            .px_1()
+            .text_color(theme.muted)
+            .cursor_pointer()
+            .hover(move |style| style.text_color(theme.foreground)),
+    };
+    IconButton {
+        element: element.role(Role::Button).aria_label(name).child(glyph),
+        touch: ladder.touch,
+        theme,
+        filled: false,
+        enabled: true,
+        click,
+    }
+}
+
+/// An [`icon_button`] being built: `.filled(true)` makes it the ink square
+/// with the glyph in the ink's foreground (a composer's Send once there is
+/// something to send); `.enabled(false)` keeps it visible, faint and
+/// unpressable, and says so.
+#[derive(IntoElement)]
+pub struct IconButton<F>
+where
+    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+{
+    element: Stateful<Div>,
+    touch: bool,
+    theme: Theme,
+    filled: bool,
+    enabled: bool,
+    click: F,
+}
+
+impl<F> IconButton<F>
+where
+    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+{
+    pub fn filled(mut self, filled: bool) -> Self {
+        self.filled = filled;
+        self
+    }
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+}
+
+impl<F> Styled for IconButton<F>
+where
+    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+{
+    fn style(&mut self) -> &mut StyleRefinement {
+        self.element.style()
+    }
+}
+
+impl<F> RenderOnce for IconButton<F>
+where
+    F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+{
+    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        let theme = self.theme;
+        let mut element = self.element;
+        if self.filled {
+            element = element
+                .bg(theme.primary)
+                .text_color(theme.primary_foreground);
+        }
+        if !self.enabled {
+            return element.text_color(theme.faint).aria_disabled(true);
+        }
+        if self.touch {
+            element = pressed(element);
+        }
+        if self.filled {
+            element = focus_shown_on_ink(element, &theme);
+        }
+        element.focusable().on_click(self.click)
+    }
 }
 
 /// A tab: quiet text, the chosen one fg and underlined, no fill. A caller
@@ -523,7 +1009,7 @@ pub fn tab(
         .px_2()
         .py_1()
         .min_h(ladder.hit)
-        .text_size(ladder.label)
+        .text_type(ladder.label)
         .text_color(if selected {
             theme.foreground
         } else {
@@ -851,7 +1337,11 @@ fn segment(
         .items_center()
         .border_l_1()
         .border_color(theme.border_strong)
-        .text_size(ladder.label)
+        .text_type(ladder.label)
+        // the Expo kit's `Segmented`: the chosen one medium
+        .when(ladder.touch && selected, |segment| {
+            segment.font_weight(FontWeight::MEDIUM)
+        })
         .whitespace_nowrap()
         .map(|segment| match selected {
             true => segment
@@ -951,7 +1441,7 @@ pub fn setting_row(
                 .gap(space::HAIR)
                 .child(
                     div()
-                        .text_size(ladder.body)
+                        .text_type(ladder.body)
                         .font_weight(FontWeight::MEDIUM)
                         .child(title.into()),
                 )
@@ -972,11 +1462,13 @@ pub fn setting_row(
         )
 }
 
-/// A person's round initial at `size`, on the raised surface. A caller
-/// recolours it (an agent, a speaker) with `bg` / `text_color`.
-pub fn avatar(name: &str, size: Pixels, theme: &Theme) -> Div {
+/// A person's round initial at `size` (a [`Face`]: a ladder's rung, or a
+/// side alone), on the raised surface. A caller recolours it (an agent, a
+/// speaker) with `bg` / `text_color`.
+pub fn avatar(name: &str, size: impl Into<Face>, theme: &Theme) -> Div {
+    let Face { side, text, weight } = size.into();
     div()
-        .size(size)
+        .size(side)
         .flex_shrink_0()
         .rounded_full()
         .flex()
@@ -984,7 +1476,8 @@ pub fn avatar(name: &str, size: Pixels, theme: &Theme) -> Div {
         .justify_center()
         .bg(theme.surface_raised)
         .text_color(theme.muted)
-        .text_size(size * 0.45)
+        .text_type(text)
+        .when_some(weight, |face, weight| face.font_weight(weight))
         .child(initial(name))
 }
 
@@ -1068,14 +1561,20 @@ pub fn badge(
     foreground: Hsla,
     background: Hsla,
 ) -> Stateful<Div> {
-    div()
-        .id(id)
-        .px_1()
-        .py_0p5()
-        .bg(background)
-        .text_color(foreground)
-        .text_size(ladder.caption)
-        .child(label.into())
+    let tag = div().id(id).bg(background).text_color(foreground);
+    match ladder.touch {
+        // the Expo kit's `Badge`: 20 tall, 6 in, tiny medium
+        true => tag
+            .h(px(::design::height::touch::BADGE as f32))
+            .flex()
+            .flex_none()
+            .items_center()
+            .px(space::XS)
+            .text_type(ladder.tiny)
+            .font_weight(FontWeight::MEDIUM),
+        false => tag.px_1().py_0p5().text_type(ladder.caption),
+    }
+    .child(label.into())
 }
 
 /// A link: subdued mono text that underlines under the pointer and opens
@@ -1098,7 +1597,7 @@ pub fn link(
         .min_h(ladder.hit)
         .flex()
         .items_center()
-        .text_size(ladder.caption)
+        .text_type(ladder.caption)
         .text_color(theme.muted)
         .font_family(fonts::FAMILY_MONO)
         .whitespace_nowrap()
@@ -1163,6 +1662,184 @@ mod tests {
             (style.min_size.width, style.min_size.height),
             (floor, floor)
         );
+    }
+
+    /// The finger's ladder is the Expo app's theme (`theme.ts` `type`,
+    /// `size`), number for number.
+    #[test]
+    fn the_touch_ladder_is_the_expo_theme() {
+        let lined = |size: f32, line: f32| Type {
+            size: px(size),
+            line: Some(px(line)),
+        };
+        let t = TOUCH;
+        assert_eq!(
+            [
+                t.header,
+                t.row,
+                t.sheet_row,
+                t.control,
+                t.hit,
+                t.icon,
+                t.icon_row,
+                t.icon_sheet
+            ],
+            [56., 48., 52., 44., 44., 22., 18., 20.].map(px)
+        );
+        assert_eq!(
+            [
+                t.big_title,
+                t.heading,
+                t.title,
+                t.body,
+                t.label,
+                t.small,
+                t.secondary,
+                t.caption,
+                t.tiny,
+                t.code
+            ],
+            [
+                (22., 27.),
+                (20., 24.),
+                (17., 21.),
+                (15., 21.),
+                (15., 21.),
+                (14., 19.),
+                (13., 18.),
+                (12., 16.),
+                (11., 14.),
+                (12., 20.)
+            ]
+            .map(|(size, line)| lined(size, line))
+        );
+        let faces = [t.avatar_inline, t.avatar, t.avatar_sheet, t.avatar_detail];
+        assert_eq!(
+            faces.map(|face| (face.side, face.text.size, face.weight)),
+            [(24., 11.), (32., 13.), (40., 16.), (56., 22.)].map(|(side, text)| (
+                px(side),
+                px(text),
+                Some(FontWeight::MEDIUM)
+            ))
+        );
+        // a pointer's roles name no line height: the desktop's text stands
+        assert!(
+            [POINTER.title, POINTER.body, POINTER.label, POINTER.caption]
+                .iter()
+                .all(|role| role.line.is_none())
+        );
+    }
+
+    /// Under a finger an icon button is the kit's `Hit`: 44 each way, the
+    /// glyph in the foreground; filled it is the ink square, disabled it
+    /// is faint and hears no press.
+    #[test]
+    fn under_touch_an_icon_button_is_the_kits_hit() {
+        let theme = Theme::light();
+        let send = |filled: bool| {
+            lower_styled(
+                icon_button(
+                    "send",
+                    icon("send-horizontal", TOUCH.icon),
+                    "Send",
+                    &TOUCH,
+                    &theme,
+                    |_, _, _| {},
+                )
+                .filled(filled)
+                .enabled(filled),
+            )
+        };
+        let (node, styles) = send(true);
+        let style = &styles[node.style().expect("a styled container")];
+        assert_eq!(
+            (style.size.width, style.size.height),
+            (Some(px(44.).into()), Some(px(44.).into()))
+        );
+        assert_eq!(style.background, Some(theme.primary.into()));
+        assert_eq!(style.text.color, Some(theme.primary_foreground));
+        assert!(interactivity(&node).on_click.is_some());
+        let (node, styles) = send(false);
+        let style = &styles[node.style().expect("a styled container")];
+        assert_eq!(style.background, None);
+        assert_eq!(style.text.color, Some(theme.faint));
+        let control = interactivity(&node);
+        assert!(control.on_click.is_none() && control.aria.disabled == Some(true));
+        assert_eq!(faults(&node), []);
+    }
+
+    /// Under a finger a button is the kit's: 44 tall (48 the primary), an
+    /// outline for a plain one, the ink fill for the primary.
+    #[test]
+    fn under_touch_a_button_is_the_kits_button() {
+        let theme = Theme::light();
+        let style = |kind: Kind| {
+            let (node, styles) =
+                lower_styled(button("save", "Save", &TOUCH, &theme, |_, _, _| {}).kind(kind));
+            styles[node.style().expect("a styled container")].clone()
+        };
+        let plain = style(Kind::Plain);
+        assert_eq!(plain.size.height, Some(px(44.).into()));
+        assert_eq!(plain.border_color, Some(theme.border_strong));
+        assert_eq!(plain.background, None);
+        let primary = style(Kind::Primary);
+        assert_eq!(primary.size.height, Some(px(48.).into()));
+        assert_eq!(primary.background, Some(theme.primary.into()));
+    }
+
+    /// What the Expo kit sets `weight="medium"` asks for 500 under a
+    /// finger (the app draws Instrument Sans Medium); a pointer's weights
+    /// are the desktop's.
+    #[test]
+    fn under_touch_the_kits_medium_roles_ask_for_500() {
+        let theme = Theme::light();
+        let weight = |(node, styles): (wire::Node, wire::Styles)| {
+            styles[node.style().expect("a styled node")]
+                .text
+                .font_weight
+        };
+        let medium = Some(FontWeight::MEDIUM);
+        let label = |kind: Kind| {
+            weight(lower_styled(
+                button("save", "Save", &TOUCH, &theme, |_, _, _| {}).kind(kind),
+            ))
+        };
+        assert_eq!(label(Kind::Plain), medium);
+        assert_eq!(label(Kind::Quiet), None);
+        let tag = |ladder: &Ladder| {
+            weight(lower_styled(badge(
+                "n",
+                "3",
+                ladder,
+                theme.foreground,
+                theme.surface,
+            )))
+        };
+        assert_eq!(tag(&TOUCH), medium);
+        let chosen = |ladder: &Ladder| {
+            let (node, styles) = lower_styled(segmented(
+                "mode",
+                "Mode",
+                ladder,
+                &theme,
+                Some(1),
+                [("a".into(), "A".into()), ("b".into(), "B".into())],
+                |_, _, _| {},
+            ));
+            let picked = node.children()[1].clone();
+            [
+                weight((node.children()[0].clone(), styles.clone())),
+                weight((picked, styles)),
+            ]
+        };
+        assert_eq!(chosen(&TOUCH), [None, medium]);
+        assert_eq!(chosen(&POINTER), [None, None]);
+        let retry = |ladder: &Ladder| {
+            let (node, styles) = lower_styled(refused("feed", "No.", ladder, &theme, |_, _, _| {}));
+            weight((node.children()[1].clone(), styles))
+        };
+        assert_eq!(retry(&TOUCH), medium);
+        assert_eq!(retry(&POINTER), None);
     }
 
     #[test]

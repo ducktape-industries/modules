@@ -433,10 +433,11 @@ impl Input {
     }
 
     // What a software keyboard is told (`TextInputConfiguration`'s fields
-    // and the keyboard type). gpui's default turns every assistance OFF
-    // (no autocorrect, no capitalization, no suggestions), so a field of
-    // free prose sets them on at the call site, and a field whose text is
-    // not prose (a name, a code, an address) says what it is (rule 7).
+    // but `secure`, which is `Input::secure`). gpui's default turns every
+    // assistance OFF (no autocorrect, no capitalization, no suggestions),
+    // so a field of free prose sets them on at the call site, and a field
+    // whose text is not prose (a name, a code, an address) says what it is
+    // (rule 7).
 
     /// The platform may correct what is typed: off for a name, a code, an address.
     pub fn autocorrect(mut self, autocorrect: bool) -> Self {

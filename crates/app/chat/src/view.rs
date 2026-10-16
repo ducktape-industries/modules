@@ -82,9 +82,9 @@ impl Names {
         names
     }
 
-    /// The accounts a person picks, as a reviewer or a mention: people and
-    /// agents that act, ascending. No program's account, none suspended or
-    /// revoked.
+    /// The accounts a person picks, as a reviewer or a mention: users and
+    /// program accounts that act, ascending. No system account, none
+    /// suspended or revoked.
     pub fn people(&self) -> impl Iterator<Item = u64> + '_ {
         self.profiles
             .values()
@@ -147,26 +147,26 @@ impl Names {
     /// The program an account is the account of.
     pub fn program(&self, principal: &Principal) -> Option<&str> {
         match self.kind(principal)? {
-            Kind::Program(program) => Some(program),
-            Kind::Person | Kind::Managed { .. } => None,
+            Kind::System(program) => Some(program),
+            Kind::User | Kind::Program { .. } => None,
         }
     }
 
     /// What an account is, beside its name ([`Kind::badge`]): an agent and
     /// who manages it ("Agent · managed by Dev"), or the program it is
-    /// ("Program · forge"). None for a person.
+    /// ("Program · forge"). None for a user.
     pub fn badge(&self, principal: &Principal) -> Option<String> {
         self.kind(principal)?
             .badge(|manager| self.member(&Principal::Account(manager)))
     }
 }
 
-/// A person picks a person or an agent that acts.
+/// A user picks a user or a program account that acts.
 fn picks(kind: &Kind) -> bool {
     match kind {
-        Kind::Person => true,
-        Kind::Managed { standing, .. } => *standing == Standing::Active,
-        Kind::Program(_) => false,
+        Kind::User => true,
+        Kind::Program { standing, .. } => *standing == Standing::Active,
+        Kind::System(_) => false,
     }
 }
 

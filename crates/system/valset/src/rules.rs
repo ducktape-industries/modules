@@ -227,8 +227,8 @@ pub(crate) fn voices(
     Ok(voices)
 }
 
-/// Whether `key` acts as an agent `manager` manages and keeps active, as
-/// the identity role says.
+/// Whether `key` acts as a program account `manager` manages and keeps
+/// active, as the identity role says.
 fn managed_by(ctx: &QueryCtx, key: &[u8], manager: AccountNumber) -> Result<bool, Error> {
     let Some(account) = account_of(ctx, key)? else {
         return Ok(false);
@@ -241,7 +241,7 @@ fn managed_by(ctx: &QueryCtx, key: &[u8], manager: AccountNumber) -> Result<bool
     Ok(profile.is_some_and(|profile| {
         matches!(
             profile.kind,
-            Kind::Managed { manager: by, standing: Standing::Active, .. } if by == manager
+            Kind::Program { manager: by, standing: Standing::Active, .. } if by == manager
         )
     }))
 }

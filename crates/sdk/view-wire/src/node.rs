@@ -103,8 +103,9 @@ pub struct SvgTransformation {
 /// frames for host state, focus, and accessibility ancestry.
 ///
 /// The shape is derived; `Serialize` and `Deserialize` are the codec's
-/// (`codec.rs`), which decodes every node inside the frame's budget.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// (`codec.rs`), which decodes every node inside the frame's budget. A
+/// node's variant name, for a report, is `<&str>::from(&node)`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, strum::IntoStaticStr)]
 #[serde(remote = "Self")]
 pub enum Node {
     /// One native GPUI paragraph with optional interactive byte ranges.

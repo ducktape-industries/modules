@@ -596,9 +596,9 @@ fn role_asks_the_program_bound_to_the_validators_role() {
 
 // ---- who votes for which validator ----
 
-/// Ada, a person: key 20 is her device.
+/// Ada, a user: key 20 is her device.
 const ADA: AccountNumber = 10;
-/// Bob, a person who manages no validator: key 21 is his device.
+/// Bob, a user who manages no validator: key 21 is his device.
 const BOB: AccountNumber = 14;
 
 fn profile(number: AccountNumber, kind: Kind) -> Profile {
@@ -613,8 +613,8 @@ fn profile(number: AccountNumber, kind: Kind) -> Profile {
 fn agent(number: AccountNumber, standing: Standing) -> Profile {
     profile(
         number,
-        Kind::Managed {
-            runner: None,
+        Kind::Program {
+            script: None,
             manager: ADA,
             category: Category::Agent,
             standing,
@@ -626,10 +626,8 @@ fn agent(number: AccountNumber, standing: Standing) -> Profile {
 /// `held`; `agents` are Ada's agents.
 fn roster(held: &[(u8, AccountNumber)], agents: Vec<Profile>) -> Roster {
     let mut roster = Roster::from(agents);
-    for person in [ADA, BOB] {
-        roster
-            .profiles
-            .insert(person, profile(person, Kind::Person));
+    for user in [ADA, BOB] {
+        roster.profiles.insert(user, profile(user, Kind::User));
     }
     roster.keys.insert(key(20), ADA);
     roster.keys.insert(key(21), BOB);
@@ -744,7 +742,7 @@ fn a_suspended_agent_adds_no_voice_and_any_other_refusal_fails_the_vote() {
 }
 
 #[test]
-fn a_stranger_is_refused_and_a_node_key_on_a_person_votes_only_as_itself() {
+fn a_stranger_is_refused_and_a_node_key_on_a_user_votes_only_as_itself() {
     let store = found(&[1, 2, 3, 4], 8).unwrap();
     // validator 2's node key on Ada's own account, not on an agent
     store.identity(roster(&[(2, ADA)], vec![]));

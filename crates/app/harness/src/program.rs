@@ -27,6 +27,11 @@ impl Program for Harness {
             Query::Held { thread } => Ok(Reply::Held(queries::held(ctx, thread)?)),
             Query::Calls { thread, page } => Ok(Reply::Calls(queries::calls(ctx, thread, &page)?)),
             Query::Tools => Ok(Reply::Tools(tools::infos())),
+            Query::ThreadAt { agent, place } => {
+                Ok(Reply::Thread(queries::thread_at(ctx, agent, place)?))
+            }
+            Query::Window { model } => Ok(Reply::Window(queries::window(ctx, model)?)),
+            Query::Withheld { thread } => Ok(Reply::Withheld(queries::withheld(ctx, thread)?)),
         }
     }
 }

@@ -1,10 +1,13 @@
 //! What the network calls a principal, as the composer offers and inserts it.
 //! The roster itself is [`chat::view::Names`], shared with every view that
 //! names chat principals.
-use chat::Principal;
-use chat::view::Names;
+use std::collections::BTreeMap;
 
-/// Autocomplete candidates: every person and agent that acts
+use chat::view::Names;
+use chat::{Category, Kind, Principal, Standing};
+use identity::Audience;
+
+/// Autocomplete candidates: every user and program account that acts
 /// ([`Names::people`]), then the room's other such members, labelled
 /// without the `@`.
 pub fn mention_choices(names: &Names, members: &[Principal]) -> Vec<MentionChoice> {
@@ -37,6 +40,51 @@ pub fn mention_token(principal: &Principal) -> String {
     }
 }
 
+/// Why `agent` would give `reader` no answer, by the rule harness answers
+/// by: an active agent's manager always gets one, anyone else by its
+/// audience. None when it answers them, for anyone not an active agent,
+/// and while its audience is unread.
+pub fn unanswered(
+    names: &Names,
+    audiences: &BTreeMap<u64, Audience>,
+    agent: &Principal,
+    reader: u64,
+) -> Option<&'static str> {
+    let Some(Kind::Program {
+        manager,
+        category: Category::Agent,
+        standing: Standing::Active,
+        ..
+    }) = names.kind(agent)
+    else {
+        return None;
+    };
+    if *manager == reader {
+        return None;
+    }
+    match audiences.get(&agent.account()?)? {
+        Audience::Manager => Some("its manager only"),
+        Audience::Accounts(listed) if !listed.contains(&reader) => Some("listed people only"),
+        Audience::Accounts(_) | Audience::Anyone => None,
+    }
+}
+
+/// Whom an agent answers, in words: its manager, and whom its audience
+/// adds.
+pub fn answers(names: &Names, audience: &Audience) -> String {
+    match audience {
+        Audience::Manager => "Answers its manager only".into(),
+        Audience::Accounts(listed) => {
+            let listed: Vec<String> = listed
+                .iter()
+                .map(|number| names.member(&Principal::Account(*number)))
+                .collect();
+            format!("Answers its manager and {}", listed.join(", "))
+        }
+        Audience::Anyone => "Answers anyone".into(),
+    }
+}
+
 /// The other account of a dm room `mine` is in.
 pub fn dm_peer_of(mine: u64, channel_id: &str) -> Option<u64> {
     let (a, b) = chat::dm_peers(channel_id)?;
@@ -58,23 +106,23 @@ mod tests {
     }
 
     fn agent(manager: u64, standing: Standing) -> Kind {
-        Kind::Managed {
-            runner: None,
+        Kind::Program {
+            script: None,
             manager,
             category: Category::Agent,
             standing,
         }
     }
 
-    /// Mentions and reviewers offer people and agents that act: no
-    /// program's account, no suspended or revoked one. Each wears the one
+    /// Mentions and reviewers offer users and program accounts that act:
+    /// no system account, no suspended or revoked one. Each wears the one
     /// badge and note its kind gives it.
     #[test]
     fn the_pickers_offer_people_and_live_agents_only() {
         let names = Names::from_roster([
-            profile(1, "ada", Kind::Person),
+            profile(1, "ada", Kind::User),
             profile(2, "scout", agent(1, Standing::Active)),
-            profile(3, "forge", Kind::Program("forge".into())),
+            profile(3, "forge", Kind::System("forge".into())),
             profile(4, "idle", agent(1, Standing::Suspended)),
             profile(5, "gone", agent(1, Standing::Revoked)),
         ]);
@@ -97,5 +145,45 @@ mod tests {
         assert_eq!(names.program(&account(3)), Some("forge"));
         assert!(crate::message::agent(&names, &account(2)));
         assert!(!crate::message::agent(&names, &account(3)));
+    }
+
+    /// An active agent answers its manager always, and anyone else as its
+    /// audience says; nothing is said of a person, a program, an agent
+    /// that does not act, or one whose audience is unread.
+    #[test]
+    fn who_an_agent_leaves_unanswered() {
+        let names = Names::from_roster([
+            profile(1, "ada", Kind::User),
+            profile(2, "scout", agent(1, Standing::Active)),
+            profile(3, "forge", Kind::System("forge".into())),
+            profile(4, "bo", Kind::User),
+            profile(5, "idle", agent(1, Standing::Suspended)),
+        ]);
+        let scout = Principal::Account(2);
+        let heard = |audience: Audience, reader| {
+            let audiences = BTreeMap::from([(2, audience)]);
+            unanswered(&names, &audiences, &scout, reader)
+        };
+        assert_eq!(heard(Audience::Manager, 1), None, "its manager");
+        assert_eq!(heard(Audience::Manager, 4), Some("its manager only"));
+        assert_eq!(heard(Audience::Accounts(vec![4]), 4), None);
+        assert_eq!(
+            heard(Audience::Accounts(vec![4]), 9),
+            Some("listed people only")
+        );
+        assert_eq!(heard(Audience::Anyone, 9), None);
+        let none = BTreeMap::new();
+        assert_eq!(unanswered(&names, &none, &scout, 4), None, "unread");
+        for other in [1, 3, 5] {
+            let audiences = BTreeMap::from([(other, Audience::Manager)]);
+            assert_eq!(
+                unanswered(&names, &audiences, &Principal::Account(other), 4),
+                None
+            );
+        }
+        assert_eq!(
+            answers(&names, &Audience::Accounts(vec![4, 9])),
+            "Answers its manager and bo, account 9"
+        );
     }
 }

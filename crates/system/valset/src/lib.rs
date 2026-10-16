@@ -1,7 +1,7 @@
 //! The `valset` program: who validates and who resides on a network. A key enrolls as a
 //! resident, by invite or through an open door; the validators' vote changes the rest. A
-//! validator votes with its node key, or through the person who manages the agent its node
-//! key sits on: any of that person's devices votes for it.
+//! validator votes with its node key, or through the user who manages the program account its
+//! node key sits on: any of that user's devices votes for it.
 //! Types, rules and [`Valset`] always build; the `program` feature adds the wasm exports.
 mod program;
 mod rules;

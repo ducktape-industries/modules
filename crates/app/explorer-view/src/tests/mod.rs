@@ -237,7 +237,7 @@ pub(crate) fn ada() -> identity::Account {
         label: Some("laptop".into()),
         added_at: 0,
     }];
-    account(3, "Ada", identity::Control::Person { keys })
+    account(3, "Ada", identity::Control::User { keys })
 }
 
 /// The agent Ada manages, suspended: no keys yet.
@@ -245,8 +245,8 @@ pub(crate) fn scout() -> identity::Account {
     account(
         5,
         "Scout",
-        identity::Control::Managed {
-            runner: None,
+        identity::Control::Program {
+            script: None,
             manager: 3,
             category: identity::Category::Agent,
             life: identity::Life::Suspended { keys: Vec::new() },
@@ -259,7 +259,7 @@ pub(crate) fn forge() -> identity::Account {
     account(
         6,
         "forge",
-        identity::Control::Program {
+        identity::Control::System {
             program: "forge".into(),
         },
     )

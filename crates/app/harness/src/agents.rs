@@ -1,4 +1,4 @@
-//! The agents harness runs: a manager hires one it handed to harness, a mention or a direct
+//! The agents harness runs: a manager hires one whose script calls harness, a mention or a direct
 //! message it answers opens or continues its thread for that place, and its manager
 //! dismisses it or closes a thread.
 use ::program::{
@@ -31,15 +31,17 @@ fn profile(ctx: &QueryCtx, number: AccountNumber) -> Result<Option<Profile>, Err
 }
 
 fn runs_here(profile: &Profile) -> Option<AccountNumber> {
-    match &profile.kind {
-        Kind::Managed {
-            manager,
-            standing: Standing::Active,
-            runner: Some(runner),
-            ..
-        } if runner == PROGRAM => Some(*manager),
-        _ => None,
-    }
+    let Kind::Program {
+        manager,
+        standing: Standing::Active,
+        script: Some(script),
+        ..
+    } = &profile.kind
+    else {
+        return None;
+    };
+    let calls_harness = script.calls == PROGRAM;
+    calls_harness.then_some(*manager)
 }
 
 fn audience(ctx: &QueryCtx, agent: AccountNumber) -> Result<identity::Audience, Error> {
@@ -100,7 +102,7 @@ pub(crate) fn hire(
     let manager = acting(ctx)?;
     checked(&model, &service, max_tokens)?;
     let profile = profile(ctx, agent)?.ok_or_else(|| not_found(format!("no account {agent}")))?;
-    let Kind::Managed {
+    let Kind::Program {
         manager: managing, ..
     } = &profile.kind
     else {
@@ -113,7 +115,7 @@ pub(crate) fn hire(
     }
     if runs_here(&profile).is_none() {
         return Err(wrong_state(format!(
-            "account {agent} is not an active agent handed to {PROGRAM}: its manager sets identity's SetRunner first"
+            "account {agent} is not an active agent whose script calls {PROGRAM}: its manager sets identity's SetScript first"
         )));
     }
     let row = AgentRow {
@@ -216,6 +218,8 @@ fn opened(
         summary: None,
         context: Context::Measured(0),
         compact_before: None,
+        last_height: 0,
+        last_time: 0,
     };
     let header = anthropic::header(&row, tools::definitions());
     row.header = ctx.blob_put(HashKind::Sha256, PART, header.into_bytes())?;

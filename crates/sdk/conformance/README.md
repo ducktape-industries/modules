@@ -33,12 +33,12 @@ impl conformance::identity::Fixture for Mine {
     fn stopped(&self, host: &MockHost, key: &[u8]) -> AccountNumber { todo!() }
     /// `account` (one `account` made) stops holding `key`.
     fn drop_key(&self, host: &MockHost, account: AccountNumber, key: &[u8]) { todo!() }
-    /// `key` comes to hold an active managed account.
+    /// `key` comes to hold an active program account.
     fn managed(&self, host: &MockHost, key: &[u8]) -> AccountNumber { todo!() }
     /// `account` (one `managed` made) is revoked.
     fn revoke(&self, host: &MockHost, account: AccountNumber) { todo!() }
-    /// `account` (one `managed` made) is handed to `program` to run.
-    fn hand(&self, host: &MockHost, account: AccountNumber, program: &str) { todo!() }
+    /// `account` (one `managed` made) gets a script that calls `program`.
+    fn script(&self, host: &MockHost, account: AccountNumber, program: &str) { todo!() }
 }
 
 #[test]
@@ -59,24 +59,24 @@ names itself; `run` calls them all, each on a fresh host.
 **identity**: the role's `Op`, `Query` and `Reply` are the program's first
 variants, byte for byte; `RegisterProgram` is refused `unauthorized` from a
 signed frame or a program and writes nothing, and from the system it is
-idempotent (one account, `Kind::Program`); a signed or program frame is
+idempotent (one account, `Kind::System`); a signed or program frame is
 refused though the kernel gives it a sender (its key's account, the
 program's account): only the system's origin registers; `Account` of an unknown key and
 `OfProgram` of an unregistered program are `None`; a key that holds an
-acting account resolves to it (a person or an active managed account); a
+acting account resolves to it (a user or an active program account); a
 key whose account does not act is refused `unauthorized`, and its profile
-is managed and not active; a key dropped from its account (the fixture's
-`drop_key`) resolves to `None`; a revoked managed account's keys (`managed`,
+is a program account and not active; a key dropped from its account (the fixture's
+`drop_key`) resolves to `None`; a revoked program account's keys (`managed`,
 `revoke`) resolve to `None` or are refused, and its profile is `Revoked`;
 `Profile` past every account is `None`;
 `Profiles` ascends, holds at most `limit`, `next` is the last number of a
 page that has more, the listing is the same whatever the limit and agrees
 with `Profile`; `Profiles { limit: 0 }` is a page, empty with no `next` or
-the program's capped first page with `next` as any page has it; every `Kind::Program(id)` is the account `OfProgram(id)`
+the program's capped first page with `next` as any page has it; every `Kind::System(id)` is the account `OfProgram(id)`
 answers; `Runs { program, account }` is refused until the account's
-manager hands it to the program (the fixture's `hand`), then answers it
-and the profile names the program its `runner`; another program, a
-person's account and a revoked one are refused.
+manager gives it a script that calls the program (the fixture's `script`),
+then answers it and the profile's script names the program; another
+program, a user's account and a revoked one are refused.
 
 **validators**: the role's `Query` and `Reply` are the first variants;
 init with the role's `Genesis` seats exactly its validators, each a member

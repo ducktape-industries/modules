@@ -250,9 +250,11 @@ pub fn sweep(cx: &mut TestAppContext, mut drive: impl FnMut(&mut TestAppContext)
 
 /// Panics listing each node that does not fit a body `width` wide under
 /// `ladder`: a fixed or minimum width past `width`; a pressable node (a
-/// click route, a field) whose nearest declared height (its own, else the
-/// nearest row above it that declares one) is under `ladder.hit`, or that
-/// is invisible; a many-line field with an
+/// click route, a field) whose height is under `ladder.hit`, or that is
+/// invisible. Its height is its own declared one, else the nearest row
+/// above it that declares one; for a node pinned absolute to its parent's
+/// top and bottom, that row's less the two insets, so a negative inset
+/// reaches past it (`design::hit`). Also a many-line field with an
 /// `on_submit` (the software Return is a newline); the root's `on_back`
 /// not exactly when there is somewhere to go back to (a sheet open, or a
 /// Back control drawn: a node named "Back", as `design::page` names it
@@ -280,6 +282,15 @@ pub fn assert_fits(
     let height_of = |node: &Node| {
         let style = declared(node.style())?;
         px_of(&style.size.height).or_else(|| px_of(&style.min_size.height))
+    };
+    // what an absolute node pinned top and bottom takes off its parent's
+    // height (negative when it reaches past it)
+    let pinned = |node: &Node| {
+        let style = declared(node.style())?;
+        if style.position != Some(gpui::Position::Absolute) {
+            return None;
+        }
+        Some(px_of(&style.inset.top)? + px_of(&style.inset.bottom)?)
     };
     chain(tree, &mut |chain| {
         let node = *chain.last().unwrap();
@@ -310,7 +321,14 @@ pub fn assert_fits(
             if invisible {
                 faults.push(format!("a pressable node is invisible at {}", path()));
             }
-            let nearest = chain.iter().rev().find_map(|node| height_of(node));
+            let nearest = height_of(node).or_else(|| {
+                let above = chain
+                    .iter()
+                    .rev()
+                    .skip(1)
+                    .find_map(|node| height_of(node))?;
+                Some(above - pinned(node).unwrap_or(0.))
+            });
             if !nearest.is_some_and(|h| h >= hit) {
                 faults.push(format!(
                     "a pressable node declares no height of at least {hit} (itself or the nearest row above it that declares one) at {}",
