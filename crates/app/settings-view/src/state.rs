@@ -133,11 +133,11 @@ pub(crate) enum Choice {
 impl Choice {
     pub(crate) const ALL: [Choice; 3] = [Self::Manager, Self::Specific, Self::Anyone];
 
-    pub(crate) fn shown(audience: &identity::Audience, listing: bool) -> Self {
-        match (audience, listing) {
-            (identity::Audience::Accounts(_), _) | (_, true) => Self::Specific,
-            (identity::Audience::Manager, false) => Self::Manager,
-            (identity::Audience::Anyone, false) => Self::Anyone,
+    pub(crate) fn shown(ownership: &identity::Ownership, listing: bool) -> Self {
+        match (ownership, listing) {
+            (identity::Ownership::Accounts(_), _) | (_, true) => Self::Specific,
+            (identity::Ownership::Owner, false) => Self::Manager,
+            (identity::Ownership::Anyone, false) => Self::Anyone,
         }
     }
     pub(crate) fn label(self) -> &'static str {

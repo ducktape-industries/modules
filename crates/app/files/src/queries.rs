@@ -1,5 +1,6 @@
 //! Every read: the head or a minted snapshot resolved first, then its trees walked.
-//! A list, find or grep answers a page whose cursor stays on the snapshot it walked.
+//! A list, find or grep answers a page whose cursor stays on the snapshot it walked; an
+//! ownership read answers a path's creator, its write list and who writes it.
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
@@ -7,12 +8,12 @@ use ::program::{BlobId, Error, QueryCtx, invalid, not_found};
 
 use crate::cursor::Walk;
 use crate::objects::{CHUNK, digest, file, read as read_file, tree};
-use crate::paths::{is_namespace_root, join, segments};
+use crate::paths::{Act, change_path, is_namespace_root, join, segments, writers};
 use crate::state::{HEAD, HISTORY, PINS, SNAPSHOTS, newest_first, resolve};
-use crate::tree::node_at;
+use crate::tree::{TreeEdit, node_at};
 use crate::{
-    Contents, DiffEntry, DiffKind, EntryInfo, Hit, Node, PageRequest, PageResponse, PinRow,
-    SnapshotRow,
+    Contents, DiffEntry, DiffKind, EntryInfo, Hit, Node, PageRequest, PageResponse, PathOwnership,
+    PinRow, SnapshotRow,
 };
 
 pub(crate) fn head(ctx: &QueryCtx) -> Result<Option<SnapshotRow>, Error> {
@@ -42,6 +43,24 @@ pub(crate) fn pins(ctx: &QueryCtx, page: &PageRequest) -> Result<PageResponse<Pi
 
 pub(crate) fn pin(ctx: &QueryCtx, name: &str) -> Result<Option<PinRow>, Error> {
     PINS.get(ctx, &name.to_owned())
+}
+
+pub(crate) fn ownership(
+    ctx: &QueryCtx,
+    path: &str,
+    at: Option<&BlobId>,
+) -> Result<PathOwnership, Error> {
+    let segments = change_path(path)?;
+    let row = resolve(ctx, at)?;
+    let snapshot = row.as_ref().map(|row| row.id);
+    let along = TreeEdit::over(row.map(|row| row.root)).access_along(ctx, &segments)?;
+    let own = along.last().cloned().flatten().unwrap_or_default();
+    Ok(PathOwnership {
+        snapshot,
+        creator: own.creator,
+        write: own.write,
+        writers: writers(&segments, &along, Act::Write),
+    })
 }
 
 pub(crate) fn held(ctx: &QueryCtx, chunks: &[BlobId]) -> Vec<bool> {

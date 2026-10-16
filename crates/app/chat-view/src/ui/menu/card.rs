@@ -58,15 +58,15 @@ pub(super) fn card(
         ));
     }
     let answers = chat
-        .audiences
+        .ownerships
         .ready()
-        .and_then(|audiences| audiences.get(&account))
-        .map(|audience| {
+        .and_then(|ownerships| ownerships.get(&account))
+        .map(|ownership| {
             div()
                 .id("chat-card-answers")
                 .text_size(design::text::SECONDARY)
                 .text_color(theme.muted)
-                .child(crate::names::answers(names, audience))
+                .child(crate::names::answers(names, ownership))
         });
     let open = |link: String| {
         Some(Box::new(cx.listener(move |chat, _: &ClickEvent, _, cx| {

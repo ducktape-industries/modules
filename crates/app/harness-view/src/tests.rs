@@ -365,8 +365,32 @@ fn seated(net: Net, me: u64) -> (TestAppContext, Shared) {
         let net = shared.borrow();
         Ok(match query {
             identity::Query::List { .. } => identity::Reply::Accounts(page(net.accounts.clone())),
-            identity::Query::Audience { .. } => {
-                identity::Reply::Audience(identity::Audience::Manager)
+            identity::Query::Ownership { .. } => {
+                identity::Reply::Ownership(identity::Ownership::Owner)
+            }
+            other => panic!("unexpected query: {other:?}"),
+        })
+    });
+    let shared = net.clone();
+    cx.host().handle::<Query<files::Files>>(move |query| {
+        let net = shared.borrow();
+        Ok(match query {
+            files::Query::Ownership { path, .. } => {
+                let creator = net
+                    .setups
+                    .iter()
+                    .find(|setup| setup.path == path)
+                    .map(|setup| setup.manager);
+                files::Reply::Ownership(files::PathOwnership {
+                    snapshot: Some(SNAPSHOT),
+                    creator,
+                    write: Some(files::Ownership::Owner),
+                    writers: files::Writers::Listed {
+                        path,
+                        creator,
+                        write: files::Ownership::Owner,
+                    },
+                })
             }
             other => panic!("unexpected query: {other:?}"),
         })
@@ -761,7 +785,7 @@ fn files_take(cx: &TestAppContext) {
         .handle::<Submit<files::Files>>(|_| Ok(applied(Vec::new())));
 }
 
-fn commit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -> files::Op {
+fn edit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -> files::Op {
     files::Op::Commit {
         base,
         message,
@@ -771,6 +795,26 @@ fn commit_of(path: &str, config: &Config, base: Option<BlobId>, message: String)
             meta: Default::default(),
             content: files::Content::Inline(config.write().into_bytes()),
         }],
+    }
+}
+
+fn commit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -> files::Op {
+    let files::Op::Commit {
+        base,
+        message,
+        mut changes,
+    } = edit_of(path, config, base, message)
+    else {
+        unreachable!()
+    };
+    changes.push(files::Change::SetOwnership {
+        path: path.into(),
+        write: Some(files::Ownership::Owner),
+    });
+    files::Op::Commit {
+        base,
+        message,
+        changes,
     }
 }
 
@@ -829,9 +873,9 @@ fn the_create_flow_sends_its_ops_in_order() {
                     config: "/home/Eddy/agents/rover.md".into(),
                 })
             },
-            identity::Op::SetAudience {
+            identity::Op::SetOwnership {
                 account: ROVER,
-                audience: identity::Audience::Anyone
+                ownership: identity::Ownership::Anyone
             },
         ]
     );
@@ -977,7 +1021,7 @@ fn edit_commits_a_new_version_of_the_file_and_scripts_only_a_moved_path() {
     };
     assert_eq!(
         cx.host().requests::<Submit<files::Files>>(),
-        [commit_of(
+        [edit_of(
             "/home/Eddy/agents/scout.md",
             &smaller,
             Some(SNAPSHOT),
@@ -996,6 +1040,16 @@ fn edit_commits_a_new_version_of_the_file_and_scripts_only_a_moved_path() {
     cx.simulate_input("create-path", "/home/Eddy/scout.md");
     cx.simulate_click("create-next");
     cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<Submit<files::Files>>().last(),
+        Some(&commit_of(
+            "/home/Eddy/scout.md",
+            &config_of("Scout"),
+            Some(SNAPSHOT),
+            "Configure agent Scout (account 12)".into()
+        )),
+        "a moved file gets its own list"
+    );
     assert_eq!(
         cx.host().requests::<Submit<Identity>>(),
         [identity::Op::SetScript {
@@ -1029,7 +1083,7 @@ fn editing_a_configuration_in_another_accounts_home_shows_the_refusal_files_retu
     };
     assert_eq!(
         cx.host().requests::<Submit<files::Files>>(),
-        [commit_of(
+        [edit_of(
             "/home/Ada/agents/scout.md",
             &smaller,
             Some(SNAPSHOT),
@@ -1077,6 +1131,8 @@ fn the_agent_shows_its_configuration_model_threads_and_usage() {
         "4,096 tokens",
         "egress's default",
         "Its manager only",
+        "Who may change it",
+        "Only Eddy",
         "2 · 1 write as Scout",
         "You are Scout.",
         "#general",

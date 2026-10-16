@@ -396,7 +396,7 @@ fn a_suspended_agent_resumes_and_a_revoked_one_only_says_who_it_was() {
 
 #[test]
 fn whom_an_agent_answers_is_picked_in_its_sheet() {
-    let (mut cx, answers) = answering(identity::Audience::Manager);
+    let (mut cx, answers) = answering(identity::Ownership::Owner);
     on_phone(&mut cx);
     cx.simulate_click("settings/agents/12");
     cx.simulate_click("settings/agents/12/answers/open");
@@ -404,7 +404,7 @@ fn whom_an_agent_answers_is_picked_in_its_sheet() {
 
     cx.simulate_click("settings/agents/12/answers/anyone");
     cx.run_until_parked();
-    assert_eq!(*answers.borrow(), identity::Audience::Anyone);
+    assert_eq!(*answers.borrow(), identity::Ownership::Anyone);
     assert!(cx.has_text(WARNING), "{:?}", cx.texts());
 
     cx.simulate_click("settings/agents/12/answers/specific");
@@ -412,7 +412,7 @@ fn whom_an_agent_answers_is_picked_in_its_sheet() {
     cx.simulate_input("settings/agents/12/answers/name", "#9");
     cx.simulate_click("settings/agents/12/answers/add");
     cx.run_until_parked();
-    assert_eq!(*answers.borrow(), identity::Audience::Accounts(vec![9]));
+    assert_eq!(*answers.borrow(), identity::Ownership::Accounts(vec![9]));
     assert!(cx.has_text("Eve"), "{:?}", cx.texts());
 
     // Done goes back to the actions, which now say whom it answers
@@ -423,20 +423,20 @@ fn whom_an_agent_answers_is_picked_in_its_sheet() {
 
 #[test]
 fn a_person_an_agent_answers_is_removed_in_one_press() {
-    let (mut cx, answers) = answering(identity::Audience::Accounts(vec![8, 9]));
+    let (mut cx, answers) = answering(identity::Ownership::Accounts(vec![8, 9]));
     on_phone(&mut cx);
     cx.simulate_click("settings/agents/12");
     cx.simulate_click("settings/agents/12/answers/open");
     has_all(&cx, &["Bob", "account 8", "Eve", "account 9"]);
     cx.simulate_click("settings/agents/12/answers/8/remove");
     cx.run_until_parked();
-    assert_eq!(*answers.borrow(), identity::Audience::Accounts(vec![9]));
+    assert_eq!(*answers.borrow(), identity::Ownership::Accounts(vec![9]));
     assert!(!cx.has_text("account 8"), "{:?}", cx.texts());
 }
 
 #[test]
 fn a_refused_answer_says_why_in_the_sheet() {
-    let (mut cx, answers) = answering(identity::Audience::Manager);
+    let (mut cx, answers) = answering(identity::Ownership::Owner);
     on_phone(&mut cx);
     cx.host()
         .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
@@ -444,7 +444,7 @@ fn a_refused_answer_says_why_in_the_sheet() {
     cx.simulate_click("settings/agents/12/answers/open");
     cx.simulate_click("settings/agents/12/answers/anyone");
     cx.run_until_parked();
-    assert_eq!(*answers.borrow(), identity::Audience::Manager);
+    assert_eq!(*answers.borrow(), identity::Ownership::Owner);
     assert_eq!(picked(&cx), ["manager"]);
     assert!(!cx.has_text(WARNING));
     assert!(cx.has_text("That didn’t go through: account 7 does not manage account 12"));
@@ -601,7 +601,7 @@ fn a_name_field_takes_the_keyboard_as_it_opens() {
 /// A refused choice says why on its own line, not in the person field.
 #[test]
 fn a_refused_choice_has_its_own_line() {
-    let (mut cx, _) = answering(identity::Audience::Accounts(vec![8]));
+    let (mut cx, _) = answering(identity::Ownership::Accounts(vec![8]));
     on_phone(&mut cx);
     cx.host()
         .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
@@ -637,7 +637,7 @@ fn whom_it_answers_opens_tall_and_scrolls() {
 /// choice lands.
 #[test]
 fn a_remove_waits_for_a_choice_that_is_out() {
-    let (mut cx, answers) = answering(identity::Audience::Accounts(vec![8, 9]));
+    let (mut cx, answers) = answering(identity::Ownership::Accounts(vec![8, 9]));
     on_phone(&mut cx);
     cx.simulate_click("settings/agents/12");
     cx.simulate_click("settings/agents/12/answers/open");
@@ -653,14 +653,14 @@ fn a_remove_waits_for_a_choice_that_is_out() {
     );
     cx.run_until_parked();
     assert_eq!(sent(&cx).len(), 1, "a Remove went out: {:?}", sent(&cx));
-    assert_eq!(*answers.borrow(), identity::Audience::Anyone);
+    assert_eq!(*answers.borrow(), identity::Ownership::Anyone);
 }
 
 /// A person added from the sheet, then the sheet dismissed and Create
 /// opened before the person is found: the add's landing leaves Create.
 #[test]
 fn a_person_add_landing_leaves_a_sheet_opened_meanwhile() {
-    let (mut cx, answers) = answering(identity::Audience::Manager);
+    let (mut cx, answers) = answering(identity::Ownership::Owner);
     on_phone(&mut cx);
     cx.simulate_click("settings/agents/12");
     cx.simulate_click("settings/agents/12/answers/open");
@@ -678,7 +678,7 @@ fn a_person_add_landing_leaves_a_sheet_opened_meanwhile() {
     let create = press(&cx, "settings/agents/create/open");
     cx.tick(vec![add, dismiss, create]);
     cx.run_until_parked();
-    assert_eq!(*answers.borrow(), identity::Audience::Accounts(vec![9]));
+    assert_eq!(*answers.borrow(), identity::Ownership::Accounts(vec![9]));
     assert!(
         cx.find("settings/agents/create/sheet").is_some(),
         "the add's landing closed the Create sheet: {:?}",
@@ -691,7 +691,7 @@ fn a_person_add_landing_leaves_a_sheet_opened_meanwhile() {
 /// "Adding…" (Expo's one busy scope).
 #[test]
 fn whom_it_answers_waits_while_any_write_is_out() {
-    let (mut cx, _) = answering(identity::Audience::Accounts(vec![8]));
+    let (mut cx, _) = answering(identity::Ownership::Accounts(vec![8]));
     on_phone(&mut cx);
     cx.host().never::<Submit<Identity>>();
     cx.simulate_click("settings/agents/12");

@@ -2,7 +2,7 @@
 //! (identity), the account a typed name or number is, and whether each of
 //! its keys validates (valset). Rows keep what the programs said; they are
 //! worded only when drawn.
-use identity::{Audience, Control, Kind, PageRequest, Reference, Standing};
+use identity::{Control, Kind, Ownership, PageRequest, Reference, Standing};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use view::host::malformed;
@@ -45,7 +45,7 @@ pub struct Agent {
     #[serde(with = "view::borsh_bytes")]
     pub kind: Kind,
     #[serde(with = "view::borsh_bytes")]
-    pub audience: Audience,
+    pub ownership: Ownership,
     pub names: BTreeMap<u64, String>,
 }
 
@@ -165,22 +165,22 @@ async fn agents(host: &Host, manager: u64) -> Result<Vec<Agent>, Error> {
             )));
         };
         let number = agent.number;
-        let audience = host.query(identity::ask::Audience { number }).await?;
-        let names = names(host, &audience).await?;
+        let ownership = host.query(identity::ask::Ownership { number }).await?;
+        let names = names(host, &ownership).await?;
         agents.push(Agent {
             number,
             keys: agent.keys().len(),
             name: agent.card.name,
             kind,
-            audience,
+            ownership,
             names,
         });
     }
     Ok(agents)
 }
 
-async fn names(host: &Host, audience: &Audience) -> Result<BTreeMap<u64, String>, Error> {
-    let Audience::Accounts(numbers) = audience else {
+async fn names(host: &Host, ownership: &Ownership) -> Result<BTreeMap<u64, String>, Error> {
+    let Ownership::Accounts(numbers) = ownership else {
         return Ok(BTreeMap::new());
     };
     let mut names = BTreeMap::new();
