@@ -275,6 +275,20 @@ pub(super) fn new_repository(
         .child(name_field(form, cx, ladder, theme))
         .child(format_choice(form, cx, ladder, theme))
         .child(new_repository_actions(cx, ladder, theme));
+    // a sheet holds one child: the head goes in the column with the form
+    let form = div()
+        .id(id("forge-new-repo-form"))
+        .size_full()
+        .overflow_y_scroll()
+        .flex()
+        .flex_col()
+        .child(design::sheet_title(
+            id("forge-new-repo-head"),
+            words::NEW_REPOSITORY,
+            ladder,
+            theme,
+        ))
+        .child(body);
     design::sheet(
         id("forge-new-repo-sheet"),
         words::NEW_REPOSITORY,
@@ -282,13 +296,7 @@ pub(super) fn new_repository(
         theme,
     )
     .on_dismiss(close)
-    .child(design::sheet_title(
-        id("forge-new-repo-head"),
-        words::NEW_REPOSITORY,
-        ladder,
-        theme,
-    ))
-    .child(body)
+    .child(form)
     .into_any_element()
 }
 

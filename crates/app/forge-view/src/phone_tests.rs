@@ -128,6 +128,10 @@ fn new_repository_opens_a_sheet_that_refuses_a_bad_name_then_creates() {
     let mut cx = phone("default");
     press(&mut cx, "forge-new-repo");
     assert!(cx.find("forge-new-repo-sheet").is_some());
+    assert!(
+        cx.find("forge-new-repo-head").is_some(),
+        "the sheet's head is drawn over its form"
+    );
     assert!(cx.back_handler().is_some(), "Back closes the sheet");
     cx.simulate_input("forge-new-repo-name", "bad name");
     press(&mut cx, "forge-new-repo-create");
