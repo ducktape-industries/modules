@@ -28,7 +28,7 @@ PROGRAMS := programs valset identity blobs awaits scheduler chat forge activity 
 # tests are the workspace's) and is kept out of this list on purpose: it
 # rides identity, which ships members-view, and nothing packs it.
 # `view-wasm-check` builds it for wasm32 so its `export_view!` cannot rot.
-VIEWS := chat-view members-view node-view explorer-view settings-view forge-view
+VIEWS := chat-view members-view node-view explorer-view settings-view forge-view harness-view
 
 # What a wasm32 view may link. A crate a view links must never reach the
 # signing/identity graph (blst does not build for wasm32, and a view has no
