@@ -5,8 +5,8 @@ use ::program::{MockHost, Program};
 use store::PageRequest;
 
 use crate::{
-    Account, Admission, Audience, CONSENT_NAMESPACE, Category, Consent, Control, Identity, Kind,
-    Life, Op, Query, Reply, Script, Standing,
+    Account, Admission, CONSENT_NAMESPACE, Category, Consent, Control, Identity, Kind, Life, Op,
+    Ownership, Query, Reply, Script, Standing,
 };
 
 const ALICE: &[u8] = b"alice-key";
@@ -653,19 +653,19 @@ fn an_agents_key_consent_expires_and_is_not_replayed() {
     assert!(get(&store, agent).holds(BOT));
 }
 
-fn audience_of(store: &MockHost, number: u64) -> Result<Audience, ::program::Error> {
-    let asked = Query::Audience { number };
+fn ownership_of(store: &MockHost, number: u64) -> Result<Ownership, ::program::Error> {
+    let asked = Query::Ownership { number };
     match Identity::query(&store.query(env(Origin::Root, None, 100)), asked)? {
-        Reply::Audience(audience) => Ok(audience),
+        Reply::Ownership(ownership) => Ok(ownership),
         other => panic!("{other:?}"),
     }
 }
 
-fn answers(account: u64, audience: Audience) -> Op {
-    Op::SetAudience { account, audience }
+fn answers(account: u64, ownership: Ownership) -> Op {
+    Op::SetOwnership { account, ownership }
 }
 
-fn audience_rows(store: &MockHost) -> usize {
+fn ownership_rows(store: &MockHost) -> usize {
     let state = store.borrow();
     state
         .state
@@ -680,39 +680,39 @@ fn an_agent_answers_its_manager_until_its_manager_says_otherwise() {
     create(&store, ALICE, "Alice");
     let bob = create(&store, BOB, "Bob");
     let agent = create_agent(&store, ALICE, "Scout");
-    assert_eq!(audience_of(&store, agent), Ok(Audience::Manager));
+    assert_eq!(ownership_of(&store, agent), Ok(Ownership::Owner));
     assert_eq!(
-        audience_rows(&store),
+        ownership_rows(&store),
         0,
         "no row until the manager sets one"
     );
 
     let alice = signed(&store, ALICE);
-    run(&store, &alice, answers(agent, Audience::Anyone)).unwrap();
-    assert_eq!(audience_of(&store, agent), Ok(Audience::Anyone));
+    run(&store, &alice, answers(agent, Ownership::Anyone)).unwrap();
+    assert_eq!(ownership_of(&store, agent), Ok(Ownership::Anyone));
 
-    let listed = Audience::Accounts(vec![agent, bob, 1, bob]);
+    let listed = Ownership::Accounts(vec![agent, bob, 1, bob]);
     run(&store, &alice, answers(agent, listed)).unwrap();
     assert_eq!(
-        audience_of(&store, agent),
-        Ok(Audience::Accounts(vec![bob, agent])),
+        ownership_of(&store, agent),
+        Ok(Ownership::Accounts(vec![bob, agent])),
         "sorted, once each, its manager implied"
     );
 
-    run(&store, &alice, answers(agent, Audience::Accounts(vec![1]))).unwrap();
-    assert_eq!(audience_of(&store, agent), Ok(Audience::Manager));
-    assert_eq!(audience_rows(&store), 0, "its manager alone keeps no row");
+    run(&store, &alice, answers(agent, Ownership::Accounts(vec![1]))).unwrap();
+    assert_eq!(ownership_of(&store, agent), Ok(Ownership::Owner));
+    assert_eq!(ownership_rows(&store), 0, "its manager alone keeps no row");
 
-    run(&store, &alice, answers(agent, Audience::Anyone)).unwrap();
-    run(&store, &alice, answers(agent, Audience::Manager)).unwrap();
-    assert_eq!(audience_of(&store, agent), Ok(Audience::Manager));
-    assert_eq!(audience_rows(&store), 0);
+    run(&store, &alice, answers(agent, Ownership::Anyone)).unwrap();
+    run(&store, &alice, answers(agent, Ownership::Owner)).unwrap();
+    assert_eq!(ownership_of(&store, agent), Ok(Ownership::Owner));
+    assert_eq!(ownership_rows(&store), 0);
 
     run(&store, &alice, Op::Suspend { account: agent }).unwrap();
-    run(&store, &alice, answers(agent, Audience::Anyone)).unwrap();
+    run(&store, &alice, answers(agent, Ownership::Anyone)).unwrap();
     assert_eq!(
-        audience_of(&store, agent),
-        Ok(Audience::Anyone),
+        ownership_of(&store, agent),
+        Ok(Ownership::Anyone),
         "a suspended agent's manager still sets it"
     );
 }
@@ -726,14 +726,14 @@ fn only_its_manager_sets_whom_an_agent_answers() {
     add_agent_key(&store, ALICE, agent, BOT).unwrap();
     for by in [signed(&store, BOB), signed(&store, BOT), root()] {
         let why = format!("{:?}", by.origin);
-        let refusal = refused(&store, &by, answers(agent, Audience::Anyone));
+        let refusal = refused(&store, &by, answers(agent, Ownership::Anyone));
         assert_eq!(refusal.code, code::UNAUTHORIZED, "{why}");
     }
-    assert_eq!(audience_of(&store, agent), Ok(Audience::Manager));
+    assert_eq!(ownership_of(&store, agent), Ok(Ownership::Owner));
 }
 
 #[test]
-fn only_a_live_agent_has_an_audience() {
+fn only_a_live_agent_has_an_ownership() {
     let store = memory();
     create(&store, ALICE, "Alice");
     run(
@@ -747,31 +747,35 @@ fn only_a_live_agent_has_an_audience() {
     let agent = create_agent(&store, ALICE, "Scout");
     let alice = signed(&store, ALICE);
     for number in [1, 2] {
-        let refusal = refused(&store, &alice, answers(number, Audience::Anyone));
+        let refusal = refused(&store, &alice, answers(number, Ownership::Anyone));
         assert_eq!(refusal.code, code::WRONG_STATE, "account {number}");
-        let asked = audience_of(&store, number).unwrap_err();
+        let asked = ownership_of(&store, number).unwrap_err();
         assert_eq!(asked.code, code::WRONG_STATE, "account {number}");
     }
-    let nobody = refused(&store, &alice, answers(99, Audience::Anyone));
+    let nobody = refused(&store, &alice, answers(99, Ownership::Anyone));
     assert_eq!(nobody.code, code::NOT_FOUND);
-    assert_eq!(audience_of(&store, 99).unwrap_err().code, code::NOT_FOUND);
-    let unknown = refused(&store, &alice, answers(agent, Audience::Accounts(vec![99])));
+    assert_eq!(ownership_of(&store, 99).unwrap_err().code, code::NOT_FOUND);
+    let unknown = refused(
+        &store,
+        &alice,
+        answers(agent, Ownership::Accounts(vec![99])),
+    );
     assert_eq!(unknown.code, code::NOT_FOUND);
 
-    run(&store, &alice, answers(agent, Audience::Anyone)).unwrap();
+    run(&store, &alice, answers(agent, Ownership::Anyone)).unwrap();
     run(&store, &alice, Op::Revoke { account: agent }).unwrap();
     assert_eq!(
-        audience_of(&store, agent),
-        Ok(Audience::Manager),
-        "revoking drops its audience"
+        ownership_of(&store, agent),
+        Ok(Ownership::Owner),
+        "revoking drops its ownership"
     );
-    assert_eq!(audience_rows(&store), 0);
-    let revoked = refused(&store, &alice, answers(agent, Audience::Anyone));
+    assert_eq!(ownership_rows(&store), 0);
+    let revoked = refused(&store, &alice, answers(agent, Ownership::Anyone));
     assert_eq!(revoked.code, code::WRONG_STATE);
 }
 
 #[test]
-fn an_audience_keeps_each_account_once_and_never_the_manager() {
+fn an_ownership_list_keeps_each_account_once_and_never_the_manager() {
     let store = memory();
     create(&store, ALICE, "Alice");
     let agent = create_agent(&store, ALICE, "Scout");
@@ -781,10 +785,10 @@ fn an_audience_keeps_each_account_once_and_never_the_manager() {
     let alice = signed(&store, ALICE);
     let mut named = people.clone();
     named.extend([1, people[0]]);
-    run(&store, &alice, answers(agent, Audience::Accounts(named))).unwrap();
+    run(&store, &alice, answers(agent, Ownership::Accounts(named))).unwrap();
     assert_eq!(
-        audience_of(&store, agent),
-        Ok(Audience::Accounts(people)),
+        ownership_of(&store, agent),
+        Ok(Ownership::Accounts(people)),
         "duplicates and the manager do not count"
     );
 }

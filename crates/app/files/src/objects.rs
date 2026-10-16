@@ -1,8 +1,12 @@
 //! What a snapshot is made of, each a kernel blob: chunks of bytes, files that list
-//! their chunks, trees of named nodes, and snapshots naming a root tree.
+//! their chunks, trees of named nodes with each node's creator and write list, and
+//! snapshots naming a root tree.
 use std::collections::BTreeMap;
 
-use ::program::{BlobId, Error, ExecCtx, HashKind, Principal, QueryCtx, corrupt, invalid};
+use ::program::{
+    AccountNumber, BlobId, Error, ExecCtx, HashKind, Ownership, Principal, QueryCtx, corrupt,
+    invalid,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::{CHUNK_SIZE, Node};
@@ -22,6 +26,13 @@ pub struct FileObj {
 #[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Tree {
     pub entries: BTreeMap<String, Node>,
+    pub access: BTreeMap<String, Access>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Access {
+    pub creator: Option<AccountNumber>,
+    pub write: Option<Ownership>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]

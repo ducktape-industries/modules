@@ -50,6 +50,7 @@ impl Element for PathProbe {
                 .map(|id| wire::ElementIdWire::from_gpui(id).unwrap()),
             style: lowering.no_style(),
             content: "probe".into(),
+            transform: None,
         })
     }
 }

@@ -12,7 +12,7 @@
 use abi::hex;
 use programs::Pending as Scheduled;
 use valset::{Motion, Pending};
-use view::design::{Page, space};
+use view::design::{Nav, Page, space};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
@@ -41,12 +41,10 @@ const EPOCH_BAR: Pixels = px(6.);
 /// The list page: its title row, the vote's outcome strip, and what
 /// scrolls under them.
 pub(super) fn render(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Page {
-    // SDK gap: a root page without a typed `None` Back (`Page::root`),
-    // swap when #406 lands
     let page = design::page(
         "nodes-page",
         title(view),
-        None::<fn(&ClickEvent, &mut Window, &mut App)>,
+        Nav::root(view.reader.clone()),
         &LADDER,
         theme,
     );
@@ -175,13 +173,9 @@ fn fact_cell(fact: Fact, index: usize, theme: &Theme) -> Stateful<Div> {
         .when(index.is_multiple_of(2), |cell| cell.border_r_1())
         .border_color(theme.border)
         .child(
-            div()
+            design::eyebrow(fact.label, &LADDER, theme)
                 .mb(space::XXS)
-                .font_family(design::fonts::FAMILY_MONO)
-                .text_type(LADDER.tiny)
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(theme.muted)
-                .child(fact.label.to_uppercase()),
+                .font_weight(FontWeight::MEDIUM),
         )
         .child(
             div()
@@ -279,21 +273,15 @@ fn roster(view: &Nodes, nodes: &[Node], cx: &Context<Nodes>, theme: &Theme) -> S
         .id("nodes-members")
         .children(unheard.map(|why| quiet("nodes-unheard", why, theme)))
         .children(last_answer(view, "nodes-last-answer", theme))
-        .child(design::section_head(
-            "nodes-validators",
-            words::VALIDATORS,
-            Some(seats.len()),
-            &LADDER,
-            theme,
-        ))
+        .child(
+            design::section_head("nodes-validators", words::VALIDATORS, &LADDER, theme)
+                .child(seats.len().to_string()),
+        )
         .children(seats)
-        .child(design::section_head(
-            "nodes-residents",
-            words::RESIDENTS,
-            Some(residents.len()),
-            &LADDER,
-            theme,
-        ))
+        .child(
+            design::section_head("nodes-residents", words::RESIDENTS, &LADDER, theme)
+                .child(residents.len().to_string()),
+        )
         .children(residents)
         .children(footnote.map(|footnote| quiet("nodes-footnote", footnote, theme)))
 }
@@ -396,9 +384,8 @@ fn vote(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Option<Div> {
     if !view.voting.votes() {
         return None;
     }
-    let motions_head = design::section_head("nodes-motions", words::MOTIONS, None, &LADDER, theme);
-    let scheduled_head =
-        design::section_head("nodes-scheduled", words::SCHEDULED, None, &LADDER, theme);
+    let motions_head = design::section_head("nodes-motions", words::MOTIONS, &LADDER, theme);
+    let scheduled_head = design::section_head("nodes-scheduled", words::SCHEDULED, &LADDER, theme);
     let elsewhere = quiet("nodes-change-elsewhere", words::CHANGE_ELSEWHERE, theme);
     Some(
         div()
