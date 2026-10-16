@@ -87,7 +87,10 @@ fn seat(node: &Node) -> String {
 /// Who the member is: its key, its address (`this node` on the one this
 /// app talks to), and who operates it.
 fn identity(view: &Nodes, node: &Node, theme: &Theme) -> Div {
-    let address = node.address.clone().unwrap_or_else(|| "—".to_owned());
+    let address = node
+        .address
+        .clone()
+        .unwrap_or_else(|| words::NO_VALUE.to_owned());
     let this = view
         .status
         .ready()
@@ -116,10 +119,10 @@ fn vote_facts(view: &Nodes, node: &Node, theme: &Theme) -> Div {
     } = view
         .heard()
         .map_or(row::BLANK, |network| row::synced(node, network));
-    let height = signed.map_or("—".to_owned(), |signed| {
+    let height = signed.map_or(words::NO_VALUE.to_owned(), |signed| {
         format!("{} {}", design::grouped(signed), words::VOTED)
     });
-    let behind = behind.map_or("—".to_owned(), design::grouped);
+    let behind = behind.map_or(words::NO_VALUE.to_owned(), design::grouped);
     let (tone, ground) = tint(&status, view.answering(), theme);
     let badge = design::badge(
         "nodes-node-status-word",

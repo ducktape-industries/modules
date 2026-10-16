@@ -274,7 +274,10 @@ fn line(
         false => cell(KEY_W, false).child(key),
     };
     let address = address.then(|| {
-        let address = node.address.clone().unwrap_or_else(|| "—".to_owned());
+        let address = node
+            .address
+            .clone()
+            .unwrap_or_else(|| words::NO_VALUE.to_owned());
         cell(ADDRESS_W, false)
             .child(design::mono(address).text_color(theme.muted).truncate())
             .children(this.then(|| muted(words::THIS_NODE.into())))
@@ -283,12 +286,12 @@ fn line(
         Some(signed) => cell(HEIGHT_W, true)
             .child(design::mono(design::grouped(signed)))
             .child(muted(words::VOTED.into())),
-        None => cell(HEIGHT_W, true).child(muted("—".into())),
+        None => cell(HEIGHT_W, true).child(muted(words::NO_VALUE.into())),
     };
     // an empty cell reads as Height's and Status's do: a quiet dash
     let behind = match cells.behind {
         Some(behind) => design::mono(design::grouped(behind)),
-        None => muted("—".into()),
+        None => muted(words::NO_VALUE.into()),
     };
     let cells = div()
         .flex()

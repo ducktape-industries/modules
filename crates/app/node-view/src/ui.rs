@@ -47,7 +47,7 @@ pub(crate) fn render(view: &Nodes, cx: &mut Context<Nodes>) -> impl IntoElement 
 /// votes, the door's two motions.
 fn head(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -> impl IntoElement {
     let status = view.status.ready();
-    let title = status.map_or("Nodes".into(), |status| status.chain_id.clone());
+    let title = status.map_or(words::NODES.into(), |status| status.chain_id.clone());
     let door = view.voting.votes().then(|| {
         let press = |open: bool| {
             cx.listener(move |view: &mut Nodes, _: &ClickEvent, _, cx| {

@@ -68,7 +68,7 @@ pub(super) fn render(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Pa
 fn title(view: &Nodes) -> String {
     view.status
         .ready()
-        .map_or("Nodes", |status| words::network(&status.chain_id))
+        .map_or(words::NODES, |status| words::network(&status.chain_id))
         .to_owned()
 }
 
@@ -406,7 +406,10 @@ fn member_title(node: &Node, theme: &Theme) -> Div {
 /// A member's caption: its address in the data face, and `this node` on
 /// the one this app talks to.
 fn member_address(view: &Nodes, node: &Node, theme: &Theme) -> Div {
-    let address = node.address.clone().unwrap_or_else(|| "—".to_owned());
+    let address = node
+        .address
+        .clone()
+        .unwrap_or_else(|| words::NO_VALUE.to_owned());
     let this = view
         .status
         .ready()

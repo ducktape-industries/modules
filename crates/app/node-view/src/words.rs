@@ -14,6 +14,10 @@ use crate::Unheard;
 use crate::queries::Schedule;
 use crate::voting::{self, Voting};
 
+/// The view's title until the node names its network.
+pub(crate) const NODES: &str = "Nodes";
+/// A fact the node has not given: an address, a vote, how far behind.
+pub(crate) const NO_VALUE: &str = "—";
 pub(crate) const READING_STATUS: &str = "Reading node status…";
 pub(crate) const READING_MEMBERS: &str = "Reading the members…";
 pub(crate) const NO_MEMBERS: &str = "No members";
