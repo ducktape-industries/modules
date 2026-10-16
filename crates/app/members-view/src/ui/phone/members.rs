@@ -20,10 +20,6 @@ use crate::{Group, Members, Roster, Row, name_or_number, standing_badge, words};
 const CHIP: Pixels = px(32.);
 /// A chosen chip's count shows at this opacity on the ink (`Choice.tsx:72`).
 const COUNT_ON_INK: f32 = 0.7;
-/// The open filter's text sits this far in from its 2-wide edge
-/// (`Field.tsx:52`: `gap.lg - (thick - 1)`).
-// SDK gap: the kit's `Field`, swap when feat/phone-kit lands
-const FIELD_INSET: Pixels = px(11.);
 
 /// `Members` over the network and how many accounts it holds, Filter in
 /// the title row; the chips while anyone is listed, then the rows.
@@ -84,8 +80,7 @@ pub(super) fn page(
 /// The title row while the filter is open (the kit's `Header` with its
 /// `center`): the field, its magnifier inside the edge, and Close filter,
 /// which empties it.
-// SDK gap: a `center` slot on `design::page`, which the SDK builds it later;
-// the kit's `Field`, swap when feat/phone-kit lands
+// SDK gap: a `center` slot on `design::page`, which the SDK builds it later
 fn filter_row(
     view: &Members,
     cx: &mut Context<Members>,
@@ -103,23 +98,28 @@ fn filter_row(
     let input = Input::new("members-filter", &view.filter, words::FILTER_LABEL)
         .autocorrect(false)
         .autocapitalize(Autocapitalize::None)
-        .placeholder(words::FILTER_HINT)
-        .flex_1()
-        .min_w_0()
-        .text_type(ladder.body)
-        .text_color(theme.foreground);
-    // the kit's `Field` as it opens, focused: 2 wide in the foreground
-    let field = div()
-        .min_h(ladder.control)
+        .placeholder(words::FILTER_HINT);
+    // The kit's `Field`: the edge is the field's own hairline, which the
+    // host draws 2 wide in the ink while the field is focused, as Expo's
+    // `Field` does (`Field.tsx:38-39`). The magnifier lies in the field's
+    // padding, where Expo's `lead` sits: past the hairline and `gap.lg`,
+    // the text `gap.sm` after it.
+    // SDK gap: field lead slot, swap when feat/phone-kit lands
+    let lead = div()
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .left(px(1.) + space::LG)
         .flex()
         .items_center()
-        .gap(space::SM)
-        .px(FIELD_INSET)
-        .border_2()
-        .border_color(theme.foreground)
-        .bg(theme.background)
-        .child(design::icon("search", ladder.icon_row).text_color(theme.muted))
-        .child(input);
+        .child(design::icon("search", ladder.icon_row).text_color(theme.muted));
+    let field = div()
+        .child(
+            design::field(input, ladder, theme)
+                .w_full()
+                .pl(space::LG + ladder.icon_row + space::SM),
+        )
+        .child(lead);
     div()
         .id("members-roster-title")
         .flex_none()

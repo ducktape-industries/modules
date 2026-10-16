@@ -181,6 +181,23 @@ fn the_filter_carries_its_keyboard_hints() {
     );
 }
 
+/// The filter's edge is the field's own hairline, the edge the host draws
+/// 2 wide in the ink while the field is focused: the box around it draws
+/// no second one.
+#[test]
+fn the_filter_edge_is_the_fields_own() {
+    let mut cx = phone();
+    cx.simulate_click("members-filter-open");
+    let hairline = StyleRefinement::default().border_1();
+    assert_eq!(
+        style(&cx, "members-filter").border_widths.left,
+        hairline.border_widths.left
+    );
+    let around = parent(cx.root(), "members-filter").expect("the field's box");
+    let around = around.style().map(|style| &cx.styles()[style]);
+    assert!(around.is_none_or(|style| style.border_widths.left.is_none()));
+}
+
 #[test]
 fn a_phone_chip_narrows_the_roster_to_its_group() {
     let mut cx = phone();
