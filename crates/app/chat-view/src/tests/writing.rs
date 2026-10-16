@@ -52,7 +52,7 @@ fn a_send_shows_greyed_then_lands_and_a_refusal_is_a_banner() {
     cx.simulate_submit("chat-create-name");
     cx.run_until_parked();
     assert!(cx.host().requests::<Submit<::chat::Chat>>().iter().any(|op| matches!(op, Op::CreateChannel { channel_id, name, post_policy: PostPolicy::MembersOnly } if channel_id == "channel-1" && name == "random")));
-    assert!(cx.has_text("Couldn’t create this channel: no"));
+    assert!(cx.has_text("That didn’t go through: no"));
     let (restored, view) = restored(&cx);
     view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "general"));
     assert!(restored.host().requests::<Ask<::chat::Chat>>().len() >= 2);
@@ -228,7 +228,11 @@ fn a_refused_post_leaves_the_timeline_and_keeps_the_text() {
         result: Err(wire::Error::new("unauthorized", "not a member")),
         done: true,
     });
-    assert!(cx.has_text("not a member"), "{:?}", cx.texts());
+    assert!(
+        cx.has_text("That didn’t go through: not a member"),
+        "{:?}",
+        cx.texts()
+    );
     assert!(cx.has_text("An earlier message wasn’t sent"));
     assert!(!cx.has_text("turned away"));
     assert_eq!(shown(&view, "message-1"), 0);
@@ -250,7 +254,11 @@ fn a_refused_post_shows_no_row_and_keeps_the_text() {
     cx.simulate_input("draft-general/editor", "turned away");
     cx.simulate_field_key("draft-general/editor", "enter");
     cx.run_until_parked();
-    assert!(cx.has_text("not a member"), "{:?}", cx.texts());
+    assert!(
+        cx.has_text("That didn’t go through: not a member"),
+        "{:?}",
+        cx.texts()
+    );
     assert!(cx.has_text("An earlier message wasn’t sent"));
     assert_eq!(shown(&view, "message-1"), 0);
     assert!(holding(&view).is_empty());

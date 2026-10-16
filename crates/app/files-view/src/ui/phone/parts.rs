@@ -1,21 +1,14 @@
 //! The pieces two or more phone screens draw: a page's frame and the line
 //! the last write left, the Expo kit's `Row` (a lead glyph, a title over a
-//! caption, a chevron), `KeyValue`, `Quiet`, the states a read is in, and
-//! the kit pieces the SDK does not have yet. Each draws what it is handed.
+//! caption, a chevron), `KeyValue`, `Quiet` and the states a read is in.
+//! Each draws what it is handed.
 use view::design::space;
-use view::{Div, FontWeight, Stateful};
+use view::{Div, Stateful};
 
 use super::*;
 
 /// A key's column in a key/value row (Expo `src/kit/Facts.tsx:64`).
 const KEY_W: Pixels = px(96.);
-
-// SDK gap: SHEET_INSET is private, swap when feat/phone-kit lands
-/// How far a sheet's body sits in from its sides (Expo `Sheet.tsx:148`).
-pub(super) const SHEET_INSET: Pixels = px(20.);
-
-/// The room between a row's title and its caption (Expo `Row.tsx:58`).
-const TITLE_GAP: Pixels = px(1.);
 
 /// A page: its title row (Back by where it sits, the page's writes behind
 /// one control when it offers any), the line the last write left, then
@@ -79,7 +72,8 @@ pub(super) fn opening_row(
     k: &Kit,
     press: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
-    let row = lined(id, glyph, k.theme.muted, title, caption, k).child(chevron(k));
+    let row = lined(id, glyph, k.theme.muted, title, caption, k)
+        .child(design::chevron(&k.ladder, &k.theme));
     design::pressed(row, &k.ladder)
         .role(Role::Button)
         .focusable()
@@ -111,7 +105,10 @@ fn lined(
         .child(design::lead(
             design::icon(glyph, k.ladder.icon_row).text_color(tint),
         ))
-        .child(title_and_caption(row_title(title, k)).child(row_caption(caption, k)))
+        .child(
+            design::row_words(design::row_title(title, &k.ladder, &k.theme))
+                .child(design::row_caption(caption, &k.ladder, &k.theme)),
+        )
 }
 
 /// A key and its value, on one row (Expo `KeyValue`).
@@ -164,7 +161,7 @@ pub(super) fn quiet(id: &'static str, sentence: impl Into<SharedString>, k: &Kit
 /// A refused read, and Retry.
 pub(super) fn refused(name: &str, refusal: &Error, cx: Cx, k: &Kit) -> AnyElement {
     let retry = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.read_page(cx));
-    design::refused(name, refusal.message.clone(), &k.ladder, &k.theme, retry)
+    design::refused(name, design::sentence(refusal), &k.ladder, &k.theme, retry)
         .m(space::BLOCK)
         .into_any_element()
 }
@@ -187,79 +184,4 @@ fn actions_control(view: &Files, cx: Cx, k: &Kit) -> Option<AnyElement> {
         )
         .into_any_element(),
     )
-}
-
-// SDK gap: design::title_and_caption, swap when feat/phone-kit lands
-/// A row's words (Expo `Row.tsx:58-73`): the title, and what the caller
-/// adds 1 under it.
-pub(super) fn title_and_caption(title: impl IntoElement) -> Div {
-    div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .gap(TITLE_GAP)
-        .child(title)
-}
-
-// SDK gap: design::row_title, swap when feat/phone-kit lands
-/// A row's title (Expo `Row.tsx:59-62`): one line of body text.
-pub(super) fn row_title(text: impl Into<SharedString>, k: &Kit) -> Div {
-    div()
-        .truncate()
-        .text_type(k.ladder.body)
-        .text_color(k.theme.foreground)
-        .child(text.into())
-}
-
-// SDK gap: design::row_caption, swap when feat/phone-kit lands
-/// A row's caption (Expo `Row.tsx:66-69`): one line of caption, muted.
-pub(super) fn row_caption(text: impl Into<SharedString>, k: &Kit) -> Div {
-    div()
-        .truncate()
-        .text_type(k.ladder.caption)
-        .text_color(k.theme.muted)
-        .child(text.into())
-}
-
-// SDK gap: design::chevron, swap when feat/phone-kit lands
-/// The chevron at the end of a row that opens a page (Expo `Row.tsx:75`).
-pub(super) fn chevron(k: &Kit) -> view::Svg {
-    design::icon("chevron-right", k.ladder.icon_row).text_color(k.theme.faint)
-}
-
-// SDK gap: design::sheet_title, swap when feat/phone-kit lands
-/// A form sheet's head (Expo `SheetHead` holding the form's title): a
-/// level-2 heading in title medium.
-pub(super) fn sheet_title(
-    id: &'static str,
-    title: impl Into<SharedString>,
-    k: &Kit,
-) -> Stateful<Div> {
-    design::sheet_head(id, &k.theme).child(
-        design::heading("files/write/title", title, 2, &k.theme)
-            .text_type(k.ladder.title)
-            .font_weight(FontWeight::MEDIUM),
-    )
-}
-
-// SDK gap: design::field_label, swap when feat/phone-kit lands
-/// A field's label over it (Expo `Field label`): one caption line, muted.
-pub(super) fn field_label(label: &'static str, k: &Kit) -> Div {
-    div()
-        .mb(space::XS)
-        .text_type(k.ladder.caption)
-        .text_color(k.theme.muted)
-        .child(label)
-}
-
-// SDK gap: design::form_verbs, swap when feat/phone-kit lands
-/// A form sheet's foot (Expo `Agents.tsx:224-232`): Cancel quiet, then
-/// the verb as the primary, taking the rest of the row.
-pub(super) fn form_verbs(cancel: impl IntoElement, verb: impl IntoElement) -> Div {
-    div()
-        .flex()
-        .gap(space::SM)
-        .child(cancel)
-        .child(div().flex_1().flex().flex_col().child(verb))
 }

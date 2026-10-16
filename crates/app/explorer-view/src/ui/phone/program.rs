@@ -116,7 +116,7 @@ fn capabilities(view: &Explorer, listed: bool, cx: Cx, k: &Look) -> Vec<AnyEleme
     let head = section("explorer-capabilities-header", "Capabilities", count, k);
     let rows = match view.declared(listed) {
         Declared::Reading => vec![quiet("explorer-manifest-loading", words::READING_CODE, k)],
-        Declared::Refused(sentence) => vec![refused(sentence, cx, k)],
+        Declared::Refused(refusal) => vec![refused(&design::sentence(refusal), cx, k)],
         Declared::Nothing(why) => vec![quiet("explorer-unlisted", why.sentence(), k)],
         Declared::Asks(manifest) => manifest
             .capabilities

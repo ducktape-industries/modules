@@ -7,7 +7,7 @@ use view::design::Ladder;
 pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let listed = match &view.accounts {
         Loadable::Ready(listed) | Loadable::Reloading(listed, _) => listed,
-        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme, ladder),
+        Loadable::Failed(refusal) => return failed(&design::sentence(refusal), cx, theme, ladder),
         Loadable::Idle | Loadable::Loading(_) => {
             return quiet("explorer-accounts-loading", words::READING_ACCOUNTS, theme);
         }
@@ -78,7 +78,7 @@ fn account_row(view: &Explorer, account: &Account, cx: Cx, theme: &Theme) -> Sta
 fn acted(view: &Explorer, number: u64, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let Some(acted) = view.acted(number) else {
         return match &view.acted {
-            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme, ladder),
+            Loadable::Failed(refusal) => failed(&design::sentence(refusal), cx, theme, ladder),
             _ => quiet("explorer-activity-loading", words::READING_ACTIVITY, theme),
         };
     };
@@ -113,7 +113,7 @@ pub(super) fn account(
                 theme,
             )
             .into_any_element(),
-            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme, ladder),
+            Loadable::Failed(refusal) => failed(&design::sentence(refusal), cx, theme, ladder),
             Loadable::Idle | Loadable::Loading(_) => {
                 quiet("explorer-account-loading", words::READING_ACCOUNT, theme)
             }

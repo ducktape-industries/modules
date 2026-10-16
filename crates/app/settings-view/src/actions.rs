@@ -1,11 +1,10 @@
 //! What the reader's presses do: reads again, each form's submit, and the
 //! invite. A refusal lands on the form it came from.
-use view::methods::Submitted;
 use view::prelude::*;
 
 use crate::queries::Found;
 use crate::state::{Answering, Choice, Form, Problem, Section, Sheet, TTL};
-use crate::{Settings, queries, words};
+use crate::{Settings, queries};
 use identity::{Identity, Ownership};
 
 impl Settings {
@@ -114,18 +113,11 @@ impl Settings {
         };
         let ask = cx.host().ask::<Submit<Identity>>(op);
         cx.land(ask, |view, result, cx| {
-            match result {
-                // created: the form stays busy until the host's session
-                // names the new account, which re-reads it
-                Ok(Submitted::Applied { .. }) => {}
-                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
-                    view.create_account.busy = false;
-                    view.create_account.problem = Some(Problem::Refused(refusal.message));
-                }
-                Ok(Submitted::InDoubt { .. }) => {
-                    view.create_account.busy = false;
-                    view.create_account.problem = Some(Problem::Refused(words::IN_DOUBT.into()));
-                }
+            // created: the form stays busy until the host's session names
+            // the new account, which re-reads it
+            if let Some(said) = design::failure(&result) {
+                view.create_account.busy = false;
+                view.create_account.problem = Some(Problem::Refused(said));
             }
             cx.notify();
         })
@@ -288,7 +280,11 @@ impl Settings {
             }
             Ok(Found::Nobody) => Problem::NoSuchAccount,
             Ok(Found::Several) => Problem::SeveralAccounts,
-            Err(refusal) => Problem::Refused(refusal.message),
+            // the look-up the write needs, worded as the write would be
+            // (Expo `Agents.tsx:410`)
+            Err(refusal) => Problem::Refused(
+                design::failure(&Err(refusal)).expect("an error is never a landed write"),
+            ),
         };
         form.problem = Some(problem);
         cx.notify();
@@ -405,17 +401,13 @@ impl Settings {
         };
         let ask = cx.host().ask::<Submit<Identity>>(op);
         cx.land(ask, move |view, result, cx| {
-            let landed = matches!(result, Ok(Submitted::Applied { .. }));
+            let problem = design::failure(&result);
+            let landed = problem.is_none();
             let form = form(view);
             form.busy = false;
-            match result {
-                Ok(Submitted::Applied { .. }) => form.text.reset(""),
-                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
-                    form.problem = Some(Problem::Refused(refusal.message))
-                }
-                Ok(Submitted::InDoubt { .. }) => {
-                    form.problem = Some(Problem::Refused(words::IN_DOUBT.into()))
-                }
+            match problem {
+                None => form.text.reset(""),
+                Some(said) => form.problem = Some(Problem::Refused(said)),
             }
             // a rename that landed closes its field
             view.rename_agent.retain(|_, form| {

@@ -237,11 +237,13 @@ impl Styled for ModalOverlay {
 /// ([`wire::Node::Sheet`]). The view owns what is inside and whether it is
 /// open (it renders the sheet or not); the host owns the drag, the scrim,
 /// the snap and the keyboard lift. `label` names the dialog, as
-/// [`modal_overlay`]'s does.
+/// [`modal_overlay`]'s does. It holds every child given, as a `div` does,
+/// in one column when there is more than one; a body that fills or scrolls
+/// the sheet goes in as its one child.
 pub struct Sheet {
     id: ElementId,
     label: String,
-    child: Option<AnyElement>,
+    children: Vec<AnyElement>,
     detents: Vec<f32>,
     style: Box<StyleRefinement>,
     on_dismiss: Option<EventListener<()>>,
@@ -260,7 +262,7 @@ pub fn sheet(id: impl Into<ElementId>, label: impl Into<String>) -> Sheet {
     Sheet {
         id: id.into(),
         label,
-        child: None,
+        children: Vec::new(),
         detents: Vec::new(),
         style: Box::default(),
         on_dismiss: None,
@@ -291,10 +293,11 @@ impl Sheet {
         self.on_dismiss = Some(Box::new(listener));
         self
     }
-    /// What the sheet holds; the last `child` given is the one.
-    pub fn child(mut self, child: impl IntoElement) -> Self {
-        self.child = Some(child.into_any_element());
-        self
+}
+
+impl ParentElement for Sheet {
+    fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
+        self.children.extend(elements);
     }
 }
 
@@ -311,9 +314,12 @@ impl Element for Sheet {
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
-        let child = match self.child {
-            Some(child) => lowering.lower(child),
-            None => wire::Node::empty(),
+        // the wire's sheet holds one node: two or more go in one column
+        let mut children = self.children;
+        let child = match children.len() {
+            0 => wire::Node::empty(),
+            1 => lowering.lower(children.remove(0)),
+            _ => lowering.lower(div().flex().flex_col().children(children)),
         };
         wire::Node::Sheet {
             id: wire_id(self.id),

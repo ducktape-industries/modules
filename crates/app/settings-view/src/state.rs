@@ -201,6 +201,7 @@ pub(crate) enum Problem {
     NotAKeyRequest,
     NoSuchAccount,
     SeveralAccounts,
-    /// the program refused it, in its own words
+    /// it did not land, worded as every view words it
+    /// (`design::failure`)
     Refused(String),
 }
