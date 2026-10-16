@@ -463,7 +463,10 @@ pub struct Session {
 /// A place of the host's own that a view asks it to bring up
 /// ([`HostShow`]). What a place looks like is the host's to decide on its
 /// platform: a sheet, a menu, a page. A place this host does not know does
-/// not decode, so the request is refused `malformed_request`.
+/// not decode, so the request is refused `malformed_request`; a place it
+/// knows and has nothing to show for (no reader's account on a host that
+/// keeps none) is refused `unknown_request`, as a host that does not
+/// answer `host.show` at all refuses it.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
 )]
@@ -471,9 +474,8 @@ pub struct Session {
 pub enum Place {
     /// The reader's own account: who they are, on which network, and the
     /// way to their account, the app's settings and another network (the
-    /// Expo app's account sheet, mobile `app/you.tsx`). A view's first
-    /// page asks for it from the reader's avatar (the SDK's
-    /// `Page::account`).
+    /// Expo app's account sheet, mobile `app/you.tsx`), asked for from the
+    /// reader's avatar on a view's first page.
     Account,
 }
 /// `host.widget`: a command on the mounted tree. The one method on the TREE
@@ -750,11 +752,12 @@ methods! {
     /// `host.badge`: the count of things unread in the view, shown on its
     /// tab (the app words it "N unread").
     HostBadge, "host.badge", i64, ();
-    /// `link.open`: the one way out: a `duck://` link, opened in the
-    /// app, or an `https://` one, opened in the view that declares
-    /// [`Capability::Web`] (as its `host.route`) when the app has one and a
-    /// web view, else handed to the system browser. Any other scheme is
-    /// refused (`malformed_request`).
+    /// `link.open`: a `duck://` link, opened in the app, or an `https://`
+    /// one, opened in the view that declares [`Capability::Web`] (as its
+    /// `host.route`) when the app has one and a web view, else handed to
+    /// the system browser. Any other scheme is refused
+    /// (`malformed_request`). Only a person's press or key in the view
+    /// opens one: a request without one is refused `needs_gesture`.
     LinkOpen, "link.open", String, ();
     /// `host.route`: a subscription, one item per `duck://` link opened into
     /// this view: the path after the view's own segment (`tx/<hash>` of
@@ -810,7 +813,8 @@ methods! {
     HostTitle, "host.title", String, ();
     /// `host.show`: bring up one of the host's own places ([`Place`]).
     /// Only a person's press or key in the view brings one up, as with
-    /// `link.open`: a request without one is refused `needs_gesture`.
+    /// [`LinkOpen`]: a request without one is refused `needs_gesture`. A
+    /// host older than this method refuses it `unknown_request`.
     HostShow, "host.show", Place, ();
     /// `live.publish`: a subscription that IS the published track; its
     /// items are [`Publishing`]: `Waiting` while the room's program has not
