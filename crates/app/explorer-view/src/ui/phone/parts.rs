@@ -742,28 +742,40 @@ pub(super) fn tx_line(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> Stateful<
         Some(applied) => activity::view::label(&tx.target, applied, &grouped(height), position),
         None => format!("{}, block {} · {position}", tx.target, grouped(height)),
     };
+    // one line, as Expo's nested spans: the program in the data face, then
+    // the title, cut short where it runs out
     let title = div()
-        .truncate()
+        .flex()
+        .items_baseline()
+        .min_w_0()
         .text_type(k.ladder.body)
         .child(
             mono(format!("{} ", tx.target))
+                .flex_none()
                 .text_size(TARGET_TEXT)
                 .text_color(k.theme.muted),
         )
-        .child(clip(&title_of(tx)));
+        .child(div().min_w_0().truncate().child(clip(&title_of(tx))));
+    let place = div()
+        .flex()
+        .items_baseline()
+        .min_w_0()
+        .text_type(k.ladder.caption)
+        .text_color(k.theme.muted)
+        .child(mono(short(&tx.hash)).flex_none())
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .child(format!(" · {}", signer_words(view, &tx.signer))),
+        );
     let row = list_row(
         SharedString::from(format!("explorer-tx-{height}-{position}")),
         k,
     );
     opens(row, label, Route::Tx { height, position }, cx)
         .child(mark(applied, k))
-        .child(title_and_caption(
-            title,
-            caption(
-                format!("{} · {}", short(&tx.hash), signer_words(view, &tx.signer)),
-                k,
-            ),
-        ))
+        .child(title_and_caption(title, place))
         .child(tail(ago(view.chain.now(), tx.time), k))
         .child(chevron(k))
 }
