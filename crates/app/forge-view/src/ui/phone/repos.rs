@@ -20,12 +20,13 @@ use forge::{Judgment, Query, Reply, RepoInfo};
 
 pub(super) fn render(
     forge: &Forge,
+    nav: Nav,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
 ) -> AnyElement {
     let new = cx.listener(|forge, _: &ClickEvent, window, cx| forge.start_repo(window, cx));
-    let page = design::page("forge-page-repos", "Forge", Nav::Root, ladder, theme)
+    let page = design::page("forge-page-repos", "Forge", nav, ladder, theme)
         .caption(place(forge))
         .trailing(design::icon_button(
             id("forge-new-repo"),

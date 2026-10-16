@@ -70,18 +70,27 @@ fn page(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
     if let Some(form) = forge.change_form() {
         return new_change::render(forge, form, cx, ladder, theme);
     }
-    let back = match forge.nav().depth() {
-        0 => Nav::Root,
+    let nav = match forge.nav().depth() {
+        0 => Nav::root(reader(forge)),
         _ => Nav::back(cx.listener(|forge, _: &ClickEvent, window, cx| forge.back(window, cx))),
     };
     match forge.nav().pages().last().copied().unwrap_or(Page::Repos) {
-        Page::Repos => repos::render(forge, cx, ladder, theme),
-        Page::Repo => repo::render(forge, back, cx, ladder, theme),
-        Page::Change => change::render(forge, back, cx, ladder, theme),
-        Page::File => diff::render(forge, back, cx, ladder, theme),
-        Page::Commit => commit::render(forge, back, cx, ladder, theme),
-        Page::Folder => code::folder(forge, back, cx, ladder, theme),
-        Page::Blob => code::render(forge, back, cx, ladder, theme),
+        Page::Repos => repos::render(forge, nav, cx, ladder, theme),
+        Page::Repo => repo::render(forge, nav, cx, ladder, theme),
+        Page::Change => change::render(forge, nav, cx, ladder, theme),
+        Page::File => diff::render(forge, nav, cx, ladder, theme),
+        Page::Commit => commit::render(forge, nav, cx, ladder, theme),
+        Page::Folder => code::folder(forge, nav, cx, ladder, theme),
+        Page::Blob => code::render(forge, nav, cx, ladder, theme),
+    }
+}
+
+/// The reader's account name, for the root's avatar: empty until the
+/// roster names them, when the avatar draws `•`.
+fn reader(forge: &Forge) -> String {
+    match (forge.me_principal(), forge.names.ready()) {
+        (Some(me), Some(names)) => names.name(&me).unwrap_or_default().to_owned(),
+        _ => String::new(),
     }
 }
 

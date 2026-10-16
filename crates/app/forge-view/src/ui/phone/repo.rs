@@ -19,13 +19,13 @@ use crate::words::{self, ref_label};
 
 pub(super) fn render(
     forge: &Forge,
-    back: Nav,
+    nav: Nav,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
 ) -> AnyElement {
     let name = forge.repo_name();
-    let mut page = design::page("forge-page-repo", name.clone(), back, ladder, theme)
+    let mut page = design::page("forge-page-repo", name.clone(), nav, ladder, theme)
         .trailing(copy_button(forge, &name, cx, ladder, theme))
         .trailing(about_button(cx, ladder, theme));
     if let Some((info, _, _)) = forge.repo() {

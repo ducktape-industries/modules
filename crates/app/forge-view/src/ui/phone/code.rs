@@ -25,7 +25,7 @@ use forge::{BlobView, Content, Query, Reply};
 
 pub(super) fn render(
     forge: &Forge,
-    back: Nav,
+    nav: Nav,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
@@ -41,7 +41,7 @@ pub(super) fn render(
         .collect();
     let link =
         ducklink::mint(&forge.session.chain_id, forge::PROGRAM, &segments).unwrap_or_default();
-    design::page("forge-page-blob", name.to_owned(), back, ladder, theme)
+    design::page("forge-page-blob", name.to_owned(), nav, ladder, theme)
         .caption(caption)
         .trailing(copy(
             "forge-blob-copy-path",
@@ -69,7 +69,7 @@ pub(super) fn render(
 /// folder's rows.
 pub(super) fn folder(
     forge: &Forge,
-    back: Nav,
+    nav: Nav,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
@@ -88,7 +88,7 @@ pub(super) fn folder(
         ladder,
         theme,
     );
-    design::page("forge-page-folder", format!("{name}/"), back, ladder, theme)
+    design::page("forge-page-folder", format!("{name}/"), nav, ladder, theme)
         .caption(caption)
         .children(parts::notices(forge, ladder, theme))
         .child(tabs::folder_body(forge, path, bar, cx, ladder, theme))

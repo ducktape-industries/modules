@@ -26,7 +26,7 @@ use view::design::short_hex;
 
 pub(super) fn render(
     forge: &Forge,
-    back: Nav,
+    nav: Nav,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
@@ -42,7 +42,7 @@ pub(super) fn render(
     };
     let more =
         cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_sheet(Sheet::ChangeActions, cx));
-    let page = design::page("forge-page-change", title, back, ladder, theme)
+    let page = design::page("forge-page-change", title, nav, ladder, theme)
         .caption(caption)
         .trailing(design::icon_button(
             id("forge-change-more"),

@@ -23,7 +23,7 @@ use view::design::short_hex;
 
 pub(super) fn render(
     forge: &Forge,
-    back: Nav,
+    nav: Nav,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
@@ -36,7 +36,7 @@ pub(super) fn render(
         .filter(|summary| !summary.is_empty())
         .unwrap_or_else(|| short_hex(&oid));
     let caption = format!("{} · {}", forge.repo_name(), ref_label(&forge.head_name()));
-    design::page("forge-page-commit", title, back, ladder, theme)
+    design::page("forge-page-commit", title, nav, ladder, theme)
         .caption(caption)
         .trailing(copy_button(forge, &oid, cx, ladder, theme))
         .children(parts::notices(forge, ladder, theme))

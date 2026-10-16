@@ -22,7 +22,7 @@ use forge::{FileDiff, Reply, Side};
 
 pub(super) fn render(
     forge: &Forge,
-    back: Nav,
+    nav: Nav,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
     theme: &Theme,
@@ -44,7 +44,7 @@ pub(super) fn render(
     let name = path_text(&path);
     let name = name.rsplit('/').next().unwrap_or_default().to_owned();
     let key = change_key(&forge.repo_name(), n);
-    design::page("forge-page-file", name, back, ladder, theme)
+    design::page("forge-page-file", name, nav, ladder, theme)
         .caption(caption)
         .trailing(walk(
             "forge-file-previous",
