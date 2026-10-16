@@ -190,7 +190,7 @@ fn message_menu(
         Mode::Toolbar | Mode::More => actions(chat, menu, cx, theme),
         Mode::Reactions => reactions(chat, menu, cx, theme, ladder),
         Mode::Delete => delete(chat, cx, theme),
-        Mode::Profile => card::card(chat, menu, cx, theme),
+        Mode::Profile => card::card(chat, menu, cx, theme, ladder),
         Mode::Editing => div().into_any_element(),
     }
 }

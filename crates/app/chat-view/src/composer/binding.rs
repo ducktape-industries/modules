@@ -157,7 +157,14 @@ impl RenderOnce for MentionItem {
         };
         let hint = self.hint.map(|hint| {
             let id = ElementId::Name(format!("{}/hint", self.id).into());
-            design::badge(id, hint, theme.warning, theme.warning_soft)
+            // the row is drawn at the pointer's sizes, its badge too
+            design::badge(
+                id,
+                hint,
+                &design::POINTER,
+                theme.warning,
+                theme.warning_soft,
+            )
         });
         let mut row = div()
             .id(self.id)

@@ -8,6 +8,7 @@ use super::{Item, Press};
 use crate::ui::badge;
 use crate::{Chat, Menu, Pane};
 use chat::view::Names;
+use view::design::Ladder;
 
 /// The card's buttons; the first drawn takes the keys on open.
 const WORK_RECORD: &str = "chat-card-work-record";
@@ -24,7 +25,13 @@ pub fn focus_key(chat: &Chat, pane: Pane, seq: u64) -> &'static str {
     }
 }
 
-pub(super) fn card(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+pub(super) fn card(
+    chat: &Chat,
+    menu: &Menu,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let Some(author) = chat.author(menu.pane, menu.seq) else {
         return div().into_any_element();
     };
@@ -45,6 +52,7 @@ pub(super) fn card(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &The
         who = who.child(badge(
             "chat-card-badge",
             label,
+            ladder,
             theme.agent,
             theme.agent_soft,
         ));
