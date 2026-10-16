@@ -102,19 +102,6 @@ pub(crate) fn find(name: &str) -> Option<&'static Entry> {
     CATALOG.iter().find(|entry| entry.name == name)
 }
 
-pub(crate) fn definitions() -> Vec<Value> {
-    CATALOG
-        .iter()
-        .map(|entry| {
-            json!({
-                "name": entry.name,
-                "description": entry.description,
-                "input_schema": (entry.schema)(),
-            })
-        })
-        .collect()
-}
-
 pub(crate) fn infos() -> Vec<ToolInfo> {
     CATALOG
         .iter()
