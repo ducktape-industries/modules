@@ -368,6 +368,12 @@ impl Settings {
         // the sheet this op was sent from; another opened meanwhile is not
         // this op's to move
         let from = self.sheet;
+        // whom an agent answers: a change that lands takes the person typed
+        // for it (dev's one form; Expo unmounts the field)
+        let answered = match &op {
+            identity::Op::SetAudience { account, .. } => Some(*account),
+            _ => None,
+        };
         let ask = cx.host().ask::<Submit<Identity>>(op);
         cx.land(ask, move |view, result, cx| {
             let landed = matches!(result, Ok(Submitted::Applied { .. }));
@@ -388,6 +394,12 @@ impl Settings {
             view.rename_agent.retain(|_, form| {
                 form.busy || form.problem.is_some() || !form.text.text().is_empty()
             });
+            if let Some(answering) = answered
+                .filter(|_| landed)
+                .and_then(|number| view.answering.get_mut(&number))
+            {
+                answering.form.text.reset("");
+            }
             if landed && view.sheet == from {
                 view.sheet = from.and_then(Sheet::after_landing);
             }

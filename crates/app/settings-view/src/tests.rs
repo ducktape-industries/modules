@@ -961,6 +961,33 @@ fn specific_people_are_added_by_name_or_number_and_removed() {
     assert!(cx.find("settings/agents/12/answers/refused").is_none());
 }
 
+fn typed(cx: &TestAppContext) -> &str {
+    let Some(wire::Node::Field { value, .. }) = cx.find("settings/agents/12/answers/name") else {
+        panic!("the person field: {:?}", cx.texts())
+    };
+    value
+}
+
+/// A person typed and not added goes with a choice that lands, and stays
+/// through one that is refused (one form for both on dev).
+#[test]
+fn a_person_typed_goes_with_a_choice_that_lands() {
+    let (mut cx, _) = answering(identity::Audience::Accounts(vec![8]));
+    cx.simulate_input("settings/agents/12/answers/name", "Sam");
+    cx.simulate_click("settings/agents/12/answers/anyone");
+    cx.run_until_parked();
+    cx.simulate_click("settings/agents/12/answers/specific");
+    assert_eq!(typed(&cx), "");
+
+    cx.simulate_input("settings/agents/12/answers/name", "Eve");
+    cx.host()
+        .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
+    cx.simulate_click("settings/agents/12/answers/manager");
+    cx.run_until_parked();
+    cx.simulate_click("settings/agents/12/answers/specific");
+    assert_eq!(typed(&cx), "Eve");
+}
+
 #[test]
 fn a_refused_choice_shows_in_its_agents_row() {
     let (mut cx, answers) = answering(identity::Audience::Manager);
