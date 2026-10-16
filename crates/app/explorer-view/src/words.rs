@@ -66,9 +66,10 @@ pub(crate) const TYPE_ACCOUNT: &str = "Type the account's number.";
 
 /// What a programs role entry is: a program, or a view with none behind it.
 pub(crate) fn entry_kind(listed: bool) -> &'static str {
-    match listed {
-        true => VIEW_ONLY,
-        false => "program",
+    if listed {
+        VIEW_ONLY
+    } else {
+        "program"
     }
 }
 
@@ -165,22 +166,25 @@ pub(crate) fn you(name: &str) -> String {
 /// A maintainer by its name, the reader and an agent marked so (Expo
 /// `holderName`, and `· agent` after it): `Ada (you) · agent`.
 pub(crate) fn holder(name: &str, reader: bool, agent: bool) -> String {
-    let name = match reader {
-        true => you(name),
-        false => name.to_owned(),
+    let name = if reader {
+        you(name)
+    } else {
+        name.to_owned()
     };
-    match agent {
-        true => format!("{name} · {AGENT}"),
-        false => name,
+    if agent {
+        format!("{name} · {AGENT}")
+    } else {
+        name
     }
 }
 
 /// Who changes a name, as its row says (Expo `changedBy`): its
 /// maintainers, else the validators' vote.
 pub(crate) fn changed_by(maintainers: &[String]) -> String {
-    match maintainers.is_empty() {
-        true => first_up(VALIDATORS_VOTE),
-        false => format!("Maintainer {}", maintainers.join(", ")),
+    if maintainers.is_empty() {
+        first_up(VALIDATORS_VOTE)
+    } else {
+        format!("Maintainer {}", maintainers.join(", "))
     }
 }
 

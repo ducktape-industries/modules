@@ -10,7 +10,7 @@ use crate::Network;
 use crate::acting::{self, Edit, Offer, Path};
 use crate::decode::minutes;
 use crate::state::Sheet;
-use ::programs::{NOTICE, Pending, Scope};
+use ::programs::{Grant, NOTICE, Pending, Scope};
 
 /// The block time Expo words a maintainer's wait in before the node's
 /// status is read (`programs.tsx:94`).
@@ -24,16 +24,17 @@ pub(super) fn programs(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
             return quiet("explorer-programs-loading", words::READING_ROLE, k);
         }
     };
-    let listed = match network.is_empty() {
-        true => vec![quiet("explorer-empty", words::RUNS_NOTHING, k)],
-        false => [
+    let listed = if network.is_empty() {
+        vec![quiet("explorer-empty", words::RUNS_NOTHING, k)]
+    } else {
+        [
             scheduled(view, network, cx, k),
             running(view, network, cx, k),
             views(view, network, cx, k),
         ]
         .into_iter()
         .flatten()
-        .collect(),
+        .collect()
     };
     scroller("explorer-page")
         .children(listed)
@@ -115,9 +116,9 @@ fn scheduled(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElem
         .changes
         .is_empty()
         .then(|| quiet("explorer-no-changes", words::NOTHING_SCHEDULED, k));
-    let rows = network.changes.iter().enumerate().map(|(index, pending)| {
-        scheduled_row(view, network, index, pending, k)
-            .children(cancel(view, index, pending, cx, k))
+    let rows = network.changes.iter().map(|pending| {
+        scheduled_row(view, network, pending, k)
+            .children(cancel(view, pending, cx, k))
             .into_any_element()
     });
     std::iter::once(head.into_any_element())
@@ -131,11 +132,10 @@ fn scheduled(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElem
 pub(super) fn scheduled_row(
     view: &Explorer,
     network: &Network,
-    index: usize,
     pending: &Pending,
     k: &Kit,
 ) -> Stateful<Div> {
-    list_row(ElementId::named_usize("explorer-change", index), k)
+    list_row(SharedString::from(format!("explorer-change-{}", change_key(pending))), k)
         .child(design::lead(
             design::icon("clock", k.ladder.icon_row).text_color(k.theme.muted),
         ))
@@ -149,13 +149,7 @@ pub(super) fn scheduled_row(
 
 /// Cancel by the grant that made it, or Propose cancel by vote; nothing
 /// where the reader has neither. Off while a write is out.
-fn cancel(
-    view: &Explorer,
-    index: usize,
-    pending: &Pending,
-    cx: Cx,
-    k: &Kit,
-) -> Option<Stateful<Div>> {
+fn cancel(view: &Explorer, pending: &Pending, cx: Cx, k: &Kit) -> Option<Stateful<Div>> {
     let path = view.cancels(pending)?;
     let label = path.cancel_word();
     let op = acting::cancel(pending);
@@ -166,7 +160,7 @@ fn cancel(
             }),
         )
     });
-    let id = format!("explorer-cancel-{index}");
+    let id = format!("explorer-cancel-{}", change_key(pending));
     Some(small(id, label, design::Kind::Quiet, press, k))
 }
 
@@ -275,8 +269,7 @@ fn access(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElement
     let rows = network
         .grants
         .iter()
-        .enumerate()
-        .map(|(index, grant)| grant_row(view, network, index, grant, cx, k));
+        .map(|grant| grant_row(view, network, grant, cx, k));
     std::iter::once(head.into_any_element())
         .chain(none)
         .chain(rows)
@@ -286,14 +279,7 @@ fn access(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElement
 /// One grant: what it covers, who holds it (an agent marked so, a program
 /// not run yet said so); the holder steps down, a reader with voices
 /// proposes the revoke.
-fn grant_row(
-    view: &Explorer,
-    network: &Network,
-    index: usize,
-    grant: &::programs::Grant,
-    cx: Cx,
-    k: &Kit,
-) -> AnyElement {
+fn grant_row(view: &Explorer, network: &Network, grant: &Grant, cx: Cx, k: &Kit) -> AnyElement {
     let holder = words::holder(
         &view.name_of(grant.account),
         view.acting.account == Some(grant.account),
@@ -303,26 +289,20 @@ fn grant_row(
     if matches!(&grant.scope, Scope::Program(id) if !network.names(id)) {
         about = format!("{about} · {}", words::may_add(&view.name_of(grant.account)));
     }
-    list_row(ElementId::named_usize("explorer-grant", index), k)
+    list_row(SharedString::from(format!("explorer-grant-{}", grant_key(grant))), k)
         .child(title_and_caption(
             mono(grant.scope.to_string())
                 .truncate()
                 .text_type(k.ladder.secondary),
             caption(about, k),
         ))
-        .children(revoke(view, index, grant, cx, k))
+        .children(revoke(view, grant, cx, k))
         .into_any_element()
 }
 
 /// Step down from one's own grant, or Propose revoke by vote; nothing where
 /// the reader has neither. Off while a write is out.
-fn revoke(
-    view: &Explorer,
-    index: usize,
-    grant: &::programs::Grant,
-    cx: Cx,
-    k: &Kit,
-) -> Option<Stateful<Div>> {
+fn revoke(view: &Explorer, grant: &Grant, cx: Cx, k: &Kit) -> Option<Stateful<Div>> {
     let path = view.revokes(grant)?;
     let label = path.revoke_word();
     let op = ::programs::Op::Revoke(grant.clone());
@@ -333,8 +313,23 @@ fn revoke(
             }),
         )
     });
-    let id = format!("explorer-revoke-{index}");
+    let id = format!("explorer-revoke-{}", grant_key(grant));
     Some(small(id, label, design::Kind::Quiet, press, k))
+}
+
+/// A scheduled change's key: its height and its program, as the chain's
+/// Cancel names it.
+fn change_key(pending: &Pending) -> String {
+    format!("{}-{}", pending.height, pending.change.program())
+}
+
+/// A grant's key: its holder and what it covers, `all` for every program.
+fn grant_key(grant: &Grant) -> String {
+    let scope = match &grant.scope {
+        Scope::Program(program) => program.as_str(),
+        Scope::All => "all",
+    };
+    format!("{}-{scope}", grant.account)
 }
 
 // ---------- the sheets ----------
@@ -478,9 +473,10 @@ pub(super) fn program_sheet(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> Opt
 /// face, program or view only, and hook.
 fn sheet_head(name: &str, listed: bool, hook: bool, k: &Kit) -> Stateful<Div> {
     let kind = words::entry_kind(listed);
-    let kind = match hook {
-        true => format!("{kind} · hook"),
-        false => kind.to_owned(),
+    let kind = if hook {
+        format!("{kind} · hook")
+    } else {
+        kind.to_owned()
     };
     design::sheet_head("explorer-program-head", &k.theme).child(
         div()

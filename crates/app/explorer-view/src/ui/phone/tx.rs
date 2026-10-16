@@ -71,17 +71,18 @@ fn found(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> AnyElement {
     let status = tx
         .receipt
         .as_ref()
-        .map(|run| key_value("Status", status(run, "explorer-tx", k), k));
+        .map(|run| key_value("explorer-field-status", "Status", status(run, "explorer-tx", k), k));
     scroller("explorer-page")
-        .child(key_value("Block", block, k))
+        .child(key_value("explorer-field-block", "Block", block, k))
         .children(status)
         // SDK gap: selectable text (Expo's hash is `selectable`, a long
         // press copies it), swap when the SDK has it
-        .child(key_value("Hash", data(abi::hex(&tx.hash)).id("tx-hash"), k))
-        .child(key_value("From", from(view, tx, cx, k), k))
-        .child(key_value("Program", program(view, tx, k), k))
-        .child(key_value("Anchor", anchor, k))
+        .child(key_value("explorer-field-hash", "Hash", data(abi::hex(&tx.hash)).id("tx-hash"), k))
+        .child(key_value("explorer-field-from", "From", from(view, tx, cx, k), k))
+        .child(key_value("explorer-field-program", "Program", program(view, tx, k), k))
+        .child(key_value("explorer-field-anchor", "Anchor", anchor, k))
         .child(key_value(
+            "explorer-field-time",
             "Time",
             time_and_age(tx.time, view.chain.now(), k),
             k,

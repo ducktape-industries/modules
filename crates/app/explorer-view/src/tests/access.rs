@@ -87,9 +87,10 @@ fn reader_on(
     );
     cx.host().handle::<Query<Valset>>(move |query| {
         Ok(match query {
-            valset::Query::Voices { .. } => valset::Reply::Voices(match votes {
-                true => vec![VALIDATOR.to_vec()],
-                false => Vec::new(),
+            valset::Query::Voices { .. } => valset::Reply::Voices(if votes {
+                vec![VALIDATOR.to_vec()]
+            } else {
+                Vec::new()
             }),
             _ => valset::Reply::Validators(vec![VALIDATOR.to_vec()]),
         })
@@ -291,7 +292,7 @@ fn a_voter_proposes_a_grant_naming_the_account_as_it_is_typed() {
         "{:?}",
         cx.texts()
     );
-    cx.simulate_input("explorer-form-name", "trade");
+    cx.simulate_input("explorer-form-program", "trade");
     cx.simulate_click("explorer-form-submit");
     cx.run_until_parked();
     let op = abi::encode(&programs::Op::Grant(Grant {

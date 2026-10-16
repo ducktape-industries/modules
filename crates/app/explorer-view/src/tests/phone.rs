@@ -528,7 +528,7 @@ fn a_reader_with_no_grant_and_no_voice_has_no_more() {
 fn a_maintainer_cancels_a_change_their_grant_made() {
     let mut cx = reader(Some(3), ADA, false, grants(), waiting());
     phone(&mut cx);
-    click(&mut cx, "explorer-cancel-1");
+    click(&mut cx, "explorer-cancel-700-chat");
     assert_eq!(cx.host().requests::<Submit<Programs>>().len(), 1);
 }
 
@@ -537,7 +537,7 @@ fn the_holder_steps_down_from_their_own_grant() {
     let mut cx = reader(Some(3), ADA, false, grants(), waiting());
     phone(&mut cx);
     shows(&cx, "Step down");
-    click(&mut cx, "explorer-revoke-0");
+    click(&mut cx, "explorer-revoke-3-chat");
     assert_eq!(cx.host().requests::<Submit<Programs>>().len(), 1);
 }
 
@@ -593,7 +593,7 @@ fn the_field_a_problem_is_about_tells_assistive_tech_it_is_wrong_and_why() {
     let mut cx = grant_form();
     click(&mut cx, "explorer-form-submit");
     assert_eq!(
-        wrong(&cx, &["explorer-form-account", "explorer-form-name"]),
+        wrong(&cx, &["explorer-form-account", "explorer-form-program"]),
         [(
             "explorer-form-account",
             "An account is its number.".to_owned()

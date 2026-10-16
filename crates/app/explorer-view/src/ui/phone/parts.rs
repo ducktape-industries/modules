@@ -60,7 +60,7 @@ pub(super) fn scroller(id: &'static str) -> Stateful<Div> {
     div()
         .id(id)
         .flex_1()
-        .min_h(px(0.))
+        .min_h_0()
         .overflow_y_scroll()
         .flex()
         .flex_col()
@@ -104,6 +104,15 @@ pub(super) fn copy_link(view: &Explorer, route: &Route, cx: Cx, k: &Kit) -> Opti
     )
 }
 
+// SDK gap: a hit that reads its parent's drawn width, the SDK builds it later
+/// [`design::hit`] over a parent whose width is its words. That width is
+/// not known while the tree is built, so the press reaches up and down to
+/// `ladder.hit` and not sideways; each such parent here is near 44 wide or
+/// wider.
+pub(super) fn reach(id: impl Into<ElementId>, height: Pixels, k: &Kit) -> Stateful<Div> {
+    design::hit(id, k.ladder.hit, height, &k.ladder)
+}
+
 // ---------- states ----------
 
 /// A notice's or a badge's tone (Expo `Notice kind`, `Badge tone`).
@@ -118,9 +127,10 @@ impl Tone {
     /// How a run went: success where it applied, danger where it was
     /// refused.
     pub(super) fn of_run(applied: bool) -> Tone {
-        match applied {
-            true => Tone::Success,
-            false => Tone::Danger,
+        if applied {
+            Tone::Success
+        } else {
+            Tone::Danger
         }
     }
 
@@ -159,13 +169,19 @@ pub(super) fn note(view: &Explorer, cx: Cx, k: &Kit) -> Option<Stateful<Div>> {
         view.note = None;
         cx.notify();
     });
-    Some(notice(
-        "explorer-note",
-        words::note(note),
-        tone,
-        Some(("Dismiss", Box::new(dismiss))),
-        k,
-    ))
+    let dismiss = Act {
+        id: "explorer-note-dismiss",
+        label: "Dismiss",
+        press: Box::new(dismiss),
+    };
+    Some(notice("explorer-note", words::note(note), tone, Some(dismiss), k))
+}
+
+/// A notice's one action (Expo `Notice action`).
+pub(super) struct Act {
+    pub(super) id: &'static str,
+    pub(super) label: &'static str,
+    pub(super) press: Press,
 }
 
 // SDK gap: Notice with its action, the SDK builds it later
@@ -176,12 +192,12 @@ pub(super) fn notice(
     id: &'static str,
     text: impl Into<SharedString>,
     tone: Tone,
-    action: Option<(&'static str, Press)>,
+    action: Option<Act>,
     k: &Kit,
 ) -> Stateful<Div> {
     let (theme, ladder) = (&k.theme, &k.ladder);
     let (ground, ink) = (tone.ground(theme), tone.ink(theme));
-    let action = action.map(|(label, press)| {
+    let action = action.map(|Act { id, label, press }| {
         div()
             .relative()
             .flex_none()
@@ -194,12 +210,7 @@ pub(super) fn notice(
             .text_color(ink)
             .child(label)
             .child(
-                design::hit(
-                    SharedString::from(format!("{id}-{}", label.to_lowercase())),
-                    ladder.hit,
-                    NOTICE_ACTION_H,
-                    ladder,
-                )
+                reach(id, NOTICE_ACTION_H, k)
                 .role(Role::Button)
                 .aria_label(label)
                 .focusable()
@@ -234,13 +245,12 @@ pub(super) fn notice(
 /// Retry, which reads the view's data again.
 pub(super) fn refused(sentence: &str, cx: Cx, k: &Kit) -> AnyElement {
     let retry = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.read_all(cx));
-    notice(
-        "explorer-refused",
-        sentence.to_owned(),
-        Tone::Danger,
-        Some(("Retry", Box::new(retry))),
-        k,
-    )
+    let retry = Act {
+        id: "explorer-refused-retry",
+        label: "Retry",
+        press: Box::new(retry),
+    };
+    notice("explorer-refused", sentence.to_owned(), Tone::Danger, Some(retry), k)
     .into_any_element()
 }
 
@@ -351,7 +361,7 @@ pub(super) fn more_link(
         .items_center()
         .child(label)
         .child(
-            design::hit(id, k.ladder.hit, CAPTION_LINE, &k.ladder)
+            reach(id, CAPTION_LINE, k)
                 .role(Role::Link)
                 .aria_label(label)
                 .focusable()
@@ -420,14 +430,16 @@ fn figure(id: &str, index: usize, fact: Fact, k: &Kit) -> Stateful<Div> {
 
 // SDK gap: KeyValue, the SDK builds it later
 /// A label and its value (Expo `KeyValue`): the label small and muted in
-/// its column, the value small, wrapping, level with it. Its key is
-/// `explorer-field-<label>`.
-pub(super) fn key_value(label: &str, value: impl IntoElement, k: &Kit) -> Stateful<Div> {
+/// its column, the value small, wrapping, level with it.
+pub(super) fn key_value(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    value: impl IntoElement,
+    k: &Kit,
+) -> Stateful<Div> {
+    let label: SharedString = label.into();
     div()
-        .id(SharedString::from(format!(
-            "explorer-field-{}",
-            label.to_lowercase().replace(' ', "-")
-        )))
+        .id(id.into())
         .flex_none()
         .min_h(k.ladder.control)
         .flex()
@@ -443,7 +455,7 @@ pub(super) fn key_value(label: &str, value: impl IntoElement, k: &Kit) -> Statef
                 .flex_none()
                 .text_type(k.ladder.small)
                 .text_color(k.theme.muted)
-                .child(label.to_owned()),
+                .child(label),
         )
         .child(
             div()
@@ -498,7 +510,7 @@ pub(super) fn linked(
         .whitespace_nowrap()
         .child(text.clone())
         .child(
-            design::hit(id.into(), k.ladder.hit, SMALL_LINE, &k.ladder)
+            reach(id.into(), SMALL_LINE, k)
                 .role(Role::Link)
                 .aria_label(text)
                 .focusable()
@@ -593,7 +605,7 @@ pub(super) fn small(
         (Some(_), true) => (theme.border_strong, theme.foreground),
         (Some(_), false) => (Hsla::transparent_black(), theme.muted),
     };
-    let hit = design::hit(id.clone(), k.ladder.hit, SMALL_BUTTON_H, &k.ladder)
+    let hit = reach(id.clone(), SMALL_BUTTON_H, k)
         .role(Role::Button)
         .aria_label(label.clone());
     let hit = match press {
@@ -670,9 +682,10 @@ fn block_line(block: &BlockRow, now: u64, cx: Cx, k: &Kit) -> Stateful<Div> {
             mono(grouped(height))
                 .text_type(k.ladder.body)
                 .when(carries, |height| height.font_weight(FontWeight::MEDIUM))
-                .text_color(match carries {
-                    true => k.theme.foreground,
-                    false => k.theme.faint,
+                .text_color(if carries {
+                    k.theme.foreground
+                } else {
+                    k.theme.faint
                 }),
             tail(short(&block.id), k),
         ))

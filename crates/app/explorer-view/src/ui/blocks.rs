@@ -14,7 +14,7 @@ pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
     div()
         .id("explorer-blocks")
         .flex_1()
-        .min_h(px(0.))
+        .min_h_0()
         .flex()
         .flex_col()
         .child(

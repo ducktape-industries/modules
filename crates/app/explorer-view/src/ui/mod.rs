@@ -94,7 +94,7 @@ pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
     }
     let scroller = div().id("explorer-page").flex_1().flex().flex_col();
     let scroller = match view.route {
-        Route::Transactions(_) | Route::Blocks | Route::Accounts => scroller.min_h(px(0.)),
+        Route::Transactions(_) | Route::Blocks | Route::Accounts => scroller.min_h_0(),
         _ => scroller.overflow_y_scroll(),
     };
     root.child(scroller.child(page(view, cx, &theme, ladder)))
@@ -424,8 +424,8 @@ impl Rows {
         )
         .track_scroll(&scroll)
         .flex_1()
-        .min_h(px(0.));
-        list.flex_1().min_h(px(0.)).flex().flex_col().child(window)
+        .min_h_0();
+        list.flex_1().min_h_0().flex().flex_col().child(window)
     }
 }
 
@@ -638,9 +638,10 @@ fn outcome(run: &Receipt, theme: &Theme) -> (&'static str, Hsla, Hsla) {
 
 fn verdict(applied: bool, theme: &Theme) -> (&'static str, Hsla, Hsla) {
     let word = activity::view::verdict(applied);
-    match applied {
-        true => (word, theme.success, theme.success_soft),
-        false => (word, theme.danger, theme.danger_soft),
+    if applied {
+        (word, theme.success, theme.success_soft)
+    } else {
+        (word, theme.danger, theme.danger_soft)
     }
 }
 

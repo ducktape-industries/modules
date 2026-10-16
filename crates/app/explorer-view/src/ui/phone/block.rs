@@ -45,20 +45,21 @@ fn missing(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> AnyElement {
 
 fn found(view: &Explorer, block: &BlockRow, txs: &[&TxRow], cx: Cx, k: &Kit) -> AnyElement {
     let now = view.chain.now();
-    let list = match txs.is_empty() {
-        true => quiet("explorer-block-empty", words::NO_BLOCK_TRANSACTIONS, k),
-        false => column(
+    let list = if txs.is_empty() {
+        quiet("explorer-block-empty", words::NO_BLOCK_TRANSACTIONS, k)
+    } else {
+        column(
             "explorer-block-txs",
             txs.iter().map(|tx| tx_line(view, tx, cx, k)).collect(),
         )
-        .into_any_element(),
+        .into_any_element()
     };
     scroller("explorer-page")
-        .child(key_value("Hash", data(abi::hex(&block.id)), k))
-        .child(key_value("Parent", parent(block, cx, k), k))
-        .child(key_value("Time", time_and_age(block.time, now, k), k))
+        .child(key_value("explorer-field-hash", "Hash", data(abi::hex(&block.id)), k))
+        .child(key_value("explorer-field-parent", "Parent", parent(block, cx, k), k))
+        .child(key_value("explorer-field-time", "Time", time_and_age(block.time, now, k), k))
         .children(proposer(view, block, k))
-        .child(key_value("Epoch", data(grouped(block.epoch)), k))
+        .child(key_value("explorer-field-epoch", "Epoch", data(grouped(block.epoch)), k))
         .child(steps(view, block.height, cx, k))
         .child(section(
             "explorer-block-txs-heading",
@@ -107,7 +108,7 @@ fn proposer(view: &Explorer, block: &BlockRow, k: &Kit) -> Option<Stateful<Div>>
         .flex_wrap()
         .child(data(format!("{} ", words::validator(place))))
         .child(data(words::validator_key(key)).text_color(k.theme.faint));
-    Some(key_value("Proposer", value, k))
+    Some(key_value("explorer-field-proposer", "Proposer", value, k))
 }
 
 /// The steps to the blocks either side (Expo's two small outline buttons):

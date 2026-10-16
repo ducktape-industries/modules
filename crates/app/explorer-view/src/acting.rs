@@ -195,7 +195,8 @@ pub(crate) enum Takes {
 impl FormField {
     pub(crate) fn id(self) -> &'static str {
         match self {
-            FormField::Name | FormField::Program => "explorer-form-name",
+            FormField::Name => "explorer-form-name",
+            FormField::Program => "explorer-form-program",
             FormField::Account => "explorer-form-account",
             FormField::Code => "explorer-form-code",
             FormField::Params => "explorer-form-params",
@@ -699,9 +700,10 @@ pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<programs
             at(height(form, tip)?, Change::SetView(view))
         }
         Edit::Remove { name, view } => {
-            let change = match view {
-                false => Change::Remove(name.clone()),
-                true => Change::RemoveView(name.clone()),
+            let change = if view {
+                Change::RemoveView(name.clone())
+            } else {
+                Change::Remove(name.clone())
             };
             at(height(form, tip)?, change)
         }
@@ -711,20 +713,19 @@ pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<programs
                 return Err(Problem::at(FormField::Name, "Name the program."));
             }
             let code = code(form)?;
-            let change = match form.view {
-                true => Change::SetView(programs::View { name, view: code }),
-                false => {
-                    let params = form.params.text();
-                    let params = params.trim().trim_start_matches("0x");
-                    let params = abi::unhex(params).ok_or_else(|| {
-                        Problem::at(FormField::Params, "Params are hex digits, or nothing.")
-                    })?;
-                    Change::Set(programs::Entry {
-                        program: name,
-                        code,
-                        params,
-                    })
-                }
+            let change = if form.view {
+                Change::SetView(programs::View { name, view: code })
+            } else {
+                let params = form.params.text();
+                let params = params.trim().trim_start_matches("0x");
+                let params = abi::unhex(params).ok_or_else(|| {
+                    Problem::at(FormField::Params, "Params are hex digits, or nothing.")
+                })?;
+                Change::Set(programs::Entry {
+                    program: name,
+                    code,
+                    params,
+                })
             };
             at(height(form, tip)?, change)
         }
@@ -733,9 +734,10 @@ pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<programs
                 .account_number()
                 .ok_or_else(|| Problem::at(FormField::Account, "An account is its number."))?;
             let program = form.name.text().trim().to_owned();
-            let scope = match program.is_empty() {
-                true => Scope::All,
-                false => Scope::Program(program),
+            let scope = if program.is_empty() {
+                Scope::All
+            } else {
+                Scope::Program(program)
             };
             programs::Op::Grant(Grant { scope, account })
         }

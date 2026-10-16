@@ -334,9 +334,10 @@ impl Explorer {
                 ..
             })) => manifest,
         };
-        match manifest.capabilities.is_empty() {
-            true => Declared::Nothing(Unlisted::AsksNothing),
-            false => Declared::Asks(manifest),
+        if manifest.capabilities.is_empty() {
+            Declared::Nothing(Unlisted::AsksNothing)
+        } else {
+            Declared::Asks(manifest)
         }
     }
 

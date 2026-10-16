@@ -148,7 +148,7 @@ fn devices(view: &Explorer, account: &identity::Account, k: &Kit) -> Vec<AnyElem
         let last = signed.iter().find(|frame| frame.signer == key.key);
         let label = key.label.clone().unwrap_or_else(|| words::device(index));
         let used = words::last_used(now, last.map(|frame| frame.time));
-        list_row(ElementId::named_usize("explorer-device", index), k)
+        list_row(SharedString::from(format!("explorer-device-{}", abi::hex(&key.key))), k)
             .child(design::lead(
                 design::icon("key-round", k.ladder.icon_row).text_color(k.theme.muted),
             ))
@@ -213,17 +213,13 @@ fn chip(program: String, count: u64, cx: Cx, k: &Kit) -> Div {
         .whitespace_nowrap()
         .child(program.clone())
         .child(
+            // two spaces before the count, as Expo's `kit/Choice.tsx:73` `{'  '}`
             mono(format!("  {count}"))
                 .text_size(CHIP_COUNT_TEXT)
                 .text_color(k.theme.muted),
         )
         .child(
-            design::hit(
-                SharedString::from(format!("explorer-used-{program}")),
-                k.ladder.hit,
-                CHIP_H,
-                &k.ladder,
-            )
+            reach(SharedString::from(format!("explorer-used-{program}")), CHIP_H, k)
             .role(Role::Button)
             .aria_label(format!("{program}, {count}"))
             .focusable()

@@ -15,9 +15,10 @@ pub(super) fn program(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> AnyElemen
     let code = view.code_of(name);
     let copy = copy_link(view, &Route::Program(name.to_owned()), cx, k);
     let page = over("explorer-program", name.to_owned(), view, cx, k);
-    let page = match code.is_some() {
-        true => page.caption(words::entry_kind(view.runs(name).is_none())),
-        false => page,
+    let page = if code.is_some() {
+        page.caption(words::entry_kind(view.runs(name).is_none()))
+    } else {
+        page
     };
     let page = match copy {
         Some(copy) => page.trailing(copy),
@@ -112,6 +113,7 @@ fn capabilities(view: &Explorer, listed: bool, cx: Cx, k: &Kit) -> Vec<AnyElemen
             .iter()
             .map(|capability| {
                 key_value(
+                    format!("explorer-capability-{}", capability.as_str()),
                     capability.as_str(),
                     div().child(words::allows(*capability)),
                     k,
@@ -138,36 +140,40 @@ fn about(
     let blob = view.manifest.ready().and_then(Option::as_ref);
     let declared = view_manifest(view);
     let entry = view.runs(name);
-    let mut rows = vec![key_value("Code", code_and_copy(code, cx, k), k)];
+    let mut rows = vec![key_value("explorer-field-code", "Code", code_and_copy(code, cx, k), k)];
     rows.extend(blob.map(|blob| {
         key_value(
+            "explorer-field-size",
             "Size",
             div().child(words::code_size(blob, entry.is_none())),
             k,
         )
     }));
-    rows.extend(entry.map(|entry| key_value("Params", params(&entry.params), k)));
+    rows.extend(entry.map(|entry| key_value("explorer-field-params", "Params", params(&entry.params), k)));
     rows.push(key_value(
+        "explorer-field-maintained-by",
         "Maintained by",
         div().child(maintained_by(view, network, name)),
         k,
     ));
     rows.extend(declared.into_iter().flat_map(|manifest| {
-        let says = match manifest.description.is_empty() {
-            true => manifest.name.clone(),
-            false => format!("{} · {}", manifest.name, manifest.description),
+        let says = if manifest.description.is_empty() {
+            manifest.name.clone()
+        } else {
+            format!("{} · {}", manifest.name, manifest.description)
         };
         let talks = (!manifest.targets.is_empty())
-            .then(|| key_value("Talks to", data(manifest.targets.join(", ")), k));
+            .then(|| key_value("explorer-field-talks-to", "Talks to", data(manifest.targets.join(", ")), k));
         [
-            Some(key_value("Declares", div().child(says), k)),
+            Some(key_value("explorer-field-declares", "Declares", div().child(says), k)),
             Some(key_value(
+                "explorer-field-min-width",
                 "Min width",
                 div().child(words::min_width(manifest.min_width)),
                 k,
             )),
             talks,
-            Some(key_value("Wire", data(manifest.wire_id.clone()), k)),
+            Some(key_value("explorer-field-wire", "Wire", data(manifest.wire_id.clone()), k)),
         ]
         .into_iter()
         .flatten()
@@ -205,9 +211,10 @@ fn code_and_copy(code: &abi::BlobId, cx: Cx, k: &Kit) -> Div {
 /// The params it runs with: "none", or their length and ends in the data
 /// face.
 fn params(params: &[u8]) -> Div {
-    match params.is_empty() {
-        true => div().child(words::NO_PARAMS),
-        false => data(bytes_preview(params)),
+    if params.is_empty() {
+        div().child(words::NO_PARAMS)
+    } else {
+        data(bytes_preview(params))
     }
 }
 
@@ -232,9 +239,10 @@ fn maintained_by(view: &Explorer, network: &Network, name: &str) -> String {
     if maintainers.every {
         named.push(words::EVERY_PROGRAM.into());
     }
-    match named.is_empty() {
-        true => words::VOTE_ONLY.into(),
-        false => named.join(", "),
+    if named.is_empty() {
+        words::VOTE_ONLY.into()
+    } else {
+        named.join(", ")
     }
 }
 
@@ -245,11 +253,8 @@ fn scheduled(view: &Explorer, network: &Network, name: &str, k: &Kit) -> Vec<Any
     let rows: Vec<AnyElement> = network
         .changes
         .iter()
-        .enumerate()
-        .filter(|(_, pending)| pending.change.program() == name)
-        .map(|(index, pending)| {
-            super::programs::scheduled_row(view, network, index, pending, k).into_any_element()
-        })
+        .filter(|pending| pending.change.program() == name)
+        .map(|pending| super::programs::scheduled_row(view, network, pending, k).into_any_element())
         .collect();
     let none = rows.is_empty().then(|| {
         quiet(

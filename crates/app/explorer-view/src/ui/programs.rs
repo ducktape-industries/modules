@@ -180,7 +180,7 @@ fn named(view: &Explorer, network: &Network, name: &str, theme: &Theme, ladder: 
     let hook = network.is_hook(name);
     div()
         .flex_1()
-        .min_w(px(0.))
+        .min_w_0()
         .flex()
         .items_center()
         .gap_2()
@@ -302,7 +302,7 @@ pub(super) fn program(
         .flex()
         .items_center()
         .gap_3()
-        .min_w(px(0.))
+        .min_w_0()
         .child(
             mono(id)
                 .id("explorer-code-id")
@@ -311,9 +311,10 @@ pub(super) fn program(
         )
         .child(copy);
     let sizes = blob.map(|blob| words::code_size(blob, listed));
-    let params = entry.map(|entry| match entry.params.is_empty() {
-        true => muted(words::NO_PARAMS, theme),
-        false => mono(bytes_preview(&entry.params)).into_any_element(),
+    let params = entry.map(|entry| if entry.params.is_empty() {
+        muted(words::NO_PARAMS, theme)
+    } else {
+        mono(bytes_preview(&entry.params)).into_any_element()
     });
     let mut who = changers(view, network, name, theme, ladder);
     if who.is_empty() {
@@ -479,9 +480,10 @@ fn chip(id: String, label: &str, theme: &Theme, ladder: &Ladder) -> AnyElement {
 /// the reader marked "(you)".
 fn holder(view: &Explorer, number: u64, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let name = view.name_of(number);
-    let name = match view.acting.account == Some(number) {
-        true => words::you(&name),
-        false => name,
+    let name = if view.acting.account == Some(number) {
+        words::you(&name)
+    } else {
+        name
     };
     let agent = view.is_agent(number).then(|| {
         chip(

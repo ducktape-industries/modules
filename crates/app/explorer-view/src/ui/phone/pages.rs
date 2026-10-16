@@ -20,7 +20,7 @@ pub(super) fn body(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
             chain_gate(view, cx, k).unwrap_or_else(|| transactions(view, None, cx, k))
         }
         Route::Accounts => accounts(view, cx, k),
-        Route::Programs => programs::programs(view, cx, k),
+        Route::Programs => super::programs::programs(view, cx, k),
         // the root is always a page's own list (`Explorer::go`)
         Route::Overview
         | Route::Block(_)
@@ -51,9 +51,10 @@ fn held(view: &Explorer) -> u64 {
 /// The figures, the latest blocks and the latest transactions (Expo
 /// `Overview`).
 fn overview(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
-    let txs = match view.chain.txs.is_empty() {
-        true => quiet("explorer-no-txs", words::no_transactions_in(held(view)), k),
-        false => column(
+    let txs = if view.chain.txs.is_empty() {
+        quiet("explorer-no-txs", words::no_transactions_in(held(view)), k)
+    } else {
+        column(
             "explorer-latest-txs-list",
             view.chain
                 .txs
@@ -62,7 +63,7 @@ fn overview(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
                 .map(|tx| tx_line(view, tx, cx, k))
                 .collect(),
         )
-        .into_any_element(),
+        .into_any_element()
     };
     let all_blocks = more_link(
         "explorer-all-blocks",
@@ -181,9 +182,10 @@ pub(super) fn transactions(view: &Explorer, program: Option<&str>, cx: Cx, k: &K
         None => "Transactions".to_owned(),
     };
     let count = words::transactions_in(matching.len() as u64, held(view));
-    let list = match matching.is_empty() {
-        true => quiet("explorer-no-txs", words::no_transactions_in(held(view)), k),
-        false => column(
+    let list = if matching.is_empty() {
+        quiet("explorer-no-txs", words::no_transactions_in(held(view)), k)
+    } else {
+        column(
             "explorer-transactions-list",
             matching
                 .into_iter()
@@ -191,7 +193,7 @@ pub(super) fn transactions(view: &Explorer, program: Option<&str>, cx: Cx, k: &K
                 .map(|tx| tx_line(view, tx, cx, k))
                 .collect(),
         )
-        .into_any_element(),
+        .into_any_element()
     };
     scroller("explorer-page")
         .child(section(
@@ -231,11 +233,11 @@ fn accounts(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
         }),
     )
     .flex_1()
-    .min_h(px(0.));
+    .min_h_0();
     div()
         .id("explorer-page")
         .flex_1()
-        .min_h(px(0.))
+        .min_h_0()
         .flex()
         .flex_col()
         .child(section(

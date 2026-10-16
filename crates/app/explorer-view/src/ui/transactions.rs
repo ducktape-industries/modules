@@ -35,7 +35,7 @@ pub(super) fn transactions(
     div()
         .id("explorer-transactions")
         .flex_1()
-        .min_h(px(0.))
+        .min_h_0()
         .flex()
         .flex_col()
         // the heading ends where the rows do, short of the gutter the host

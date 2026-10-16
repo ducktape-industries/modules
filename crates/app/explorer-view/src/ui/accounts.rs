@@ -31,7 +31,7 @@ pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) 
     div()
         .id("explorer-accounts")
         .flex_1()
-        .min_h(px(0.))
+        .min_h_0()
         .flex()
         .flex_col()
         .child(

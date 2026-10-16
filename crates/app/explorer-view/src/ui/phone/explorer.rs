@@ -27,17 +27,18 @@ pub(super) fn root(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
     let strip = strip(view, cx, k);
     let note = note(view, cx, k);
     let page = pages::body(view, cx, k);
-    match view.searching {
-        true => searching(view, cx, k)
+    if view.searching {
+        searching(view, cx, k)
             .child(strip)
             .children(note)
             .child(page)
-            .into_any_element(),
-        false => titled(view, cx, k)
+            .into_any_element()
+    } else {
+        titled(view, cx, k)
             .child(strip)
             .children(note)
             .child(page)
-            .into_any_element(),
+            .into_any_element()
     }
 }
 
@@ -58,7 +59,7 @@ fn network_and_me(view: &Explorer) -> Option<String> {
 }
 
 /// The title row: "Explorer", its caption, Search, and on the Programs
-/// page More ([`programs::more`]).
+/// page More ([`super::programs::more`]).
 fn titled(view: &Explorer, cx: Cx, k: &Kit) -> design::Page {
     let open = cx.listener(|view: &mut Explorer, _: &ClickEvent, window, cx| {
         view.searching = true;
@@ -82,7 +83,7 @@ fn titled(view: &Explorer, cx: Cx, k: &Kit) -> design::Page {
         None => page,
     };
     match view.root {
-        Route::Programs => programs::more(view, page, cx, k),
+        Route::Programs => super::programs::more(view, page, cx, k),
         _ => page,
     }
 }
@@ -141,7 +142,7 @@ fn field(view: &Explorer, cx: Cx, k: &Kit) -> Div {
         .virtual_keyboard(VirtualKeyboard::Search)
         .input_action(TextInputAction::Search)
         .flex_1()
-        .min_w(px(0.))
+        .min_w_0()
         .text_type(k.ladder.body)
         .placeholder(words::SEARCH_HINT)
         .on_submit(submit);
@@ -224,9 +225,10 @@ fn page_tab(
         .items_center()
         .px(space::MD)
         .text_type(k.ladder.small)
-        .text_color(match chosen {
-            true => k.theme.foreground,
-            false => k.theme.muted,
+        .text_color(if chosen {
+            k.theme.foreground
+        } else {
+            k.theme.muted
         })
         .when(chosen, |tab| tab.font_weight(FontWeight::MEDIUM))
         .whitespace_nowrap()
