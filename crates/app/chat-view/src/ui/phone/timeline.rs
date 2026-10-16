@@ -123,7 +123,8 @@ fn rows(
             };
             let count =
                 (pane == Pane::Thread && at == 0).then(|| replies(message, &theme, &ladder));
-            let row = message::row(chat, message, pane, cx, &theme, &ladder);
+            let set = (at + 1, messages.len());
+            let row = message::row(chat, message, pane, set, cx, &theme, &ladder);
             if marks.is_empty() && count.is_none() {
                 return row;
             }

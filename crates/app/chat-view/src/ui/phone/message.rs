@@ -35,10 +35,14 @@ const THREAD_ICON: Pixels = px(16.);
 /// twin (rule 5).
 const ACTIONS: i32 = 1;
 
+/// One message's row; `set` is where it sits among the pane's messages
+/// (position, count), which the row says itself: a row under its day's
+/// separator is not the list's own item, so the host cannot number it.
 pub(super) fn row(
     chat: &Chat,
     message: &ChatMessage,
     pane: Pane,
+    set: (usize, usize),
     cx: &mut Context<Chat>,
     theme: &Theme,
     ladder: &Ladder,
@@ -78,6 +82,8 @@ pub(super) fn row(
         .when(chosen, |row| row.bg(theme.accent_soft))
         .role(Role::Group)
         .aria_label(format!("{}: {}", message.author, message.body))
+        .aria_position_in_set(set.0)
+        .aria_size_of_set(set.1)
         .focusable()
         .on_click(actions)
         .child(
