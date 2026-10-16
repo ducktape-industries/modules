@@ -12,7 +12,7 @@
 use abi::hex;
 use programs::Pending as Scheduled;
 use valset::{Motion, Pending};
-use view::design::{Page, space};
+use view::design::{Nav, Page, space};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
@@ -44,7 +44,7 @@ pub(super) fn render(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Pa
     let page = design::page(
         "nodes-page",
         title(view),
-        design::Nav::root(view.reader.clone()),
+        Nav::root(view.reader.clone()),
         &LADDER,
         theme,
     );

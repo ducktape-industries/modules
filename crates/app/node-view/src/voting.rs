@@ -104,8 +104,13 @@ impl Nodes {
     }
 
     /// The reader's name for the first page's avatar, as identity names
-    /// the session's account.
+    /// the session's account; read again only when the account changes, so
+    /// the avatar does not blank on every session update.
     fn read_reader(&mut self, account: Option<u64>, cx: &mut Context<Self>) {
+        if account == self.reader_account {
+            return;
+        }
+        self.reader_account = account;
         self.reader.clear();
         self.reading_reader = account.map(|number| {
             let ask = queries::name(cx.host(), number);

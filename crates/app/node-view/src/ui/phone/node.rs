@@ -10,7 +10,7 @@
 //! `Nodes::open` (the page's Back) and a vote through `Nodes::press`.
 use abi::hex;
 use std::ops::RangeInclusive;
-use view::design::{Page, space};
+use view::design::{Nav, Page, space};
 use view::prelude::*;
 use view::{Div, Stateful};
 
@@ -37,13 +37,7 @@ pub(super) fn render(view: &Nodes, key: &[u8], cx: &mut Context<Nodes>, theme: &
     });
     let nodes = view.nodes.ready();
     let Some(node) = nodes.and_then(|nodes| nodes.iter().find(|node| node.key == key)) else {
-        let page = design::page(
-            "nodes-node",
-            "Node",
-            design::Nav::back(back),
-            &LADDER,
-            theme,
-        );
+        let page = design::page("nodes-node", "Node", Nav::back(back), &LADDER, theme);
         return page.child(missing(view, theme));
     };
     let body = div()
@@ -56,7 +50,7 @@ pub(super) fn render(view: &Nodes, key: &[u8], cx: &mut Context<Nodes>, theme: &
     design::page(
         "nodes-node",
         design::short_hex(&hex(&node.key)),
-        design::Nav::back(back),
+        Nav::back(back),
         &LADDER,
         theme,
     )

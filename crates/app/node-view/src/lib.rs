@@ -78,6 +78,9 @@ pub struct Nodes {
     /// no account or identity profiles none
     #[serde(skip)]
     pub(crate) reader: String,
+    /// the session's account `reader` is read for
+    #[serde(skip)]
+    pub(crate) reader_account: Option<u64>,
     /// the read of `reader`: a newer session's replaces and cancels it
     #[serde(skip)]
     pub(crate) reading_reader: Option<Task<()>>,

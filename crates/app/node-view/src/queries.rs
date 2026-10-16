@@ -144,14 +144,13 @@ async fn names(host: &Host, accounts: impl IntoIterator<Item = u64>) -> Result<N
     Ok(names)
 }
 
-/// The validators the seated key votes for: empty, it does not vote.
 /// The name identity gives account `number`; `None` where it profiles
 /// none.
 pub(crate) async fn name(host: Host, number: u64) -> Result<Option<String>, Error> {
-    let profile = host.query(identity::ask::Profile { number }).await?;
-    Ok(profile.map(|profile| profile.name))
+    Ok(names(&host, [number]).await?.remove(&number))
 }
 
+/// The validators the seated key votes for: empty, it does not vote.
 pub(crate) async fn voices(host: Host, key: Vec<u8>) -> Result<Vec<Vec<u8>>, Error> {
     host.query(ask::Voices { key }).await
 }
