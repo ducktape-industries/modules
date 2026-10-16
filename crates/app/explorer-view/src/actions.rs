@@ -4,6 +4,7 @@ use view::design::Pages;
 use view::prelude::*;
 
 use crate::Explorer;
+use crate::chain::rows;
 use crate::state::{Linked, Note, Route, hash_of};
 
 enum Found {

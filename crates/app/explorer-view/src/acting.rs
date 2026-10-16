@@ -691,7 +691,7 @@ pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<programs
             at(height(form, tip)?, Change::SetView(view))
         }
         Edit::Remove { name, view } => {
-            let change = if view {
+            let change = if *view {
                 Change::RemoveView(name.clone())
             } else {
                 Change::Remove(name.clone())
