@@ -30,7 +30,7 @@ pub(super) fn screen(
     let page = design::page(
         "chat-details-page",
         words::CHANNEL_DETAILS,
-        design::Nav::back(back),
+        design::Nav::back(chat.pages().depth(), back),
         ladder,
         theme,
     );

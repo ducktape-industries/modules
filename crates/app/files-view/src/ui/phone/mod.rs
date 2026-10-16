@@ -73,6 +73,9 @@ fn nav(view: &Files, cx: Cx) -> Nav {
                 .flatten()
                 .unwrap_or_default(),
         ),
-        _ => Nav::back(cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.back(cx))),
+        depth => Nav::back(
+            depth,
+            cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.back(cx)),
+        ),
     }
 }

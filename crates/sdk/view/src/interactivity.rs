@@ -106,6 +106,9 @@ pub(crate) struct Interactions {
     /// nothing drawn or sent, only what the sweep lets press under a
     /// finger's height.
     pub(crate) dense: bool,
+    /// The page on top of the view's stack, at this depth: set by
+    /// [`design::page`](crate::design::page) alone, from its [`Nav`](crate::design::Nav).
+    pub(crate) page: Option<u32>,
 }
 
 /// Add GPUI's stateless and stateful interactivity declarations to an element.

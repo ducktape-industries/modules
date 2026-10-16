@@ -170,6 +170,7 @@ impl Interactions {
             on_back: self
                 .on_back
                 .map(|listener| lowering.route(Kind::Back, listener)),
+            page: self.page,
         })
     }
 }

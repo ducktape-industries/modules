@@ -109,6 +109,14 @@ pub struct Interactivity {
     /// never sends it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_back: Option<u32>,
+    /// The node is the page on top of the view's stack, this many pages
+    /// over its root (`0`: the root). Its id is the page's: a frame whose
+    /// first such node has another id or depth shows another page, and the
+    /// depths say which way it went (deeper: a push; shallower: a pop;
+    /// equal: a page put in place of another, a tab). Moving between them
+    /// is the host's to draw; the view draws only the page on top.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<u32>,
 }
 
 crate::codec::sparse!(Interactivity);
