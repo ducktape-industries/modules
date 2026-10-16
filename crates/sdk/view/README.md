@@ -130,6 +130,13 @@ is the gpui list (`px`, `rems`, `Hsla`, `StyleRefinement`, `Styled`,
 `ElementId`, `SharedString`, the `*Event` types, `Role`, ...).
 `use view::prelude::*` brings in what a gpui view file
 imports: elements, styles, events and the traits whose methods they call.
+A `Styled` method's style crosses whole as the node's style entry, but for
+gpui's debug outlines (a debug build's alone) and a pattern background (the
+host refuses it). Text styling cascades to the text inside, as in gpui:
+colour, family, features, fallbacks, size, line height, weight, slant,
+background, underline, strikethrough, white space, overflow, alignment, line
+clamp and letter spacing (`.letter_spacing(px(0.66))`, in pixels, negative
+to tighten).
 Ours, defined in this crate:
 
 - `App`, `AppContext`, `AsyncApp`, `Context`, `Entity`, `WeakEntity`
