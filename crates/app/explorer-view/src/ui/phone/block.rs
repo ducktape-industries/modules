@@ -56,7 +56,7 @@ fn found(view: &Explorer, block: &BlockRow, txs: &[&TxRow], cx: Cx, k: &Kit) -> 
     } else {
         column(
             "explorer-block-txs",
-            txs.iter().map(|tx| tx_line(view, tx, cx, k)).collect(),
+            txs.iter().map(|tx| tx_line(view, tx, Who::Signer, cx, k)).collect(),
         )
         .into_any_element()
     };

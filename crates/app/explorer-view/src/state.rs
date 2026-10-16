@@ -229,6 +229,13 @@ pub struct Explorer {
     #[serde(skip)]
     pub(crate) manifest_of: Option<String>,
     pub(crate) located: Loadable<Option<TxRow>>,
+    /// a phone's Activity rows: the transactions behind the account page's
+    /// newest frames, read by their place (`read_rows`)
+    #[serde(skip)]
+    pub(crate) acted_rows: Loadable<Vec<TxRow>>,
+    /// the account and the count of frames `acted_rows` was read for
+    #[serde(skip)]
+    pub(crate) rows_of: Option<(u64, usize)>,
     /// a `chain.blocks` page is in flight
     #[serde(skip)]
     pub(crate) pulling: bool,

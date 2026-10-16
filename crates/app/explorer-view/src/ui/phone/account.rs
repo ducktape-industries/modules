@@ -245,18 +245,29 @@ fn activity(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> Vec<AnyElement> {
         recorded.map(aside),
         k,
     );
-    let list = match (view.acted(number), &view.acted) {
-        (Some([]), _) => quiet("explorer-no-activity", words::NO_ACTIVITY, k),
-        (Some(acted), _) => column(
+    // the frames, then each one's transaction (`read_rows`), as Expo
+    // reads them in one query
+    let rows = match (view.acted(number), &view.acted) {
+        (Some([]), _) => Ok(&[][..]),
+        (Some(_), _) => match &view.acted_rows {
+            Loadable::Ready(rows) | Loadable::Reloading(rows, _) => Ok(rows.as_slice()),
+            Loadable::Failed(refusal) => Err(Some(refusal)),
+            Loadable::Idle | Loadable::Loading(_) => Err(None),
+        },
+        (None, Loadable::Failed(refusal)) => Err(Some(refusal)),
+        (None, _) => Err(None),
+    };
+    let list = match rows {
+        Ok([]) => quiet("explorer-no-activity", words::NO_ACTIVITY, k),
+        Ok(rows) => column(
             "explorer-activity-list",
-            acted
-                .iter()
-                .map(|frame| frame_line(view, frame, cx, k))
+            rows.iter()
+                .map(|tx| tx_line(view, tx, Who::Block, cx, k))
                 .collect(),
         )
         .into_any_element(),
-        (None, Loadable::Failed(refusal)) => refused(&words::refusal(refusal), cx, k),
-        (None, _) => quiet("explorer-activity-loading", words::READING_ACTIVITY, k),
+        Err(Some(refusal)) => refused(&words::refusal(refusal), cx, k),
+        Err(None) => quiet("explorer-activity-loading", words::READING_ACTIVITY, k),
     };
     vec![head.into_any_element(), list]
 }

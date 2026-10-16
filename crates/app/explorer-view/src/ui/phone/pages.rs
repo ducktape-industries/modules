@@ -60,7 +60,7 @@ fn overview(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
                 .txs
                 .iter()
                 .take(LATEST)
-                .map(|tx| tx_line(view, tx, cx, k))
+                .map(|tx| tx_line(view, tx, Who::Signer, cx, k))
                 .collect(),
         )
         .into_any_element()
@@ -190,7 +190,7 @@ pub(super) fn transactions(view: &Explorer, program: Option<&str>, cx: Cx, k: &K
             matching
                 .into_iter()
                 .take(LIST_ROWS)
-                .map(|tx| tx_line(view, tx, cx, k))
+                .map(|tx| tx_line(view, tx, Who::Signer, cx, k))
                 .collect(),
         )
         .into_any_element()

@@ -766,10 +766,19 @@ pub(super) fn title_of(tx: &TxRow) -> String {
     }
 }
 
-/// A transaction in the window (Expo `TxLine`): its mark, its program and
-/// its op's title, its hash and signer, its age. Drawing it asks its
+/// What a transaction row says after its hash (Expo `TxLine who`).
+#[derive(Clone, Copy)]
+pub(super) enum Who {
+    /// who signed it
+    Signer,
+    /// its block, on the signer's own page
+    Block,
+}
+
+/// A transaction (Expo `TxLine`): its mark, its program and its op's
+/// title, its hash and its signer or block, its age. Drawing it asks its
 /// program to describe it, once.
-pub(super) fn tx_line(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> Stateful<Div> {
+pub(super) fn tx_line(view: &Explorer, tx: &TxRow, who: Who, cx: Cx, k: &Kit) -> Stateful<Div> {
     view.describe(tx, cx);
     let (height, position) = (tx.height, tx.index);
     let applied = tx
@@ -805,7 +814,10 @@ pub(super) fn tx_line(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> Stateful<
             div()
                 .min_w_0()
                 .truncate()
-                .child(format!(" · {}", signer_words(view, &tx.signer))),
+                .child(match who {
+                    Who::Signer => format!(" · {}", signer_words(view, &tx.signer)),
+                    Who::Block => format!(" · block {}", grouped(height)),
+                }),
         );
     let row = list_row(
         SharedString::from(format!("explorer-tx-{height}-{position}")),
@@ -815,30 +827,5 @@ pub(super) fn tx_line(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> Stateful<
         .child(mark(applied, k))
         .child(title_and_caption(title, place))
         .child(tail(ago(view.chain.now(), tx.time), k))
-        .child(chevron(k))
-}
-
-/// A transaction an account signed, as activity recorded it (Expo
-/// `TxLine who={false}`): a frame carries no hash and no title, so its
-/// program is the title and its block the caption.
-pub(super) fn frame_line(
-    view: &Explorer,
-    frame: &activity::Frame,
-    cx: Cx,
-    k: &Kit,
-) -> Stateful<Div> {
-    let (height, position) = (frame.height, frame.position);
-    let label = activity::view::label(&frame.target, frame.applied, &grouped(height), position);
-    let row = list_row(
-        SharedString::from(format!("explorer-tx-{height}-{position}")),
-        k,
-    );
-    opens(row, label, Route::Tx { height, position }, cx, k)
-        .child(mark(Some(frame.applied), k))
-        .child(title_and_caption(
-            div().truncate().child(frame.target.clone()),
-            caption(format!("block {}", grouped(height)), k),
-        ))
-        .child(tail(ago(view.chain.now(), frame.time), k))
         .child(chevron(k))
 }

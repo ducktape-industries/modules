@@ -87,6 +87,7 @@ impl Render for Explorer {
         // two designs, picked once: under a finger the Expo app's screens
         // (`ui/phone`), under a pointer the desktop's pages
         if window.touch() {
+            self.read_rows(cx);
             ui::phone::render(self, cx)
         } else {
             ui::render(self, cx)

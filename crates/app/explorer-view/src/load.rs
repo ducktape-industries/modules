@@ -9,6 +9,13 @@ use crate::chain::{self, BlockRow, TxRow};
 use crate::state::{Route, blob_ref};
 use crate::{Explorer, WINDOW, decode, queries};
 
+/// The newest frames of an account a phone reads the transactions of
+/// (Expo `ACTED`, `query/page.ts:12`).
+const ACTED: usize = 50;
+/// The payload a row's transaction is read with (Expo `ROW_PAYLOAD`,
+/// `query/page.ts:10`): past it, the row is titled by its size.
+const ROW_PAYLOAD: u32 = 4 << 10;
+
 impl Explorer {
     /// Everything, again: the boot, a restore, a retry.
     pub(crate) fn read_all(&mut self, cx: &mut Context<Self>) {
@@ -20,6 +27,7 @@ impl Explorer {
         self.read_used(cx);
         self.read_page(cx);
         self.read_acted(cx);
+        self.rows_of = None;
         self.manifest_of = None;
         self.read_manifest(cx);
         self.pull(cx);
@@ -260,7 +268,8 @@ impl Explorer {
             _ => &[],
         };
         let located = self.located.ready().and_then(Option::as_ref);
-        self.chain.txs.iter().chain(opened).chain(located)
+        let acted = self.acted_rows.ready().map_or(&[][..], Vec::as_slice);
+        self.chain.txs.iter().chain(opened).chain(located).chain(acted)
     }
 
     pub(crate) fn tx(&self, hash: &[u8; 32]) -> Option<&TxRow> {
@@ -270,6 +279,48 @@ impl Explorer {
     pub(crate) fn tx_at(&self, height: u64, position: u32) -> Option<&TxRow> {
         self.held()
             .find(|tx| (tx.height, tx.index) == (height, position))
+    }
+
+    /// A phone's Activity rows: the transactions behind the account page's
+    /// newest frames, each read by its place, one after another (Expo
+    /// `query/activity.ts:26-31`), so a row says what its transaction did.
+    /// Asked on every draw under a finger, once per frames read; the
+    /// desktop lists the frames and reads no transaction.
+    pub(crate) fn read_rows(&mut self, cx: &mut Context<Self>) {
+        let Route::Account(number) = *self.pages.top() else {
+            return;
+        };
+        let Some(frames) = self.acted(number) else {
+            return;
+        };
+        let of = Some((number, frames.len()));
+        let places: Vec<(u64, u32)> = frames
+            .iter()
+            .take(ACTED)
+            .map(|frame| (frame.height, frame.position))
+            .collect();
+        if self.rows_of == of {
+            return;
+        }
+        self.rows_of = of;
+        let host = cx.host();
+        let read = async move {
+            let mut rows = Vec::with_capacity(places.len());
+            for (height, position) in places {
+                let at = TxAsk {
+                    tx: TxRef::At { height, position },
+                    most: ROW_PAYLOAD,
+                };
+                // a frame whose transaction the node no longer holds is
+                // left out, as Expo leaves it
+                if let Some(located) = host.ask::<ChainTx>(at).await? {
+                    rows.push(chain::located(located));
+                }
+            }
+            Ok::<_, Error>(rows)
+        };
+        self.acted_rows = Loadable::Idle;
+        cx.load(self, read, |view| &mut view.acted_rows);
     }
 
     /// What the page on screen reads past the window: a block or a
