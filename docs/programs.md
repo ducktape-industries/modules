@@ -392,11 +392,19 @@ the awaits program (`chain.seat::<awaits::Awaits>("awaits")`) and the
 awaiting program with `chain.seat_awaiting`.
 
 The program bound to the egress role is called this way:
-`ctx.call_raw(egress, abi::encode(&abi::role::egress::Op::Request { request, wait: None }))`,
-with `egress` read from `ctx.env().roles.get(abi::role::EGRESS)`, answers the elected node's
-output, in a later block, or a refusal when the node reports a failure or
-the request expires, `wait` blocks after it was made (`DEFAULT_WAIT`, 64,
-for `None`).
+
+```rust
+use abi::role::egress::{Delivery, Op};
+let egress = ctx.env().role(abi::role::EGRESS)?.clone();
+let asked = Op::Request { request, delivery: Delivery::Whole, wait: None };
+let answer = ctx.call_raw(egress, abi::encode(&asked)).await;
+```
+
+It answers the elected node's output, in a later block (an `Http` request's
+is an encoded `http::Response`), or a refusal when the node reports a failure
+or the request expires, `wait` blocks after it was made (`DEFAULT_WAIT`, 64,
+for `None`). `Delivery::Events { deliver }` hears a `text/event-stream` reply
+event by event instead ([roles.md](roles.md), the egress row).
 
 **A run for a later block.** `ctx.schedule(height, target, &op).await`
 asks the program bound to the scheduler role to run `target` with `op` at

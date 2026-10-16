@@ -1,9 +1,10 @@
 //! The `egress` program, bound to the egress role (`abi::role::egress`): a program's call to
 //! something outside the chain, a registered service or the public internet, answered by the
-//! member node the chain elects, in a later block, or expired by its own scheduled run. A
-//! request that asks for its reply as events (`Delivery::Events`) hears each event as its own
-//! op as the node sends it, and its call is answered when the stream ends. Its first queries
-//! are the role's.
+//! member node the chain elects, in a later block, or expired by its own scheduled run. An
+//! `Http` request's call answers an encoded `http::Response`. One that asks for its reply as
+//! events (`Delivery::Events`) hears each event of a `text/event-stream` reply as its own op,
+//! and its call answers the `http::Response` with an empty body when the stream ends; any other
+//! reply comes whole, as for every request. Its first queries are the role's.
 mod program;
 mod rules;
 mod state;
@@ -178,8 +179,11 @@ fn the_roles_queries_lead_and_encode_as_the_role_asks() {
     }
 }
 
+/// `Op` is core's egress role op: this order is the role's, so a change here is a role change.
+/// Core put `Event` and `EndStream` before `Expire`, so an `Expire` scheduled by an older egress
+/// no longer decodes: swap egress in place with no request open.
 #[test]
-fn op_variants_only_append() {
+fn op_variants_follow_the_roles_order() {
     assert_eq!(
         describe::variants::<Op>(),
         [

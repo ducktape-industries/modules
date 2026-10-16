@@ -13,7 +13,7 @@ use store::{PageRequest, PageResponse};
 use crate::state::{ASSIGNED, COUNT, NODES, REQUESTS, SERVICES, SERVING, Stored, TURNS};
 use crate::{
     Answer, DEFAULT_WAIT, Delivery, Event, HTTP, NodeRow, Op, PROGRAM, RELAY, RESERVED, Request,
-    RequestRow, ServiceRow, StreamEnd,
+    RequestRow, ServiceRow, StreamEnd, http,
 };
 
 fn members(ctx: &QueryCtx) -> Result<Vec<Vec<u8>>, Error> {
@@ -225,6 +225,15 @@ pub(crate) async fn request(
     let wait = wait.unwrap_or(DEFAULT_WAIT);
     let expires = expiry_height(made, wait)?;
     check(ctx, &request)?;
+    let streams_a_relay = matches!(
+        (&request, &delivery),
+        (Request::Relay { .. }, Delivery::Events { .. })
+    );
+    if streams_a_relay {
+        return Err(invalid(
+            "a relay is answered whole: ask it with Delivery::Whole",
+        ));
+    }
     let node = elect(ctx, request.service())?;
     let id = COUNT.get(ctx)?.unwrap_or(0) + 1;
     COUNT.put(ctx, &id);
@@ -277,10 +286,10 @@ fn from_its_node(ctx: &Ctx, id: u64) -> Result<Stored, Error> {
     Ok(stored)
 }
 
-/// The prefix an events request's requester hears each event under.
-fn streamed(stored: &Stored) -> Result<Vec<u8>, Error> {
+/// The prefix an events request's requester hears each event under; a whole request has none.
+fn streamed(stored: &Stored) -> Result<&[u8], Error> {
     match &stored.row.delivery {
-        Delivery::Events { deliver } => Ok(deliver.clone()),
+        Delivery::Events { deliver } => Ok(deliver),
         Delivery::Whole => Err(wrong_state(format!(
             "request {} asked for its answer whole",
             stored.row.id
@@ -299,12 +308,18 @@ pub(crate) async fn answer(ctx: &Ctx, id: u64, answer: Answer) -> Result<(), Err
 }
 
 /// One event of an events request, handed to its requester as `deliver` followed by the
-/// encoded event, its own op; a refusal there refuses this frame and the node goes on to the
-/// next. The request's expiry moves `wait` blocks past this block. The node sends a request's
-/// events one at a time, in order, each after a block carried the one before.
+/// encoded event, its own op; a refusal there refuses this frame, which moves nothing, and the
+/// node goes on to the next. The request's expiry moves `wait` blocks past this block.
+///
+/// `seq` is passed through as the node sent it, never checked: it counts from 0 per call the
+/// node makes, so a repeated `seq` is a repeat (a frame sent again beside the one already
+/// relayed) and a `seq` back at 0 is the node calling the service again after a restart, which
+/// voids what came before. Only the requester can act on either; a check here would hide them
+/// (a strict next-`seq` wedges the stream after one refused event, a rising one splices a
+/// restarted call onto the old one's prefix).
 pub(crate) async fn event(ctx: &Ctx, event: Event) -> Result<(), Error> {
     let mut stored = from_its_node(ctx, event.id)?;
-    let deliver = streamed(&stored)?;
+    let deliver = streamed(&stored)?.to_vec();
     let expires = expiry_height(ctx.env().height, stored.wait)?;
     ctx.cancel(stored.row.expiry).await?;
     stored.row.expiry = ctx
@@ -319,8 +334,10 @@ pub(crate) async fn event(ctx: &Ctx, event: Event) -> Result<(), Error> {
     Ok(())
 }
 
-/// An events request's stream ended: its call answers the end, `Complete`'s status and headers
-/// as the encoded `StreamEnd`, a cut as the service's failure.
+/// An events request's stream ended: its call answers `Complete` as the encoded
+/// `http::Response` with the stream's status and headers and an empty body (the events were the
+/// body), so an `Http` request's call answers one type whether its reply came whole or as
+/// events; a cut answers the service's failure.
 pub(crate) async fn end_stream(
     ctx: &Ctx,
     id: u64,
@@ -331,10 +348,14 @@ pub(crate) async fn end_stream(
     streamed(&stored)?;
     ctx.cancel(stored.row.expiry).await?;
     let ended = match &end {
-        StreamEnd::Complete { .. } => Ok(abi::encode(&end)),
+        StreamEnd::Complete { status, headers } => Ok(abi::encode(&http::Response {
+            status: *status,
+            headers: headers.clone(),
+            body: Vec::new(),
+        })),
         StreamEnd::Cut { reason } => Err(failed(
             stored.row.request.service(),
-            &format!("the stream broke off after {events} events: {reason}"),
+            &format!("the stream broke off, the node sent {events} events: {reason}"),
         )),
     };
     close(ctx, stored, ended)

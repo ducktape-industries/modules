@@ -31,8 +31,18 @@ enum Ask {
     Heard(Event),
 }
 
-/// `Ask::Heard`'s tag: the prefix the asker hears an event under.
-const HEARD_TAG: u8 = 3;
+/// `Ask::Heard`'s tag, read off its encoding: the prefix the asker hears an event under.
+fn heard_tag() -> u8 {
+    let event = Event {
+        id: 0,
+        seq: 0,
+        data: Vec::new(),
+    };
+    abi::encode(&Ask::Heard(event))[0]
+}
+
+/// An event the asker refuses, so its frame is refused.
+const REFUSED_EVENT: &[u8] = b"refuse me";
 
 type Answers = Vec<Result<Vec<u8>, Error>>;
 
@@ -55,6 +65,7 @@ impl Program for Asker {
 
 impl Awaiting for Asker {
     async fn execute(ctx: Ctx, ask: Ask) -> Result<(), Error> {
+        let egress = ctx.env().role(abi::role::EGRESS)?.clone();
         let whole = Delivery::Whole;
         let request = match ask {
             Ask::Call(request, wait) => Op::Request {
@@ -65,13 +76,19 @@ impl Awaiting for Asker {
             Ask::Stream(request, wait) => Op::Request {
                 request,
                 delivery: Delivery::Events {
-                    deliver: vec![HEARD_TAG],
+                    deliver: vec![heard_tag()],
                 },
                 wait,
             },
             Ask::Heard(event) => {
-                let from_egress = ctx.env().sending_program()? == PROGRAM;
-                assert!(from_egress, "an event comes from egress");
+                if ctx.env().sending_program()? != egress {
+                    return Err(::program::unauthorized(
+                        "an event comes from the egress role",
+                    ));
+                }
+                if event.data == REFUSED_EVENT {
+                    return Err(::program::invalid("the asker refuses this event"));
+                }
                 let mut heard = HEARD.get(&ctx)?.unwrap_or_default();
                 heard.push(event);
                 HEARD.put(&ctx, &heard);
@@ -83,11 +100,11 @@ impl Awaiting for Asker {
                     delivery: whole,
                     wait: None,
                 };
-                ctx.emit(PROGRAM, &request, Wanted::None);
+                ctx.emit(egress, &request, Wanted::None);
                 return Ok(());
             }
         };
-        let answer = ctx.call_raw(PROGRAM, abi::encode(&request)).await;
+        let answer = ctx.call_raw(egress, abi::encode(&request)).await;
         let refused = answer.as_deref() == Ok(b"refuse me".as_slice());
         if refused {
             return Err(::program::invalid("the asker refuses this answer"));
@@ -604,7 +621,7 @@ fn an_events_request_hears_each_event_and_its_call_answers_the_streams_end() {
     assert_eq!(
         row.delivery,
         Delivery::Events {
-            deliver: vec![HEARD_TAG]
+            deliver: vec![heard_tag()]
         }
     );
     let event = |seq: u64, data: &[u8]| Event {
@@ -640,7 +657,18 @@ fn an_events_request_hears_each_event_and_its_call_answers_the_streams_end() {
     };
     submit(&chain, &ADA, &ended).unwrap();
     let [answered] = answers(&chain).try_into().unwrap();
-    assert_eq!(answered.unwrap(), abi::encode(&end));
+    let answered: http::Response = abi::decode(&answered.unwrap()).unwrap();
+    let StreamEnd::Complete { status, headers } = end else {
+        unreachable!()
+    };
+    assert_eq!(
+        answered,
+        http::Response {
+            status,
+            headers,
+            body: Vec::new()
+        }
+    );
     let last = request_row(&chain, 1);
     assert_eq!(last, None);
     assert!(assigned(&chain, ADA).is_empty());
@@ -649,9 +677,9 @@ fn an_events_request_hears_each_event_and_its_call_answers_the_streams_end() {
 #[test]
 fn a_cut_stream_fails_its_call_and_a_whole_request_takes_no_event_or_end() {
     let chain = chain();
-    serve(&chain, ADA, &[RELAY]).unwrap();
+    serve(&chain, ADA, &[HTTP, RELAY]).unwrap();
     ask(&chain, relay(b""));
-    stream(&chain, relay(b""), None);
+    stream(&chain, http_request(HTTP, MESSAGES, Vec::new()), None);
     chain.at(2, 0);
     let cut = StreamEnd::Cut {
         reason: "stream_broken".into(),
@@ -686,9 +714,121 @@ fn a_cut_stream_fails_its_call_and_a_whole_request_takes_no_event_or_end() {
         (failed.code.as_str(), failed.message.as_str()),
         (
             code::WRONG_STATE,
-            "the relay service failed: the stream broke off after 0 events: stream_broken"
+            "the http service failed: the stream broke off, the node sent 0 events: stream_broken"
         )
     );
     assert_eq!(request_row(&chain, 2), None);
     assert!(request_row(&chain, 1).is_some());
+}
+
+/// An `Http` call answers one type: an events request whose reply came whole (a 429 before any
+/// stream) and one whose stream completed both decode as `http::Response`.
+#[test]
+fn an_http_call_answers_a_response_whether_its_reply_came_whole_or_as_events() {
+    let chain = chain();
+    serve(&chain, ADA, &[HTTP]).unwrap();
+    for _ in 0..2 {
+        stream(&chain, http_request(HTTP, MESSAGES, Vec::new()), None);
+    }
+    chain.at(2, 0);
+    let limited = http::Response {
+        status: 429,
+        headers: vec![("content-type".into(), "application/json".into())],
+        body: b"{\"type\":\"error\"}".to_vec(),
+    };
+    answer(&chain, ADA, 1, Answer::Output(abi::encode(&limited))).unwrap();
+    let headers = vec![("content-type".to_owned(), "text/event-stream".to_owned())];
+    let completed = Op::EndStream {
+        id: 2,
+        events: 0,
+        end: StreamEnd::Complete {
+            status: 200,
+            headers: headers.clone(),
+        },
+    };
+    submit(&chain, &ADA, &completed).unwrap();
+    let decoded: Vec<http::Response> = answers(&chain)
+        .into_iter()
+        .map(|answer| abi::decode(&answer.unwrap()).unwrap())
+        .collect();
+    let streamed = http::Response {
+        status: 200,
+        headers,
+        body: Vec::new(),
+    };
+    assert_eq!(decoded, [limited, streamed]);
+}
+
+/// An event the requester refuses refuses its frame: the expiry stays where it was, nothing is
+/// heard, and the next event is taken. A repeated `seq` and one back at 0 pass through.
+#[test]
+fn a_refused_event_moves_nothing_and_the_next_one_is_heard() {
+    let chain = chain();
+    serve(&chain, ADA, &[HTTP]).unwrap();
+    stream(&chain, http_request(HTTP, MESSAGES, Vec::new()), Some(5));
+    let before = request_row(&chain, 1).unwrap().expiry;
+    chain.at(2, 0);
+    let event = |seq: u64, data: &[u8]| Event {
+        id: 1,
+        seq,
+        data: data.to_vec(),
+    };
+    let refused = submit(&chain, &ADA, &Op::Event(event(0, REFUSED_EVENT))).unwrap_err();
+    assert_eq!(
+        (refused.code.as_str(), refused.message.as_str()),
+        (code::INVALID_INPUT, "the asker refuses this event")
+    );
+    assert_eq!(request_row(&chain, 1).unwrap().expiry, before);
+    assert_eq!(entry(&chain, before).unwrap().height, 1 + 5);
+    assert!(heard(&chain).is_empty());
+    // the next event, a repeat, its successor, then the node calling again from 0
+    let sent = [
+        (3, 0, b"one"),
+        (4, 0, b"one"),
+        (5, 1, b"two"),
+        (6, 0, b"new"),
+    ];
+    for (height, seq, data) in sent {
+        chain.at(height, 0);
+        submit(&chain, &ADA, &Op::Event(event(seq, data))).unwrap();
+    }
+    let seqs: Vec<u64> = heard(&chain).iter().map(|event| event.seq).collect();
+    assert_eq!(seqs, [0, 0, 1, 0]);
+}
+
+/// A relay is answered whole: asking it as events is refused.
+#[test]
+fn a_relay_asked_as_events_is_refused() {
+    let chain = chain();
+    serve(&chain, ADA, &[RELAY]).unwrap();
+    stream(&chain, relay(b""), None);
+    let [refused] = answers(&chain).try_into().unwrap();
+    let refused = refused.unwrap_err();
+    assert_eq!(
+        (refused.code.as_str(), refused.message.as_str()),
+        (
+            code::INVALID_INPUT,
+            "a relay is answered whole: ask it with Delivery::Whole"
+        )
+    );
+    assert_eq!(request_row(&chain, 1), None);
+}
+
+/// Only the egress role's program hands the asker an event.
+#[test]
+fn an_event_from_another_program_is_refused() {
+    let chain = chain();
+    let forged = Ask::Heard(Event {
+        id: 1,
+        seq: 0,
+        data: Vec::new(),
+    });
+    let refused = chain
+        .submit(Origin::Program("valset".into()), ASKER, &forged)
+        .unwrap_err();
+    assert_eq!(
+        (refused.code.as_str(), refused.message.as_str()),
+        (code::UNAUTHORIZED, "an event comes from the egress role")
+    );
+    assert!(heard(&chain).is_empty());
 }
