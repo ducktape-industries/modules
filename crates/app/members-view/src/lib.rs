@@ -5,7 +5,7 @@
 //!
 //! The screen is read-only: suspending, revoking, renaming and keys live in
 //! Settings. Nothing here asks a program anything the list does not: one
-//! `identity` list gives every account whole, `valset` the standing of the
+//! `identity` list gives every account whole, `valset` the seats of the
 //! keys, and the recent activity is the `activity` program's index of
 //! what the account did ([`activity`]).
 //!
@@ -174,8 +174,9 @@ struct Row {
     #[serde(with = "view::borsh_bytes")]
     kind: identity::Kind,
     devices: Vec<Device>,
-    /// the valset standing of a key this account holds, where it holds one
-    standing: Option<String>,
+    /// the valset seat of a key this account holds, where it holds one
+    #[serde(with = "view::borsh_bytes")]
+    seat: Option<valset::Role>,
 }
 
 impl Row {
@@ -235,20 +236,14 @@ fn standing_badge(
     design::badge(id, agent.life(), ladder, foreground, background)
 }
 
-/// A key's valset standing as a badge: a validator in the success colours,
-/// a resident quiet (Nodes' memberships drew them so).
-fn valset_badge(standing: &str, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
-    let (foreground, background) = match standing {
-        words::VALIDATOR => (theme.success, theme.success_soft),
-        _ => (theme.muted, theme.surface_raised),
+/// A key's valset seat as a badge: a validator in the success colours, a
+/// resident quiet (Nodes' memberships drew them so).
+fn valset_badge(seat: valset::Role, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
+    let (word, foreground, background) = match seat {
+        valset::Role::Validator => (words::VALIDATOR, theme.success, theme.success_soft),
+        valset::Role::Resident => (words::RESIDENT, theme.muted, theme.surface_raised),
     };
-    design::badge(
-        "members-validator",
-        standing.to_owned(),
-        ladder,
-        foreground,
-        background,
-    )
+    design::badge("members-validator", word, ladder, foreground, background)
 }
 
 /// Account `number`'s page in Explorer.
@@ -602,16 +597,10 @@ fn row(account: &identity::Account, members: &[valset::Membership]) -> Row {
                 added_at: key.added_at,
             })
             .collect(),
-        standing: members
+        seat: members
             .iter()
             .find(|member| account.holds(&member.key))
-            .map(|member| {
-                match member.role {
-                    valset::Role::Validator => words::VALIDATOR,
-                    valset::Role::Resident => words::RESIDENT,
-                }
-                .into()
-            }),
+            .map(|member| member.role),
     }
 }
 

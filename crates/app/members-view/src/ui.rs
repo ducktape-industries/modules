@@ -460,10 +460,8 @@ fn head(
         let devices = words::devices(row.devices.len());
         caption.push(vec![text(devices)]);
     }
-    if let Some(standing) = &row.standing {
-        caption.push(vec![
-            valset_badge(standing, ladder, theme).into_any_element(),
-        ]);
+    if let Some(seat) = row.seat {
+        caption.push(vec![valset_badge(seat, ladder, theme).into_any_element()]);
     }
     let last = caption.len() - 1;
     let line = caption.into_iter().enumerate().map(|(index, part)| {

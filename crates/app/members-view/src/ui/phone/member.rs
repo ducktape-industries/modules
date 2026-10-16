@@ -220,11 +220,7 @@ fn badges(row: &Row, theme: &Theme, ladder: &Ladder) -> Div {
         .flex_wrap()
         .gap(space::XS)
         .children(standing)
-        .children(
-            row.standing
-                .as_deref()
-                .map(|standing| valset_badge(standing, ladder, theme)),
-        )
+        .children(row.seat.map(|seat| valset_badge(seat, ladder, theme)))
 }
 
 /// The bio, when the account wrote one: secondary, under the head.
