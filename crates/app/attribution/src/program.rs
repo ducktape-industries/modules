@@ -1,8 +1,8 @@
-//! The program: every op and every query, each handed to its rule. A subscriber that
-//! refuses a change is absorbed, so no subscriber fails the write that reported it.
+//! The program: every op and every query, each handed to its rule. A program that refuses a
+//! change handed to it is absorbed, so it never fails the write that reported the change.
 use ::program::{Error, ExecCtx, MessageId, Outcome, Program, QueryCtx};
 
-use crate::rules::{attribute, changes, changes_of, changes_to, relations, subscribe, subscribers};
+use crate::rules::{attribute, changes, changes_of, changes_to, register, registered, relations};
 use crate::{Op, PROGRAM, Query, Reply};
 
 pub struct Attribution;
@@ -17,7 +17,7 @@ impl Program for Attribution {
         match op {
             Op::Attribute(update) => attribute(ctx, vec![update]),
             Op::AttributeBatch { updates } => attribute(ctx, updates),
-            Op::Subscribe { deliver } => subscribe(ctx, deliver),
+            Op::Register { deliver } => register(ctx, deliver),
         }
     }
 
@@ -35,7 +35,7 @@ impl Program for Attribution {
             Query::ChangesOf { source, page } => {
                 Ok(Reply::Changes(changes_of(ctx, &source, &page)?))
             }
-            Query::Subscribers => Ok(Reply::Subscribers(subscribers(ctx)?)),
+            Query::Registered => Ok(Reply::Registered(registered(ctx)?)),
         }
     }
 }
