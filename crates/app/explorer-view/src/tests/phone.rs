@@ -593,7 +593,7 @@ fn the_field_a_problem_is_about_tells_assistive_tech_it_is_wrong_and_why() {
     let mut cx = grant_form();
     click(&mut cx, "explorer-form-submit");
     assert_eq!(
-        wrong(&cx, &["explorer-form-account", "explorer-form-program"]),
+        wrong(&cx, &["explorer-form-account", "explorer-form-scope"]),
         [(
             "explorer-form-account",
             "An account is its number.".to_owned()

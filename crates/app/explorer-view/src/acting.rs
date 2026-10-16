@@ -196,7 +196,7 @@ impl FormField {
     pub(crate) fn id(self) -> &'static str {
         match self {
             FormField::Name => "explorer-form-name",
-            FormField::Program => "explorer-form-program",
+            FormField::Program => "explorer-form-scope",
             FormField::Account => "explorer-form-account",
             FormField::Code => "explorer-form-code",
             FormField::Params => "explorer-form-params",

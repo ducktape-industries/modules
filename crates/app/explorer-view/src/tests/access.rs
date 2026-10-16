@@ -292,7 +292,7 @@ fn a_voter_proposes_a_grant_naming_the_account_as_it_is_typed() {
         "{:?}",
         cx.texts()
     );
-    cx.simulate_input("explorer-form-program", "trade");
+    cx.simulate_input("explorer-form-scope", "trade");
     cx.simulate_click("explorer-form-submit");
     cx.run_until_parked();
     let op = abi::encode(&programs::Op::Grant(Grant {
