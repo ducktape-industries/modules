@@ -441,6 +441,9 @@ pub struct Files {
     /// its pages out by it (`ui::Layout`)
     #[serde(skip)]
     pub(crate) width: f32,
+    /// the host's picker is open for an upload: a second press waits
+    #[serde(skip)]
+    pub(crate) picking: bool,
 }
 
 impl Default for Files {
@@ -457,6 +460,7 @@ impl Default for Files {
             sheet: None,
             forms: 0,
             width: 0.,
+            picking: false,
         }
     }
 }

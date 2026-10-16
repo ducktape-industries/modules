@@ -853,6 +853,25 @@ fn a_chunk_the_network_dropped_is_staged_anew() {
 }
 
 #[test]
+fn a_file_read_short_of_its_picked_size_says_it_changed() {
+    let net = seeded();
+    let mut cx = desktop(&net);
+    open_home(&mut cx);
+    let big = film(2 * files::CHUNK_SIZE as usize);
+    device(&cx, &[("film.mov", &big)]);
+    // the file was cut on the device since it was picked
+    cx.host()
+        .handle::<FileRead>(move |ask| Ok(vec![0; ask.len as usize - 1]));
+    begin(&mut cx, "upload");
+    commit_form(&mut cx);
+    assert!(
+        cx.has_text(&words::changed_since_picked("film.mov")),
+        "{:?}",
+        cx.texts()
+    );
+}
+
+#[test]
 fn a_file_too_big_is_left_out_and_said_why() {
     let net = seeded();
     let mut cx = desktop(&net);

@@ -10,7 +10,7 @@
 //! is left out and says why. Opened by [`Files::pick`]; the form's Commit
 //! reads and stages what is left ([`Files::submit`]), then commits.
 use files::{BlobId, Change, Content, EntryInfo, Node};
-use view::methods::{FilePick, FileRead, Pick, Picked, ReadFile, Submitted};
+use view::methods::{FILE_READ_MOST, FilePick, FileRead, Pick, Picked, ReadFile, Submitted};
 use view::prelude::*;
 
 use crate::state::{Note, Sheet};
@@ -23,6 +23,9 @@ pub const UPLOAD_MOST: u64 = 32 << 20;
 /// What one commit carries of its files' bytes at most; a file past it
 /// is staged ahead in chunks.
 const INLINE_MOST: u64 = files::CHUNK_SIZE;
+
+// a file that rides in the commit, and every chunk, is one `file.read`
+const _: () = assert!(INLINE_MOST <= FILE_READ_MOST && files::CHUNK_SIZE <= FILE_READ_MOST);
 
 /// One picked file, as the upload's form holds it.
 pub(crate) struct Upload {
@@ -200,6 +203,10 @@ impl Files {
     /// picked, their form opens. Only a press reaches here: the host opens
     /// its picker for nothing else.
     pub(crate) fn pick(&mut self, folder: String, cx: &mut Context<Self>) {
+        if self.picking {
+            return;
+        }
+        self.picking = true;
         let ask = cx.host().ask::<FilePick>(Pick { multiple: true });
         cx.land(ask, move |view, answer, cx| view.picked(folder, answer, cx))
             .detach();
@@ -212,6 +219,7 @@ impl Files {
         answer: Result<Vec<Picked>, Error>,
         cx: &mut Context<Self>,
     ) {
+        self.picking = false;
         let picked = match answer {
             Ok(picked) => picked,
             Err(refusal) => {
@@ -254,7 +262,7 @@ impl Files {
         let id = form.id;
         let ask = cx.host().ask::<FileRead>(ReadFile { file, offset, len });
         cx.land(ask, move |view, answer, cx| {
-            view.slice_read(id, index, len, answer, cx)
+            view.slice_read(id, index, (offset, len), answer, cx)
         })
         .detach();
         true
@@ -282,7 +290,7 @@ impl Files {
         &mut self,
         form: u64,
         index: usize,
-        len: u64,
+        (offset, len): (u64, u64),
         answer: Result<Vec<u8>, Error>,
         cx: &mut Context<Self>,
     ) {
@@ -310,23 +318,25 @@ impl Files {
                 self.submit(cx);
             }
             Way::Staged(_) => {
+                let at = (offset / files::CHUNK_SIZE) as usize;
                 let ask = cx
                     .host()
                     .ask::<Submit<files::Files>>(files::Op::Stage { bytes });
                 cx.land(ask, move |view, answer, cx| {
-                    view.staged(form, index, answer, cx)
+                    view.staged(form, index, at, answer, cx)
                 })
                 .detach();
             }
         }
     }
 
-    /// A chunk was staged: its id is kept and the upload goes on; else the
-    /// form says why not.
+    /// The chunk at `at` was staged: its id is kept in its place and the
+    /// upload goes on; else the form says why not.
     fn staged(
         &mut self,
         form: u64,
         index: usize,
+        at: usize,
         answer: Result<Submitted, Error>,
         cx: &mut Context<Self>,
     ) {
@@ -342,7 +352,11 @@ impl Files {
         };
         match chunk {
             Ok(chunk) => {
-                if let Way::Staged(staged) = &mut open.upload[index].way {
+                // a chunk kept only in its own place: a list cut back since
+                // it was read is never filled out of order
+                if let Way::Staged(staged) = &mut open.upload[index].way
+                    && staged.len() == at
+                {
                     staged.push(chunk);
                 }
                 self.submit(cx);
@@ -355,18 +369,65 @@ impl Files {
     /// An upload's commit was refused for a chunk the network does not
     /// hold (a staged chunk is a prediction a node can drop): asks which
     /// it holds, so Commit again stages the rest anew.
+    /// Commit waits on the answer, so no chunk is staged meanwhile.
     pub(crate) fn recheck_staged(&mut self, form: u64, cx: &mut Context<Self>) {
         let Some(open) = self.open_form(form) else {
             return;
         };
+        open.sending = true;
         let chunks = staged(&open.upload);
         let ask = cx.host().query(files::ask::Held { chunks });
         cx.land(ask, move |view, held, cx| {
-            if let (Ok(held), Some(open)) = (held, view.open_form(form)) {
+            let Some(open) = view.open_form(form) else {
+                return;
+            };
+            open.sending = false;
+            // unanswered, the lists stay: Commit again is refused again
+            // and asks again
+            if let Ok(held) = held {
                 keep_held(&mut open.upload, &held);
-                cx.notify();
             }
+            cx.notify();
         })
         .detach();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn id(n: u8) -> BlobId {
+        BlobId::Sha256([n; 32])
+    }
+
+    #[test]
+    fn a_held_check_cuts_each_file_back_to_its_first_dropped_chunk() {
+        let chunk = files::CHUNK_SIZE;
+        let picked = |name: &str, size| Picked {
+            name: name.into(),
+            size,
+            file: 0,
+        };
+        let mut uploads = uploads(
+            "/shared",
+            vec![
+                picked("a.bin", 3 * chunk),
+                picked("tiny.txt", 1),
+                picked("b.bin", 2 * chunk),
+            ],
+            &[],
+        );
+        uploads[0].way = Way::Staged(vec![id(1), id(2), id(3)]);
+        uploads[2].way = Way::Staged(vec![id(4), id(5)]);
+        assert_eq!(staged(&uploads), [id(1), id(2), id(3), id(4), id(5)]);
+        keep_held(&mut uploads, &[true, false, true, true, true]);
+        let kept = |upload: &Upload| match &upload.way {
+            Way::Staged(staged) => staged.clone(),
+            Way::Inline(_) => panic!("{} rides in the commit", upload.name),
+        };
+        assert_eq!(kept(&uploads[0]), [id(1)], "from its dropped chunk on");
+        assert_eq!(kept(&uploads[2]), [id(4), id(5)], "every chunk held");
+        assert_eq!(uploads[0].unread(), Some((chunk, chunk)));
     }
 }

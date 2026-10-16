@@ -1052,7 +1052,8 @@ methods! {
     /// `file.pick`: the person picks files on this device in the system's
     /// own picker ([`Pick`]), answered with each one picked ([`Picked`]);
     /// cancelled, none. The host holds the files picked open for the view
-    /// to read (`file.read`) until it picks again or goes away. Only a
+    /// to read (`file.read`) until it picks files again (a cancelled pick
+    /// keeps them) or goes away. Only a
     /// press or key opens the picker: a request without one is refused
     /// `needs_gesture`. A host whose system has no picker, or a pick it
     /// cannot open (one that is not a file), is refused
@@ -1061,8 +1062,8 @@ methods! {
     /// `file.read`: bytes of a file of the view's latest pick
     /// ([`ReadFile`]), at most [`FILE_READ_MOST`] of them; fewer only where
     /// the file ends. A handle not of the latest pick is refused
-    /// [`refusal::MALFORMED_REQUEST`]; a file that cannot be read,
-    /// [`refusal::HOST_FAULT`].
+    /// [`refusal::MALFORMED_REQUEST`]; a file that cannot be read, or whose
+    /// size is no longer the one picked, [`refusal::HOST_FAULT`].
     FileRead, "file.read", ReadFile, Vec<u8>;
 }
 

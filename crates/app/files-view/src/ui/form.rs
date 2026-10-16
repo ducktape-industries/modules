@@ -1,8 +1,8 @@
 //! A write's form, as a sheet over the page: its title, the fields its
 //! write reads (a name or a new path, the text, the message), an upload's
 //! files, what a removal takes away, why the last commit did not land,
-//! then Cancel and Commit. Reads the open form; writes its fields, the commit (`submit`)
-//! and Cancel (`close_sheet`).
+//! then Cancel and Commit. Reads the open form; writes its fields, the
+//! commit (`submit`) and Cancel (`close_sheet`).
 use view::Autocapitalize;
 use view::accesskit::Invalid;
 use view::design::space;
