@@ -37,6 +37,9 @@ pub struct Forge {
     /// the window's title last sent
     #[serde(skip)]
     pub(crate) title: Option<String>,
+    /// the route last named to the host as the one shown (`host.showing`)
+    #[serde(skip)]
+    pub(crate) showing: Option<String>,
     /// the host badge last posted: 1 while a change waits on my judgment
     #[serde(skip)]
     pub(crate) badge: Option<i64>,

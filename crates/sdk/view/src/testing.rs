@@ -460,6 +460,7 @@ pub fn assert_fits(
 mod context;
 mod fake_host;
 mod focus;
+mod notifier;
 mod relay;
 pub use context::{TestAppContext, TickReport, VIEWPORT};
 
@@ -473,6 +474,7 @@ pub fn applied(output: Vec<u8>) -> crate::methods::Submitted {
     }
 }
 pub use fake_host::{FakeHost, StreamSender};
+pub use notifier::TestNotifier;
 pub use relay::Relay;
 
 /// A program for the SDK's own tests to follow with `Changes<Probe>`.

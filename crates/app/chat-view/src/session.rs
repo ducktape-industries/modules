@@ -30,14 +30,6 @@ impl Chat {
         if reader_changed {
             self.load_names(cx);
         }
-        // a key that gains an account while this view stays open writes
-        // without a relaunch; the rooms are looked at again once they are
-        // known, since the recount of what is meant for them waits on it
-        if (reader_changed || self.session.account != prev.account)
-            && let Some(list) = self.channels.ready().cloned()
-        {
-            self.channels_landed(list, cx);
-        }
         if reader_changed || (prev.connected && !self.session.connected) {
             for draft in self.drafts.values_mut() {
                 draft.retire_device_requests();

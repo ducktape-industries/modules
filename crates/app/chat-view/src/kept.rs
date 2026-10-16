@@ -1,6 +1,6 @@
 //! What chat keeps on this device between runs (`store`): the reader's read
-//! cursors, so the tab badge and the unread dots come back right after a
-//! relaunch, and their frequent reactions. Per network by the host, per
+//! cursors, so the unread dots come back right after a relaunch and chat's
+//! notifier counts and announces from them, and their frequent reactions. Per network by the host, per
 //! reader by the key.
 use std::collections::BTreeMap;
 
@@ -14,7 +14,7 @@ const EMOJI: &str = "emoji";
 impl Chat {
     /// The key the reader's cursors are kept under; none with no key seated.
     fn reads_key(&self) -> Option<String> {
-        (!self.session.signer.is_empty()).then(|| format!("reads/{}", self.session.signer))
+        (!self.session.signer.is_empty()).then(|| crate::notifier::reads_key(&self.session.signer))
     }
 
     /// The reader's cursors and reactions off the device. Until they land,
@@ -65,8 +65,7 @@ impl Chat {
         .detach();
     }
 
-    /// The kept cursors stand for every room but the one on screen, and the
-    /// badge is counted again from them.
+    /// The kept cursors stand for every room but the one on screen.
     fn reads_landed(&mut self, key: String, kept: BTreeMap<String, u64>, cx: &mut Context<Self>) {
         if self.reads_key().as_ref() != Some(&key) {
             return;
@@ -79,8 +78,6 @@ impl Chat {
         }
         self.reads.written = self.reads.cursors.clone();
         self.reads.kept = Some(key);
-        self.attention.clear();
-        self.recounted = false;
         if let Some(list) = self.channels.ready().cloned() {
             self.channels_landed(list, cx);
         }

@@ -432,6 +432,31 @@ fixtures are regenerated with `WIRE_GOLDEN_WRITE=1`, which moves `WIRE_ID`
 (`view-wire/build.rs` hashes them); a host refuses a view built against
 another.
 
+## A notifier
+
+What becomes a notice, for whom, its words, its tag, its link and when it
+is retracted are decided by EACH PROGRAM in its own crate: the SDK fixes
+the shape, and the app is a generic carrier. A program does it in its
+NOTIFIER (`src/notifier.rs`), not in its pane's view: the app runs one per
+program on the network in hand, whatever panes are open, so a notice is
+posted once however many panes there are, and with none.
+
+A notifier is a `Notifier` (`NAME`, `CAPABILITIES`, `TARGETS`, `new`)
+built with the view's own `Context`: it follows, lands, asks the host and
+keeps a store as a view does, and draws nothing. `export_notifier!(N)`
+writes its three exports (`alloc`/`init`/`tick`: borsh answers in, a borsh
+`Turn` out, `view-wire/src/notifier.rs`) and the same manifest section.
+The view crate builds it alone under a `notifier` cargo feature, and a
+founding packs it into the program's code blob as `ducktape.notify`. It
+may not declare what needs a person in front of it (`op`, `invite`,
+`link`, `clipboard`, `web`): the app refuses to start it.
+
+Two host methods are its signals: `store.changes` (a key another instance
+of the program, a pane, set in the store they share: a read cursor moved)
+and `host.screen` (the routes the program's views show on screen, each
+named by its view with `host.showing`: what the person is looking at gets
+no notice). `testing::TestNotifier` drives one against a `FakeHost`.
+
 ## Testing
 
 `testing::TestAppContext` (`src/testing/context.rs`) opens a view over a

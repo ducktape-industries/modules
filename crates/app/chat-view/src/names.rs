@@ -96,6 +96,7 @@ pub fn dm_peer_of(mine: u64, channel_id: &str) -> Option<u64> {
     (mine == a).then_some(b).or((mine == b).then_some(a))
 }
 
+#[cfg(not(feature = "notifier"))]
 impl crate::Chat {
     /// The open direct room's other person: their name, and whether they
     /// are an agent. None for a channel, or before the roster is read.

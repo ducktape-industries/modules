@@ -7,36 +7,68 @@
 //! lands in the handlers of `room`, `actions`, `search` and `compose`. The
 //! rich editor is the composer (`composer.rs`, `composer/`), over the SDK's
 //! text field.
+//!
+//! What becomes a notice is chat's NOTIFIER's (`notifier.rs`): the host runs
+//! it once per network, open panes or none, and a pane posts nothing. The
+//! `notifier` feature builds it alone, with the modules it reads
+//! (`links`, `message`, `names`), in place of the view.
+#![cfg_attr(feature = "notifier", allow(dead_code))]
+#[cfg(not(feature = "notifier"))]
 mod actions;
+#[cfg(not(feature = "notifier"))]
 mod compose;
+#[cfg(not(feature = "notifier"))]
 mod composer;
+#[cfg(not(feature = "notifier"))]
 mod emoji;
+#[cfg(not(feature = "notifier"))]
 mod kept;
 mod links;
+#[cfg(not(feature = "notifier"))]
 mod listing;
 mod message;
 mod names;
+#[cfg(not(feature = "notifier"))]
 mod notices;
+mod notifier;
+#[cfg(not(feature = "notifier"))]
 mod queries;
+#[cfg(not(feature = "notifier"))]
 mod room;
+#[cfg(not(feature = "notifier"))]
 mod room_list;
+#[cfg(not(feature = "notifier"))]
 mod search;
+#[cfg(not(feature = "notifier"))]
 mod session;
+#[cfg(not(feature = "notifier"))]
 mod state;
+#[cfg(not(feature = "notifier"))]
 mod ui;
+#[cfg(not(feature = "notifier"))]
 mod watch;
 mod words;
 
+pub use notifier::ChatNotices;
+#[cfg(feature = "notifier")]
+view::export_notifier!(ChatNotices);
+
+#[cfg(not(feature = "notifier"))]
 pub use state::*;
 
+#[cfg(not(feature = "notifier"))]
 use view::prelude::*;
 
 /// Rows asked per page.
+#[cfg(not(feature = "notifier"))]
 const PAGE: usize = 64;
 /// Rows a room keeps on screen before paging older.
+#[cfg(not(feature = "notifier"))]
 const WINDOW: usize = 256;
+#[cfg(not(feature = "notifier"))]
 const SPAN: usize = WINDOW;
 
+#[cfg(not(feature = "notifier"))]
 impl View for Chat {
     const NAME: &'static str = words::CHAT;
     const DESCRIPTION: &'static str =
@@ -87,6 +119,7 @@ impl View for Chat {
     }
 }
 
+#[cfg(not(feature = "notifier"))]
 impl Render for Chat {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // the pane's size, as the host lays the frame out: the panes
@@ -96,6 +129,7 @@ impl Render for Chat {
         self.seat_drafts();
         // names land async: the frame is the one place that sees each
         self.settle_title(cx);
+        self.settle_showing(cx);
         // the one pick: a phone draws the Expo app's own screens, every
         // other window the desktop's (STRUCTURE v2)
         if window.touch() {
@@ -106,7 +140,8 @@ impl Render for Chat {
     }
 }
 
+#[cfg(not(feature = "notifier"))]
 export_view!(Chat);
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "notifier")))]
 mod tests;

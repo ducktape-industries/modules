@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Check the exact bare-WASM view import and function-export contract, the
-signatures included: what `crates/sdk/view-wire/src/abi.rs` documents."""
+signatures included: what `crates/sdk/view-wire/src/abi.rs` documents, or,
+with `--notifier`, a notifier's (`crates/sdk/view-wire/src/notifier.rs`).
+   check-view-abi.py [--view|--notifier] <artifact>..."""
 import pathlib
 import re
 import subprocess
@@ -14,6 +16,8 @@ expected_exports = {
     "snapshot": ("", "i64"),
     "restore": ("i32 i32", "i64"),
 }
+if "--notifier" in sys.argv:
+    expected_exports = {name: expected_exports[name] for name in ("alloc", "init", "tick")}
 
 
 def signatures(text):
@@ -36,7 +40,7 @@ def signatures(text):
 
 
 failed = False
-for argument in sys.argv[1:]:
+for argument in (a for a in sys.argv[1:] if a not in ("--view", "--notifier")):
     path = pathlib.Path(argument)
     result = subprocess.run(["wasm-tools", "print", str(path)], capture_output=True, text=True)
     if result.returncode:

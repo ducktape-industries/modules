@@ -1,5 +1,6 @@
 use crate::methods::Capability;
 use crate::*;
+use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -276,7 +277,11 @@ pub use ::error::{Error, code};
 ///
 /// `kind` is `<capability>.<operation>`; the host refuses a capability the
 /// app's manifest did not declare.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+///
+/// A view's frame carries it in the tree's MessagePack; a notifier's turn
+/// ([`crate::notifier::Turn`]) in borsh.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Request {
     pub id: u64,
     pub kind: String,

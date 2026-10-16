@@ -49,6 +49,7 @@ pub(crate) fn is_default<T: Default + PartialEq>(value: &T) -> bool {
 pub mod abi;
 pub mod manifest;
 pub mod methods;
+pub mod notifier;
 
 mod sanitization;
 pub use sanitization::SanitizeReport;

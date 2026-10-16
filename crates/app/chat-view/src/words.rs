@@ -7,6 +7,7 @@
 //! `search.rs`, `watch.rs`).
 use chat::ChannelRow;
 
+#[cfg(not(feature = "notifier"))]
 use crate::session::Gate;
 
 // ---------- labels both trees type ----------
@@ -73,6 +74,7 @@ pub(crate) fn unreadable_room(why: &str) -> String {
 /// What a deleted message says in its place.
 pub(crate) const MESSAGE_DELETED: &str = "Message deleted";
 
+#[cfg(not(feature = "notifier"))]
 /// Where the composer would be, why the reader may not write here.
 pub(crate) fn gate(gate: Gate) -> &'static str {
     match gate {

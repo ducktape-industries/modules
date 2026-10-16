@@ -30,6 +30,12 @@ PROGRAMS := programs valset identity blobs awaits halo scheduler chat forge acti
 # `view-wasm-check` builds it for wasm32 so its `export_view!` cannot rot.
 VIEWS := chat-view members-view node-view explorer-view settings-view forge-view harness-view files-view
 
+# The views whose crate also builds its program's notifier (`notifier`
+# feature, `export_notifier!`): `wasm-notifiers` builds each as
+# <view>.notify.wasm, and a founding packs it as the program's
+# `ducktape.notify` section.
+NOTIFIERS := chat-view forge-view
+
 # What a wasm32 view may link. A crate a view links must never reach the
 # signing/identity graph (blst does not build for wasm32, and a view has no
 # business holding keys). The system crates are here because the system views
@@ -43,7 +49,7 @@ VIEW_FORBIDDEN := blst commonware-cryptography wasm-bindgen js-sys web-sys
 BUILD_TARGET := $(abspath $(or $(CARGO_TARGET_DIR),target))
 RELEASE := $(BUILD_TARGET)/wasm32-unknown-unknown/release
 # The artifacts wasm-modules leaves there (the target dir may hold others).
-ARTIFACTS := $(foreach a,$(PROGRAMS) $(VIEWS),$(subst -,_,$(a)).wasm) $(foreach p,$(PROGRAMS),$(subst -,_,$(p)).describe.wasm)
+ARTIFACTS := $(foreach a,$(PROGRAMS) $(VIEWS),$(subst -,_,$(a)).wasm) $(foreach p,$(PROGRAMS),$(subst -,_,$(p)).describe.wasm) $(foreach v,$(NOTIFIERS),$(subst -,_,$(v)).notify.wasm)
 
 # A wasm artifact is the same bytes from any checkout on any machine of one
 # host triple: panic locations would otherwise carry this checkout's, cargo's
@@ -77,7 +83,7 @@ program_build = $(WASM_BUILD) --target-dir $(call PROGRAM_TARGET,$1) -p $1 --fea
 export CARGO BUILD_TARGET RELEASE WASM_BUILD WASM_OPT
 
 .PHONY: dev wasm-why new-program new-view scaffold-check
-.PHONY: program-wasm-check wasm-programs probe-fixture wasm-views view-wasm-check test
+.PHONY: program-wasm-check wasm-programs probe-fixture wasm-views wasm-notifiers view-wasm-check test
 
 # `make dev P=forge` / `V=forge-view` narrow the loop to one artifact.
 DEV_PROGRAMS = $(if $(or $P,$V),$P,$(PROGRAMS))
@@ -152,9 +158,9 @@ wasm-describes:
 
 .PHONY: wasm-modules wasm-reproducible wasm-publish
 
-## builds every program, its describe module and every view under
-## $(RELEASE)/, unpacked.
-wasm-modules: wasm-programs wasm-describes wasm-views
+## builds every program, its describe module, every view and every
+## notifier under $(RELEASE)/, unpacked.
+wasm-modules: wasm-programs wasm-describes wasm-views wasm-notifiers
 	@cd $(RELEASE) && ls -l $(ARTIFACTS)
 
 wasm-publish:
@@ -186,8 +192,20 @@ probe-fixture:
 wasm-views:
 	@$(foreach v,$(VIEWS),$(WASM_BUILD) --target-dir $(BUILD_TARGET) -p $(v) && tools/view-gate.sh $(v) $(RELEASE)/$(subst -,_,$(v)).wasm || exit 1;)
 
+# Each notifier builds in a target dir of its own, for the reason
+# `PROGRAM_TARGET` gives: the view crate with `notifier` on is another unit.
+NOTIFY_TARGET = $(BUILD_TARGET)/notify/$1
+notifier_build = $(WASM_BUILD) --target-dir $(call NOTIFY_TARGET,$1) -p $1 --features notifier
+notifier_artifact = $(call NOTIFY_TARGET,$1)/wasm32-unknown-unknown/release/$(subst -,_,$1).wasm
+
+## builds every notifier into $(RELEASE)/<view>.notify.wasm, optimized,
+## ABI-checked (alloc/init/tick) and its size printed.
+wasm-notifiers:
+	@mkdir -p $(RELEASE)
+	@$(foreach v,$(NOTIFIERS),$(call notifier_build,$(v)) && cp $(call notifier_artifact,$(v)) $(RELEASE)/$(subst -,_,$(v)).notify.wasm && tools/view-gate.sh $(v).notify $(RELEASE)/$(subst -,_,$(v)).notify.wasm notifier || exit 1;)
+
 ## builds every VIEW_LINKABLE crate for wasm32-unknown-unknown, plus the
-## exported view probe of view and the example view, then fails
+## exported view probe of view, the example view and every notifier, then fails
 ## if the normal wasm32 dependency tree of any of them names a VIEW_FORBIDDEN crate.
 view-wasm-check:
 	@for crate in $(VIEW_LINKABLE); do \
@@ -195,6 +213,9 @@ view-wasm-check:
 	done; \
 	$(CARGO) build --target wasm32-unknown-unknown -p view --example exported_view || exit 1; \
 	$(CARGO) build --target wasm32-unknown-unknown -p example-view || exit 1; \
+	for view in $(NOTIFIERS); do \
+	  $(CARGO) build --target wasm32-unknown-unknown --target-dir $(call NOTIFY_TARGET,check) -p $$view --features notifier || exit 1; \
+	done; \
 	reached=""; \
 	for crate in $(VIEW_LINKABLE); do \
 	  tree=$$($(CARGO) tree --target wasm32-unknown-unknown -e normal -p $$crate --prefix none) || exit 1; \
