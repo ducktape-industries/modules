@@ -12,33 +12,73 @@ pub(crate) use write::SPARSE;
 /// [`sanitize`], the renderer, `Drop` — recurses the same way, which is why
 /// the limit sits at decode rather than in each walk, and on [`Node`]
 /// itself rather than on the fields that happen to hold one.
+///
+/// It also keeps where the decode is, so a decode that fails inside a node
+/// names that node: by its child indices from the top of the tree it
+/// crossed in (a frame's root, a patch's node, a tooltip's content), as a
+/// [`Patch`] path counts them. A view built against another wire than the
+/// host's fails at the first node the two read differently.
 mod budget {
-    use std::cell::Cell;
+    use std::cell::RefCell;
 
     use super::MAX_DEPTH;
 
     thread_local! {
-        static DEPTH: Cell<usize> = const { Cell::new(0) };
+        /// Per node being decoded, outermost first: how many nodes it has
+        /// opened inside it so far. Its length is the depth.
+        static OPEN: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+        /// Where the failing decode failed: the path of the innermost node
+        /// the error passed through.
+        static FAILED: RefCell<Option<Vec<u32>>> = const { RefCell::new(None) };
     }
 
     pub(super) struct Node(());
 
     impl Node {
         pub(super) fn enter() -> Result<Self, &'static str> {
-            // The nodes this one sits inside: a decode's outermost node is
-            // at 0, as `sanitize` counts depth.
-            let depth = DEPTH.get();
-            if depth > MAX_DEPTH {
-                return Err("a tree deeper than the host renders");
+            OPEN.with_borrow_mut(|open| {
+                // The nodes this one sits inside: a decode's outermost node
+                // is at 0, as `sanitize` counts depth.
+                if open.len() > MAX_DEPTH {
+                    return Err("a tree deeper than the host renders");
+                }
+                match open.last_mut() {
+                    Some(opened) => *opened += 1,
+                    // a decode left over by a panic says nothing about this one
+                    None => FAILED.set(None),
+                }
+                open.push(0);
+                Ok(Self(()))
+            })
+        }
+
+        /// `error` came out of this node: the innermost node it came out of
+        /// is the one named, and the outermost names it in the message.
+        pub(super) fn failed<E: serde::de::Error>(&self, error: E) -> E {
+            let outermost = OPEN.with_borrow(|open| {
+                FAILED.with_borrow_mut(|failed| {
+                    if failed.is_none() {
+                        // each node's index is one less than the count its
+                        // parent had reached when it opened
+                        let path = open[..open.len() - 1].iter().map(|opened| opened - 1);
+                        *failed = Some(path.collect());
+                    }
+                });
+                open.len() == 1
+            });
+            match outermost {
+                true => E::custom(format_args!(
+                    "node at {:?}: {error}",
+                    FAILED.take().unwrap_or_default()
+                )),
+                false => error,
             }
-            DEPTH.set(depth + 1);
-            Ok(Self(()))
         }
     }
 
     impl Drop for Node {
         fn drop(&mut self) {
-            DEPTH.set(DEPTH.get().saturating_sub(1));
+            OPEN.with_borrow_mut(|open| open.pop());
         }
     }
 }
@@ -52,8 +92,8 @@ impl Serialize for Node {
 
 impl<'de> Deserialize<'de> for Node {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let _node = budget::Node::enter().map_err(serde::de::Error::custom)?;
-        Node::deserialize(deserializer)
+        let node = budget::Node::enter().map_err(serde::de::Error::custom)?;
+        Node::deserialize(deserializer).map_err(|error| node.failed(error))
     }
 }
 
@@ -205,6 +245,38 @@ mod tests {
         for kind in [pair, Kind::Plain, Kind::One("a".into())] {
             assert_eq!(super::decode::<Kind>(&super::encode(&kind)).unwrap(), kind);
         }
+    }
+
+    /// A decode that fails inside a node names that node by its child
+    /// indices from the top of its tree, and the next decode starts clean.
+    #[test]
+    fn a_decode_that_fails_inside_a_node_names_the_node() {
+        use crate::{ContainerNode, Node, StyleId};
+        let boxed = |children| {
+            Node::Container(ContainerNode {
+                id: None,
+                style: StyleId(0),
+                interactivity: Default::default(),
+                children,
+            })
+        };
+        let space = super::encode(&Node::Space)[0];
+        let tree = boxed(vec![Node::Space, boxed(vec![Node::Space, Node::Space])]);
+        let mut bytes = super::encode(&tree);
+        // the inner container's second child becomes a kind no one knows
+        let at = bytes
+            .windows(3)
+            .rposition(|bytes| bytes == [0x92, space, space])
+            .expect("the inner container's children")
+            + 2;
+        bytes[at] = 0x7f;
+        let error = super::decode::<Node>(&bytes).unwrap_err();
+        assert!(
+            error.starts_with("node at [1, 1]: invalid value: integer `127`"),
+            "{error}"
+        );
+        bytes[at] = space;
+        assert_eq!(super::decode::<Node>(&bytes), Ok(tree));
     }
 
     /// A map or a sequence that does not say its length up front (gpui's

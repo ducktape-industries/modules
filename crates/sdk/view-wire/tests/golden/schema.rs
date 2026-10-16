@@ -316,6 +316,12 @@ pub(super) fn tree() -> (Registry, Registry) {
         unreachable!("StyleRefinement is a struct")
     };
     fields.retain(|field| !["debug", "debug_below"].contains(&field.name.as_str()));
+    // gpui's letter spacing (fork #33) does not cross yet: no entry
+    // carries it (`styles/entry.rs`)
+    let Some(ContainerFormat::Struct(fields)) = style.get_mut("TextStyleRefinement") else {
+        unreachable!("TextStyleRefinement is a struct")
+    };
+    fields.retain(|field| field.name != "letter_spacing");
     style.retain(|name, container| tree.get(name) != Some(container));
     (tree, style)
 }
@@ -469,6 +475,10 @@ pub(super) fn shapes() -> (BTreeMap<&'static str, Shape>, Definitions) {
         borsh::<StoreSet>(d),
         borsh::<ChainHeads>(d),
         borsh::<ProgramDescribe>(d),
+        borsh::<LivePublishTrack>(d),
+        borsh::<LiveSendObject>(d),
+        borsh::<LiveSubscribeTrack>(d),
+        borsh::<LiveTracks>(d),
     ]
     .into();
     let kinds: BTreeSet<&str> = shapes.keys().copied().collect();

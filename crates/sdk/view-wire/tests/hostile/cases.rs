@@ -21,7 +21,7 @@ const SHAPE_REFUSALS: [&str; 6] = [
 ];
 
 fn field_refusal(refused: &Refused) -> bool {
-    matches!(refused, Refused::Invalid(reason)
+    matches!(refused.reason(), Refused::Invalid(reason)
         if FIELD_REFUSALS.contains(reason) || SHAPE_REFUSALS.contains(reason))
 }
 
@@ -204,7 +204,10 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
                 // a hostile one is refused somewhere along it.
                 let mut candidate = staged.clone();
                 let applied = view_wire::apply(&mut candidate, vec![patch.clone()], &styles);
-                if matches!(applied, Err(Refused::Duplicate(_))) {
+                if matches!(
+                    applied.as_ref().map_err(Refused::reason),
+                    Err(Refused::Duplicate(_))
+                ) {
                     assert!(
                         has_duplicate_typed_siblings(&candidate),
                         "{ctx}: missing collision"
@@ -240,7 +243,10 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
             // far; the batch sanitizes once, at the end, so a well-behaved
             // sequence can still collide in it. `apply` leaves the tree it
             // refused as the batch made it, collision included.
-            if matches!(outcome, Err(Refused::Duplicate(_))) {
+            if matches!(
+                outcome.as_ref().map_err(Refused::reason),
+                Err(Refused::Duplicate(_))
+            ) {
                 assert!(
                     has_duplicate_typed_siblings(&root),
                     "{ctx}: missing collision"
@@ -318,7 +324,7 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree_for_random_pairs() {
                         match view_wire::apply(&mut candidate, vec![patch], &styles) {
                             Ok(_) => edited = candidate,
                             Err(refused) if field_refusal(&refused) => {}
-                            Err(Refused::Duplicate(_)) => {
+                            Err(refused) if matches!(refused.reason(), Refused::Duplicate(_)) => {
                                 assert!(
                                     has_duplicate_typed_siblings(&candidate),
                                     "{ctx}: missing collision"

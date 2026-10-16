@@ -207,7 +207,11 @@ refinement!(() TextStyleRefinement {
     text_overflow,
     text_align,
     line_clamp,
-});
+}
+// Letter spacing (fork #33) does not cross yet: sending it is a wire change,
+// with the host bounding a guest's value. Until then a view's is dropped.
+letter_spacing: _,
+);
 refinement!((T) EdgesRefinement<T> { top, right, bottom, left });
 refinement!((T) SizeRefinement<T> { width, height });
 refinement!((T) PointRefinement<T> { x, y });

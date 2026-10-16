@@ -3,8 +3,8 @@
 //! a struct that mostly says nothing is the fields it sets, with no name.
 use gpui::{StyleRefinement, Styled, px};
 use view_wire::{
-    Aria, ContainerNode, Frame, GroupRefinement, Interactivity, Interner, Node, Patch, Refused,
-    Style, StyleId, Styles, TextNode, Tooltip, TooltipResponse, decode, encode,
+    Aria, ContainerNode, ElementIdWire, Frame, GroupRefinement, Interactivity, Interner, Node,
+    Patch, Refused, Style, StyleId, Styles, TextNode, Tooltip, TooltipResponse, decode, encode,
 };
 
 mod common;
@@ -149,8 +149,36 @@ fn a_whole_frame_leaves_a_style_the_table_never_issued_as_written() {
         styles: styles.unsent(),
         ..Default::default()
     };
-    let refused = view_wire::sanitize(&mut frame, &mut Styles::default());
+    let refused = view_wire::sanitize(&mut frame, &mut Styles::default())
+        .map_err(|refused| refused.reason().clone());
     assert_eq!(refused, Err(REFUSED));
+}
+
+/// A refused tree names the node it refused: its kind, its key and its
+/// child indices from the root.
+#[test]
+fn a_refusal_names_the_node_it_fell_at() {
+    let panel = Node::Container(ContainerNode {
+        id: Some(ElementIdWire::Name("panel".into())),
+        style: StyleId(9_999),
+        interactivity: None,
+        children: Vec::new(),
+    });
+    let mut frame = Frame {
+        root: Some(container(
+            PLAIN,
+            Interactivity::default(),
+            vec![text(PLAIN), panel],
+        )),
+        styles: plain(),
+        ..Default::default()
+    };
+    let refused = view_wire::sanitize(&mut frame, &mut Styles::default()).unwrap_err();
+    assert_eq!(refused.reason(), &REFUSED);
+    assert_eq!(
+        refused.to_string(),
+        "Container `panel` at [1]: a node names a style its table does not hold"
+    );
 }
 
 #[test]
@@ -186,7 +214,8 @@ fn a_node_that_names_a_style_its_table_does_not_hold_is_refused() {
             styles: plain(),
             ..Default::default()
         };
-        let refused = view_wire::sanitize(&mut frame, &mut Styles::default());
+        let refused = view_wire::sanitize(&mut frame, &mut Styles::default())
+            .map_err(|refused| refused.reason().clone());
         assert_eq!(refused, Err(REFUSED), "{root:?}");
 
         // the subtree a patch brings
@@ -199,7 +228,8 @@ fn a_node_that_names_a_style_its_table_does_not_hold_is_refused() {
             node: root.clone(),
         };
         assert_eq!(
-            view_wire::apply(&mut tree, vec![patch], &held),
+            view_wire::apply(&mut tree, vec![patch], &held)
+                .map_err(|refused| refused.reason().clone()),
             Err(REFUSED),
             "{root:?}"
         );
@@ -226,7 +256,8 @@ fn a_node_that_names_a_style_its_table_does_not_hold_is_refused() {
             styles: plain(),
             ..Default::default()
         };
-        let refused = view_wire::sanitize(&mut frame, &mut Styles::default());
+        let refused = view_wire::sanitize(&mut frame, &mut Styles::default())
+            .map_err(|refused| refused.reason().clone());
         assert_eq!(refused, Err(REFUSED));
     }
 
@@ -246,7 +277,8 @@ fn a_node_that_names_a_style_its_table_does_not_hold_is_refused() {
         }]
     };
     assert_eq!(
-        view_wire::apply(&mut tree.clone(), props(), &held),
+        view_wire::apply(&mut tree.clone(), props(), &held)
+            .map_err(|refused| refused.reason().clone()),
         Err(REFUSED)
     );
     held.extend(vec![Style::new(&StyleRefinement::default().w(px(4.)))])
@@ -280,7 +312,10 @@ fn a_whole_frame_replaces_the_table_the_host_holds() {
         path: Vec::new(),
         node: text(StyleId(1)),
     };
-    assert_eq!(view_wire::apply(&mut tree, vec![old], &held), Err(REFUSED));
+    assert_eq!(
+        view_wire::apply(&mut tree, vec![old], &held).map_err(|refused| refused.reason().clone()),
+        Err(REFUSED)
+    );
 }
 
 /// A refused frame leaves the table as it was: the tree the host still
@@ -347,7 +382,8 @@ fn a_hosts_own_style_is_no_entry_of_the_trees_table() {
         node: text(id),
     };
     assert_eq!(
-        view_wire::apply(&mut tree, vec![named], &drawn),
+        view_wire::apply(&mut tree, vec![named], &drawn)
+            .map_err(|refused| refused.reason().clone()),
         Err(REFUSED)
     );
 

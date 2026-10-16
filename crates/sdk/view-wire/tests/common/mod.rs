@@ -25,10 +25,10 @@ pub fn table(styles: &[gpui::StyleRefinement]) -> Vec<Style> {
 }
 
 /// `view_wire::sanitize`, for a frame that did not bring a table of its
-/// own: its nodes name [`PLAIN`].
+/// own: its nodes name [`PLAIN`]. What it refuses, not where.
 pub fn sanitize(frame: &mut Frame) -> Result<SanitizeReport, Refused> {
     if frame.styles.is_empty() {
         frame.styles = plain();
     }
-    view_wire::sanitize(frame, &mut Styles::default())
+    view_wire::sanitize(frame, &mut Styles::default()).map_err(|refused| refused.reason().clone())
 }

@@ -1,11 +1,14 @@
-//! Every read the screens make: the roster (harness's agents, identity's accounts, each
-//! agent's threads, and how many member nodes serve each service and relay), one agent in
-//! full, one thread's transcript, and the services the create form offers.
-use std::collections::{HashMap, HashSet};
+//! Every read the screens make: the roster (the accounts whose script calls harness, what
+//! harness resolves for each, their threads, and how many member nodes serve each model's
+//! service and relay), one agent in full, one thread's transcript with the reply its model is
+//! streaming back, the model records, and the services the models form offers.
+use std::collections::HashMap;
 
 use egress::{RELAY, ServiceRow};
-use harness::{AgentRow, Body, CallRow, Frame, ThreadRow, ToolInfo, Usage, WithheldFrame};
-use identity::{Audience, Category, Kind, PageRequest, Standing};
+use harness::{
+    AgentSetup, Body, CallRow, Frame, ModelRow, Partial, ThreadRow, ToolInfo, Usage, WithheldFrame,
+};
+use identity::{Audience, Category, Kind, PageRequest};
 use view::prelude::*;
 
 fn page(after: Option<Vec<u8>>) -> PageRequest {
@@ -15,27 +18,28 @@ fn page(after: Option<Vec<u8>>) -> PageRequest {
 #[derive(PartialEq)]
 pub(crate) struct Roster {
     pub agents: Vec<Card>,
-    /// the reader's active agents whose script calls harness that harness has not hired
-    pub unhired: Vec<Unhired>,
+    /// the reader's agent accounts that no script hands to harness yet
+    pub unscripted: Vec<Unscripted>,
     pub names: HashMap<u64, String>,
     /// member nodes that serve relay: no tool call runs without one
     pub relaying: usize,
 }
 
-/// One hired agent as the list draws it.
+/// One account whose script calls harness, as the list draws it.
 #[derive(PartialEq)]
 pub(crate) struct Card {
-    pub row: AgentRow,
+    pub name: String,
+    pub setup: AgentSetup,
     /// newest first
     pub threads: Vec<ThreadRow>,
-    /// member nodes that serve the agent's service
-    pub serving: usize,
+    /// member nodes that serve its model's service, once its configuration names a model
+    pub serving: Option<usize>,
     /// "suspended" or "revoked", for an agent that is
     pub note: Option<&'static str>,
 }
 
 #[derive(PartialEq)]
-pub(crate) struct Unhired {
+pub(crate) struct Unscripted {
     pub number: u64,
     pub name: String,
 }
@@ -49,33 +53,63 @@ impl Roster {
     }
 
     pub fn card(&self, agent: u64) -> Option<&Card> {
-        self.agents.iter().find(|card| card.row.agent == agent)
+        self.agents.iter().find(|card| card.setup.agent == agent)
     }
 }
 
+fn calls_harness(kind: &Kind) -> bool {
+    match kind {
+        Kind::Program {
+            category: Category::Agent,
+            script: Some(script),
+            ..
+        } => script.calls == harness::PROGRAM,
+        Kind::User | Kind::Program { .. } | Kind::System(_) => false,
+    }
+}
+
+fn unscripted_of(kind: &Kind, me: Option<u64>) -> bool {
+    match kind {
+        Kind::Program {
+            manager,
+            category: Category::Agent,
+            script: None,
+            ..
+        } => Some(*manager) == me,
+        Kind::User | Kind::Program { .. } | Kind::System(_) => false,
+    }
+}
+
+pub(crate) async fn setup(host: &Host, agent: u64) -> Result<Option<AgentSetup>, Error> {
+    host.query(harness::ask::Agent { agent }).await
+}
+
 pub(crate) async fn roster(host: Host, me: Option<u64>) -> Result<Roster, Error> {
-    let rows = host
-        .query_all(|after| harness::ask::Agents { page: page(after) })
-        .await?;
     let accounts = host
         .query_all(|after| identity::ask::List { page: page(after) })
         .await?;
-    let mut serving = HashMap::new();
-    let services = rows.iter().map(|row| row.service.as_str()).chain([RELAY]);
-    for service in services {
-        if !serving.contains_key(service) {
-            serving.insert(service.to_owned(), served(&host, service).await?);
-        }
-    }
-    let kinds: HashMap<u64, Kind> = accounts
-        .iter()
-        .map(|account| (account.number, account.kind()))
-        .collect();
+    let mut serving: HashMap<String, usize> = HashMap::new();
+    serving.insert(RELAY.to_owned(), served(&host, RELAY).await?);
     let mut agents = Vec::new();
-    // ponytail: one Threads listing per agent; a harness query of every agent's live state
-    // when networks run many agents
-    for row in rows {
-        let agent = row.agent;
+    // ponytail: one Agent and one Threads read per agent; a harness query of every agent's live
+    // state when networks run many agents
+    for account in accounts
+        .iter()
+        .filter(|account| calls_harness(&account.kind()))
+    {
+        let agent = account.number;
+        let Some(setup) = setup(&host, agent).await? else {
+            continue;
+        };
+        let service = setup.configured.model().map(|model| model.service.clone());
+        let mut count = None;
+        if let Some(service) = service {
+            if !serving.contains_key(&service) {
+                let now = served(&host, &service).await?;
+                serving.insert(service.clone(), now);
+            }
+            count = serving.get(&service).copied();
+        }
         let threads = host
             .query_all(|after| harness::ask::Threads {
                 agent,
@@ -83,33 +117,24 @@ pub(crate) async fn roster(host: Host, me: Option<u64>) -> Result<Roster, Error>
             })
             .await?;
         agents.push(Card {
-            serving: serving[&row.service],
-            note: kinds.get(&agent).and_then(Kind::note),
+            name: account.card.name.clone(),
+            note: account.kind().note(),
+            serving: count,
             threads,
-            row,
+            setup,
         });
     }
-    let hired: HashSet<u64> = agents.iter().map(|card| card.row.agent).collect();
-    let unhired = accounts
+    let unscripted = accounts
         .iter()
-        .filter(|account| match account.kind() {
-            Kind::Program {
-                manager,
-                category: Category::Agent,
-                standing: Standing::Active,
-                script: Some(script),
-            } => Some(manager) == me && script.calls == harness::PROGRAM,
-            Kind::User | Kind::Program { .. } | Kind::System(_) => false,
-        })
-        .filter(|account| !hired.contains(&account.number))
-        .map(|account| Unhired {
+        .filter(|account| unscripted_of(&account.kind(), me))
+        .map(|account| Unscripted {
             number: account.number,
             name: account.card.name.clone(),
         })
         .collect();
     Ok(Roster {
         agents,
-        unhired,
+        unscripted,
         names: accounts
             .into_iter()
             .map(|account| (account.number, account.card.name))
@@ -155,16 +180,16 @@ pub(crate) fn sum<'a>(usages: impl IntoIterator<Item = &'a Usage>) -> Usage {
 
 #[derive(PartialEq)]
 pub(crate) struct Detail {
-    /// `None` once its manager dismissed it
-    pub agent: Option<AgentRow>,
+    /// `None` once no script hands the account to harness
+    pub setup: Option<AgentSetup>,
     pub audience: Audience,
-    /// newest first, each with what its turns used and its model's window
-    pub threads: Vec<(ThreadRow, Usage, Option<u64>)>,
+    /// newest first, each with what its turns used
+    pub threads: Vec<(ThreadRow, Usage)>,
     pub tools: Vec<ToolInfo>,
 }
 
 pub(crate) async fn detail(host: Host, agent: u64) -> Result<Detail, Error> {
-    let row = host.query(harness::ask::Agent { agent }).await?;
+    let setup = setup(&host, agent).await?;
     let audience = host
         .query(identity::ask::Audience { number: agent })
         .await?;
@@ -179,25 +204,15 @@ pub(crate) async fn detail(host: Host, agent: u64) -> Result<Detail, Error> {
     // when transcripts run long
     for thread in threads {
         let usage = usage(&frames(&host, thread.id).await?);
-        let window = window(&host, &thread.model).await?;
-        used.push((thread, usage, window));
+        used.push((thread, usage));
     }
     let tools = host.query(harness::ask::Tools).await?;
     Ok(Detail {
-        agent: row,
+        setup,
         audience,
         threads: used,
         tools,
     })
-}
-
-/// `model`'s context window, once harness learned one: `None` before it asked, and when the
-/// model reported none.
-async fn window(host: &Host, model: &str) -> Result<Option<u64>, Error> {
-    let asked = harness::ask::Window {
-        model: model.to_owned(),
-    };
-    Ok(host.query(asked).await?.flatten())
 }
 
 #[derive(PartialEq)]
@@ -209,9 +224,18 @@ pub(crate) struct Transcript {
     pub held: Vec<Body>,
     /// the frames left out of the model's view, which it reads in parts
     pub withheld: Vec<WithheldFrame>,
-    pub window: Option<u64>,
-    /// member nodes that serve the service the thread opened with
-    pub serving: usize,
+    pub setup: Option<AgentSetup>,
+    /// member nodes that serve the agent's model's service, once it names one
+    pub serving: Option<usize>,
+    pub partial: Option<Partial>,
+}
+
+impl Transcript {
+    pub fn model(&self) -> Option<&ModelRow> {
+        self.setup
+            .as_ref()
+            .and_then(|setup| setup.configured.model())
+    }
 }
 
 pub(crate) async fn transcript(host: Host, id: u64) -> Result<Option<Transcript>, Error> {
@@ -229,20 +253,47 @@ pub(crate) async fn transcript(host: Host, id: u64) -> Result<Option<Transcript>
         .await?;
     let held = host.query(harness::ask::Held { thread: id }).await?;
     let withheld = host.query(harness::ask::Withheld { thread: id }).await?;
-    let window = window(&host, &thread.model).await?;
-    let serving = served(&host, &thread.service).await?;
+    let partial = host.query(harness::ask::Partial { thread: id }).await?;
+    let setup = setup(&host, thread.agent).await?;
+    let service = setup
+        .as_ref()
+        .and_then(|setup| setup.configured.model())
+        .map(|model| model.service.clone());
+    let serving = match service {
+        Some(service) => Some(served(&host, &service).await?),
+        None => None,
+    };
     Ok(Some(Transcript {
         thread,
         frames,
         calls,
         held,
         withheld,
-        window,
+        setup,
         serving,
+        partial,
     }))
 }
 
-/// A service the create form offers, with how many member nodes serve it now.
+#[derive(PartialEq)]
+pub(crate) struct Model {
+    pub row: ModelRow,
+    pub serving: usize,
+}
+
+pub(crate) async fn models(host: Host) -> Result<Vec<Model>, Error> {
+    let rows = host
+        .query_all(|after| harness::ask::Models { page: page(after) })
+        .await?;
+    let mut models = Vec::new();
+    for row in rows {
+        let serving = served(&host, &row.service).await?;
+        models.push(Model { row, serving });
+    }
+    Ok(models)
+}
+
+/// A service the models form offers, with how many member nodes serve it now.
 #[derive(PartialEq)]
 pub(crate) struct Offer {
     pub row: ServiceRow,

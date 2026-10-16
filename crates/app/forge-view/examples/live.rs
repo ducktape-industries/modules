@@ -11,10 +11,10 @@ use gitcore::wire::pktline;
 use gitcore::{
     Commit, Hash, Kind, MemoryObjects, Mode, Objects, Oid, Signature, Tree, TreeEntry, pack,
 };
-use view::live;
+use view::rig;
 
 fn main() {
-    live::run("forge", |net| {
+    rig::run("forge", |net| {
         net.seat::<chat::Chat>(chat::PROGRAM);
         net.seat::<forge::Forge>(forge::PROGRAM);
         net.init(forge::PROGRAM, &founding::forge_bounds())?;
@@ -95,7 +95,7 @@ const PAST: usize = 300;
 /// left open, each fifth closed, the rest merged into `dev` (a branch of
 /// its own, so `main` and the three changes above keep their diffs).
 fn past(
-    net: &live::Network,
+    net: &rig::Network,
     ada: program::AccountNumber,
     main: Oid,
     branches: &[(String, Oid)],
