@@ -2509,7 +2509,8 @@ mod tests {
 
     /// The lowered element, and the table its nodes' styles are in.
     fn lower_styled(element: impl IntoElement) -> (wire::Node, wire::Styles) {
-        crate::testing::lower(|_: &mut Context<()>| element)
+        let (node, styles, _) = crate::testing::lower(|_: &mut Context<()>| element);
+        (node, styles)
     }
 
     fn interactivity(node: &wire::Node) -> &wire::Interactivity {
@@ -2719,7 +2720,7 @@ mod tests {
         let retry = button("retry", "Retry", &TOUCH, &theme, |_, _, _| {}).small();
         let (row, styles) = lower_styled(div().w(px(360.)).child(retry));
         assert_eq!(faults(&row), []);
-        crate::testing::assert_fits(&row, &styles, 360., &TOUCH);
+        crate::testing::assert_fits(&row, &styles, &[], 360., &TOUCH);
         let press = &row.children()[0];
         let reach = look(press, &styles);
         assert_eq!(reach.size.height, Some(px(44.).into()));
@@ -3051,7 +3052,7 @@ mod tests {
         let notice = refused("rooms", "The node refused.", &TOUCH, &theme, |_, _, _| {});
         let (screen, styles) = lower_styled(div().w(px(360.)).child(notice));
         assert_eq!(faults(&screen), []);
-        crate::testing::assert_fits(&screen, &styles, 360., &TOUCH);
+        crate::testing::assert_fits(&screen, &styles, &[], 360., &TOUCH);
         let notice = &screen.children()[0];
         let alert = interactivity(notice);
         assert_eq!(alert.role, Some(Role::Alert));
@@ -3281,7 +3282,7 @@ mod tests {
             );
         }
         assert_eq!(faults(&node), []);
-        crate::testing::assert_fits(&node, &styles, 360., &TOUCH);
+        crate::testing::assert_fits(&node, &styles, &[], 360., &TOUCH);
     }
 
     /// Under a finger a tab is an item of the kit's `Strip`: the bar's
@@ -3306,7 +3307,7 @@ mod tests {
             lower_styled(bar)
         };
         let (bar, styles) = strip(true);
-        crate::testing::assert_fits(&bar, &styles, 360., &TOUCH);
+        crate::testing::assert_fits(&bar, &styles, &[], 360., &TOUCH);
         let tab = &bar.children()[0];
         let look = &styles[tab.style().expect("a styled tab")];
         assert_eq!(look.size.height, Some(px(44.).into()));

@@ -306,7 +306,7 @@ impl Render for Cramped {
 fn a_short_press_target_does_not_fit_a_phone() {
     let mut cx = TestAppContext::new();
     cx.open::<Cramped>();
-    testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
+    testing::assert_fits(cx.root(), cx.styles(), cx.dense(), 390., &design::TOUCH);
 }
 
 /// A reaction chip as the Expo app draws it, 30 tall and at least 40
@@ -384,7 +384,7 @@ fn a_short_chip_without_a_hit_does_not_fit_a_phone() {
     let mut cx = TestAppContext::new();
     cx.open::<BareChip>();
     cx.simulate_touch(true);
-    testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
+    testing::assert_fits(cx.root(), cx.styles(), cx.dense(), 390., &design::TOUCH);
 }
 
 /// A chip that leaves its height to layout (about 20 tall: one line), in
@@ -420,7 +420,7 @@ impl<const ROW: u16> Render for LooseChip<ROW> {
 fn a_hit_in_a_chip_of_no_declared_height_does_not_fit_in_a_tall_row() {
     let mut cx = TestAppContext::new();
     cx.open::<LooseChip<48>>();
-    testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
+    testing::assert_fits(cx.root(), cx.styles(), cx.dense(), 390., &design::TOUCH);
 }
 
 #[test]
@@ -428,7 +428,7 @@ fn a_hit_in_a_chip_of_no_declared_height_does_not_fit_in_a_tall_row() {
 fn a_hit_in_a_chip_of_no_declared_height_does_not_fit_in_a_short_row() {
     let mut cx = TestAppContext::new();
     cx.open::<LooseChip<30>>();
-    testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
+    testing::assert_fits(cx.root(), cx.styles(), cx.dense(), 390., &design::TOUCH);
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -449,7 +449,7 @@ impl Render for NoWayBack {
 fn a_sheet_without_a_root_back_does_not_fit_a_phone() {
     let mut cx = TestAppContext::new();
     cx.open::<NoWayBack>();
-    testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
+    testing::assert_fits(cx.root(), cx.styles(), cx.dense(), 390., &design::TOUCH);
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -473,7 +473,7 @@ impl Render for BackToNothing {
 fn a_root_back_with_nowhere_to_go_does_not_fit_a_phone() {
     let mut cx = TestAppContext::new();
     cx.open::<BackToNothing>();
-    testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
+    testing::assert_fits(cx.root(), cx.styles(), cx.dense(), 390., &design::TOUCH);
 }
 
 // What the sweep trusts. `assert_fits` reads declared sizes only, so each
@@ -483,13 +483,13 @@ fn a_root_back_with_nowhere_to_go_does_not_fit_a_phone() {
 
 /// Holds `press`, under 44 on a phone, to the sweep inside a 48 row.
 fn fits_in_a_tall_row(press: impl IntoElement) {
-    let (tree, styles) = testing::lower(|_: &mut Context<()>| {
+    let (tree, styles, dense) = testing::lower(|_: &mut Context<()>| {
         div()
             .id("row")
             .h(px(48.))
             .child(div().id("chip").child(press))
     });
-    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+    testing::assert_fits(&tree, &styles, &dense, 390., &design::TOUCH);
 }
 
 /// A press the sweep reads.
@@ -509,17 +509,31 @@ fn line() -> Stateful<Div> {
 /// 20 tall passes the sweep.
 #[test]
 fn the_sweep_lets_a_press_marked_dense_keep_its_own_height() {
-    let (tree, styles) =
+    let (tree, styles, dense) =
         testing::lower(|_: &mut Context<()>| div().id("diff").child(design::dense(line())));
-    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+    testing::assert_fits(&tree, &styles, &dense, 390., &design::TOUCH);
+}
+
+/// A press inside a dense row is not the row: it is held to a finger's
+/// 44 as any.
+#[test]
+#[should_panic(expected = "declares no height of at least 44")]
+fn a_press_inside_a_dense_row_is_still_held_to_44() {
+    let (tree, styles, dense) = testing::lower(|_: &mut Context<()>| {
+        div()
+            .id("diff")
+            .child(design::dense(line()).child(press(div().id("chip").h(px(20.)))))
+    });
+    testing::assert_fits(&tree, &styles, &dense, 390., &design::TOUCH);
 }
 
 /// The same line unmarked is held to a finger's 44.
 #[test]
 #[should_panic(expected = "declares no height of at least 44")]
 fn the_sweep_refuses_a_20_tall_press_not_marked_dense() {
-    let (tree, styles) = testing::lower(|_: &mut Context<()>| div().id("diff").child(line()));
-    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+    let (tree, styles, dense) =
+        testing::lower(|_: &mut Context<()>| div().id("diff").child(line()));
+    testing::assert_fits(&tree, &styles, &dense, 390., &design::TOUCH);
 }
 
 #[test]
@@ -556,7 +570,7 @@ fn the_sweep_trusts_a_press_with_no_height_of_its_own() {
 #[test]
 #[should_panic(expected = "declare the parent's height")]
 fn the_sweep_refuses_a_hit_whose_parent_fills_its_row_by_layout() {
-    let (tree, styles) = testing::lower(|_: &mut Context<()>| {
+    let (tree, styles, dense) = testing::lower(|_: &mut Context<()>| {
         div()
             .id("row")
             .h(px(48.))
@@ -568,7 +582,7 @@ fn the_sweep_refuses_a_hit_whose_parent_fills_its_row_by_layout() {
                 &design::TOUCH,
             ))))
     });
-    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+    testing::assert_fits(&tree, &styles, &dense, 390., &design::TOUCH);
 }
 
 /// A chip 32 tall with a hairline edge, pressing through a `design::hit`
@@ -595,14 +609,14 @@ fn bordered_chip(edge: Pixels) -> Stateful<Div> {
 
 #[test]
 fn a_bordered_chip_presses_at_44_through_a_hit_told_its_edge() {
-    let (tree, styles) = testing::lower(|_: &mut Context<()>| bordered_chip(px(1.)));
+    let (tree, styles, dense) = testing::lower(|_: &mut Context<()>| bordered_chip(px(1.)));
     let hit = &tree.children()[0].children()[1];
     let inset = &styles[hit.style().expect("a styled hit")].inset;
     assert_eq!(
         (inset.top, inset.bottom),
         (Some(px(-7.).into()), Some(px(-7.).into()))
     );
-    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+    testing::assert_fits(&tree, &styles, &dense, 390., &design::TOUCH);
 }
 
 /// The same chip with its edge left out presses at 42 (30 inside the
@@ -610,6 +624,6 @@ fn a_bordered_chip_presses_at_44_through_a_hit_told_its_edge() {
 #[test]
 #[should_panic(expected = "comes to 42")]
 fn a_bordered_chip_whose_hit_is_not_told_its_edge_does_not_fit() {
-    let (tree, styles) = testing::lower(|_: &mut Context<()>| bordered_chip(px(0.)));
-    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+    let (tree, styles, dense) = testing::lower(|_: &mut Context<()>| bordered_chip(px(0.)));
+    testing::assert_fits(&tree, &styles, &dense, 390., &design::TOUCH);
 }

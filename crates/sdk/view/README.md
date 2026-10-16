@@ -113,6 +113,7 @@ pointer. Pick the ladder once per render, then hand it to every piece.
 | `design::field(Input::new(..), &ladder, &theme).label(..).caption(..)` | A text field in its box; `.problem(..)` marks it invalid and says why, `.lead(glyph)` puts a glyph before the text. |
 | `design::sheet(..)` holding `design::sheet_title(..)`, `design::sheet_row(..)`, `design::form_verbs(cancel, verb)` | A sheet, its head, its actions (`.icon`, `.hint`, `.danger`) and a form's Cancel and verb. |
 | `design::strip(composite, &ladder, &theme)` of `design::tab(..)`s | A bar of tabs under a page head. |
+| `design::dense(row)` | A dense list's row (a chat message, a diff line) keeps its own height; the sweep lets it through. |
 | `design::sentence(&refusal)`, `design::failure(&answer)` | What a refusal and a write that did not land say, in the same words on every page. |
 
 Three patterns the views share:

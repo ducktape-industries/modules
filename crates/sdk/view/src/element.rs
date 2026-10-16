@@ -136,7 +136,8 @@ pub(crate) fn wire_id(id: ElementId) -> wire::ElementIdWire {
 impl<'a> Lowering<'a> {
     pub(crate) fn new(window: &'a mut Window, app: &'a mut App) -> Self {
         slots::begin_lowering(&app.inner.slots, None);
-        crate::testing::begin_dense();
+        // the presses the last tree marked dense are gone with it
+        app.inner.dense.borrow_mut().clear();
         Self {
             window,
             app,
@@ -244,6 +245,17 @@ impl<'a> Lowering<'a> {
 
     pub(crate) fn current_path(&self) -> &[wire::ElementIdWire] {
         &self.authored_path
+    }
+
+    /// The element being lowered is a dense list's press
+    /// ([`design::dense`](crate::design::dense)): its path joins the marks
+    /// the [`App`] keeps for the sweep.
+    pub(crate) fn mark_dense(&self) {
+        self.app
+            .inner
+            .dense
+            .borrow_mut()
+            .push(self.authored_path.clone());
     }
 
     /// The id of the identified element being lowered, as the wire carries

@@ -41,6 +41,11 @@ pub(crate) struct AppState {
     pub alive: Cell<bool>,
     pub globals: RefCell<Rc<Globals>>,
     pub uniform_lists: crate::element::UniformLists,
+    /// The ids each press [`design::dense`](crate::design::dense) marked is
+    /// filed under, in the tree last lowered: the presses
+    /// [`assert_fits`](crate::testing::assert_fits) lets stay under a
+    /// finger's height. The mark is the view's and is never sent.
+    pub dense: RefCell<Vec<Vec<crate::wire::ElementIdWire>>>,
     #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
     pub root: Cell<Option<Root>>,
     /// The size the view is laid out in, as the host last said
@@ -85,6 +90,7 @@ impl App {
                 alive: Cell::new(true),
                 globals: RefCell::new(globals),
                 uniform_lists: Default::default(),
+                dense: RefCell::default(),
                 #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
                 root: Cell::new(None),
                 viewport: Cell::default(),
