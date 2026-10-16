@@ -129,7 +129,7 @@ impl Element for Img {
             label,
             image_style: wire::ImageStyle {
                 grayscale: image_style.grayscale,
-                object_fit: object_fit(image_style.object_fit),
+                object_fit: image_style.object_fit.into(),
             },
             loading,
             fallback,
@@ -144,16 +144,6 @@ impl IntoElement for Img {
     type Element = Self;
     fn into_element(self) -> Self {
         self
-    }
-}
-
-fn object_fit(value: ObjectFit) -> wire::ImageObjectFit {
-    match value {
-        ObjectFit::Contain => wire::ImageObjectFit::Contain,
-        ObjectFit::Cover => wire::ImageObjectFit::Cover,
-        ObjectFit::Fill => wire::ImageObjectFit::Fill,
-        ObjectFit::None => wire::ImageObjectFit::None,
-        ObjectFit::ScaleDown => wire::ImageObjectFit::ScaleDown,
     }
 }
 

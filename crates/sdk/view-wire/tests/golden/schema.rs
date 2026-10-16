@@ -252,7 +252,6 @@ const TREE: &[Trace] = &[
     trace::<view_wire::SvgSource>,
     trace::<view_wire::WebCommand>,
     trace::<view_wire::MicCommand>,
-    trace::<view_wire::Fit>,
     trace::<view_wire::MediaStatus>,
     trace::<view_wire::Playback>,
     trace::<view_wire::click::Click>,

@@ -259,10 +259,13 @@ pub(super) fn gen_media(rng: &mut Rng) -> Node {
             style: PLAIN,
             device: gen_device(rng),
             mirror: rng.next_bool(),
-            fit: match rng.next_bool() {
-                true => view_wire::Fit::Cover,
-                false => view_wire::Fit::Contain,
-            },
+            object_fit: *rng.choose(&[
+                ImageObjectFit::Fill,
+                ImageObjectFit::Contain,
+                ImageObjectFit::Cover,
+                ImageObjectFit::ScaleDown,
+                ImageObjectFit::None,
+            ]),
             on_state: rng.next_bool().then(|| rng.next_u64() as u32),
         };
     }

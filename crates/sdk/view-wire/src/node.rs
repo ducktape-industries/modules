@@ -32,6 +32,8 @@ pub enum AnchoredPositionMode {
     Local,
 }
 
+/// How a picture fills its box, an image's ([`ImageStyle`]) or a
+/// camera's ([`Node::Camera`]): gpui's `ObjectFit`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ImageObjectFit {
     Fill,
@@ -39,6 +41,18 @@ pub enum ImageObjectFit {
     Cover,
     ScaleDown,
     None,
+}
+
+impl From<gpui::ObjectFit> for ImageObjectFit {
+    fn from(fit: gpui::ObjectFit) -> Self {
+        match fit {
+            gpui::ObjectFit::Fill => Self::Fill,
+            gpui::ObjectFit::Contain => Self::Contain,
+            gpui::ObjectFit::Cover => Self::Cover,
+            gpui::ObjectFit::ScaleDown => Self::ScaleDown,
+            gpui::ObjectFit::None => Self::None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -320,11 +334,11 @@ pub enum Node {
         commands: Vec<crate::web::WebCommand>,
         on_state: Option<u32>,
     },
-    /// A camera's picture, drawn by the host in the node's box as `fit`
-    /// says (the whole picture, centred, the box's background on the sides
-    /// it does not fill; or the box covered, the picture cut centred),
-    /// flipped left to right when `mirror` (a person checking themselves
-    /// expects a mirror). No picture crosses to the view. Only a view whose
+    /// A camera's picture, drawn by the host in the node's box as an
+    /// image's is by `object_fit` (`Contain`: the whole picture, centred,
+    /// the box's background on the sides it does not fill; `Cover`: the box
+    /// covered, the picture cut centred), flipped left to right when
+    /// `mirror` (a person checking themselves expects a mirror). No picture crosses to the view. Only a view whose
     /// manifest declares the `camera` capability may send one; a host
     /// refuses the frame of any other ([`Frame::undeclared`]).
     ///
@@ -340,7 +354,7 @@ pub enum Node {
         style: StyleId,
         device: Option<String>,
         mirror: bool,
-        fit: crate::media::Fit,
+        object_fit: ImageObjectFit,
         on_state: Option<u32>,
     },
     /// A microphone's level, drawn by the host as a meter in the node's

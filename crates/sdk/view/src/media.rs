@@ -8,16 +8,15 @@
 use crate::element::wire_id;
 use crate::interactivity::EventListener;
 use crate::{App, Element, ElementId, IntoElement, Lowering, Window, wire};
-use gpui::{StyleRefinement, Styled};
+use gpui::{ObjectFit, StyleRefinement, Styled};
 
 /// What a camera or microphone piece tells its view: whether its device is
 /// live, refused, busy or gone, the device's name, a microphone's
-/// recording and whether the person is speaking; how a camera's picture
-/// fills its box.
-pub use wire::{Fit, MediaState, MediaStatus, Playback};
+/// recording and whether the person is speaking.
+pub use wire::{MediaState, MediaStatus, Playback};
 
 /// A camera's picture the host draws in this element's box: the whole
-/// picture, centred, or the box covered with [`Camera::fit`]; flipped left
+/// picture, centred, or as [`Camera::object_fit`] says; flipped left
 /// to right with [`Camera::mirror`]. The camera opens the first time the
 /// host sees the element under `id` and is released (its light off) when a
 /// frame no longer has it: a view turns its camera off by not placing the
@@ -36,7 +35,7 @@ pub struct Camera {
     id: ElementId,
     device: Option<String>,
     mirror: bool,
-    fit: Fit,
+    object_fit: ObjectFit,
     on_state: Option<EventListener<MediaState>>,
     style: Box<StyleRefinement>,
 }
@@ -46,7 +45,7 @@ pub fn camera(id: impl Into<ElementId>) -> Camera {
         id: id.into(),
         device: None,
         mirror: false,
-        fit: Fit::Contain,
+        object_fit: ObjectFit::Contain,
         on_state: None,
         style: Box::default(),
     }
@@ -66,10 +65,11 @@ impl Camera {
         self
     }
 
-    /// How the picture fills the box: whole ([`Fit::Contain`], the
-    /// default) or covering it, cut centred ([`Fit::Cover`]).
-    pub fn fit(mut self, fit: Fit) -> Self {
-        self.fit = fit;
+    /// How the picture fills the box, as an image's does: whole
+    /// (`ObjectFit::Contain`, the default) or covering it, cut centred
+    /// (`ObjectFit::Cover`).
+    pub fn object_fit(mut self, object_fit: ObjectFit) -> Self {
+        self.object_fit = object_fit;
         self
     }
 
@@ -207,7 +207,7 @@ impl Element for Camera {
             style: lowering.style(&self.style),
             device: self.device,
             mirror: self.mirror,
-            fit: self.fit,
+            object_fit: self.object_fit.into(),
             on_state: self
                 .on_state
                 .map(|listener| lowering.route(crate::slots::Kind::MediaState, listener)),
@@ -324,7 +324,7 @@ mod tests {
                     camera("camera")
                         .device("1")
                         .mirror(true)
-                        .fit(Fit::Cover)
+                        .object_fit(ObjectFit::Cover)
                         .on_state(heard),
                 )
                 .child(
@@ -346,7 +346,7 @@ mod tests {
         let wire::Node::Camera {
             device,
             mirror: true,
-            fit: Fit::Cover,
+            object_fit: wire::ImageObjectFit::Cover,
             on_state: Some(_),
             ..
         } = cx.node("camera").clone()

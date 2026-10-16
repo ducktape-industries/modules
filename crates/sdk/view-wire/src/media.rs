@@ -16,18 +16,6 @@ use serde::{Deserialize, Serialize};
 pub const SETTINGS_CAMERA: &str = "system-settings:camera";
 pub const SETTINGS_MICROPHONE: &str = "system-settings:microphone";
 
-/// How a [`crate::Node::Camera`]'s picture fills its box.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Fit {
-    /// The whole picture, centred; the box's background shows where the
-    /// picture's shape leaves it (a person checking their own frame).
-    #[default]
-    Contain,
-    /// The box filled, the picture scaled to cover it and cut centred (a
-    /// call's tile, which never shows bars).
-    Cover,
-}
-
 /// One thing the view asks of its microphone piece, applied once by the
 /// host when the node's `revision` moves.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

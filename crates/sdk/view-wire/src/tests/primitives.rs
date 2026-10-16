@@ -155,7 +155,7 @@ fn an_undeclared_piece_is_found_in_the_tree_a_patch_and_a_tooltip() {
         style: StyleId(0),
         device: None,
         mirror: false,
-        fit: crate::media::Fit::Contain,
+        object_fit: ImageObjectFit::Contain,
         on_state: None,
     };
     let in_tree = Frame {

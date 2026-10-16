@@ -358,7 +358,7 @@ fn first_nodes() -> Vec<Node> {
             style: style(),
             device: Some("0".into()),
             mirror: true,
-            fit: view_wire::Fit::Cover,
+            object_fit: ImageObjectFit::Cover,
             on_state: Some(18),
         },
         Node::Microphone {

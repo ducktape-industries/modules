@@ -549,7 +549,7 @@
               "style": 0,
               "device": "0",
               "mirror": true,
-              "fit": "Cover",
+              "object_fit": "Cover",
               "on_state": 18
             }
           },
@@ -2972,10 +2972,6 @@
       "Flex",
       "Grid",
       "None"
-    ],
-    "Fit": [
-      "Contain",
-      "Cover"
     ],
     "FlexDirection": [
       "Row",
