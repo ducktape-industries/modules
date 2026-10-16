@@ -623,6 +623,11 @@ fn a_vote_says_what_it_came_to() {
     let applied = |voted: Voted| Ok(view::testing::applied(abi::encode(&voted)));
     assert_eq!(said(applied(Voted::Enacted)), Ok("Enacted".into()));
     assert_eq!(
+        said(Ok(view::testing::applied(Vec::new()))),
+        Ok("Voted".into()),
+        "landed, its output unreadable"
+    );
+    assert_eq!(
         said(applied(Voted::Counted {
             votes: 1,
             needed: 2

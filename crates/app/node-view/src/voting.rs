@@ -206,6 +206,9 @@ impl Nodes {
 /// whether it was refused (by the program, or not confirmed on the
 /// host), may have gone through, or was never sent (no node reached, none
 /// connected, or something before the send refused: safe to send again).
+/// A node's outright refusal of the frame (its own code: a bad signature,
+/// a stale anchor) reads as "Not sent: …" until the SDK's failure words
+/// land; Expo calls it "That didn’t go through".
 pub(crate) fn said(answer: Result<Submitted, Error>) -> Result<String, String> {
     match answer {
         Ok(Submitted::Applied { output, .. }) => Ok(match abi::decode::<Voted>(&output) {

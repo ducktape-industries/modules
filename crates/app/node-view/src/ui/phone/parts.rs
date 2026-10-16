@@ -278,8 +278,9 @@ fn action(
 
 /// The kit's small outline button: a hairline edge, its label in
 /// secondary medium, its press reaching to the ladder's hit over and
-/// under. Never narrower than the hit (16 each side of a label), so it
-/// reaches nothing sideways: the hit gets the hit as its width. One that may
+/// under. Never narrower than the hit (12 each side of a label, Expo
+/// `Button.tsx:61`; the shortest label, Vote, makes it 52), so it reaches
+/// nothing sideways: the hit gets the hit as its width. One that may
 /// not be pressed now (a vote in flight) goes faint on a quiet edge and
 /// takes no press.
 pub(super) fn small_button(

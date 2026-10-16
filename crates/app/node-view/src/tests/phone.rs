@@ -362,7 +362,7 @@ fn a_motion_the_reader_voted_on_reads_voted_and_has_no_vote() {
 }
 
 #[test]
-fn a_vote_in_flight_greys_every_vote_until_it_answers() {
+fn a_vote_in_flight_greys_every_vote() {
     let mut cx = voter();
     cx.host().never::<Submit<Valset>>();
     click(&mut cx, "nodes-door");

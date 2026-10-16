@@ -128,8 +128,8 @@ pub(crate) fn sections(
     )
 }
 
-/// One line of a section: its words, a quiet caption, a press.
-fn line(id: impl Into<ElementId>, words: String, caption: String, theme: &Theme) -> Stateful<Div> {
+/// One line of a section: what it is, a quiet caption, a press.
+fn line(id: impl Into<ElementId>, title: String, caption: String, theme: &Theme) -> Stateful<Div> {
     div()
         .id(id)
         .flex()
@@ -143,7 +143,7 @@ fn line(id: impl Into<ElementId>, words: String, caption: String, theme: &Theme)
         .border_b_1()
         .border_color(theme.border)
         .text_size(design::text::SECONDARY)
-        .child(div().flex_1().min_w(px(200.)).child(words))
+        .child(div().flex_1().min_w(px(200.)).child(title))
         .child(div().text_color(theme.muted).child(caption))
 }
 
@@ -163,10 +163,10 @@ fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
             .enumerate()
             .map(|(index, pending)| {
                 let caption = words::pending_caption(voting, pending, motions.needed);
-                let words = voting.words(&pending.motion);
+                let title = voting.words(&pending.motion);
                 let row = line(
                     ElementId::Name(format!("nodes-motion-{index}").into()),
-                    words,
+                    title,
                     caption,
                     theme,
                 );
