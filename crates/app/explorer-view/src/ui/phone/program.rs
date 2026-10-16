@@ -25,7 +25,7 @@ pub(super) fn program(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> AnyElemen
         None => page,
     };
     let body = match (&view.network, code) {
-        (Loadable::Failed(refusal), _) => refused(&refusal.message, cx, k),
+        (Loadable::Failed(refusal), _) => refused(&words::refusal(refusal), cx, k),
         (Loadable::Idle | Loadable::Loading(_), _) => {
             quiet("explorer-program-loading", words::READING_ROLE, k)
         }

@@ -77,7 +77,10 @@ impl Explorer {
     /// or a program name.
     pub(crate) fn search(&mut self, cx: &mut Context<Self>) {
         let query = self.search.text().trim().to_string();
+        // the line before goes now, though a hash the node is asked for
+        // lands later
         self.note = None;
+        cx.notify();
         if query.is_empty() {
             return;
         }

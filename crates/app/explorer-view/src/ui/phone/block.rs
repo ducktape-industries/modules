@@ -39,7 +39,7 @@ fn missing(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> AnyElement {
             let title = words::no_block(height);
             empty("explorer-no-block", "blocks", title, why, k)
         }
-        Loadable::Failed(refusal) => refused(&refusal.message, cx, k),
+        Loadable::Failed(refusal) => refused(&words::refusal(refusal), cx, k),
         Loadable::Idle
         | Loadable::Loading(_)
         | Loadable::Ready(Some(_))
@@ -81,8 +81,10 @@ fn found(view: &Explorer, block: &BlockRow, txs: &[&TxRow], cx: Cx, k: &Kit) -> 
 /// parent is its id alone.
 fn parent(block: &BlockRow, cx: Cx, k: &Kit) -> Div {
     let id = short(&block.parent);
+    // block 0's parent is words, in the body face (Expo
+    // `block/[height].tsx:86`)
     let Some(previous) = block.height.checked_sub(1) else {
-        return data(id);
+        return div().child(id);
     };
     div()
         .flex()

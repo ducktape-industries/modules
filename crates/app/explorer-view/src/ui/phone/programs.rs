@@ -19,7 +19,7 @@ const UNREAD_BLOCK_MS: u64 = 1000;
 pub(super) fn programs(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
     let network = match &view.network {
         Loadable::Ready(network) | Loadable::Reloading(network, _) => network,
-        Loadable::Failed(refusal) => return refused(&refusal.message, cx, k),
+        Loadable::Failed(refusal) => return refused(&words::refusal(refusal), cx, k),
         Loadable::Idle | Loadable::Loading(_) => {
             return quiet("explorer-programs-loading", words::READING_ROLE, k);
         }

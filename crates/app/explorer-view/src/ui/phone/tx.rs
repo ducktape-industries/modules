@@ -51,7 +51,7 @@ fn missing(view: &Explorer, height: u64, position: u32, cx: Cx, k: &Kit) -> AnyE
             words::no_transaction_at(height, position),
             k,
         ),
-        Loadable::Failed(refusal) => refused(&refusal.message, cx, k),
+        Loadable::Failed(refusal) => refused(&words::refusal(refusal), cx, k),
         Loadable::Idle
         | Loadable::Loading(_)
         | Loadable::Ready(Some(_))
@@ -132,7 +132,7 @@ fn status(run: &Receipt, id: &str, k: &Kit) -> Div {
         .items_start()
         .gap(space::XXS)
         .child(badge)
-        .children(refusal.map(|refusal| div().child(refusal.message.clone())))
+        .children(refusal.map(|refusal| div().child(words::refusal(refusal))))
         .children(refusal.map(|refusal| {
             data(refusal.code.clone())
                 .text_type(k.ladder.caption)

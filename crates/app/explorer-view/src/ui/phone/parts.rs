@@ -39,6 +39,10 @@ const EMPTY_LINE_W: Pixels = px(280.);
 /// The room between a row's title and its caption (Expo
 /// `src/kit/Row.tsx:58`).
 const TITLE_GAP: Pixels = px(1.);
+// SDK gap: the ladder's eyebrow type with its spacing, the SDK builds it
+// later
+/// An eyebrow's letters apart, .06em at 11 (Expo `src/design/theme.ts:51`).
+const EYEBROW_SPACING: Pixels = px(0.66);
 /// A key's column in a key/value row (Expo `src/kit/Facts.tsx:64`).
 const KEY_W: Pixels = px(96.);
 /// A small button (Expo `src/design/theme.ts:76` `size.small`).
@@ -422,6 +426,7 @@ fn figure(id: &str, index: usize, fact: Fact, k: &Kit) -> Stateful<Div> {
         .child(
             mono(fact.label.to_uppercase())
                 .text_type(ladder.tiny)
+                .letter_spacing(EYEBROW_SPACING)
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme.muted)
                 .mb(space::XXS),

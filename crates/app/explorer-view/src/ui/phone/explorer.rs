@@ -62,6 +62,8 @@ fn titled(view: &Explorer, cx: Cx, k: &Kit) -> design::Page {
         window.focus("explorer-search");
         cx.notify();
     });
+    // SDK gap: the big title's -0.22 letter spacing (Expo `theme.ts:59`),
+    // swap when #409 lands
     let page = design::page(
         "explorer-root",
         "Explorer",
