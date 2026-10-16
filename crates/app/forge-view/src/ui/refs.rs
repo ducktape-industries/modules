@@ -51,8 +51,10 @@ pub(crate) fn render(
         return column
             .child(empty_state(
                 id("forge-refs-empty"),
+                "git-branch",
                 words::NO_REFS,
                 words::UNBORN,
+                &ladder,
                 theme,
             ))
             .into_any_element();

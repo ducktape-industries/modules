@@ -37,8 +37,10 @@ pub(crate) fn render(
         return column
             .child(empty_state(
                 id("forge-changes-nobody"),
+                "user-round",
                 words::NO_ACCOUNT,
                 words::CREATE_AN_ACCOUNT,
+                &ladder,
                 theme,
             ))
             .into_any_element();
@@ -72,6 +74,7 @@ pub(crate) fn render(
         return column
             .child(empty_state(
                 id("forge-changes-empty"),
+                "git-pull-request",
                 if forge.filter == Filter::Judgment {
                     words::NOTHING_WAITS
                 } else {
@@ -82,6 +85,7 @@ pub(crate) fn render(
                 } else {
                     words::COMPARE_TO_OPEN
                 },
+                &ladder,
                 theme,
             ))
             .into_any_element();

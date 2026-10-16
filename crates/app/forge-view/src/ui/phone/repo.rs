@@ -120,9 +120,14 @@ fn ref_row(
         .px(design::space::BLOCK)
         .pt(design::space::LG)
         .pb(design::space::XS)
-        .child(
-            parts::small_button(id(Menu::Ref.key()), label, ladder, theme, open).icon("git-branch"),
-        )
+        .child(parts::small_button(
+            id(Menu::Ref.key()),
+            label,
+            "git-branch",
+            ladder,
+            theme,
+            open,
+        ))
         .child(address)
 }
 
@@ -146,7 +151,7 @@ fn strip(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme)
             }
         }))
         .build();
-    let mut bar = parts::strip(bar, ladder, theme);
+    let mut bar = design::strip(bar, ladder, theme);
     for tab in tabs {
         let open = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_tab(tab, cx));
         let count = (tab == RepoTab::Changes)
@@ -183,8 +188,8 @@ pub(super) fn about_sheet(
         .flex()
         .flex_col()
         .pb(design::space::BLOCK)
-        .child(parts::sheet_head(
-            "forge-about-title",
+        .child(design::sheet_title(
+            id("forge-about-head"),
             "About",
             ladder,
             theme,

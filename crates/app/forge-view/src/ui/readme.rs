@@ -28,7 +28,7 @@ pub(crate) fn render(
     let Some(root) = forge.tree_query(Vec::new()) else {
         return page
             .child(match forge.refs() {
-                Some(_) => no_commits(forge, theme),
+                Some(_) => no_commits(forge, theme, ladder),
                 None => quiet(words::RESOLVING_REF, theme),
             })
             .into_any_element();
@@ -48,8 +48,10 @@ pub(crate) fn render(
         return page
             .child(empty_state(
                 id("forge-readme-none"),
+                "file-text",
                 words::NO_README,
                 "This ref carries no README at its root. The Code tab has its files.",
+                ladder,
                 theme,
             ))
             .into_any_element();

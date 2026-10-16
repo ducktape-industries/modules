@@ -53,7 +53,7 @@ fn body(key: &str) -> Stateful<Div> {
 /// A ref with nothing under it (`NoCommits`): how to push to it.
 fn no_commits(forge: &Forge, ladder: &Ladder, theme: &Theme) -> AnyElement {
     let address = forge.repo_link(&forge.repo_name());
-    parts::empty_state(
+    design::empty_state(
         id("forge-tree-no-commits"),
         "git-commit-horizontal",
         words::NO_COMMITS_YET,
@@ -109,7 +109,7 @@ fn readme(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme
     let Some((name, oid)) = forge.readme() else {
         let ref_ = ref_label(&forge.head_name());
         return page
-            .child(parts::empty_state(
+            .child(design::empty_state(
                 id("forge-readme-none"),
                 "file-text",
                 words::NO_README,
@@ -237,7 +237,7 @@ pub(super) fn folder_body(
         div()
             .p(design::space::BLOCK)
             .pb(design::space::SM)
-            .child(parts::search_field(filter, "search", ladder, theme)),
+            .child(design::field(filter, ladder, theme).lead("search")),
     );
     if let Some(state) = unresolved(forge, ladder, theme) {
         return page.child(state).into_any_element();
@@ -258,7 +258,7 @@ pub(super) fn folder_body(
     let rows = forge.tree_rows_at(dir);
     if rows.is_empty() {
         return page
-            .child(parts::empty_state(
+            .child(design::empty_state(
                 id("forge-tree-empty"),
                 "folder-open",
                 words::NOTHING_HERE,
@@ -330,14 +330,12 @@ fn tree_row(
             return parts::notice(key, sentence.clone(), Tone::Danger, ladder, theme)
                 .into_any_element();
         }
-        Slot::Entry { .. } if row.is_dir() => Row::titled(key, format!("{}/", row.name), ladder)
+        Slot::Entry { .. } if row.is_dir() => Row::titled(key, format!("{}/", row.name))
             .lead(parts::lead_icon("folder", ladder, theme))
             .chevron(),
-        Slot::Entry { .. } => Row::data(key, row.name.clone(), ladder).lead(parts::lead_icon(
-            "file-text",
-            ladder,
-            theme,
-        )),
+        Slot::Entry { .. } => {
+            Row::data(key, row.name.clone()).lead(parts::lead_icon("file-text", ladder, theme))
+        }
     };
     let inset = design::space::BLOCK + design::space::LG * row.depth as f32;
     let line = line.press(ladder, theme).pl(inset).on_click(
@@ -375,7 +373,7 @@ pub(super) fn log(
     };
     let (held, count) = log.read(|log| (log.rows().len(), log.count()));
     if held == 0 {
-        return parts::empty_state(
+        return design::empty_state(
             id(format!("{element_id}-empty")),
             "git-commit-horizontal",
             words::NO_COMMITS,
@@ -426,13 +424,10 @@ fn landed<'a>(
             let query = query.clone();
             let retry =
                 cx.listener(move |forge, _: &ClickEvent, _, cx| forge.retry(query.clone(), cx));
-            Err(parts::refused(
-                element_id,
-                refusal.message,
-                retry,
-                ladder,
-                theme,
-            ))
+            Err(
+                design::refused(element_id, design::sentence(&refusal), ladder, theme, retry)
+                    .into_any_element(),
+            )
         }
         (Some(log), None) if !log.read(Paged::is_loading) => Ok(log),
         _ => Err(parts::quiet(
@@ -515,11 +510,11 @@ fn changes(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
     let new_change = parts::small_button(
         id("forge-new-change"),
         words::NEW_CHANGE,
+        "git-pull-request",
         ladder,
         theme,
         start,
     )
-    .icon("git-pull-request")
     .enabled(forge.me_principal().is_some());
     let page = body("forge-changes")
         .child(filter_chips(forge, cx, ladder, theme))
@@ -534,7 +529,7 @@ fn changes(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
                     div()
                         .flex_1()
                         .min_w(px(0.))
-                        .child(parts::search_field(search, "search", ladder, theme)),
+                        .child(design::field(search, ladder, theme).lead("search")),
                 )
                 .child(new_change),
         )
@@ -543,7 +538,7 @@ fn changes(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
     // a filter about "me" asks nothing while the reader holds no account
     let Some(query) = forge.changes_query(&repo) else {
         return page
-            .child(parts::empty_state(
+            .child(design::empty_state(
                 id("forge-changes-no-account"),
                 "user-round",
                 words::NO_ACCOUNT,
@@ -622,7 +617,7 @@ fn no_changes(filter: Filter, ladder: &Ladder, theme: &Theme) -> AnyElement {
         Filter::Judgment => (words::NOTHING_WAITS, words::NOTHING_ASKED),
         _ => (words::NO_CHANGES_HERE, words::COMPARE_TO_OPEN),
     };
-    parts::empty_state(
+    design::empty_state(
         id("forge-changes-empty"),
         "git-pull-request",
         title,
@@ -720,7 +715,7 @@ fn refs(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
     }
     if all.is_empty() {
         return page
-            .child(parts::empty_state(
+            .child(design::empty_state(
                 id("forge-refs-empty"),
                 "git-branch",
                 words::NO_REFS,
@@ -835,7 +830,7 @@ fn ref_row(
     theme: &Theme,
 ) -> AnyElement {
     let label = &line.label;
-    let mut row = Row::titled(id(format!("forge-ref-row-{label}")), label.clone(), ladder)
+    let mut row = Row::titled(id(format!("forge-ref-row-{label}")), label.clone())
         .lead(parts::lead_icon("git-branch", ladder, theme))
         .caption(parts::caption(line.facts.clone(), ladder, theme))
         .chosen(line.browsing);
@@ -853,13 +848,14 @@ fn ref_row(
             compare(from.clone(), window, app)
         };
         row = row.tail(
-            parts::small_button(
+            design::button(
                 id(format!("forge-compare-{label}")),
                 "Compare",
                 ladder,
                 theme,
                 start,
             )
+            .small()
             .enabled(routes.may_compare),
         );
     }
@@ -927,7 +923,7 @@ fn settings(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &The
         ))
         .child(section("forge-settings-access", "Access"))
         .child(
-            Row::titled(id("forge-writer-owner"), "Owner", ladder)
+            Row::titled(id("forge-writer-owner"), "Owner")
                 .tail(
                     div()
                         .text_type(ladder.secondary)
@@ -958,7 +954,7 @@ fn default_head(
     ladder: &Ladder,
     theme: &Theme,
 ) -> AnyElement {
-    let mut row = Row::titled(id(Menu::Head.key()), words::DEFAULT_HEAD, ladder)
+    let mut row = Row::titled(id(Menu::Head.key()), words::DEFAULT_HEAD)
         .caption(parts::caption(words::DEFAULT_HEAD_RULE, ladder, theme))
         .tail(parts::data(ref_label(head)).text_type(ladder.secondary));
     if owner {
@@ -1001,7 +997,7 @@ fn switches(
     });
     let flag =
         |key: &str, title: &'static str, said: &'static str, on: bool, flip: parts::Press| {
-            Row::titled(id(format!("{key}-row")), title, ladder)
+            Row::titled(id(format!("{key}-row")), title)
                 .caption(parts::caption(said, ladder, theme))
                 .tail(design::switch(
                     id(key.to_owned()),
@@ -1048,19 +1044,20 @@ fn writer_rows(
         .iter()
         .map(|writer| {
             let name = forge.principal_name(writer);
-            let mut row = Row::titled(id(format!("forge-writer-{name}")), name.clone(), ladder);
+            let mut row = Row::titled(id(format!("forge-writer-{name}")), name.clone());
             if owner {
                 let who = writer.clone();
                 let revoke =
                     cx.listener(move |forge, _: &ClickEvent, _, cx| forge.revoke(who.clone(), cx));
                 row = row.tail(
-                    parts::small_button(
+                    design::button(
                         id(format!("forge-revoke-{name}")),
                         "Revoke",
                         ladder,
                         theme,
                         revoke,
                     )
+                    .small()
                     .kind(Kind::Quiet)
                     .enabled(!busy),
                 );
@@ -1081,7 +1078,7 @@ fn writer_rows(
     }
     if owner {
         let grant = cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_sheet(Sheet::Grant, cx));
-        let row = Row::titled(id("forge-grant"), "Grant write access…", ladder)
+        let row = Row::titled(id("forge-grant"), "Grant write access…")
             .caption(parts::caption(words::PICK_A_WRITER, ladder, theme))
             .chevron()
             .draw(ladder, theme)

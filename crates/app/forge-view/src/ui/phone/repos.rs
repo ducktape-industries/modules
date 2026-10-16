@@ -80,7 +80,7 @@ fn filter(forge: &Forge, ladder: &Ladder, theme: &Theme) -> Div {
     div()
         .px(design::space::BLOCK)
         .pb(design::space::SM)
-        .child(parts::search_field(input, "search", ladder, theme))
+        .child(design::field(input, ladder, theme).lead("search"))
 }
 
 /// "Needs my judgment" and its changes, each opening its change; nothing
@@ -180,7 +180,7 @@ fn repositories(
         .filter(|info| needle.is_empty() || info.name.to_lowercase().contains(&needle))
         .collect();
     let body = match (shown.is_empty(), all.is_empty()) {
-        (true, true) => parts::empty_state(
+        (true, true) => design::empty_state(
             id("forge-repos-empty"),
             "hammer",
             words::NO_REPOSITORIES_YET,
@@ -189,7 +189,7 @@ fn repositories(
             theme,
         )
         .into_any_element(),
-        (true, false) => parts::empty_state(
+        (true, false) => design::empty_state(
             id("forge-repos-empty"),
             "search",
             words::NOTHING_MATCHES,
@@ -249,14 +249,10 @@ fn repo_row(info: &RepoInfo, forge: &Forge, ladder: &Ladder, theme: &Theme) -> R
         design::plural(info.repo.refs_count, "ref", "refs"),
         info.repo.last_activity
     );
-    Row::titled(
-        id(format!("forge-repo-{}", info.name)),
-        info.name.clone(),
-        ladder,
-    )
-    .lead(parts::lead_icon("folder", ladder, theme))
-    .caption(parts::caption(facts, ladder, theme))
-    .chevron()
+    Row::titled(id(format!("forge-repo-{}", info.name)), info.name.clone())
+        .lead(parts::lead_icon("folder", ladder, theme))
+        .caption(parts::caption(facts, ladder, theme))
+        .chevron()
 }
 
 // ------------------------------------------------------------------ New repository
@@ -286,8 +282,8 @@ pub(super) fn new_repository(
         theme,
     )
     .on_dismiss(close)
-    .child(parts::sheet_head(
-        "forge-new-repo-title",
+    .child(design::sheet_title(
+        id("forge-new-repo-head"),
         words::NEW_REPOSITORY,
         ladder,
         theme,
@@ -297,7 +293,12 @@ pub(super) fn new_repository(
 }
 
 /// "Name": the field, its rule, and why a name was refused.
-fn name_field(form: &NewRepo, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> Div {
+fn name_field(
+    form: &NewRepo,
+    cx: &mut Context<Forge>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> impl IntoElement {
     // a name typed again takes the last refusal with it
     let typed = cx.listener(|forge, _: &wire::TextChange, _, cx| {
         if let Some(form) = &mut forge.new_repo {
@@ -312,13 +313,12 @@ fn name_field(form: &NewRepo, cx: &mut Context<Forge>, ladder: &Ladder, theme: &
         .placeholder(words::REPOSITORY_NAME)
         .on_change(typed)
         .on_submit(create);
-    parts::input_field(
-        Some("Name"),
-        input,
-        (&form.error, Some(words::NAME_RULE)),
-        ladder,
-        theme,
-    )
+    design::field(input, ladder, theme)
+        .label("Name")
+        .caption(words::NAME_RULE)
+        .when(!form.error.is_empty(), |field| {
+            field.problem(form.error.clone())
+        })
 }
 
 /// "Object format": SHA-1 | SHA-256, and what picking SHA-1 is for.

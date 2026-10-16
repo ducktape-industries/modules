@@ -565,13 +565,5 @@ fn door_row(id: &'static str, open: bool, cx: &Context<Nodes>, theme: &Theme) ->
         view.door = false;
         view.press(Motion::Door { open }, cx);
     });
-    // SDK gap: the sheet row's hint (caption, muted, at the right), swap
-    // when feat/phone-kit lands
-    design::sheet_row(id, None, door.label, false, &LADDER, theme, vote).child(
-        div()
-            .flex_none()
-            .text_type(LADDER.caption)
-            .text_color(theme.muted)
-            .child(door.meaning),
-    )
+    design::sheet_row(id, door.label, &LADDER, theme, vote).hint(door.meaning)
 }

@@ -3,7 +3,6 @@
 //! handed; none reads the state or writes. The ones marked "SDK gap" are
 //! every view's, and come to the SDK in one PR; until then they live here
 //! as they are.
-use view::accesskit::Invalid;
 use view::design::Ladder;
 use view::prelude::*;
 use view::{Div, ElementId, FontWeight, Stateful, Svg};
@@ -14,13 +13,6 @@ use crate::words;
 // SDK gap: the row's title over caption, swap when feat/phone-kit lands
 /// The room between a row's title and its caption (Expo `src/kit/Row.tsx:58`).
 const TITLE_GAP: Pixels = px(1.);
-// SDK gap: the labelled field, swap when feat/phone-kit lands
-/// A stopped field's text inset: its edge goes 2 thick in the danger tone,
-/// so the text moves one in to stay put (Expo `src/kit/Field.tsx:52`).
-const STOPPED_INSET: Pixels = px((design::spacing::LG - 1.) as f32);
-/// A stopped field of many lines moves its lines one in from the top and
-/// bottom too (Expo `src/kit/Field.tsx:79`).
-pub(super) const STOPPED_LINES: Pixels = px((design::spacing::MD - 1.) as f32);
 
 /// A column of a pane or a sheet, its children edge to edge.
 pub(super) fn column(id: impl Into<ElementId>) -> Stateful<Div> {
@@ -29,60 +21,20 @@ pub(super) fn column(id: impl Into<ElementId>) -> Stateful<Div> {
 
 /// A one-line field over `form` for a name: `label` names it, `prompt` is
 /// drawn in it while empty. It takes no typing while the submit is in
-/// flight, and tells assistive tech what stopped it. Return sends nothing
-/// unless the caller says so (Expo sets `onSubmitEditing` on some fields).
+/// flight; the [`design::field`] it goes in says what stopped it. Return
+/// sends nothing unless the caller says so (Expo sets `onSubmitEditing` on
+/// some fields).
 pub(super) fn name_input(
     id: impl Into<ElementId>,
     form: &Form,
     label: impl Into<String>,
     prompt: &str,
-    problem: Option<&str>,
 ) -> Input {
     Input::new(id, &form.text, label)
         .placeholder(prompt)
         .disabled(form.busy)
         // Expo's fields set none: React Native's default, sentences
         .autocapitalize(Autocapitalize::Sentences)
-        .when_some(problem, |input, problem| {
-            input.invalid(Invalid::True).description(problem)
-        })
-}
-
-// SDK gap: the labelled field, swap when feat/phone-kit lands
-/// A field under its label, and under it what stopped it, in the danger
-/// tone, its edge too (the Expo kit's `Field`).
-pub(super) fn labelled(
-    label: &str,
-    field: impl IntoElement + Styled,
-    problem: Option<String>,
-    ladder: &Ladder,
-    theme: &Theme,
-) -> Div {
-    let field = match problem {
-        Some(_) => field
-            .border_2()
-            .border_color(theme.danger)
-            .px(STOPPED_INSET),
-        None => field,
-    };
-    div()
-        .flex()
-        .flex_col()
-        .child(
-            div()
-                .mb(design::space::XS)
-                .text_type(ladder.caption)
-                .text_color(theme.muted)
-                .child(label.to_owned()),
-        )
-        .child(field)
-        .children(problem.map(|problem| {
-            div()
-                .mt(design::space::XS)
-                .text_type(ladder.caption)
-                .text_color(theme.danger)
-                .child(problem)
-        }))
 }
 
 /// What stopped `form`, worded; `empty` says what to type.
@@ -156,17 +108,6 @@ pub(super) fn mono(text: impl Into<SharedString>, ladder: &Ladder, theme: &Theme
         .text_type(ladder.caption)
         .text_color(theme.muted)
         .child(text.into())
-}
-
-// SDK gap: the sheet row's hint, swap when feat/phone-kit lands
-/// A sheet row's value at its right, never squeezed (the Expo kit's
-/// `SheetRow` hint, `src/kit/Sheet.tsx:168`).
-pub(super) fn hint(text: &str, ladder: &Ladder, theme: &Theme) -> Div {
-    div()
-        .flex_none()
-        .text_type(ladder.caption)
-        .text_color(theme.muted)
-        .child(text.to_owned())
 }
 
 // SDK gap: the row's chevron, swap when feat/phone-kit lands

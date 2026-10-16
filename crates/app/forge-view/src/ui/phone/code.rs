@@ -254,7 +254,7 @@ fn unreadable(blob: &BlobView, ladder: &Ladder, theme: &Theme) -> Option<AnyElem
         Content::Gitlink => ("Submodule", words::SUBMODULE_POINTS_AWAY.to_owned()),
     };
     Some(
-        parts::empty_state(
+        design::empty_state(
             id("forge-blob-unreadable"),
             "file-question",
             title,
@@ -281,7 +281,8 @@ fn toggles(
             forge.source = !forge.source;
             cx.notify();
         });
-        parts::small_button(id("forge-source"), "Source", ladder, theme, flip)
+        design::button(id("forge-source"), "Source", ladder, theme, flip)
+            .small()
             .kind(ink(forge.source))
     });
     let wrap = (!markdown || forge.source).then(|| {
@@ -289,7 +290,9 @@ fn toggles(
             forge.wrap = !forge.wrap;
             cx.notify();
         });
-        parts::small_button(id("forge-wrap"), "Wrap", ladder, theme, flip).kind(ink(forge.wrap))
+        design::button(id("forge-wrap"), "Wrap", ladder, theme, flip)
+            .small()
+            .kind(ink(forge.wrap))
     });
     div()
         .flex()

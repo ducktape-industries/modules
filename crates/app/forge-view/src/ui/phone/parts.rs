@@ -3,16 +3,16 @@
 //! sheet, the outbox's rows of a scope), the pieces of
 //! `src/forge/repo.tsx` its screens share (`FileBar`, `sizeOf`, `Stage`),
 //! and the kit pieces of `src/kit/*.tsx` the SDK does not ship yet (the
-//! small button, chips, the notice, key/value, the empty state). Each
-//! kit piece is marked `SDK gap`: every view needs it, so it lands once in
-//! the SDK (`feat/phone-kit`) and this copy goes. Each part reads the
-//! model and draws; none writes but through the press it is handed.
+//! small button's glyph, chips, the notice, key/value). Each kit piece is
+//! marked `SDK gap`: every view needs it, so it lands once in the SDK and
+//! this copy goes. Each part reads the model and draws; none writes but
+//! through the press it is handed.
 use std::ops::Range;
 use std::rc::Rc;
 
-use view::design::{Kind, Ladder, TextType};
+use view::design::{Ladder, TextType};
 use view::prelude::*;
-use view::{Div, FontWeight, HighlightStyle, Stateful, StyledText, accesskit};
+use view::{Div, FontWeight, HighlightStyle, Stateful, StyledText};
 
 use crate::id;
 use crate::list;
@@ -35,16 +35,8 @@ const SMALL_ICON: Pixels = px(16.);
 pub(crate) const CHIP: Pixels = px(32.);
 /// The label column of a key/value row (`Facts.tsx` `KeyValue`).
 const KEY_W: Pixels = px(96.);
-/// An empty state's icon (`theme.ts` `size.icon.empty`), its padding and
-/// its body's measure (`States.tsx` `EmptyState`).
-const EMPTY_ICON: Pixels = px(28.);
-const EMPTY_Y: Pixels = px(40.);
-const EMPTY_X: Pixels = px(32.);
-const EMPTY_MEASURE: Pixels = px(280.);
 /// A change row's state dot (`parts.tsx` `StateDot`).
 const DOT: Pixels = px(8.);
-/// The gap between a row's title and its caption (`Row.tsx`).
-const ROW_LINES_GAP: Pixels = px(1.);
 /// A checkbox's or a radio's box, its edge, and what it draws when on
 /// (`Toggle.tsx` `Checkbox`, `Radio`).
 const TICK_BOX: Pixels = px(20.);
@@ -56,7 +48,8 @@ const RADIO_DOT: Pixels = px(9.);
 
 /// One line of caption text, muted (the kit's `Text role="caption"`):
 /// plain words, or runs of their own (a `+a −d` delta).
-// SDK gap: quiet text at the ladder's sizes, swap when feat/phone-kit lands
+// SDK gap: a caption of runs (`design::row_caption` takes plain words); the
+// SDK builds it later
 pub(crate) fn caption(text: impl IntoElement, ladder: &Ladder, theme: &Theme) -> Div {
     div()
         .text_type(ladder.caption)
@@ -144,13 +137,13 @@ pub(crate) fn lead_icon(name: &str, ladder: &Ladder, theme: &Theme) -> AnyElemen
         .into_any_element()
 }
 
-/// A list row (`Row.tsx`): at least a row tall (56 with a caption), the
-/// lead in its 24 column, the title over its caption, what trails it, a
-/// chevron when it pushes a screen. The caller makes it a press.
-// SDK gap: the row's title over caption, and its chevron, swap when feat/phone-kit lands
+/// A list row (`Row.tsx`, the SDK's `design::row` and its words): at
+/// least a row tall (56 with a caption), the lead in its 24 column, the
+/// title over its caption, what trails it, a chevron when it pushes a
+/// screen. The caller makes it a press ([`Row::press`]).
 pub(crate) struct Row {
     id: ElementId,
-    title: AnyElement,
+    title: Title,
     lead: Option<AnyElement>,
     caption: Option<AnyElement>,
     tail: Vec<AnyElement>,
@@ -158,46 +151,42 @@ pub(crate) struct Row {
     chosen: bool,
 }
 
+/// What a [`Row`]'s title is.
+enum Title {
+    /// `design::row_title`
+    Words(SharedString),
+    /// `design::row_title` in the data face at the secondary size
+    Data(SharedString),
+    /// drawn by the caller: runs of their own
+    Drawn(AnyElement),
+}
+
 impl Row {
     /// A row whose title is `title` as it is drawn.
     pub(crate) fn new(id: impl Into<ElementId>, title: impl IntoElement) -> Row {
+        Row::of(id.into(), Title::Drawn(title.into_any_element()))
+    }
+
+    /// A row titled in body text on one line.
+    pub(crate) fn titled(id: impl Into<ElementId>, title: impl Into<SharedString>) -> Row {
+        Row::of(id.into(), Title::Words(title.into()))
+    }
+
+    /// A row titled in the data face, at the secondary size (`mono`).
+    pub(crate) fn data(id: impl Into<ElementId>, title: impl Into<SharedString>) -> Row {
+        Row::of(id.into(), Title::Data(title.into()))
+    }
+
+    fn of(id: ElementId, title: Title) -> Row {
         Row {
-            id: id.into(),
-            title: title.into_any_element(),
+            id,
+            title,
             lead: None,
             caption: None,
             tail: Vec::new(),
             chevron: false,
             chosen: false,
         }
-    }
-
-    /// A row titled in body text on one line.
-    pub(crate) fn titled(
-        id: impl Into<ElementId>,
-        title: impl Into<SharedString>,
-        ladder: &Ladder,
-    ) -> Row {
-        Row::new(
-            id,
-            div().text_type(ladder.body).truncate().child(title.into()),
-        )
-    }
-
-    /// A row titled in the data face, at the secondary size (`mono`).
-    pub(crate) fn data(
-        id: impl Into<ElementId>,
-        title: impl Into<SharedString>,
-        ladder: &Ladder,
-    ) -> Row {
-        Row::new(
-            id,
-            div()
-                .font_family(design::fonts::FAMILY_MONO)
-                .text_type(ladder.secondary)
-                .truncate()
-                .child(title.into()),
-        )
     }
 
     pub(crate) fn lead(mut self, lead: impl IntoElement) -> Row {
@@ -235,14 +224,15 @@ impl Row {
 
     pub(crate) fn draw(self, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
         let captioned = self.caption.is_some();
-        let lines = div()
-            .flex_1()
-            .min_w(px(0.))
-            .flex()
-            .flex_col()
-            .gap(ROW_LINES_GAP)
-            .child(self.title)
-            .children(self.caption);
+        let title = match self.title {
+            Title::Words(words) => design::row_title(words, ladder, theme).into_any_element(),
+            Title::Data(words) => design::row_title(words, ladder, theme)
+                .font_family(design::fonts::FAMILY_MONO)
+                .text_type(ladder.secondary)
+                .into_any_element(),
+            Title::Drawn(title) => title,
+        };
+        let lines = design::row_words(title).children(self.caption);
         design::row(self.id, ladder, theme)
             .when(captioned, |row| row.min_h(ladder.row_tall))
             .when(self.chosen, |row| row.bg(theme.accent_soft))
@@ -259,7 +249,7 @@ impl Row {
                 )
             })
             .when(self.chevron, |row| {
-                row.child(design::icon("chevron-right", ladder.icon_row).text_color(theme.faint))
+                row.child(design::chevron(ladder, theme))
             })
     }
 }
@@ -324,7 +314,7 @@ pub(crate) fn virtual_list(
 
 /// A key/value row (`Facts.tsx` `KeyValue`): at least a control tall, the
 /// label `small` muted in its column, the value `small` beside it.
-// SDK gap: key/value, swap when feat/phone-kit lands
+// SDK gap: the kit's `KeyValue`; the SDK builds it later
 pub(crate) fn key_value(
     label: &str,
     value: impl IntoElement,
@@ -352,84 +342,8 @@ pub(crate) fn key_value(
         .child(div().flex_1().min_w(px(0.)).child(value))
 }
 
-/// A one-line field with its lines (`Field.tsx`): the kit's box, edged in
-/// danger while something is wrong. What is wrong marks the input invalid
-/// and is its description, so a screen reader hears why (rule 18); with
-/// nothing wrong its rule is.
-// SDK gap: the labelled field with its problem, swap when feat/phone-kit lands
-pub(crate) fn input_field(
-    label: Option<&str>,
-    input: Input,
-    (problem, rule): (&str, Option<&str>),
-    ladder: &Ladder,
-    theme: &Theme,
-) -> Div {
-    let wrong = !problem.is_empty();
-    let said = if wrong { Some(problem) } else { rule };
-    let input = input
-        .when(wrong, |input| input.invalid(accesskit::Invalid::True))
-        .when_some(said, |input, said| input.description(said));
-    let field = design::field(input, ladder, theme)
-        .w_full()
-        .when(wrong, |field| field.border_color(theme.danger));
-    field_lines(label, field, (problem, rule), ladder, theme)
-}
-
-/// A field of many lines with its lines ([`text_area`] in [`field_lines`]).
-// SDK gap: `Textarea` takes no `invalid` or `description`, so what is
-// wrong is drawn under it but not said to a screen reader; swap when
-// feat/phone-kit lands
-pub(crate) fn text_area_field(
-    label: Option<&str>,
-    area: Textarea,
-    problem: &str,
-    ladder: &Ladder,
-    theme: &Theme,
-) -> Div {
-    field_lines(
-        label,
-        text_area(area, ladder, theme),
-        (problem, None),
-        ladder,
-        theme,
-    )
-}
-
-/// A field with its lines (`Field.tsx`): its label over it, caption
-/// muted, and under it what is wrong in danger, else its rule muted.
-fn field_lines(
-    label: Option<&str>,
-    field: impl IntoElement,
-    (problem, rule): (&str, Option<&str>),
-    ladder: &Ladder,
-    theme: &Theme,
-) -> Div {
-    let under = match problem.is_empty() {
-        false => Some((problem.to_owned(), theme.danger)),
-        true => rule.map(|rule| (rule.to_owned(), theme.muted)),
-    };
-    div()
-        .flex()
-        .flex_col()
-        .children(label.map(|label| {
-            div()
-                .mb(design::space::XS)
-                .text_type(ladder.caption)
-                .text_color(theme.muted)
-                .child(label.to_owned())
-        }))
-        .child(field)
-        .children(under.map(|(text, colour)| {
-            div()
-                .mt(design::space::XS)
-                .text_type(ladder.caption)
-                .text_color(colour)
-                .child(text)
-        }))
-}
-
-/// A value in the data face: a hash, a ref, a number.
-// SDK gap: mono text at the ladder's sizes, swap when feat/phone-kit lands
+/// A value in the data face: a hash, a ref, a number. The caller sizes it
+/// (`design::mono` is the pointer's size).
 pub(crate) fn data(text: impl Into<SharedString>) -> Div {
     div()
         .font_family(design::fonts::FAMILY_MONO)
@@ -439,7 +353,8 @@ pub(crate) fn data(text: impl Into<SharedString>) -> Div {
 // ------------------------------------------------------------------ states
 
 /// One muted status line, 16 all round (`States.tsx` `Quiet`).
-// SDK gap: quiet text at the ladder's sizes, swap when feat/phone-kit lands
+// SDK gap: the kit's `Quiet` at the ladder's sizes (`design::quiet` is the
+// pointer's); the SDK builds it later
 pub(crate) fn quiet(
     id: impl Into<ElementId>,
     text: impl Into<SharedString>,
@@ -454,48 +369,11 @@ pub(crate) fn quiet(
         .child(text.into())
 }
 
-/// Nothing to show yet (`States.tsx` `EmptyState`): the icon faint, what
-/// is missing in medium, what would fill it muted, all centred.
-// SDK gap: the empty state at touch sizes, swap when feat/phone-kit lands
-pub(crate) fn empty_state(
-    id: impl Into<ElementId>,
-    icon: &str,
-    title: impl Into<SharedString>,
-    body: impl Into<SharedString>,
-    ladder: &Ladder,
-    theme: &Theme,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .flex_col()
-        .items_center()
-        .justify_center()
-        .gap(design::space::SM)
-        .py(EMPTY_Y)
-        .px(EMPTY_X)
-        .child(design::icon(icon, EMPTY_ICON).text_color(theme.faint))
-        .child(
-            div()
-                .text_type(ladder.body)
-                .font_weight(FontWeight::MEDIUM)
-                .text_center()
-                .child(title.into()),
-        )
-        .child(
-            div()
-                .max_w(EMPTY_MEASURE)
-                .text_type(ladder.secondary)
-                .text_color(theme.muted)
-                .text_center()
-                .child(body.into()),
-        )
-}
-
 /// A notice's tone (`Notice.tsx` `NoticeKind`): its ground and its words'
 /// colour.
 #[derive(Clone, Copy)]
-// SDK gap: the notice, swap when feat/phone-kit lands
+// SDK gap: the kit's `Notice` (the SDK draws only its refusal,
+// `design::refused`); the SDK builds it later
 pub(crate) enum Tone {
     /// a refusal
     Danger,
@@ -518,7 +396,7 @@ impl Tone {
 /// A strip above or under content (`Notice.tsx`): edge to edge, 10 over
 /// and under, 16 in, secondary text in its tone on its ground; a quiet one
 /// keeps a hairline under it.
-// SDK gap: the notice, swap when feat/phone-kit lands
+// SDK gap: the kit's `Notice`; the SDK builds it later
 pub(crate) fn notice(
     id: impl Into<ElementId>,
     text: impl Into<SharedString>,
@@ -550,37 +428,6 @@ pub(crate) fn notice(
         )
 }
 
-/// A notice's one action at its right (`Notice.tsx`): medium in the
-/// notice's tone, its press reaching a finger's box.
-// SDK gap: the notice's action, swap when feat/phone-kit lands
-pub(crate) fn notice_action(
-    id: impl Into<ElementId>,
-    label: &'static str,
-    tone: Tone,
-    ladder: &Ladder,
-    theme: &Theme,
-    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> Div {
-    let (_, words) = tone.colours(theme);
-    let height = ladder.secondary.line.unwrap_or(ladder.secondary.size);
-    div()
-        .relative()
-        .flex_none()
-        .h(height)
-        .pl(design::space::SM)
-        .text_type(ladder.secondary)
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(words)
-        .child(label)
-        .child(
-            design::hit(id, ladder.hit, height, px(0.), ladder)
-                .role(Role::Button)
-                .aria_label(label)
-                .focusable()
-                .on_click(click),
-        )
-}
-
 /// A read as a screen shows it (`States.tsx` `ReadView`): the reply once
 /// it landed, else the quiet line `loading` says, or the refusal and
 /// Retry in its place (`{id}-loading`, `{id}-refused`, `{id}-retry`).
@@ -605,45 +452,12 @@ pub(crate) fn stage<'a>(
             let query = query.clone();
             let retry =
                 cx.listener(move |forge, _: &ClickEvent, _, cx| forge.retry(query.clone(), cx));
-            Err(refused(
-                element_id,
-                refusal.message.clone(),
-                retry,
-                ladder,
-                theme,
-            ))
+            Err(
+                design::refused(element_id, design::sentence(refusal), ladder, theme, retry)
+                    .into_any_element(),
+            )
         }
     }
-}
-
-/// A refused read (`States.tsx` `Refused`): the sentence verbatim on the
-/// danger strip, and Retry.
-// SDK gap: the refusal and its Retry, swap when feat/phone-kit lands
-pub(crate) fn refused(
-    element_id: &str,
-    sentence: String,
-    retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ladder: &Ladder,
-    theme: &Theme,
-) -> AnyElement {
-    notice(
-        id(format!("{element_id}-refused")),
-        sentence,
-        Tone::Danger,
-        ladder,
-        theme,
-    )
-    .role(Role::Alert)
-    .aria_live(view::accesskit::Live::Assertive)
-    .child(notice_action(
-        id(format!("{element_id}-retry")),
-        "Retry",
-        Tone::Danger,
-        ladder,
-        theme,
-        retry,
-    ))
-    .into_any_element()
 }
 
 /// The writes of `scope` still on their way (`parts.tsx` `PendingRows`):
@@ -719,15 +533,16 @@ pub(crate) fn notices(forge: &Forge, ladder: &Ladder, theme: &Theme) -> Vec<AnyE
 
 // ------------------------------------------------------------------ controls
 
-/// The kit's small button (`Button.tsx` `small`): 36 tall, 12 in, an
-/// optional icon at 16, the label secondary (medium but for a quiet one);
-/// its press reaches past its edges to a finger's box.
-// SDK gap: the small button, swap when feat/phone-kit lands
+/// The kit's small outline button with its glyph (`Button.tsx` `small`
+/// with `icon`): `design::button(..).small()`'s face, 36 tall, 12 in, the
+/// glyph at 16 before the label in secondary medium; its press reaches
+/// past its edges to a finger's box. A small button with no glyph is
+/// `design::button(..).small()`.
+// SDK gap: a button's glyph (`Button.tsx` `icon`); the SDK builds it later
 pub(crate) struct SmallButton {
     id: ElementId,
     label: SharedString,
-    icon: Option<&'static str>,
-    kind: Kind,
+    icon: &'static str,
     enabled: bool,
     ladder: Ladder,
     theme: Theme,
@@ -737,6 +552,7 @@ pub(crate) struct SmallButton {
 pub(crate) fn small_button(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
+    icon: &'static str,
     ladder: &Ladder,
     theme: &Theme,
     click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -744,8 +560,7 @@ pub(crate) fn small_button(
     SmallButton {
         id: id.into(),
         label: label.into(),
-        icon: None,
-        kind: Kind::Outline,
+        icon,
         enabled: true,
         ladder: *ladder,
         theme: *theme,
@@ -754,29 +569,9 @@ pub(crate) fn small_button(
 }
 
 impl SmallButton {
-    pub(crate) fn icon(mut self, name: &'static str) -> Self {
-        self.icon = Some(name);
-        self
-    }
-    pub(crate) fn kind(mut self, kind: Kind) -> Self {
-        self.kind = kind;
-        self
-    }
     pub(crate) fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
-    }
-
-    /// (edge, words) as the kit's outline, quiet and primary draw them;
-    /// a disabled one faint.
-    fn colours(&self) -> (Hsla, Hsla) {
-        let theme = &self.theme;
-        match (self.kind, self.enabled) {
-            (_, false) => (theme.border, theme.faint),
-            (Kind::Primary, true) => (theme.primary, theme.primary_foreground),
-            (Kind::Quiet, true) => (hsla(0., 0., 0., 0.), theme.muted),
-            (Kind::Plain | Kind::Outline, true) => (theme.border_strong, theme.foreground),
-        }
     }
 }
 
@@ -784,8 +579,12 @@ impl IntoElement for SmallButton {
     type Element = Div;
 
     fn into_element(self) -> Div {
-        let (edge, words) = self.colours();
-        let ink = self.kind == Kind::Primary && self.enabled;
+        let theme = self.theme;
+        // the kit's outline; a disabled one faint on a quiet edge
+        let (edge, words) = match self.enabled {
+            true => (theme.border_strong, theme.foreground),
+            false => (theme.border, theme.faint),
+        };
         let press = design::hit(self.id, self.ladder.hit, SMALL, px(1.), &self.ladder)
             .role(Role::Button)
             .aria_label(self.label.clone());
@@ -804,60 +603,21 @@ impl IntoElement for SmallButton {
             .gap(design::space::SM)
             .border_1()
             .border_color(edge)
-            .when(ink, |button| button.bg(self.theme.primary))
             .text_color(words)
             .text_type(self.ladder.secondary)
-            .when(self.kind != Kind::Quiet, |button| {
-                button.font_weight(FontWeight::MEDIUM)
-            })
+            .font_weight(FontWeight::MEDIUM)
             .whitespace_nowrap()
-            .children(self.icon.map(|name| design::icon(name, SMALL_ICON)))
+            .child(design::icon(self.icon, SMALL_ICON))
             .child(self.label)
             .child(press)
     }
 }
 
-/// A field with the kit's lead icon inside its edge (`Field.tsx` `lead`):
-/// the box is `design::field`'s, the icon 12 in, the text 8 after it.
-// SDK gap: the search field, swap when feat/phone-kit lands
-pub(crate) fn search_field(input: Input, icon: &str, ladder: &Ladder, theme: &Theme) -> Div {
-    let inset = design::space::LG + ladder.icon_row + design::space::SM;
-    div()
-        .relative()
-        .w_full()
-        .child(design::field(input, ladder, theme).w_full().pl(inset))
-        .child(
-            div()
-                .absolute()
-                .top_0()
-                .bottom_0()
-                .left(design::space::LG)
-                .flex()
-                .items_center()
-                .child(design::icon(icon, ladder.icon_row).text_color(theme.muted)),
-        )
-}
-
-/// A field of many lines in the kit's box (`Field` `multiline`): at
-/// least a control tall, a `border_strong` hairline, body text 12 in and
-/// 10 over and under; it grows with what is typed.
-// SDK gap: the many-line field's box, swap when feat/phone-kit lands
-pub(crate) fn text_area(field: Textarea, ladder: &Ladder, theme: &Theme) -> Textarea {
-    field
-        .min_h(ladder.control)
-        .px(design::space::LG)
-        .py(design::space::MD)
-        .border_1()
-        .border_color(theme.border_strong)
-        .bg(theme.background)
-        .text_color(theme.foreground)
-        .text_type(ladder.body)
-}
-
 /// A button taking `share` parts of its row (`Button` `wide` with
 /// `flex: share`): it grows from nothing by its share of the room the
 /// row has, its box stretched across it.
-// SDK gap: the wide button's share of its row, swap when feat/phone-kit lands
+// SDK gap: the kit's `Button` `wide` with its `flex` share (`form_verbs`
+// gives only cancel and the verb taking the rest); the SDK builds it later
 pub(crate) fn share(share: f32, button: impl IntoElement) -> Div {
     let mut cell = div().min_w(px(0.)).flex().flex_col().child(button);
     let style = cell.style();
@@ -869,7 +629,7 @@ pub(crate) fn share(share: f32, button: impl IntoElement) -> Div {
 /// A checkbox (`Toggle.tsx` `Checkbox`): a 20 box, a `border_strong`
 /// edge, ink with a check once ticked; its press reaches a finger's box
 /// and stops there, so a row around it does not open too.
-// SDK gap: the checkbox, swap when feat/phone-kit lands
+// SDK gap: the kit's `Checkbox`; the SDK builds it later
 pub(crate) fn checkbox(
     id: impl Into<ElementId>,
     on: bool,
@@ -909,7 +669,7 @@ pub(crate) fn checkbox(
 /// A radio's mark (`Toggle.tsx` `Radio`): a 20 ring, ink with a 9 dot
 /// once picked. The row it sits in is the radio: it carries the press
 /// and the state.
-// SDK gap: the radio mark, swap when feat/phone-kit lands
+// SDK gap: the kit's `Radio` mark; the SDK builds it later
 pub(crate) fn radio_mark(on: bool, theme: &Theme) -> Div {
     let edge = if on {
         theme.foreground
@@ -932,7 +692,7 @@ pub(crate) fn radio_mark(on: bool, theme: &Theme) -> Div {
 
 /// One filter chip (`Choice.tsx` `Chips`): its label, and its count in
 /// the data face.
-// SDK gap: chips, swap when feat/phone-kit lands
+// SDK gap: the kit's `Chips`; the SDK builds it later
 pub(crate) struct Chip {
     pub(crate) id: ElementId,
     pub(crate) label: &'static str,
@@ -1016,22 +776,9 @@ fn chip_box(
         )
 }
 
-/// A page's tabs (`Choice.tsx` `Strip`) on `bar`, a `TabList` composite:
-/// [`Ladder::strip`] tall, its hairline included, 8 in, scrolling
-/// sideways.
-pub(crate) fn strip(bar: Stateful<Div>, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
-    bar.flex()
-        .flex_none()
-        .h(ladder.strip)
-        .px(design::space::SM)
-        .border_b_1()
-        .border_color(theme.border)
-        .overflow_x_scroll()
-}
-
-/// One tab of a [`strip`] (`design::tab`), its count after its label in
-/// the data face, faint. `(chosen, active)`: it is the open one, and the
-/// arrows are on it.
+/// One tab of a `design::strip` (`design::tab`), its count after its
+/// label in the data face, faint (`Choice.tsx` `Strip`). `(chosen,
+/// active)`: it is the open one, and the arrows are on it.
 pub(crate) fn strip_tab(
     element_id: ElementId,
     label: &str,
@@ -1053,21 +800,6 @@ pub(crate) fn strip_tab(
         }),
     );
     design::item(tab, Role::Tab, active).into_any_element()
-}
-
-/// The head of a sheet (`Sheet.tsx` `SheetHead`): its title in `title`
-/// medium.
-// SDK gap: a form sheet's head, swap when feat/phone-kit lands
-pub(crate) fn sheet_head(key: &str, title: &str, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
-    design::sheet_head(id(key.to_owned()), theme).child(
-        div()
-            .id(id(format!("{key}-text")))
-            .text_type(ladder.title)
-            .font_weight(FontWeight::MEDIUM)
-            .role(Role::Heading)
-            .aria_level(2)
-            .child(title.to_owned()),
-    )
 }
 
 /// The strip over a document or a folder (`repo.tsx` `FileBar`): at least
@@ -1119,7 +851,8 @@ pub(crate) fn bar(
 
 /// A badge's tint (`Badge.tsx` `Tint`).
 #[derive(Clone, Copy)]
-// SDK gap: the badge's tints, swap when feat/phone-kit lands
+// SDK gap: the kit's `Badge` tints (`design::badge` takes the colours);
+// the SDK builds them later
 pub(crate) enum Tint {
     /// on `surface_raised`, muted
     Plain,
@@ -1130,7 +863,7 @@ pub(crate) enum Tint {
 }
 
 /// A state word on the kit's 20 tall tag (`Badge.tsx`), in its tint.
-// SDK gap: the badge's tints, swap when feat/phone-kit lands
+// SDK gap: the kit's `Badge` tints; the SDK builds them later
 pub(crate) fn badge(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -1261,7 +994,7 @@ pub(crate) fn commit_row(commit: &CommitInfo, ladder: &Ladder, theme: &Theme) ->
     };
     let author = String::from_utf8_lossy(&commit.author.name);
     let facts = format!("{short} · {author} · {}{merge}", when(commit.author.time));
-    Row::titled(id(format!("forge-commit-{}", commit.oid)), title, ladder)
+    Row::titled(id(format!("forge-commit-{}", commit.oid)), title)
         .lead(lead_icon("git-commit-horizontal", ladder, theme))
         .caption(caption(facts, ladder, theme))
         .chevron()
@@ -1288,7 +1021,12 @@ pub(crate) fn ref_sheet(
         .size_full()
         .flex()
         .flex_col()
-        .child(sheet_head(&format!("{key}-head"), title, ladder, theme))
+        .child(design::sheet_title(
+            id(format!("{key}-head")),
+            title.to_owned(),
+            ladder,
+            theme,
+        ))
         .child(ref_sheet_controls(menu, forge, cx, ladder, theme))
         .child(ref_sheet_list(menu, forge, cx, ladder, theme));
     design::sheet(id(format!("{key}-sheet")), title.to_owned(), ladder, theme)
@@ -1336,7 +1074,7 @@ fn ref_sheet_controls(
         .gap(design::space::SM)
         .p(design::space::BLOCK)
         .children(kinds)
-        .child(search_field(filter, "search", ladder, theme))
+        .child(design::field(filter, ladder, theme).lead("search"))
 }
 
 /// The refs the sheet lists, a row each, as one `Menu` composite the
@@ -1401,7 +1139,6 @@ fn ref_rows(
                 let mut row = Row::data(
                     id(format!("forge-ref-{}", crate::words::path_text(name))),
                     ref_label(name),
-                    &ladder,
                 );
                 if *name == head {
                     let badge = design::badge(
@@ -1461,7 +1198,7 @@ pub(crate) fn people_sheet(
     .autocapitalize(Autocapitalize::None)
     .virtual_keyboard(VirtualKeyboard::Search)
     .placeholder(words::SEARCH_MEMBERS);
-    let head = sheet_head(&format!("{}-head", ask.key), ask.title, ladder, theme)
+    let head = design::sheet_title(id(format!("{}-head", ask.key)), ask.title, ladder, theme)
         .children(ask.caption.map(|said| caption(said, ladder, theme)));
     let body = div()
         .id(id(format!("{}-body", ask.key)))
@@ -1472,7 +1209,7 @@ pub(crate) fn people_sheet(
         .child(
             div()
                 .p(design::space::BLOCK)
-                .child(search_field(filter, "search", ladder, theme)),
+                .child(design::field(filter, ladder, theme).lead("search")),
         )
         .child(people_rows(&ask, pick, forge, cx, ladder, theme));
     design::sheet(id(ask.key), ask.title, ladder, theme)
@@ -1528,7 +1265,7 @@ fn people_rows(
             forge.close_sheet(cx);
             pick(forge, chosen.clone(), cx);
         });
-        Row::titled(id(format!("{}-{number}", ask.key)), name.clone(), ladder)
+        Row::titled(id(format!("{}-{number}", ask.key)), name.clone())
             .lead(design::avatar(&name, ladder.avatar, theme))
             .caption(caption(format!("account {number}"), ladder, theme))
             .press(ladder, theme)

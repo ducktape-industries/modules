@@ -31,8 +31,8 @@ pub(super) fn render(
         "line comment",
         "line comments",
     );
-    let head = parts::sheet_head(
-        "forge-finish-title",
+    let head = design::sheet_title(
+        id("forge-finish-head"),
         words::FINISH_YOUR_REVIEW,
         ladder,
         theme,
@@ -79,16 +79,12 @@ fn overall(review: &ReviewSession, ladder: &Ladder, theme: &Theme) -> Div {
         .autocorrect(true)
         .autocapitalize(Autocapitalize::Sentences)
         .placeholder(words::REVIEW_PROMPT);
-    div()
-        .p(design::space::BLOCK)
-        .pb(design::space::XS)
-        .child(parts::text_area_field(
-            None,
-            field,
-            refusal(review),
-            ladder,
-            theme,
-        ))
+    let refused = refusal(review);
+    div().p(design::space::BLOCK).pb(design::space::XS).child(
+        design::field(field, ladder, theme).when(!refused.is_empty(), |field| {
+            field.problem(refused.to_owned())
+        }),
+    )
 }
 
 /// The verdicts as a radio group, a row each with its mark at the right:
@@ -123,7 +119,7 @@ fn verdicts(
                 let pick = cx
                     .listener(move |forge, _: &ClickEvent, _, cx| forge.pick_verdict(verdict, cx));
                 let label = verdict_label(verdict);
-                let row = Row::titled(id(format!("forge-verdict-{slug}")), label, ladder)
+                let row = Row::titled(id(format!("forge-verdict-{slug}")), label)
                     .caption(parts::caption(said, ladder, theme))
                     .tail(parts::radio_mark(on, theme))
                     .press(ladder, theme)

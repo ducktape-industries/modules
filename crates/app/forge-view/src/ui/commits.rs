@@ -39,7 +39,7 @@ pub(crate) fn render(
     // refuse the read
     if forge.tree_query(Vec::new()).is_none() {
         return match forge.refs() {
-            Some(_) => crate::ui::code::no_commits(forge, theme),
+            Some(_) => crate::ui::code::no_commits(forge, theme, ladder),
             None => quiet(words::RESOLVING_REF, theme),
         };
     }
@@ -86,8 +86,10 @@ pub(crate) fn log(
     if held == 0 {
         return empty_state(
             id(format!("{element_id}-empty")),
+            "git-commit-horizontal",
             words::NO_COMMITS,
             words::NO_HISTORY,
+            &ladder,
             theme,
         )
         .into_any_element();

@@ -491,18 +491,9 @@ fn draw(
 
 // ------------------------------------------------------------------ rows drawn
 
-/// A line's height: the code's line, or, while its gutter number is a
-/// comment button, a finger's box, so each line's button stays its own
-/// (flagged G1 against the Expo app's 20 tall line with 4 of slop).
-fn line_height(line: &Line, look: &Look) -> Pixels {
-    match line.anchor {
-        Some(_) => look.ladder.hit,
-        None => look.ladder.code.line.unwrap_or(look.ladder.code.size),
-    }
-}
-
-/// A line of code (`Lines.tsx` row): its ground, the gutter number at
-/// the gutter's right (faint), the marker, the code highlighted.
+/// A line of code (`Lines.tsx` row): at least the code's line tall (20,
+/// `Lines.tsx:100`), its ground, the gutter number at the gutter's right
+/// (faint), the marker, the code highlighted.
 fn line_row(index: usize, line: &Line, look: &Look, cx: &mut Context<Forge>) -> Stateful<Div> {
     let theme = &look.theme;
     let ground = match line.ground {
@@ -510,7 +501,6 @@ fn line_row(index: usize, line: &Line, look: &Look, cx: &mut Context<Forge>) -> 
         Ground::Added => theme.success_soft,
         Ground::Deleted => theme.danger_soft,
     };
-    let height = line_height(line, look);
     let code = document::code_line(
         id(format!("{}-code-{index}", look.key)),
         &line.text,
@@ -522,11 +512,11 @@ fn line_row(index: usize, line: &Line, look: &Look, cx: &mut Context<Forge>) -> 
     div()
         .id(id(format!("{}-line-{index}", look.key)))
         .w_full()
-        .min_h(height)
+        .min_h(look.ladder.code.line.unwrap_or(look.ladder.code.size))
         .flex()
         .items_center()
         .bg(ground)
-        .child(gutter(index, line, height, look, cx))
+        .child(gutter(index, line, look, cx))
         .children(
             line.marker
                 .map(|marker| code_cell(marker.to_string(), theme.foreground, look).w(MARKER)),
@@ -541,15 +531,16 @@ fn line_row(index: usize, line: &Line, look: &Look, cx: &mut Context<Forge>) -> 
         )
 }
 
-/// The gutter: the line's number at its right, faint; the comment button
-/// while the line takes comments.
-fn gutter(index: usize, line: &Line, height: Pixels, look: &Look, cx: &mut Context<Forge>) -> Div {
+/// The gutter: the line's number at its right, faint. While the line
+/// takes comments it is the comment button, pressed in the line's own box
+/// as Expo's is (`Lines.tsx:112-123`): a dense list's press
+/// (`design::dense`), under a finger's 44.
+fn gutter(index: usize, line: &Line, look: &Look, cx: &mut Context<Forge>) -> AnyElement {
     let number = line
         .number
         .map(|number| number.to_string())
         .unwrap_or_default();
     let cell = div()
-        .relative()
         .w(GUTTER)
         .flex_none()
         .flex()
@@ -557,24 +548,17 @@ fn gutter(index: usize, line: &Line, height: Pixels, look: &Look, cx: &mut Conte
         .pr(design::space::SM)
         .child(code_cell(number.clone(), look.theme.faint, look));
     let Some((path, new_side, at)) = line.anchor.clone() else {
-        return cell;
+        return cell.into_any_element();
     };
     let open = cx.listener(move |forge, _: &ClickEvent, window, cx| {
         forge.open_comment(path.clone(), new_side, at, window, cx)
     });
-    cell.child(
-        design::hit(
-            id(format!("{}-gutter-{index}", look.key)),
-            GUTTER,
-            height,
-            px(0.),
-            &look.ladder,
-        )
+    design::dense(cell.id(id(format!("{}-gutter-{index}", look.key))))
         .role(Role::Button)
         .aria_label(format!("Comment on line {number}"))
         .focusable()
-        .on_click(open),
-    )
+        .on_click(open)
+        .into_any_element()
 }
 
 /// One cell of code text: mono at the code size, in `tone`.
@@ -792,7 +776,8 @@ fn composer_card(forge: &Forge, look: &Look, cx: &mut Context<Forge>) -> Statefu
         .autocorrect(true)
         .autocapitalize(Autocapitalize::Sentences)
         .placeholder(words::COMMENT_PROMPT);
-    let field = parts::text_area_field(None, field, &error, ladder, theme);
+    let field = design::field(field, ladder, theme)
+        .when(!error.is_empty(), |field| field.problem(error.clone()));
     let cancel = cx.listener(|forge, _: &ClickEvent, _, cx| forge.discard_comment(cx));
     let stage = cx.listener(|forge, _: &ClickEvent, _, cx| forge.stage_comment(cx));
     let buttons = div()
@@ -800,16 +785,11 @@ fn composer_card(forge: &Forge, look: &Look, cx: &mut Context<Forge>) -> Statefu
         .justify_end()
         .gap(BUTTONS_GAP)
         .child(
-            parts::small_button(id("forge-comment-cancel"), "Cancel", ladder, theme, cancel)
+            design::button(id("forge-comment-cancel"), "Cancel", ladder, theme, cancel)
+                .small()
                 .kind(Kind::Quiet),
         )
-        .child(parts::small_button(
-            id("forge-comment-stage"),
-            "Stage",
-            ladder,
-            theme,
-            stage,
-        ));
+        .child(design::button(id("forge-comment-stage"), "Stage", ladder, theme, stage).small());
     outer.child(inner.child(head).child(field).child(buttons))
 }
 

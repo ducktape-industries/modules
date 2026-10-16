@@ -216,6 +216,8 @@ pub mod height {
         pub const CONTROL: f64 = 44.;
         /// the one action a screen leads with (`theme.ts:75` `primary`)
         pub const PRIMARY: f64 = 48.;
+        /// a small button (`theme.ts:76` `small`)
+        pub const SMALL: f64 = 36.;
         /// the smallest box a finger presses, each way (`theme.ts:71` `hit`)
         pub const HIT: f64 = 44.;
         /// a few choices in one box, its two hairlines included
@@ -254,6 +256,8 @@ pub mod height {
         pub const ICON_ROW: f64 = 18.;
         /// an icon leading a sheet row (`theme.ts:87` `icon.sheet`)
         pub const ICON_SHEET: f64 = 20.;
+        /// an empty state's icon (`theme.ts:87` `icon.empty`)
+        pub const ICON_EMPTY: f64 = 28.;
     }
 }
 
@@ -554,6 +558,20 @@ pub fn short_hex(text: &str) -> String {
     format!("{head}…{tail}")
 }
 
+/// A key's fingerprint, to compare by eye with the device that shows it:
+/// the first four bytes of its SHA-256 in upper-case hex, split in two
+/// (`4354 C7BD`). It is the app's `noded-client` `join::fingerprint`
+/// (`crates/noded-client/src/join.rs:51-58`), which the Expo app calls
+/// (`app/settings.tsx:63`, `app/account/index.tsx:148`).
+pub fn fingerprint(key: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let hex: String = Sha256::digest(key)[..4]
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect();
+    format!("{} {}", &hex[..4], &hex[4..])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -568,6 +586,11 @@ mod tests {
             short_hex("오리테이프오리테이프오리테이프"),
             "오리테이프오리테…리테이프"
         );
+    }
+    #[test]
+    fn a_fingerprint_is_the_first_four_bytes_of_the_keys_sha256() {
+        // SHA-256 of 32 zero bytes is 66687aad…
+        assert_eq!(fingerprint(&[0; 32]), "6668 7AAD");
     }
     #[test]
     fn every_embedded_font_file_exists_and_is_truetype() {

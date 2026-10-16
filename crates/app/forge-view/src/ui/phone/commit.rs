@@ -207,7 +207,7 @@ fn file_rows(
     theme: &Theme,
 ) -> Vec<AnyElement> {
     if files.is_empty() {
-        let none = parts::empty_state(
+        let none = design::empty_state(
             id("forge-commit-empty"),
             "git-commit-horizontal",
             words::NO_CHANGES,
@@ -257,7 +257,7 @@ fn file_row(
         .font_family(design::fonts::FAMILY_MONO)
         .text_type(ladder.secondary)
         .child(parts::delta("", file.additions, file.deletions, theme));
-    Row::data(id(format!("forge-commit-file-{path}")), path, ladder)
+    Row::data(id(format!("forge-commit-file-{path}")), path)
         .lead(parts::lead_icon("file-text", ladder, theme))
         .tail(delta)
         .press(ladder, theme)

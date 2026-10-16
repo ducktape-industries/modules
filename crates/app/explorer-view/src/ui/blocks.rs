@@ -51,8 +51,10 @@ pub(super) fn block(
                 };
                 empty_state(
                     "explorer-no-block",
+                    "blocks",
                     format!("No block {}", grouped(height)),
                     why,
+                    ladder,
                     theme,
                 )
                 .into_any_element()

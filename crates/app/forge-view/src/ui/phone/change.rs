@@ -200,7 +200,7 @@ fn strip(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme)
         .on_move(cx.processor(pick))
         .on_press(cx.processor(pick))
         .build();
-    let mut bar = parts::strip(bar, ladder, theme);
+    let mut bar = design::strip(bar, ladder, theme);
     for tab in TABS {
         let press = cx.listener(move |forge, _: &ClickEvent, _, cx| tab.open(forge, cx));
         bar = bar.child(parts::strip_tab(
@@ -557,13 +557,16 @@ fn replies(
 ) -> Vec<AnyElement> {
     if let Some(Loadable::Failed(refusal)) = forge.messages.get(&change.channel) {
         let retry = cx.listener(|forge, _: &ClickEvent, _, cx| forge.retry_conversation(cx));
-        return vec![parts::refused(
-            "forge-conversation",
-            refusal.message.clone(),
-            retry,
-            ladder,
-            theme,
-        )];
+        return vec![
+            design::refused(
+                "forge-conversation",
+                design::sentence(refusal),
+                ladder,
+                theme,
+                retry,
+            )
+            .into_any_element(),
+        ];
     }
     let (Some(rows), Some(_)) = (conversation_rows(forge), forge.names.ready()) else {
         return vec![
@@ -710,7 +713,12 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &The
         .gap(design::space::SM)
         .px(design::space::BLOCK)
         .py(design::space::LG)
-        .child(parts::text_area(field, ladder, theme).flex_1())
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .child(design::field(field, ladder, theme)),
+        )
         .child(
             design::icon_button(
                 id("forge-reply-send"),
@@ -778,7 +786,7 @@ fn files(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme)
     };
     if files.is_empty() {
         return column
-            .child(parts::empty_state(
+            .child(design::empty_state(
                 id("forge-files-empty"),
                 "send",
                 words::NO_CHANGES,
@@ -829,13 +837,7 @@ fn files_head(
                 .text_color(theme.muted)
                 .child(said),
         )
-        .child(parts::small_button(
-            id("forge-all-files"),
-            words::ALL_FILES,
-            ladder,
-            theme,
-            all,
-        ))
+        .child(design::button(id("forge-all-files"), words::ALL_FILES, ladder, theme, all).small())
 }
 
 fn file_list(
@@ -1016,7 +1018,7 @@ fn person_row(
 ) -> AnyElement {
     let name = forge.principal_name(who);
     let key = format!("forge-details-{}-{word}", who.account().unwrap_or_default());
-    Row::titled(id(key.clone()), name.clone(), ladder)
+    Row::titled(id(key.clone()), name.clone())
         .lead(design::avatar(&name, ladder.avatar_inline, theme))
         .tail(parts::badge(
             id(format!("{key}-badge")),
@@ -1119,7 +1121,7 @@ fn line_comments(
         let open = cx.listener(move |forge, _: &ClickEvent, _, cx| {
             forge.open_file_comment(path.clone(), cx)
         });
-        Row::data(id(format!("forge-details-comment-{at}")), line, ladder)
+        Row::data(id(format!("forge-details-comment-{at}")), line)
             .press(ladder, theme)
             .role(Role::Button)
             .focusable()
@@ -1146,7 +1148,6 @@ fn channel_row(
     Row::data(
         id("forge-details-channel-row"),
         format!("# {}", change.channel),
-        ladder,
     )
     .chevron()
     .press(ladder, theme)
@@ -1209,42 +1210,29 @@ fn actions(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
         .flex()
         .flex_col()
         .children((open && mine).then(|| {
-            design::sheet_row(
-                id("forge-change-edit"),
-                Some("pencil"),
-                "Edit",
-                false,
-                ladder,
-                theme,
-                edit,
-            )
+            design::sheet_row(id("forge-change-edit"), "Edit", ladder, theme, edit).icon("pencil")
         }))
         .children((open && forge.writes_repo()).then(|| {
+            design::sheet_row(id("forge-change-close"), "Close", ladder, theme, close)
+                .icon("x")
+                .danger()
+        }))
+        .child(
             design::sheet_row(
-                id("forge-change-close"),
-                Some("x"),
-                "Close",
-                true,
+                id("forge-change-copy-link"),
+                "Copy link",
                 ladder,
                 theme,
-                close,
+                copy,
             )
-        }))
-        .child(design::sheet_row(
-            id("forge-change-copy-link"),
-            Some("link"),
-            "Copy link",
-            false,
-            ladder,
-            theme,
-            copy,
-        ))
+            .icon("link"),
+        )
 }
 
 /// Close asked again (`Dialog`): closing is final; Close for good, or
 /// Cancel. Asked inside the More sheet, in Expo's words, until the SDK
 /// draws a dialog.
-// SDK gap: dialog (Expo `kit/Dialog.tsx`), swap when feat/phone-kit lands
+// SDK gap: the kit's `Dialog` (`kit/Dialog.tsx`); the SDK builds it later
 fn close_for_good(cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> Div {
     let confirm = cx.listener(|forge, _: &ClickEvent, _, cx| {
         forge.close_change(cx);
@@ -1254,30 +1242,31 @@ fn close_for_good(cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> Di
         forge.closing = None;
         cx.notify();
     });
-    let head = parts::sheet_head("forge-close-title", words::CLOSE_FOR_GOOD, ladder, theme).child(
-        div()
-            .text_type(ladder.small)
-            .text_color(theme.muted)
-            .child(words::CLOSING_IS_FINAL),
-    );
+    let head = design::sheet_title(id("forge-close-head"), words::CLOSE_FOR_GOOD, ladder, theme)
+        .child(
+            div()
+                .text_type(ladder.small)
+                .text_color(theme.muted)
+                .child(words::CLOSING_IS_FINAL),
+        );
     div()
         .flex()
         .flex_col()
         .child(head)
-        .child(design::sheet_row(
-            id("forge-close-confirm"),
-            Some("x"),
-            words::CLOSE_FOR_GOOD,
-            true,
-            ladder,
-            theme,
-            confirm,
-        ))
+        .child(
+            design::sheet_row(
+                id("forge-close-confirm"),
+                words::CLOSE_FOR_GOOD,
+                ladder,
+                theme,
+                confirm,
+            )
+            .icon("x")
+            .danger(),
+        )
         .child(design::sheet_row(
             id("forge-close-cancel"),
-            None,
             "Cancel",
-            false,
             ladder,
             theme,
             cancel,

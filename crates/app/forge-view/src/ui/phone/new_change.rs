@@ -111,8 +111,7 @@ fn endpoints(
         let open = cx.listener(move |forge, event: &ClickEvent, window, cx| {
             forge.open_dropdown(menu, event, window, cx)
         });
-        parts::small_button(id(menu.key()), label, ladder, theme, open)
-            .icon("git-branch")
+        parts::small_button(id(menu.key()), label, "git-branch", ladder, theme, open)
             .enabled(!editing)
     };
     let pair = div()
@@ -142,7 +141,12 @@ fn comparison(forge: &Forge) -> Option<String> {
 }
 
 /// "Title", and why the form was refused; typing takes the refusal away.
-fn title_field(form: &ChangeForm, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> Div {
+fn title_field(
+    form: &ChangeForm,
+    cx: &mut Context<Forge>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> impl IntoElement {
     let typed = cx.listener(|forge, _: &wire::TextChange, _, cx| {
         if let Some(form) = &mut forge.form {
             form.error.clear();
@@ -154,16 +158,20 @@ fn title_field(form: &ChangeForm, cx: &mut Context<Forge>, ladder: &Ladder, them
         .autocapitalize(Autocapitalize::Sentences)
         .placeholder(words::TITLE_PROMPT)
         .on_change(typed);
-    parts::input_field(Some("Title"), input, (&form.error, None), ladder, theme)
+    design::field(input, ladder, theme)
+        .label("Title")
+        .when(!form.error.is_empty(), |field| {
+            field.problem(form.error.clone())
+        })
 }
 
 /// "Body": many lines.
-fn body_field(form: &ChangeForm, ladder: &Ladder, theme: &Theme) -> Div {
+fn body_field(form: &ChangeForm, ladder: &Ladder, theme: &Theme) -> impl IntoElement {
     let field = Textarea::new(id("forge-change-body"), &form.body, "Body")
         .autocorrect(true)
         .autocapitalize(Autocapitalize::Sentences)
         .placeholder(words::BODY_PROMPT);
-    parts::text_area_field(Some("Body"), field, "", ladder, theme)
+    design::field(field, ladder, theme).label("Body")
 }
 
 /// "Reviewers": a chip each that removes them, and Add.
@@ -191,10 +199,14 @@ fn reviewers(
         .flex_wrap()
         .gap(design::space::SM)
         .children(chips)
-        .child(
-            parts::small_button(id("forge-change-add-reviewer"), "Add", ladder, theme, add)
-                .icon("plus"),
-        );
+        .child(parts::small_button(
+            id("forge-change-add-reviewer"),
+            "Add",
+            "plus",
+            ladder,
+            theme,
+            add,
+        ));
     div()
         .flex()
         .flex_col()
@@ -205,7 +217,7 @@ fn reviewers(
 
 /// A reviewer's chip (`RemovableChip`): the name and a cross in an
 /// outline box; the press removes them.
-// SDK gap: the removable chip, swap when feat/phone-kit lands
+// SDK gap: the kit's `RemovableChip`; the SDK builds it later
 fn removable_chip(
     name: &str,
     ladder: &Ladder,

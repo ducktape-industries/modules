@@ -66,8 +66,10 @@ pub(super) fn account(
         }
         Loadable::Ready(None) | Loadable::Reloading(None, _) => design::empty_state(
             "settings/account/empty",
+            "user-round",
             words::NO_ACCOUNT,
             words::NO_KEY,
+            ladder,
             theme,
         )
         .p_0()

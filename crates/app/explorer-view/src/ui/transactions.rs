@@ -78,11 +78,13 @@ pub(super) fn tx(
         return match &view.located {
             Loadable::Ready(None) | Loadable::Reloading(None, _) => empty_state(
                 "explorer-no-tx",
+                "search-x",
                 "Transaction not found",
                 format!(
                     "This node keeps no transaction at position {position} of block {}.",
                     grouped(height)
                 ),
+                ladder,
                 theme,
             )
             .into_any_element(),
