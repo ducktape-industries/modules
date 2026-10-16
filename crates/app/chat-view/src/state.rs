@@ -227,6 +227,10 @@ pub struct Room {
     pub(crate) newer_loading: bool,
     /// opened around a landing seq: the window may not reach the head
     pub(crate) landed: bool,
+    /// opened at a message (a hit, a link) and not taken back to the
+    /// newest since: the phone keeps "Latest" up while it is, as Expo
+    /// does; `landed` turns off once the window reaches the head
+    pub(crate) opened_at_message: bool,
     #[serde(skip)]
     pub(crate) target: u64,
     pub(crate) reaches_head: bool,

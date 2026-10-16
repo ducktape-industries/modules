@@ -74,6 +74,7 @@ impl Chat {
             };
         }
         room.landed = land > 0;
+        room.opened_at_message = land > 0;
         room.target = land;
         room.at_tail = land == 0;
         room.older_loading = false;

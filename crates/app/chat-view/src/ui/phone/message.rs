@@ -69,8 +69,9 @@ pub(super) fn row(
         .id(format!("chat-message-{}-row", message.id))
         .relative()
         .w_full()
-        // a finger lands in `hit` (rule 3)
-        .min_h(ladder.hit)
+        // a message list is a dense list: the row keeps its own box, as
+        // Expo's (a one-line continuation is ~26), the one place a press
+        // stays under `hit` (chief, 10-16)
         .flex()
         .gap(design::space::MD)
         .px(design::space::BLOCK)
