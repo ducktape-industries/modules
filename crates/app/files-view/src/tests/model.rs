@@ -3,7 +3,7 @@
 //! its pages out.
 use std::collections::BTreeMap;
 
-use files::{Change, Content, EntryInfo, Node, Ownership, PathOwnership, Writers};
+use files::{BlobId, Change, Content, EntryInfo, Node, Ownership, PathOwnership, Writers};
 use view::ImageFormat;
 use view::TextField;
 use view::prelude::Loadable;
@@ -11,10 +11,12 @@ use view::prelude::Loadable;
 use crate::state::{
     Folder, Holds, Opened, Reader, child_of, holds_by_name, name_of, parent_of, picture_format,
 };
-use crate::tests::PNG;
+use crate::tests::{PNG, file};
 use crate::ui::Layout;
+use crate::upload::{UPLOAD_MOST, progress, puts, sent, uploads};
 use crate::words;
 use crate::write::{Form, Write, built};
+use view::methods::Picked;
 
 const DEV: u64 = 7;
 const ADA: u64 = 8;
@@ -47,11 +49,19 @@ fn form(write: Write, name: &str, text: &str, message: &str) -> Form {
         base: None,
         name: TextField::new(name),
         text: TextField::new(text),
+        upload: Vec::new(),
         message: TextField::new(message),
         problem: None,
         refused: None,
         sending: false,
     }
+}
+
+/// A form's message and its one change.
+fn one(built: Result<(String, Vec<Change>), String>) -> (String, [Change; 1]) {
+    let (message, changes) = built.unwrap();
+    let changes: [Change; 1] = changes.try_into().expect("one change");
+    (message, changes)
 }
 
 fn opened(bytes: &[u8], whole: bool) -> Opened {
@@ -143,7 +153,7 @@ fn a_new_folder_is_made_by_its_name_in_the_folder_on_screen() {
     let write = Write::NewFolder {
         folder: "/home/dev".into(),
     };
-    let (message, change) = built(&form(write, " docs ", "", "")).unwrap();
+    let (message, [change]) = one(built(&form(write, " docs ", "", "")));
     assert_eq!(
         change,
         Change::Mkdir {
@@ -159,7 +169,7 @@ fn a_new_folder_is_made_by_its_name_in_the_folder_on_screen() {
 #[test]
 fn a_new_file_in_the_root_carries_its_text_and_the_typed_message() {
     let write = Write::NewFile { folder: "/".into() };
-    let (message, change) = built(&form(write, "a.txt", "line", "First file")).unwrap();
+    let (message, [change]) = one(built(&form(write, "a.txt", "line", "First file")));
     assert_eq!(message, "First file");
     assert_eq!(
         change,
@@ -196,7 +206,7 @@ fn an_edit_keeps_the_files_mode_and_metadata() {
         exec: true,
         meta: meta.clone(),
     };
-    let (_, change) = built(&form(write, "", "echo hi", "")).unwrap();
+    let (_, [change]) = one(built(&form(write, "", "echo hi", "")));
     assert_eq!(
         change,
         Change::Put {
@@ -218,7 +228,7 @@ fn a_rename_to_where_it_is_or_to_no_path_builds_nothing() {
     };
     assert_eq!(rename("/shared/a").unwrap_err(), words::SAME_PATH);
     assert!(rename("b").unwrap_err().contains("absolute"));
-    let (message, change) = rename("/home/dev/a").unwrap();
+    let (message, [change]) = one(rename("/home/dev/a"));
     assert_eq!(
         change,
         Change::Move {
@@ -319,4 +329,77 @@ fn a_desktop_folds_its_side_under_880_and_splits_from_1200() {
     assert_eq!(Layout::of(880.), Layout::Wide);
     assert_eq!(Layout::of(1199.), Layout::Wide);
     assert_eq!(Layout::of(1200.), Layout::Split);
+}
+
+fn picked(name: &str, size: u64) -> Picked {
+    Picked {
+        name: name.into(),
+        size,
+        file: 0,
+    }
+}
+
+fn listed(path: &str, node: Node) -> EntryInfo {
+    EntryInfo {
+        path: path.into(),
+        node,
+        meta: Default::default(),
+    }
+}
+
+#[test]
+fn an_upload_carries_small_files_in_its_commit_and_stages_the_rest() {
+    let chunk = files::CHUNK_SIZE;
+    let listed = [
+        listed("/shared/old.txt", file()),
+        listed(
+            "/shared/photos",
+            Node::Dir {
+                tree: BlobId::Sha256([0; 32]),
+                entries: 1,
+            },
+        ),
+    ];
+    let uploads = uploads(
+        "/shared",
+        vec![
+            picked("a.png", 700 << 10),
+            // past what the commit still carries: staged
+            picked("b.png", 700 << 10),
+            picked("big.mov", 2 * chunk + 1),
+            picked("huge.mov", UPLOAD_MOST + 1),
+            picked("old.txt", 3),
+            // a folder of its name is there: never written over
+            picked("photos", 3),
+            // picked twice: the second is left out
+            picked("a.png", 1),
+        ],
+        &listed,
+    );
+    let paths: Vec<_> = uploads.iter().map(|upload| upload.path.clone()).collect();
+    assert_eq!(paths[0], Ok("/shared/a.png".into()));
+    assert_eq!(paths[3], Err(words::too_big_to_upload(UPLOAD_MOST + 1)));
+    assert_eq!(paths[5], Err(words::held_by(&listed[1].node)));
+    assert_eq!(paths[6], Err(words::PICKED_TWICE.into()));
+    assert!(uploads[4].replaces && !uploads[0].replaces && !uploads[5].replaces);
+    assert_eq!(
+        progress(&uploads),
+        Some((0, 1 + 3)),
+        "b.png's one chunk, big.mov's three"
+    );
+    assert_eq!(sent(&uploads), ["a.png", "b.png", "big.mov", "old.txt"]);
+    assert_eq!(
+        puts(&uploads),
+        Err(words::NOTHING_TO_UPLOAD.into()),
+        "nothing is read yet"
+    );
+}
+
+#[test]
+fn an_upload_with_nothing_to_send_builds_no_commit() {
+    let uploads = uploads("/shared", vec![picked("a/b", 1)], &[]);
+    assert!(uploads[0].path.is_err(), "a name with a slash is no name");
+    assert_eq!(puts(&uploads), Err(words::NOTHING_TO_UPLOAD.into()));
+    assert_eq!(words::uploads(&["a.png"]), "Upload a.png");
+    assert_eq!(words::uploads(&["a.png", "b.png"]), "Upload 2 files");
 }

@@ -61,11 +61,16 @@ pub fn entry_glyph(entry: &EntryInfo) -> &'static str {
     match entry.node {
         Node::Dir { .. } => "folder",
         Node::Symlink { .. } => "link",
-        Node::File { .. } => match holds_by_name(name_of(&entry.path)) {
-            Holds::Picture => "image",
-            Holds::Text => "file-text",
-            Holds::Bytes => "file",
-        },
+        Node::File { .. } => file_glyph(name_of(&entry.path)),
+    }
+}
+
+/// The glyph a file's row leads with, by what its name says it holds.
+pub fn file_glyph(name: &str) -> &'static str {
+    match holds_by_name(name) {
+        Holds::Picture => "image",
+        Holds::Text => "file-text",
+        Holds::Bytes => "file",
     }
 }
 
@@ -436,6 +441,9 @@ pub struct Files {
     /// its pages out by it (`ui::Layout`)
     #[serde(skip)]
     pub(crate) width: f32,
+    /// the host's picker is open for an upload: a second press waits
+    #[serde(skip)]
+    pub(crate) picking: bool,
 }
 
 impl Default for Files {
@@ -452,6 +460,7 @@ impl Default for Files {
             sheet: None,
             forms: 0,
             width: 0.,
+            picking: false,
         }
     }
 }

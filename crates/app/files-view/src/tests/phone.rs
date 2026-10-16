@@ -116,6 +116,25 @@ fn a_folder_the_reader_cannot_write_has_no_actions() {
 }
 
 #[test]
+fn a_picked_file_is_uploaded_from_its_sheet() {
+    let net = seeded();
+    let mut cx = phone(&net);
+    tap(&mut cx, "files/place/shared");
+    device(&cx, &[("photo.png", &PNG)]);
+    tap(&mut cx, "files/actions");
+    tap(&mut cx, "files/begin/upload");
+    assert!(cx.has_text("photo.png"), "{:?}", cx.texts());
+    tap(&mut cx, "files/write/submit");
+    assert!(
+        cx.has_text("Committed: Upload photo.png"),
+        "{:?}",
+        cx.texts()
+    );
+    tap(&mut cx, "files/entry/photo.png");
+    assert!(cx.find("files-picture").is_some(), "{:?}", cx.texts());
+}
+
+#[test]
 fn a_new_text_file_is_committed_from_its_sheet() {
     let net = seeded();
     let mut cx = phone(&net);

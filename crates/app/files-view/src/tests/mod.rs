@@ -8,7 +8,7 @@ mod model;
 mod phone;
 
 use files::{Change, Content, Op};
-use view::methods::{HostSession, Session};
+use view::methods::{FILE_READ_MOST, FilePick, FileRead, HostSession, Picked, Session};
 use view::rig::Network;
 use view::testing::TestAppContext;
 
@@ -116,6 +116,33 @@ pub(crate) fn seeded() -> Network {
     net.submit(dev, files::PROGRAM, &pin)
         .expect("a pin on a minted snapshot");
     net
+}
+
+/// The device's files, as the host's picker answers with them (handles
+/// from 1, in order) and `file.read` reads them a slice at a time.
+pub(crate) fn device(cx: &TestAppContext, files: &[(&str, &[u8])]) {
+    let picked: Vec<Picked> = files
+        .iter()
+        .zip(1..)
+        .map(|((name, bytes), file)| Picked {
+            name: (*name).into(),
+            size: bytes.len() as u64,
+            file,
+        })
+        .collect();
+    cx.host().handle::<FilePick>(move |_| Ok(picked.clone()));
+    let held: Vec<Vec<u8>> = files.iter().map(|(_, bytes)| bytes.to_vec()).collect();
+    cx.host().handle::<FileRead>(move |ask| {
+        let Some(bytes) = (ask.file as usize)
+            .checked_sub(1)
+            .and_then(|at| held.get(at))
+        else {
+            return Err(view::host::Error::new("malformed_request", "no such file"));
+        };
+        let start = (ask.offset as usize).min(bytes.len());
+        let end = (start + ask.len.min(FILE_READ_MOST) as usize).min(bytes.len());
+        Ok(bytes[start..end].to_vec())
+    });
 }
 
 /// A file node, for the words a file's kind is said in.
