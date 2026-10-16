@@ -31,7 +31,7 @@ impl Status {
             Status::InSync => "In sync".into(),
             Status::Behind(blocks) => format!("{} behind", design::grouped(*blocks)),
             Status::Quiet { .. } => "Quiet".into(),
-            Status::Blank => "—".into(),
+            Status::Blank => crate::words::NO_VALUE.into(),
         }
     }
 }

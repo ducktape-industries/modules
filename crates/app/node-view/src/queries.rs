@@ -20,6 +20,13 @@ pub struct Node {
     pub operator: Option<String>,
 }
 
+impl Node {
+    /// Its address, or the dash where valset holds none.
+    pub fn shown_address(&self) -> &str {
+        self.address.as_deref().unwrap_or(crate::words::NO_VALUE)
+    }
+}
+
 /// The consensus keys and the memberships, as one list: validators in seat
 /// order, then residents in the order valset keeps them. Each key once.
 pub fn fold(validators: &[Vec<u8>], members: Vec<Membership>) -> Vec<Node> {
@@ -138,6 +145,13 @@ async fn names(host: &Host, accounts: impl IntoIterator<Item = u64>) -> Result<N
 }
 
 /// The validators the seated key votes for: empty, it does not vote.
+/// The name identity gives account `number`; `None` where it profiles
+/// none.
+pub(crate) async fn name(host: Host, number: u64) -> Result<Option<String>, Error> {
+    let profile = host.query(identity::ask::Profile { number }).await?;
+    Ok(profile.map(|profile| profile.name))
+}
+
 pub(crate) async fn voices(host: Host, key: Vec<u8>) -> Result<Vec<Vec<u8>>, Error> {
     host.query(ask::Voices { key }).await
 }

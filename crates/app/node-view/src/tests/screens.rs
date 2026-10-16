@@ -120,7 +120,7 @@ fn sheet(
             .handle::<ChainNetwork>(move |()| Ok(network.clone())),
         None => cx
             .host()
-            .refuse::<ChainNetwork>(methods::refusal::UNKNOWN_REQUEST, crate::table::NO_NETWORK),
+            .refuse::<ChainNetwork>(methods::refusal::UNKNOWN_REQUEST, crate::words::NO_NETWORK),
     }
     sheet_valset(&cx);
     cx.open::<Nodes>();
