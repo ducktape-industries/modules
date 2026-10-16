@@ -342,9 +342,6 @@ fn commits(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
     log(forge, &forge.log_query(), "forge-log", cx, ladder, theme)
 }
 
-/// What a log says while a page of it is on its way.
-const READING: &str = words::READING_HISTORY;
-
 /// A history as a list (`Log`): the commits read so far and, while it
 /// goes on, the quiet line, which asks for the next page as it comes into
 /// view; a commit opens on its own page.
@@ -426,10 +423,13 @@ fn landed<'a>(
             ))
         }
         (Some(log), None) if !log.read(Paged::is_loading) => Ok(log),
-        _ => Err(
-            parts::quiet(id(format!("{element_id}-loading")), READING, ladder, theme)
-                .into_any_element(),
-        ),
+        _ => Err(parts::quiet(
+            id(format!("{element_id}-loading")),
+            words::READING_HISTORY,
+            ladder,
+            theme,
+        )
+        .into_any_element()),
     }
 }
 
@@ -464,7 +464,7 @@ fn log_rows(
                             });
                         parts::option(row, walked && index == at).into_any_element()
                     }
-                    None => parts::quiet(id(more.clone()), READING, &ladder, &theme)
+                    None => parts::quiet(id(more.clone()), words::READING_HISTORY, &ladder, &theme)
                         .min_h(px(design::height::touch::ROW_TALL as f32))
                         .into_any_element(),
                 })

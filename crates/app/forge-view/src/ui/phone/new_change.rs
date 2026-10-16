@@ -200,6 +200,7 @@ fn reviewers(
 
 /// A reviewer's chip (`RemovableChip`): the name and a cross in an
 /// outline box; the press removes them.
+// SDK gap: the removable chip, swap when feat/phone-kit lands
 fn removable_chip(
     name: &str,
     ladder: &Ladder,
