@@ -120,8 +120,10 @@ pub(super) fn account(
         return match &view.accounts {
             Loadable::Ready(_) | Loadable::Reloading(_, _) => empty_state(
                 "explorer-no-account",
+                "user-x",
                 format!("No account #{number}"),
                 "Identity holds no account by this number.",
+                ladder,
                 theme,
             )
             .into_any_element(),

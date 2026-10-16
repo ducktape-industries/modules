@@ -27,8 +27,10 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) 
     if network.programs.is_empty() && network.views.is_empty() && network.changes.is_empty() {
         return empty_state(
             "explorer-empty",
+            "package",
             "No programs",
             "The programs role of this network runs nothing yet.",
+            ladder,
             theme,
         )
         .into_any_element();
@@ -296,8 +298,10 @@ pub(super) fn program(
     let Some(code) = view.code_of(name) else {
         return empty_state(
             "explorer-no-program",
+            "search-x",
             format!("Nothing called {name}"),
             "The programs role runs and lists nothing by this name.",
+            ladder,
             theme,
         )
         .into_any_element();

@@ -257,8 +257,10 @@ fn messages(forge: &Forge, theme: &Theme, ladder: &Ladder) -> AnyElement {
         Some(Loadable::Ready(rows) | Loadable::Reloading(rows, _)) if rows.is_empty() => {
             empty_state(
                 id("forge-conversation-empty"),
+                "message-square",
                 "No replies yet",
                 "This change's channel is quiet.",
+                ladder,
                 theme,
             )
             .into_any_element()

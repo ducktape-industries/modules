@@ -92,15 +92,29 @@ with these; the rest of this page is reference.
 | `cx.listener(\|view, event, window, cx\| ..)` | 6/6 | A method of the view as a handler: a press (`&ClickEvent`), Enter in a field (`&()`), a key. gpui's. |
 | `let theme = *cx.global::<Theme>();` | 6/6 | The host's colors, light or dark: gpui's `cx.theme()`. The first line of a render; `design`'s functions take `&theme`. |
 | `design::space`, `design::size`, `design::text` | 6/6 | The spacing, control and type tokens every screen is laid out in. |
-| `design::empty_state(id, title, detail, &theme)` | 6/6 | What a list says when it has no rows. |
+| `design::empty_state(id, glyph, title, detail, &ladder, &theme)` | 6/6 | What a list says when it has no rows; under a finger the Expo kit's, the Lucide `glyph` over the words. |
 | `design::badge(..)` | 6/6 | A small labelled state: "agent", "suspended". |
-| `design::refused(name, message, &theme, retry)` | 5/6 | A refused read: the reason and a Retry, under the ids `<name>-refused` and `<name>-retry`. |
+| `design::refused(name, message, &ladder, &theme, retry)` | 5/6 | A refused read: the reason and a Retry, under the ids `<name>-refused` and `<name>-retry`. |
 | `design::composite(..)` | 5/6 | A group one Tab stop holds and the arrows move in: a tab bar, a list of rows. |
 | `TextField` and `Input::new(id, &self.field, label)` | 5/6 | A text field bound to the view's state ("What is gpui and what is ours"). |
 | `.focusable()`, `.role(..)`, `.aria_disabled(..)` | 5/6 | What a pressable `div` owes the keyboard and a screen reader; the test host fails a frame that lacks one. |
 | `cx.processor(\|view, item, window, cx\| ..)` | 5/6 | `cx.listener` for a callback that returns a value: a list's row builder. gpui's. |
-| `design::button(id, label, &theme, click).enabled(..)` | 3/6 | A button with its role, Tab stop and disabled state done. |
+| `design::button(id, label, &ladder, &theme, click).enabled(..)` | 3/6 | A button with its role, Tab stop and disabled state done; `.busy(..)` while its write is in flight, `.small()` for the Expo kit's small one. |
 | `cx.new(..)`, child entities | 1/6 | State and a render of its own inside a view ("Child entities"). |
+
+A phone page is built from the `design` kit: each piece draws as the Expo
+app's kit does under a finger and as the desktop always has under a
+pointer. Pick the ladder once per render, then hand it to every piece.
+
+| A phone page writes | What it is |
+|---|---|
+| `let ladder = design::ladder(window.touch());` | The sizes for this device: the Expo app's under a finger, the desktop's under a pointer. Every `design` piece takes `&ladder`. |
+| `design::row(id, &ladder, &theme)` with `design::row_words(design::row_title(..)).child(design::row_caption(..))`, `design::lead(..)`, `design::chevron(..)` | A list row and its words; a row with a caption is `.min_h(ladder.row_tall)`. |
+| `design::field(Input::new(..), &ladder, &theme).label(..).caption(..)` | A text field in its box; `.problem(..)` marks it invalid and says why, `.lead(glyph)` puts a glyph before the text. |
+| `design::sheet(..)` holding `design::sheet_title(..)`, `design::sheet_row(..)`, `design::form_verbs(cancel, verb)` | A sheet, its head, its actions (`.icon`, `.hint`, `.danger`) and a form's Cancel and verb. |
+| `design::strip(composite, &ladder, &theme)` of `design::tab(..)`s | A bar of tabs under a page head. |
+| `design::dense(row)` | A dense list's row (a chat message, a diff line) keeps its own height; the sweep lets it through. |
+| `design::sentence(&refusal)`, `design::failure(&answer)` | What a refusal and a write that did not land say, in the same words on every page. |
 
 Three patterns the views share:
 

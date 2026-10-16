@@ -68,6 +68,9 @@ pub struct TestAppContext {
     /// The style table of that tree, as the host holds it: a whole frame's
     /// entries, and each one a later frame brought.
     styles: wire::Styles,
+    /// The presses [`design::dense`](crate::design::dense) marked in the
+    /// tree the view last lowered, as its [`App`] keeps them.
+    dense: Vec<Vec<wire::ElementIdWire>>,
     reports: Vec<TickReport>,
     focus: Option<Focus>,
     globals: crate::context::Globals,
@@ -245,6 +248,7 @@ impl TestAppContext {
         let renders = driver.renders();
         let (frame, bytes) = driver.tick(owed);
         let rendered = driver.renders() > renders;
+        self.dense = driver.app_mut().inner.dense.borrow().clone();
         self.ticks += 1;
         self.host.accept(&frame, &driver.host());
         let dialogs = self.tree.as_ref().map(focus::open_dialogs);
@@ -269,7 +273,7 @@ impl TestAppContext {
         }
         assert_frame_accessible(self.tree.as_ref(), &frame.tooltip_responses);
         if let (Some((width, ladder)), Some(tree)) = (&self.fits, &self.tree) {
-            super::assert_fits(tree, &self.styles, *width, ladder);
+            super::assert_fits(tree, &self.styles, &self.dense, *width, ladder);
         }
         let report = TickReport {
             rendered,
@@ -394,6 +398,13 @@ impl TestAppContext {
     /// the style a node, or one of its conditional styles, names.
     pub fn styles(&self) -> &wire::Styles {
         &self.styles
+    }
+    /// The ids each press [`design::dense`](crate::design::dense) marked is
+    /// filed under, in the tree the view last lowered: what
+    /// [`assert_fits`](super::assert_fits) takes beside [`Self::root`] and
+    /// [`Self::styles`].
+    pub fn dense(&self) -> &[Vec<wire::ElementIdWire>] {
+        &self.dense
     }
     /// The base style of the node under `key`, which must be in the tree
     /// and carry one.
