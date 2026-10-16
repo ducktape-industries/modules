@@ -8,8 +8,8 @@ use valset::{Motion, Valset, Voted};
 use view::methods::Submitted;
 use view::prelude::*;
 
-use crate::state::{Network, Note};
 use crate::Explorer;
+use crate::state::{Network, Note};
 
 /// Blocks past the earliest a maintainer's change may land that a form
 /// asks by default: the op lands a block or two after the press.

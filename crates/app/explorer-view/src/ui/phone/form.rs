@@ -5,9 +5,9 @@
 //! the programs role, the accounts and the tip; writes the fields, the
 //! program or view choice (`add_view`), the send (`submit_form`) and Close
 //! (`close_form`).
+use view::Div;
 use view::design::space;
 use view::prelude::*;
-use view::Div;
 
 use crate::acting::{Asked, Edit, Form, FormField, Problem, Takes};
 use crate::words;
@@ -98,8 +98,7 @@ fn fields(form: &Form, cx: Cx, k: &Look) -> Vec<AnyElement> {
 /// the field's marks it invalid and says why to assistive tech; the eye
 /// reads it once, under the form, as Expo draws it (`programs.tsx:500`).
 fn labelled(form: &Form, field: FormField, k: &Look) -> AnyElement {
-    let input =
-        Input::new(field.id(), form.text(field), field.label()).placeholder(field.hint());
+    let input = Input::new(field.id(), form.text(field), field.label()).placeholder(field.hint());
     let input = match field.takes() {
         Takes::Number => input.virtual_keyboard(VirtualKeyboard::Numeric),
         Takes::Id => input
@@ -152,8 +151,14 @@ fn buttons(view: &Explorer, form: &Form, cx: Cx, k: &Look) -> Div {
     design::form_verbs(
         design::button("explorer-form-close", "Close", &k.ladder, &k.theme, close)
             .kind(design::Kind::Quiet),
-        design::button("explorer-form-submit", form.verb(), &k.ladder, &k.theme, send)
-            .kind(design::Kind::Primary)
-            .busy(view.acting.busy),
+        design::button(
+            "explorer-form-submit",
+            form.verb(),
+            &k.ladder,
+            &k.theme,
+            send,
+        )
+        .kind(design::Kind::Primary)
+        .busy(view.acting.busy),
     )
 }

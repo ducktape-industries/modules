@@ -58,7 +58,7 @@ fn missing(view: &Explorer, height: u64, cx: Cx, k: &Look) -> AnyElement {
             let title = words::no_block(height);
             empty("explorer-no-block", "blocks", title, why, k)
         }
-        Loadable::Failed(refusal) => refused(refusal, cx, k),
+        Loadable::Failed(refusal) => refused(&design::sentence(refusal), cx, k),
         Loadable::Idle
         | Loadable::Loading(_)
         | Loadable::Ready(Some(_))

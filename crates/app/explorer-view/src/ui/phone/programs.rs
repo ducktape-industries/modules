@@ -29,7 +29,7 @@ const UNREAD_BLOCK_MS: u64 = 1000;
 pub(super) fn programs(view: &Explorer, cx: Cx, k: &Look) -> AnyElement {
     let network = match &view.network {
         Loadable::Ready(network) | Loadable::Reloading(network, _) => network,
-        Loadable::Failed(refusal) => return refused(refusal, cx, k),
+        Loadable::Failed(refusal) => return refused(&design::sentence(refusal), cx, k),
         Loadable::Idle | Loadable::Loading(_) => {
             return quiet("explorer-programs-loading", words::READING_ROLE, k);
         }
@@ -436,8 +436,14 @@ pub(super) fn program_sheet(view: &Explorer, name: &str, cx: Cx, k: &Look) -> Op
     .hint("capabilities, code, scheduled");
     let transactions = (!listed).then(|| {
         let press = leaves_for(Route::Transactions(Some(name.to_owned())), cx);
-        design::sheet_row("explorer-program-txs", "Transactions", &k.ladder, &k.theme, press)
-            .hint(format!("to {name}"))
+        design::sheet_row(
+            "explorer-program-txs",
+            "Transactions",
+            &k.ladder,
+            &k.theme,
+            press,
+        )
+        .hint(format!("to {name}"))
     });
     let edits: Vec<AnyElement> = view
         .edits(network, name, listed)

@@ -70,7 +70,7 @@ fn missing(view: &Explorer, height: u64, position: u32, cx: Cx, k: &Look) -> Any
             words::no_transaction_at(height, position),
             k,
         ),
-        Loadable::Failed(refusal) => refused(refusal, cx, k),
+        Loadable::Failed(refusal) => refused(&design::sentence(refusal), cx, k),
         Loadable::Idle
         | Loadable::Loading(_)
         | Loadable::Ready(Some(_))

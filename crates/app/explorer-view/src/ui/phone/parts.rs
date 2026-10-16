@@ -7,7 +7,6 @@
 //!
 //! The Expo line numbers below are mobile dev 266633c.
 use view::design::{Face, mono, space};
-use view::host::Error;
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
@@ -277,18 +276,11 @@ pub(super) fn notice(
         .children(action)
 }
 
-/// A refused read (Expo `Refused`): its sentence, and Retry, which reads
-/// the view's data again.
-pub(super) fn refused(refusal: &Error, cx: Cx, k: &Look) -> AnyElement {
+/// A refused read (Expo `Refused`): its sentence (a host refusal's is
+/// `design::sentence`), and Retry, which reads the view's data again.
+pub(super) fn refused(sentence: &str, cx: Cx, k: &Look) -> AnyElement {
     let retry = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.read_all(cx));
-    design::refused(
-        "explorer",
-        design::sentence(refusal),
-        &k.ladder,
-        &k.theme,
-        retry,
-    )
-    .into_any_element()
+    design::refused("explorer", sentence.to_owned(), &k.ladder, &k.theme, retry).into_any_element()
 }
 
 // SDK gap: Quiet at the ladder's sizes, the SDK builds it later
@@ -571,11 +563,17 @@ pub(super) fn small(
 ) -> AnyElement {
     let enabled = press.is_some();
     let press = press.unwrap_or_else(|| Box::new(|_: &ClickEvent, _: &mut Window, _: &mut App| {}));
-    design::button(ElementId::Name(id.into()), label, &k.ladder, &k.theme, press)
-        .kind(kind)
-        .small()
-        .enabled(enabled)
-        .into_any_element()
+    design::button(
+        ElementId::Name(id.into()),
+        label,
+        &k.ladder,
+        &k.theme,
+        press,
+    )
+    .kind(kind)
+    .small()
+    .enabled(enabled)
+    .into_any_element()
 }
 
 /// An account's face (Expo `Avatar` with `words.ts` `faceOf`): a system
