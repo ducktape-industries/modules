@@ -161,8 +161,9 @@ Ours, defined in this crate:
 - `div`, `uniform_list`, `list`, `Input`, `Textarea`, `img`/`Img`, `svg`/`Svg`,
   `canvas`/`Canvas`, `InteractiveText`/`StyledText`, `sensor`,
   `resize_handle`, `modal_overlay`, `web`, `camera`, `microphone`,
-  `remote_video`, `remote_audio` (`src/element.rs`, `src/list.rs`, `src/primitives/`, `src/rich_text.rs`,
-  `src/behavior.rs`, `src/web.rs`, `src/media.rs`):
+  `remote_video`, `remote_audio` (`src/element.rs`, `src/list.rs`,
+  `src/primitives/`, `src/rich_text.rs`, `src/behavior.rs`, `src/web.rs`,
+  `src/media.rs`):
   each lowers to a `view_wire::Node`, with handlers kept view-side and
   crossed as routes: a listener's number, kept while its element is lowered
   (`view_wire::Event`). `list` is gpui's but for its first argument:
@@ -335,10 +336,12 @@ host captures, encodes, publishes, subscribes, decodes, draws and plays
 captures while the piece is placed (the host picks the mode and priority by
 the kind); `remote_video(id, track)` draws a person's picture and
 `remote_audio(id, track)` plays their voice (zero-size, out of the layout's
-flow), each subscribed while placed. Each needs `Capability::Live` beside
-its device's. A piece's `MediaState::track` says where its track stands
-(`Waiting`, `Up { subscribers }`, `Ended { code }`), and a view answers its
-`Waiting` as it answers a `live.publish`'s: with the op that writes the row.
+flow), each subscribed while placed. A publishing piece needs
+`Capability::Live` beside its device's (`camera`, `microphone`); a remote
+piece has no device, and needs `live` alone. A piece's `MediaState::track`
+says where its track stands (`Waiting`, `Up { subscribers }`,
+`Ended { code }`), and a view answers its `Waiting` as it answers a
+`live.publish`'s: with the op that writes the row.
 
 ## When a view renders, and who decides
 
@@ -501,7 +504,8 @@ A sensor hears nothing until `simulate_bounds(name, origin, size)` lays
 its child out, and then as the app tells it: the same bounds again are no
 event. A web piece hears its page through `simulate_web_state(name, state)`,
 a camera, microphone or remote piece its device or its track through
-`simulate_media_state(name, state)`.
+`simulate_media_state(id, state)` (a `track` left `None` keeps the one a
+`Relay` moves).
 The reader's offset is UTC until `simulate_offset(minutes)`.
 Every frame the view sends is held to `view_wire::audit`: a fault panics with
 its kind and key path, so each screen a test reaches is gated.

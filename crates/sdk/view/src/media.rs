@@ -506,11 +506,20 @@ impl gpui::prelude::FluentBuilder for RemoteVideo {}
 impl gpui::prelude::FluentBuilder for RemoteAudio {}
 
 impl crate::testing::TestAppContext {
-    /// The camera, microphone or remote piece `name` reports `state`, as
-    /// the app tells it when its device starts, fails or goes, a recording
-    /// moves, or its track does.
-    pub fn simulate_media_state(&mut self, name: &str, state: MediaState) {
-        let chain = crate::testing::chain_to(self.root(), name).unwrap_or_default();
+    /// The camera, microphone or remote piece placed under `id` (the first
+    /// in the tree, depth first) reports `state`, as the app tells it when
+    /// its device starts, fails or goes, a recording moves, or its track
+    /// does; told only when it changes what the host held. A `track` left
+    /// [`TrackState::None`] keeps the one the host holds for the piece (a
+    /// [`Relay`](crate::testing::Relay) moves it): a test tells a device's
+    /// status without undoing the room's. A piece that publishes or plays a
+    /// track never reports `None`.
+    pub fn simulate_media_state(&mut self, id: impl Into<ElementId>, state: MediaState) {
+        let id = wire_id(id.into());
+        let chain = crate::testing::chain(self.root(), &mut |chain| {
+            chain.last().unwrap().identity() == Some(&id)
+        })
+        .unwrap_or_default();
         assert!(
             matches!(
                 chain.last(),
@@ -527,10 +536,16 @@ impl crate::testing::TestAppContext {
                     }
                 )
             ),
-            "{name:?} is no camera, microphone or remote piece with a state route"
+            "{id:?} is no camera, microphone or remote piece with a state route"
         );
         let path = crate::testing::authored_path(&chain);
-        self.host().media(&path, |held| *held = state);
+        self.host().media(&path, |held| {
+            let track = match state.track {
+                TrackState::None => std::mem::take(&mut held.track),
+                told => told,
+            };
+            *held = MediaState { track, ..state };
+        });
         self.run_until_parked();
     }
 }
@@ -748,7 +763,7 @@ mod tests {
     #[derive(Default, serde::Deserialize, serde::Serialize)]
     struct Huddle {
         muted: bool,
-        heard: Vec<TrackState>,
+        heard: Vec<(MediaStatus, TrackState)>,
     }
 
     impl View for Huddle {
@@ -763,7 +778,7 @@ mod tests {
     impl Render for Huddle {
         fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             let heard = cx.listener(|view: &mut Self, state: &MediaState, _, cx| {
-                view.heard.push(state.track.clone());
+                view.heard.push((state.status.clone(), state.track.clone()));
                 cx.notify();
             });
             div()
@@ -775,7 +790,7 @@ mod tests {
                         .size_full(),
                 )
                 .child(
-                    remote_audio("voice", call("mic/2"))
+                    remote_audio(("voice", 2_u64), call("mic/2"))
                         .output("headphones")
                         .on_state(heard),
                 )
@@ -784,7 +799,8 @@ mod tests {
 
     /// The pieces carry their tracks: a camera's and a microphone's to
     /// publish into, a microphone's mute, a remote picture's fit and a
-    /// remote voice's speaker; a remote piece's state reaches its listener.
+    /// remote voice's speaker; a remote piece's state reaches its listener
+    /// by its id, its first report too, and only as it changes.
     #[test]
     fn call_pieces_carry_their_tracks() {
         let mut cx = TestAppContext::new();
@@ -840,15 +856,33 @@ mod tests {
                 ),
             ]
         );
+        let voice = ("voice", 2_u64);
+        // the first report is told, though it is the default
+        cx.simulate_media_state(voice, MediaState::default());
         let up = TrackState::Up { subscribers: 0 };
         let state = MediaState {
             track: up.clone(),
             ..Default::default()
         };
-        cx.simulate_media_state("voice", state.clone());
+        cx.simulate_media_state(voice, state.clone());
         // told once: the host tells a state again only when it changes
-        cx.simulate_media_state("voice", state);
-        cx.update(&view, |view, _, _| assert_eq!(view.heard, [up]));
+        cx.simulate_media_state(voice, state);
+        // a status with no track keeps the track the host holds
+        let live = MediaState {
+            status: MediaStatus::Live,
+            ..Default::default()
+        };
+        cx.simulate_media_state(voice, live);
+        cx.update(&view, |view, _, _| {
+            assert_eq!(
+                view.heard,
+                [
+                    (MediaStatus::Starting, TrackState::None),
+                    (MediaStatus::Starting, up.clone()),
+                    (MediaStatus::Live, up),
+                ]
+            )
+        });
     }
 
     /// Plays someone's voice, and its manifest leaves `live` out.

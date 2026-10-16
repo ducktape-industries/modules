@@ -138,6 +138,17 @@ impl Node {
         }
     }
 
+    /// The live track the piece publishes into (a camera's or a
+    /// microphone's `publish`) or plays ([`Node::Remote`]); `None` for
+    /// every other node.
+    pub fn live_track(&self) -> Option<&crate::methods::LiveTrack> {
+        match self {
+            Self::Camera { publish, .. } | Self::Microphone { publish, .. } => publish.as_ref(),
+            Self::Remote { track, .. } => Some(track),
+            _ => None,
+        }
+    }
+
     /// The capabilities a view's manifest declares to place this node: a
     /// web page's, a camera's or a microphone's device, and `live` for a
     /// piece that publishes or plays a live track; none for every other

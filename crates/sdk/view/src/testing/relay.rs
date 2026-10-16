@@ -52,7 +52,8 @@ use super::{FakeHost, TestAppContext};
 /// frame drops ends its track as a dropped `live.publish` does
 /// (`track_ended` for its subscribers); a publishing piece whose track
 /// ended publishes again on its view's next frame, and a remote piece
-/// subscribes again when its track comes up.
+/// subscribes again when its track comes up, or, ended `not_granted`, on
+/// its view's next frame, where it waits for a row as any ask does.
 ///
 /// ```
 /// # use view::testing::{Relay, TestAppContext};
@@ -145,13 +146,15 @@ impl PieceAsk {
         }
     }
 
-    /// Where the track stands after `item` of this ask; `None` for an item
-    /// that moves nothing (an object, a group's end).
-    fn track(&self, item: &Result<Vec<u8>, Error>) -> Option<TrackState> {
+    /// Where the track stands after `item` of this ask (`done` when it is
+    /// the last); `None` for an item that moves nothing (an object, a
+    /// group's end).
+    fn track(&self, item: &Result<Vec<u8>, Error>, done: bool) -> Option<TrackState> {
         let bytes = match item {
             Ok(bytes) => bytes,
             Err(refusal) => {
-                return Some(TrackState::Ended {
+                // a refusal ends the ask only as its last item
+                return done.then(|| TrackState::Ended {
                     code: refusal.code.clone(),
                 });
             }
@@ -422,7 +425,7 @@ impl State {
     /// `event` for the view at `link`; an item of a piece's ask is told to
     /// the piece instead, as where its track stands.
     fn tell(&self, link: usize, event: Event) {
-        if let Event::Response { id, result, .. } = &event
+        if let Event::Response { id, result, done } = &event
             && *id >= PIECES
         {
             let piece = self
@@ -430,7 +433,7 @@ impl State {
                 .iter()
                 .find(|piece| piece.link == link && piece.id == *id);
             if let Some(piece) = piece
-                && let Some(track) = piece.ask.track(result)
+                && let Some(track) = piece.ask.track(result, *done)
             {
                 self.hosts[link].media(&piece.path, |state| state.track = track);
             }
@@ -442,7 +445,8 @@ impl State {
     /// The pieces the tree at `link` places now, against the ones it placed
     /// before: a piece gone, or asking for another track, lets its track go
     /// as a cancelled request does; a new one asks; a publishing one whose
-    /// track ended publishes again.
+    /// track ended publishes again, and a remote one whose grant was taken
+    /// back subscribes again (and waits for a row).
     fn place(&mut self, link: usize, placed: Vec<(Vec<ElementIdWire>, PieceAsk)>) {
         let (kept, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut self.pieces)
             .into_iter()
@@ -464,7 +468,16 @@ impl State {
                 .map(|piece| piece.id);
             match held {
                 Some(id) => {
-                    if matches!(ask, PieceAsk::Publish(_)) && !self.open(link, id) {
+                    let again = match ask {
+                        PieceAsk::Publish(_) => true,
+                        PieceAsk::Subscribe(_) => {
+                            let not_granted = TrackState::Ended {
+                                code: refusal::NOT_GRANTED.into(),
+                            };
+                            self.hosts[link].told_track(&path) == Some(not_granted)
+                        }
+                    };
+                    if again && !self.open(link, id) {
                         self.ask(link, id, ask.ask());
                     }
                 }
@@ -1993,6 +2006,35 @@ mod tests {
         a.run_until_parked();
         let mine = a.update(&one, |call, _, _| call.mine.clone());
         assert_eq!(mine[4..], [up(0), up(1)]);
+        let theirs = b.update(&two, |call, _, _| call.theirs.clone());
+        assert_eq!(theirs.last(), Some(&(1, up(0))));
+    }
+
+    #[test]
+    fn a_voice_whose_row_is_taken_back_asks_again_and_waits_for_it() {
+        let (mut a, mut b) = (TestAppContext::new(), TestAppContext::new());
+        let relay = Relay::new();
+        relay.hold("call").link(&a).link(&b);
+        relay.grant("call", Some(1), in_call());
+        relay.grant("call", Some(2), in_call());
+        let _one = call(&mut a, 1, true, Vec::new());
+        let two = call(&mut b, 2, false, vec![1]);
+        // 2 is taken out of the call while 1's track stays up: its voice
+        // ends, asks again on its next frame, and waits for a row
+        relay.revoke("call", Some(2));
+        b.run_until_parked();
+        let theirs = b.update(&two, |call, _, _| call.theirs.clone());
+        assert_eq!(
+            theirs,
+            [
+                (1, up(0)),
+                (1, ended(refusal::NOT_GRANTED)),
+                (1, TrackState::Waiting)
+            ]
+        );
+        // let in again: the block that writes the row answers it
+        relay.grant("call", Some(2), in_call());
+        b.run_until_parked();
         let theirs = b.update(&two, |call, _, _| call.theirs.clone());
         assert_eq!(theirs.last(), Some(&(1, up(0))));
     }

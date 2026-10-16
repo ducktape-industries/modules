@@ -22,26 +22,31 @@ pub enum MicCommand {
     Stop,
 }
 
-/// Where a camera or microphone piece's device is, as the host holds it.
+/// Where a camera or microphone piece's device is, or a remote piece's
+/// playing, as the host holds it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MediaStatus {
     /// Opening the device, or waiting on the person's answer to the
-    /// system's permission prompt.
+    /// system's permission prompt; a remote piece's track before its first
+    /// object.
     #[default]
     Starting,
-    /// Capturing: a camera's pictures are drawn, a microphone's level moves.
+    /// Capturing: a camera's pictures are drawn, a microphone's level
+    /// moves; a remote piece's track flows.
     Live,
     /// The person (or the system's policy) refused this app the device.
     Denied,
     /// Another program holds the device.
     Busy,
     /// The device went away while it was open (unplugged, its driver
-    /// unloaded).
+    /// unloaded); a remote piece's track ended ([`MediaState::track`] says
+    /// why).
     Gone,
     /// There is no such device: none at all, or none by the piece's id.
     NoDevice,
     /// This host captures nothing: a build without camera and microphone
-    /// support, or a platform it does not cover.
+    /// support, or a platform it does not cover; for a remote picture, a
+    /// build that decodes no video (a voice still plays).
     Unsupported,
     /// Any other failure; [`MediaState::detail`] says what.
     Failed,
@@ -116,8 +121,10 @@ pub enum TrackState {
     /// connection or its grant), `track_ended` (the publisher ended it:
     /// its piece left its frame), `unknown_track` (no one publishes it),
     /// `duplicate_track` (another publishes it), `live_unavailable` (no
-    /// live connection). The piece stays: a remote piece subscribes again
-    /// when the room announces the track up again, and a publishing piece
-    /// publishes again on the next frame that still places it.
+    /// live connection). The piece stays: a publishing piece publishes
+    /// again on the next frame that still places it; a remote piece
+    /// subscribes again when the room announces the track up again, and,
+    /// ended `not_granted`, on the next frame that still places it, where
+    /// it waits for a row as any ask does.
     Ended { code: String },
 }
