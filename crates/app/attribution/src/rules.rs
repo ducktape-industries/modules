@@ -1,10 +1,12 @@
-//! What each op checks and writes: an object's relations replaced at a later revision,
-//! the difference recorded as changes, and every change told to every subscriber.
+//! What each op checks and writes: an object's relations replaced at a later revision, the
+//! difference recorded as changes, and each change handed to the program its recipient's
+//! script calls, when that recipient is an active program account and the program registered.
 use std::collections::{BTreeMap, BTreeSet};
 
-use ::program::{Error, ExecCtx, QueryCtx, Reply, invalid, stale};
+use ::program::{Error, ExecCtx, QueryCtx, Reply, invalid, stale, unexpected_reply};
+use abi::role::identity::{Kind as Account, Profile, Standing};
 
-use crate::state::{CHANGES, OBJECTS, OF, ObjectKey, SEQ, SUBSCRIBERS, TO};
+use crate::state::{CHANGES, OBJECTS, OF, ObjectKey, REGISTERED, SEQ, TO};
 use crate::{
     AccountNumber, Actor, Change, Kind, PageRequest, PageResponse, ProgramId, Reason, Relation,
     Relations, Source, Transfer, Update,
@@ -103,19 +105,49 @@ fn kinds(
 
 pub(crate) fn attribute(ctx: &ExecCtx, updates: Vec<Update>) -> Result<(), Error> {
     let program = ctx.env().sending_program()?;
-    let subscribers = SUBSCRIBERS.all(ctx)?;
     for update in updates {
-        attribute_one(ctx, &program, &subscribers, update)?;
+        attribute_one(ctx, &program, update)?;
     }
     Ok(())
 }
 
-fn attribute_one(
-    ctx: &ExecCtx,
-    program: &ProgramId,
-    subscribers: &[(ProgramId, Vec<u8>)],
-    update: Update,
-) -> Result<(), Error> {
+fn profile(ctx: &QueryCtx, number: AccountNumber) -> Result<Option<Profile>, Error> {
+    use abi::role::identity::{Query, Reply};
+    let identity = &ctx.env().role(abi::role::IDENTITY)?.clone();
+    match ctx.query::<Query, Reply>(identity, &Query::Profile(number))? {
+        Reply::Profile(profile) => Ok(profile),
+        other => Err(unexpected_reply(identity, "Profile", &other)),
+    }
+}
+
+fn scripted(profile: &Profile) -> Option<&ProgramId> {
+    let Account::Program {
+        standing: Standing::Active,
+        script: Some(script),
+        ..
+    } = &profile.kind
+    else {
+        return None;
+    };
+    Some(&script.calls)
+}
+
+fn handed_to(
+    ctx: &QueryCtx,
+    recipient: AccountNumber,
+) -> Result<Option<(ProgramId, Vec<u8>)>, Error> {
+    let Some(profile) = profile(ctx, recipient)? else {
+        return Ok(None);
+    };
+    let Some(calls) = scripted(&profile) else {
+        return Ok(None);
+    };
+    Ok(REGISTERED
+        .get(ctx, calls)?
+        .map(|deliver| (calls.clone(), deliver)))
+}
+
+fn attribute_one(ctx: &ExecCtx, program: &ProgramId, update: Update) -> Result<(), Error> {
     well_formed(&update)?;
     let source = Source {
         program: program.clone(),
@@ -167,21 +199,17 @@ fn attribute_one(
         CHANGES.put(ctx, &seq, &change);
         TO.insert(ctx, &(recipient, seq));
         OF.insert(ctx, &(key.0.clone(), key.1.clone(), key.2.clone(), seq));
-        for (subscriber, deliver) in subscribers {
-            ctx.emit_raw(
-                subscriber.clone(),
-                Change::payload(deliver, &change),
-                Reply::Wanted,
-            );
+        if let Some((calls, deliver)) = handed_to(ctx, recipient)? {
+            ctx.emit_raw(calls, Change::payload(&deliver, &change), Reply::Wanted);
         }
     }
     SEQ.put(ctx, &seq);
     Ok(())
 }
 
-pub(crate) fn subscribe(ctx: &ExecCtx, deliver: Vec<u8>) -> Result<(), Error> {
+pub(crate) fn register(ctx: &ExecCtx, deliver: Vec<u8>) -> Result<(), Error> {
     let program = ctx.env().sending_program()?;
-    SUBSCRIBERS.put(ctx, &program, &deliver);
+    REGISTERED.put(ctx, &program, &deliver);
     Ok(())
 }
 
@@ -217,8 +245,8 @@ pub(crate) fn changes_of(
         .try_map(|(_, _, _, seq)| change(ctx, seq))
 }
 
-pub(crate) fn subscribers(ctx: &QueryCtx) -> Result<Vec<ProgramId>, Error> {
-    Ok(SUBSCRIBERS
+pub(crate) fn registered(ctx: &QueryCtx) -> Result<Vec<ProgramId>, Error> {
+    Ok(REGISTERED
         .all(ctx)?
         .into_iter()
         .map(|(program, _)| program)

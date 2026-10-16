@@ -1,19 +1,17 @@
-//! The Anthropic API as JSON: a thread's request in parts (a header, one part per message,
-//! separators, a close) so earlier messages are reused blobs, a reply read back as a turn, an
-//! on-demand compaction's summary, and a model's context window from the models endpoint.
+//! The Anthropic Messages API as JSON: a thread's request in parts (a header, one part per
+//! message, separators, a close that asks for a streamed reply) so earlier messages are reused
+//! blobs, a reply read back as a turn whole or one server-sent event at a time, an on-demand
+//! compaction's summary, and a model's context window from the models endpoint.
 use abi::role::egress::http::{Head, Method, Response};
 use serde_json::{Map, Value, json};
 
-use crate::{Body, Frame, Role, Said, Stop, ThreadRow, Usage};
+use super::{Answered, Header, Reply, Summarized, Summary};
+use crate::{Body, Flow, Forming, Frame, Partial, Role, Said, Stop, Usage, tools};
 
 pub(crate) const VERSION: &str = "2023-06-01";
 pub(crate) const COMPACTION_BETA: &str = "compact-2026-09-04";
-pub(crate) const CLOSE: &str = "]}";
+pub(crate) const CLOSE: &str = r#"],"stream":true}"#;
 pub(crate) const SUMMARIZE: &str = r#"],"compaction":{"type":"summarize"}}"#;
-// A non-streamed Messages request runs up to 10 minutes (Anthropic's SDKs refuse a longer one).
-// ponytail: 600 blocks is 10 minutes at 1-second blocks; derive it from the network's block time
-// once a program can read it.
-pub(crate) const WAIT: u64 = 600;
 
 pub(crate) fn head(summarized: bool) -> Head {
     let mut headers = vec![
@@ -30,10 +28,10 @@ pub(crate) fn head(summarized: bool) -> Head {
     }
 }
 
-pub(crate) fn model(model: &str) -> Head {
+pub(crate) fn model(name: &str) -> Head {
     Head {
         method: Method::Get,
-        target: format!("/v1/models/{model}"),
+        target: format!("/v1/models/{name}"),
         headers: vec![("anthropic-version".into(), VERSION.into())],
     }
 }
@@ -42,18 +40,32 @@ fn cached() -> Value {
     json!({ "type": "ephemeral" })
 }
 
-pub(crate) fn header(thread: &ThreadRow, mut tools: Vec<Value>) -> String {
+fn definitions() -> Vec<Value> {
+    tools::CATALOG
+        .iter()
+        .map(|entry| {
+            json!({
+                "name": entry.name,
+                "description": entry.description,
+                "input_schema": (entry.schema)(),
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn header(header: &Header) -> String {
+    let mut tools = definitions();
     if let Some(Value::Object(last)) = tools.last_mut() {
         last.insert("cache_control".into(), cached());
     }
     let mut request = Map::new();
-    request.insert("model".into(), json!(thread.model));
-    request.insert("max_tokens".into(), json!(thread.max_tokens));
+    request.insert("model".into(), json!(header.name));
+    request.insert("max_tokens".into(), json!(header.max_tokens));
     request.insert("tools".into(), Value::Array(tools));
-    if !thread.system.is_empty() {
+    if !header.system.is_empty() {
         request.insert(
             "system".into(),
-            json!([{ "type": "text", "text": thread.system, "cache_control": cached() }]),
+            json!([{ "type": "text", "text": header.system, "cache_control": cached() }]),
         );
     }
     let mut text = Value::Object(request).to_string();
@@ -127,28 +139,16 @@ pub(crate) fn summary_message(block: &str) -> String {
     format!(r#"{{"role":"assistant","content":[{block}]}}"#)
 }
 
-pub(crate) struct Reply {
-    pub model: String,
-    pub said: Vec<Said>,
-    pub stop: Stop,
-    pub usage: Usage,
+pub(crate) fn summary_words(block: &str) -> String {
+    serde_json::from_str::<Value>(block)
+        .ok()
+        .and_then(|value| value["content"].as_str().map(str::to_owned))
+        .unwrap_or_else(|| block.to_owned())
 }
 
-pub(crate) enum Answered {
-    Reply(Reply),
-    Overflow,
-    Failed(String),
-}
-
-pub(crate) struct Summary {
-    pub block: String,
-    pub tokens: u64,
-}
-
-pub(crate) enum Summarized {
-    Summary(Summary),
-    Overflow,
-    Failed(String),
+pub(crate) fn summary_text(text: &str) -> String {
+    let content = json!([{ "type": "text", "text": text }]);
+    json!({ "role": "assistant", "content": content }).to_string()
 }
 
 fn stop(reason: Option<&str>) -> Stop {
@@ -191,18 +191,180 @@ fn reply(value: &Value) -> Result<Reply, String> {
     let content = value["content"]
         .as_array()
         .ok_or("the model's reply has no content")?;
-    let count = |key: &str| value["usage"][key].as_u64().unwrap_or(0);
+    let mut usage = Usage::default();
+    counted(&mut usage, &value["usage"]);
     Ok(Reply {
         model: text_of(value, "model"),
         said: content.iter().filter_map(read_said).collect(),
         stop: stop(value["stop_reason"].as_str()),
-        usage: Usage {
-            input: count("input_tokens"),
-            output: count("output_tokens"),
-            cache_read: count("cache_read_input_tokens"),
-            cache_write: count("cache_creation_input_tokens"),
-        },
+        usage,
     })
+}
+
+fn counted(usage: &mut Usage, value: &Value) {
+    let counts = [
+        ("input_tokens", &mut usage.input),
+        ("output_tokens", &mut usage.output),
+        ("cache_read_input_tokens", &mut usage.cache_read),
+        ("cache_creation_input_tokens", &mut usage.cache_write),
+    ];
+    for (key, count) in counts {
+        if let Some(reported) = value[key].as_u64() {
+            *count = reported;
+        }
+    }
+}
+
+const OVERFLOWED: &str = "model_context_window_exceeded";
+
+pub(crate) fn fold(partial: &mut Partial, data: &str) {
+    let Ok(event) = serde_json::from_str::<Value>(data) else {
+        partial.flow = Flow::Broken {
+            reason: format!("event {} is not JSON", partial.next_seq),
+        };
+        return;
+    };
+    match event["type"].as_str().unwrap_or_default() {
+        "message_start" => started(partial, &event["message"]),
+        "content_block_start" => block_started(partial, &event),
+        "content_block_delta" => block_delta(partial, &event),
+        "content_block_stop" => block_stopped(partial, &event),
+        "message_delta" => message_delta(partial, &event),
+        "message_stop" => partial.flow = Flow::Ended,
+        "error" => {
+            partial.flow = Flow::Failed {
+                text: stream_failure(&event["error"]),
+            }
+        }
+        "ping" => {}
+        _unread => {}
+    }
+}
+
+fn started(partial: &mut Partial, message: &Value) {
+    partial.model = text_of(message, "model");
+    partial.usage = Usage::default();
+    counted(&mut partial.usage, &message["usage"]);
+}
+
+fn index_of(event: &Value) -> u64 {
+    event["index"].as_u64().unwrap_or_default()
+}
+
+fn block_started(partial: &mut Partial, event: &Value) {
+    let index = index_of(event);
+    let Some(mut said) = read_said(&event["content_block"]) else {
+        partial.forming = Forming::Skipped { index };
+        return;
+    };
+    if let Said::ToolUse { input, .. } = &mut said {
+        input.clear();
+    }
+    partial.said.push(said);
+    partial.forming = Forming::Kept { index };
+}
+
+fn broken(partial: &mut Partial, reason: String) {
+    partial.flow = Flow::Broken { reason };
+}
+
+enum Block {
+    Kept,
+    Skipped,
+    NotForming,
+}
+
+fn block(forming: Forming, index: u64) -> Block {
+    let (at, block) = match forming {
+        Forming::Kept { index } => (index, Block::Kept),
+        Forming::Skipped { index } => (index, Block::Skipped),
+        Forming::Nothing => return Block::NotForming,
+    };
+    match at == index {
+        true => block,
+        false => Block::NotForming,
+    }
+}
+
+fn block_delta(partial: &mut Partial, event: &Value) {
+    let index = index_of(event);
+    let delta = &event["delta"];
+    let kind = delta["type"].as_str().unwrap_or_default();
+    let said = match block(partial.forming, index) {
+        Block::Kept => partial.said.last_mut(),
+        Block::Skipped => return,
+        Block::NotForming => None,
+    };
+    let Some(said) = said else {
+        let reason = format!("a {kind} for block {index}, which is not the block forming");
+        return broken(partial, reason);
+    };
+    match applied(said, kind, delta) {
+        Applied::Fits => {}
+        Applied::DoesNotFit => broken(
+            partial,
+            format!("a {kind} for block {index}, which it does not fit"),
+        ),
+    }
+}
+
+enum Applied {
+    Fits,
+    DoesNotFit,
+}
+
+fn applied(said: &mut Said, kind: &str, delta: &Value) -> Applied {
+    let (grown, key) = match (kind, said) {
+        ("text_delta", Said::Text(text)) => (text, "text"),
+        ("thinking_delta", Said::Thinking { text, .. }) => (text, "thinking"),
+        ("signature_delta", Said::Thinking { signature, .. }) => (signature, "signature"),
+        ("input_json_delta", Said::ToolUse { input, .. }) => (input, "partial_json"),
+        ("citations_delta", Said::Text(_)) => return Applied::Fits,
+        (_, _) => return Applied::DoesNotFit,
+    };
+    grown.push_str(delta[key].as_str().unwrap_or_default());
+    Applied::Fits
+}
+
+fn block_stopped(partial: &mut Partial, event: &Value) {
+    let index = index_of(event);
+    match block(partial.forming, index) {
+        Block::Kept => partial.forming = Forming::Nothing,
+        Block::Skipped => return partial.forming = Forming::Nothing,
+        Block::NotForming => {
+            let reason = format!("block {index} stopped, which is not the block forming");
+            return broken(partial, reason);
+        }
+    }
+    let Some(Said::ToolUse { id, input, .. }) = partial.said.last_mut() else {
+        return;
+    };
+    let written = match input.is_empty() {
+        true => Ok(json!({})),
+        false => serde_json::from_str::<Value>(input),
+    };
+    match written {
+        Ok(value) => *input = value.to_string(),
+        Err(_) => {
+            let reason = format!("tool call {id}'s input is not JSON");
+            broken(partial, reason);
+        }
+    }
+}
+
+fn message_delta(partial: &mut Partial, event: &Value) {
+    counted(&mut partial.usage, &event["usage"]);
+    let reason = event["delta"]["stop_reason"].as_str();
+    match reason {
+        Some(OVERFLOWED) => partial.flow = Flow::Overflowed,
+        Some(_) | None => partial.stop = Some(stop(reason)),
+    }
+}
+
+fn stream_failure(error: &Value) -> String {
+    let kind = error["type"].as_str().unwrap_or("error");
+    let message = error["message"].as_str().unwrap_or_default();
+    format!("the model's reply failed as it streamed, {kind}: {message}")
 }
 
 fn overflowed(response: &Response) -> bool {
@@ -225,7 +387,7 @@ pub(crate) fn answered(response: &Response) -> Answered {
         Ok(value) => value,
         Err(text) => return Answered::Failed(text),
     };
-    if value["stop_reason"] == "model_context_window_exceeded" {
+    if value["stop_reason"] == OVERFLOWED {
         return Answered::Overflow;
     }
     match reply(&value) {

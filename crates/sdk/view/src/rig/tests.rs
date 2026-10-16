@@ -312,3 +312,13 @@ fn the_dev_validator_opens_the_door_alone_and_a_person_enrolls_as_a_resident() {
     };
     assert_eq!(held.role, valset::Role::Resident);
 }
+
+/// The rig speaks the contract core's node speaks: ducktape
+/// `crates/noded/src/wire.rs` `NODE_CONTRACT`, 9 since ducktape #2883,
+/// whose `/v1/status` carries the roles as a table (`Status::roles`). The
+/// app refuses a node on another contract, so a rig a number behind opens
+/// no live window at all. Core's number moves, this one moves with it.
+#[test]
+fn the_rig_speaks_the_node_contract_core_speaks() {
+    assert_eq!(wire::NODE_CONTRACT, 9);
+}

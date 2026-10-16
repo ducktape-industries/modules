@@ -3,10 +3,11 @@ use std::rc::Rc;
 
 use super::*;
 use harness::{
-    AgentRow, Body, CallRow, CallState, Context as Fill, Frame, Principal, Said, Stop, ToolInfo,
-    Usage, WithheldFrame,
+    AgentSetup, BlobId, Body, CallRow, CallState, Config, Configured, Context as Fill, Flow,
+    Forming, Frame, ModelRow, Partial, Principal, Said, Standing, Stop, ToolInfo, Usage, Window,
+    Wire, WithheldFrame,
 };
-use view::methods::{LinkOpen, Query, Session, Submitted};
+use view::methods::{Change, Changes, LinkOpen, Query, Session, Submitted};
 use view::testing::TestAppContext;
 
 const EDDY: u64 = 7;
@@ -41,7 +42,11 @@ fn person(number: u64, name: &str) -> identity::Account {
     account(number, name, identity::Control::User { keys: Vec::new() })
 }
 
-fn agent(number: u64, name: &str, manager: u64) -> identity::Account {
+fn path_of(name: &str) -> String {
+    format!("/shared/agents/{}.md", name.to_lowercase())
+}
+
+fn agent(number: u64, name: &str, manager: u64, scripted: bool) -> identity::Account {
     account(
         number,
         name,
@@ -49,24 +54,48 @@ fn agent(number: u64, name: &str, manager: u64) -> identity::Account {
             manager,
             category: identity::Category::Agent,
             life: identity::Life::Active { keys: Vec::new() },
-            script: Some(identity::Script {
+            script: scripted.then(|| identity::Script {
                 calls: harness::PROGRAM.into(),
-                config: String::new(),
+                config: path_of(name),
             }),
         },
     )
 }
 
-fn hired(agent: u64, name: &str, manager: u64) -> AgentRow {
-    AgentRow {
+const SNAPSHOT: BlobId = BlobId::Sha256([0xab; 32]);
+const SONNET: &str = "sonnet";
+
+fn model_row(window: Window) -> ModelRow {
+    ModelRow {
+        id: SONNET.into(),
+        owner: ADA,
+        wire: Wire::AnthropicMessages,
+        service: "anthropic".into(),
+        name: "claude-sonnet-5-5".into(),
+        window,
+    }
+}
+
+fn config_of(name: &str) -> Config {
+    Config {
+        model: SONNET.into(),
+        max_tokens: 4096,
+        wait: None,
+        system: format!("You are {name}."),
+    }
+}
+
+fn setup(agent: u64, name: &str, manager: u64, window: Window) -> AgentSetup {
+    AgentSetup {
         agent,
         manager,
-        name: name.into(),
-        system: format!("You are {name}."),
-        model: "claude-sonnet-5-5".into(),
-        service: "anthropic".into(),
-        max_tokens: 4096,
-        hired: 1204,
+        standing: Standing::Active,
+        path: path_of(name),
+        configured: Configured::Ready {
+            snapshot: SNAPSHOT,
+            config: config_of(name),
+            model: model_row(window),
+        },
     }
 }
 
@@ -77,10 +106,6 @@ fn thread(id: u64, agent: u64, manager: u64, place: &str) -> ThreadRow {
         manager,
         place: place.into(),
         title: place.into(),
-        system: String::new(),
-        model: "claude-sonnet-5-5".into(),
-        service: "anthropic".into(),
-        max_tokens: 4096,
         opened: 8960,
         closed: false,
         frames: 0,
@@ -90,8 +115,8 @@ fn thread(id: u64, agent: u64, manager: u64, place: &str) -> ThreadRow {
         asking: Asking::Idle,
         open_calls: 0,
         held: 0,
-        header: harness::BlobId::Sha256([0; 32]),
         sealed: 0,
+        base: 1,
         tail_from: 1,
         summary: None,
         context: Fill::Measured(72_140),
@@ -126,21 +151,22 @@ fn post(seq: u64, text: &str) -> Frame {
 /// or through its handle after.
 struct Net {
     accounts: Vec<identity::Account>,
-    agents: Vec<AgentRow>,
+    setups: Vec<AgentSetup>,
+    models: Vec<ModelRow>,
     threads: Vec<ThreadRow>,
     frames: Vec<(u64, Frame)>,
     calls: Vec<CallRow>,
     held: Vec<(u64, Body)>,
     withheld: Vec<(u64, WithheldFrame)>,
-    window: Option<Option<u64>>,
+    partials: Vec<(u64, Partial)>,
     serving: Vec<(String, usize)>,
     services: Vec<egress::ServiceRow>,
 }
 
 impl Default for Net {
     /// Eddy manages Scout (working in #general, a closed thread in #release) and Pager
-    /// (handed to harness, not hired); Ada manages Atlas (idle). One node serves
-    /// anthropic and relay.
+    /// (no script hands it to harness yet); Ada manages Atlas (idle) and the model record
+    /// sonnet. One node serves anthropic and relay.
     fn default() -> Self {
         let mut general = thread(7, SCOUT, EDDY, "chat/general");
         general.asking = Asking::Asked { upto: 3 };
@@ -151,11 +177,15 @@ impl Default for Net {
             accounts: vec![
                 person(EDDY, "Eddy"),
                 person(ADA, "Ada"),
-                agent(SCOUT, "Scout", EDDY),
-                agent(PAGER, "Pager", EDDY),
-                agent(ATLAS, "Atlas", ADA),
+                agent(SCOUT, "Scout", EDDY, true),
+                agent(PAGER, "Pager", EDDY, false),
+                agent(ATLAS, "Atlas", ADA, true),
             ],
-            agents: vec![hired(SCOUT, "Scout", EDDY), hired(ATLAS, "Atlas", ADA)],
+            setups: vec![
+                setup(SCOUT, "Scout", EDDY, Window::Tokens(200_000)),
+                setup(ATLAS, "Atlas", ADA, Window::Tokens(200_000)),
+            ],
+            models: vec![model_row(Window::Tokens(200_000))],
             threads: vec![general, release, thread(9, ATLAS, ADA, "chat/deploys")],
             frames: vec![
                 (
@@ -171,6 +201,7 @@ impl Default for Net {
                         2,
                         Body::Turn {
                             model: "claude-sonnet-5-5".into(),
+                            config: SNAPSHOT,
                             said: vec![
                                 Said::Text("Reading the deploy log first.".into()),
                                 Said::ToolUse {
@@ -215,7 +246,7 @@ impl Default for Net {
             }],
             held: Vec::new(),
             withheld: Vec::new(),
-            window: Some(Some(200_000)),
+            partials: Vec::new(),
             serving: vec![("anthropic".into(), 1), (egress::RELAY.into(), 1)],
             services: vec![egress::ServiceRow {
                 name: "anthropic".into(),
@@ -237,9 +268,15 @@ fn seated(net: Net, me: u64) -> (TestAppContext, Shared) {
     cx.host().handle::<Query<harness::Harness>>(move |query| {
         let net = shared.borrow();
         Ok(match query {
-            harness::Query::Agents { .. } => harness::Reply::Agents(page(net.agents.clone())),
-            harness::Query::Agent { agent } => {
-                harness::Reply::Agent(net.agents.iter().find(|row| row.agent == agent).cloned())
+            harness::Query::Agent { agent } => harness::Reply::Agent(
+                net.setups
+                    .iter()
+                    .find(|setup| setup.agent == agent)
+                    .cloned(),
+            ),
+            harness::Query::Models { .. } => harness::Reply::Models(page(net.models.clone())),
+            harness::Query::Model { id } => {
+                harness::Reply::Model(net.models.iter().find(|row| row.id == id).cloned())
             }
             harness::Query::Threads { agent, .. } => {
                 let mut threads: Vec<ThreadRow> = net
@@ -282,13 +319,18 @@ fn seated(net: Net, me: u64) -> (TestAppContext, Shared) {
                     .max_by_key(|row| row.id)
                     .cloned(),
             ),
-            harness::Query::Window { .. } => harness::Reply::Window(net.window),
             harness::Query::Withheld { thread } => harness::Reply::Withheld(
                 net.withheld
                     .iter()
                     .filter(|(id, _)| *id == thread)
                     .map(|(_, withheld)| *withheld)
                     .collect(),
+            ),
+            harness::Query::Partial { thread } => harness::Reply::Partial(
+                net.partials
+                    .iter()
+                    .find(|(id, _)| *id == thread)
+                    .map(|(_, partial)| partial.clone()),
             ),
             harness::Query::Tools => harness::Reply::Tools(vec![
                 ToolInfo {
@@ -354,7 +396,7 @@ fn the_list_shows_each_agent_with_its_state() {
         "#general · Waiting for the model",
         "1 open · 1 closed",
         "Pager",
-        "Not hired",
+        "Not handed to harness",
         "Other agents",
         "Atlas",
         "Idle",
@@ -481,6 +523,7 @@ fn a_thread_shows_its_transcript_calls_and_usage() {
         frame(
             5,
             Body::Compaction {
+                wire: Wire::AnthropicMessages,
                 block: r#"{"type":"compaction","content":"Ada asked about payments."}"#.into(),
             },
         ),
@@ -536,16 +579,88 @@ fn a_thread_shows_its_transcript_calls_and_usage() {
     );
 }
 
+fn streaming() -> Partial {
+    Partial {
+        wire: Wire::AnthropicMessages,
+        model: "claude-sonnet-5-5".into(),
+        said: vec![
+            Said::Thinking {
+                text: "The log names the deploy".into(),
+                signature: "sig".into(),
+            },
+            Said::Text("The slowdown began with".into()),
+            Said::ToolUse {
+                id: "toolu_02".into(),
+                name: "forge_log".into(),
+                input: r#"{"repo":"pay"#.into(),
+            },
+        ],
+        forming: Forming::Kept { index: 2 },
+        stop: None,
+        usage: Usage::default(),
+        next_seq: 14,
+        flow: Flow::Open,
+    }
+}
+
 #[test]
-fn a_window_not_learned_yet_shows_the_tokens_alone() {
+fn the_reply_the_model_is_streaming_grows_under_the_transcript() {
     let net = Net {
-        window: None,
+        partials: vec![(7, streaming())],
         ..Net::default()
     };
+    let (mut cx, shared) = seated(net, EDDY);
+    let changes = cx.host().stream::<Changes<harness::Harness>>();
+    cx.simulate_click("agent-12");
+    cx.run_until_parked();
+    cx.simulate_click("thread-7");
+    cx.run_until_parked();
+    for text in [
+        "is answering · 14 events so far",
+        "Thinking",
+        "The log names the deploy",
+        "The slowdown began with",
+        "forge_log",
+        r#"{"repo":"pay"#,
+        "Forming",
+    ] {
+        assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
+    }
+    let broken = Partial {
+        flow: Flow::Broken {
+            reason: "event 15 arrived where event 14 was due".into(),
+        },
+        ..streaming()
+    };
+    shared.borrow_mut().partials = vec![(7, broken)];
+    changes.send(Some(Change {
+        height: 10,
+        keys: Vec::new(),
+    }));
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("the reply broke: event 15 arrived where event 14 was due"),
+        "{:?}",
+        cx.texts()
+    );
+    shared.borrow_mut().partials.clear();
+    changes.send(Some(Change {
+        height: 11,
+        keys: Vec::new(),
+    }));
+    cx.run_until_parked();
+    assert!(cx.find("thread-partial").is_none());
+}
+
+#[test]
+fn a_window_not_learned_yet_shows_the_tokens_alone() {
+    let mut net = Net::default();
+    net.setups[0] = setup(SCOUT, "Scout", EDDY, Window::Unasked);
     let (mut cx, _) = seated(net, EDDY);
     cx.simulate_click("agent-12");
     cx.run_until_parked();
     assert!(cx.has_text("context 72,140 tokens"), "{:?}", cx.texts());
+    assert!(cx.has_text("not asked yet"), "{:?}", cx.texts());
     cx.simulate_click("thread-7");
     cx.run_until_parked();
     assert!(
@@ -556,12 +671,12 @@ fn a_window_not_learned_yet_shows_the_tokens_alone() {
 }
 
 #[test]
-fn close_and_dismiss_are_the_managers_alone() {
+fn close_and_take_back_are_the_managers_alone() {
     let (mut cx, _) = seated(Net::default(), ADA);
     cx.simulate_click("agent-12");
     cx.run_until_parked();
     assert!(cx.has_text("Scout"), "{:?}", cx.texts());
-    assert!(cx.find("agent-dismiss").is_none());
+    assert!(cx.find("agent-remove").is_none());
     assert!(cx.find("agent-edit").is_none());
     cx.simulate_click("thread-7");
     cx.run_until_parked();
@@ -571,6 +686,7 @@ fn close_and_dismiss_are_the_managers_alone() {
     let (mut cx, _) = seated(Net::default(), EDDY);
     cx.host()
         .handle::<Submit<harness::Harness>>(|_| Ok(applied(Vec::new())));
+    identity_takes(&cx);
     cx.simulate_click("agent-12");
     cx.run_until_parked();
     cx.simulate_click("thread-7");
@@ -586,23 +702,27 @@ fn close_and_dismiss_are_the_managers_alone() {
     cx.run_until_parked();
     cx.simulate_click("thread-back");
     cx.run_until_parked();
-    cx.simulate_click("agent-dismiss");
+    cx.simulate_click("agent-remove");
     cx.run_until_parked();
     assert!(
         cx.has_text(
-            "Dismiss Scout? Harness stops answering for it. Its threads stay here to read."
+            "Take Scout back from harness? Its script is cleared, so harness stops answering for it. Its threads and its configuration file stay."
         ),
         "{:?}",
         cx.texts()
     );
-    cx.simulate_click("agent-dismiss-confirm");
+    cx.simulate_click("agent-remove-confirm");
     cx.run_until_parked();
     assert_eq!(
         cx.host().requests::<Submit<harness::Harness>>(),
-        [
-            harness::Op::Close { thread: 7 },
-            harness::Op::Dismiss { agent: SCOUT }
-        ]
+        [harness::Op::Close { thread: 7 }]
+    );
+    assert_eq!(
+        cx.host().requests::<Submit<Identity>>(),
+        [identity::Op::SetScript {
+            account: SCOUT,
+            script: None
+        }]
     );
     assert!(cx.has_text("My agents"), "{:?}", cx.texts());
 }
@@ -624,25 +744,66 @@ fn identity_takes(cx: &TestAppContext) {
     });
 }
 
+fn files_take(cx: &TestAppContext) {
+    cx.host()
+        .handle::<Submit<files::Files>>(|_| Ok(applied(Vec::new())));
+}
+
+fn commit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -> files::Op {
+    files::Op::Commit {
+        base,
+        message,
+        changes: vec![files::Change::Put {
+            path: path.into(),
+            exec: false,
+            meta: Default::default(),
+            content: files::Content::Inline(config.write().into_bytes()),
+        }],
+    }
+}
+
+fn fill(cx: &mut TestAppContext) {
+    cx.simulate_input("create-system", "Answer about deploys.");
+    cx.simulate_click("model-sonnet");
+    cx.simulate_input("create-max-tokens", "8192");
+}
+
+fn rover() -> Config {
+    Config {
+        model: SONNET.into(),
+        max_tokens: 8192,
+        wait: None,
+        system: "Answer about deploys.".into(),
+    }
+}
+
 #[test]
 fn the_create_flow_sends_its_ops_in_order() {
     let (mut cx, _) = seated(Net::default(), EDDY);
     identity_takes(&cx);
-    cx.host()
-        .handle::<Submit<harness::Harness>>(|_| Ok(applied(Vec::new())));
+    files_take(&cx);
     cx.simulate_click("agents-create");
     cx.run_until_parked();
     assert!(cx.has_text("1 serving now"), "{:?}", cx.texts());
-    assert!(cx.has_text("owner Ada"), "{:?}", cx.texts());
+    assert!(
+        cx.has_text("anthropic · window 200,000 tokens"),
+        "{:?}",
+        cx.texts()
+    );
     cx.simulate_input("create-name", "Rover");
-    cx.simulate_input("create-system", "Answer about deploys.");
-    cx.simulate_input("create-model", "claude-opus-5-5");
-    cx.simulate_input("create-max-tokens", "8192");
-    cx.simulate_click("service-anthropic");
+    fill(&mut cx);
     cx.simulate_click("create-answers-1");
     cx.simulate_click("create-next");
     cx.run_until_parked();
-    // the identity ops went, in order; the hire waits for the person's yes
+    assert_eq!(
+        cx.host().requests::<Submit<files::Files>>(),
+        [commit_of(
+            "/shared/agents/rover.md",
+            &rover(),
+            None,
+            "Configure agent Rover (account 31)".into()
+        )]
+    );
     assert_eq!(
         cx.host().requests::<Submit<Identity>>(),
         [
@@ -653,65 +814,75 @@ fn the_create_flow_sends_its_ops_in_order() {
                 account: ROVER,
                 script: Some(identity::Script {
                     calls: harness::PROGRAM.into(),
-                    config: String::new(),
+                    config: "/shared/agents/rover.md".into(),
                 })
+            },
+            identity::Op::SetAudience {
+                account: ROVER,
+                audience: identity::Audience::Anyone
             },
         ]
     );
     assert!(cx.host().requests::<Submit<harness::Harness>>().is_empty());
-    for text in [
-        "Hire an agent",
-        "agent Rover (account 31)",
-        "model claude-opus-5-5",
-        "service anthropic",
-        "Account 31 created",
-    ] {
-        assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
-    }
-    cx.simulate_click("create-hire");
+}
+
+#[test]
+fn a_path_typed_in_the_form_is_the_one_committed_and_scripted() {
+    let (mut cx, _) = seated(Net::default(), EDDY);
+    identity_takes(&cx);
+    files_take(&cx);
+    cx.simulate_click("agents-create");
     cx.run_until_parked();
+    cx.simulate_input("create-name", "Rover");
+    cx.simulate_input("create-path", "/home/eddy/rover.md");
+    fill(&mut cx);
+    cx.simulate_input("create-wait", "600");
+    cx.simulate_click("create-next");
+    cx.run_until_parked();
+    let waits = Config {
+        wait: Some(600),
+        ..rover()
+    };
     assert_eq!(
-        cx.host().requests::<Submit<harness::Harness>>(),
-        [harness::Op::Hire {
-            agent: ROVER,
-            system: "Answer about deploys.".into(),
-            model: "claude-opus-5-5".into(),
-            service: "anthropic".into(),
-            max_tokens: 8192,
-        }]
+        cx.host().requests::<Submit<files::Files>>(),
+        [commit_of(
+            "/home/eddy/rover.md",
+            &waits,
+            None,
+            "Configure agent Rover (account 31)".into()
+        )]
     );
     assert_eq!(
         cx.host().requests::<Submit<Identity>>().last(),
-        Some(&identity::Op::SetAudience {
+        Some(&identity::Op::SetScript {
             account: ROVER,
-            audience: identity::Audience::Anyone
+            script: Some(identity::Script {
+                calls: harness::PROGRAM.into(),
+                config: "/home/eddy/rover.md".into(),
+            })
         })
     );
 }
 
 #[test]
-fn a_refused_hire_resumes_without_a_second_account() {
+fn a_refused_commit_resumes_without_a_second_account() {
     let (mut cx, _) = seated(Net::default(), EDDY);
     identity_takes(&cx);
     cx.host()
-        .refuse::<Submit<harness::Harness>>("invalid", "a model is a model id");
+        .refuse::<Submit<files::Files>>("stale", "the file changed since the base snapshot");
     cx.simulate_click("agents-create");
     cx.run_until_parked();
     cx.simulate_input("create-name", "Rover");
-    cx.simulate_input("create-model", "bad model");
-    cx.simulate_input("create-max-tokens", "8192");
-    cx.simulate_click("service-anthropic");
+    fill(&mut cx);
     cx.simulate_click("create-next");
     cx.run_until_parked();
-    cx.simulate_click("create-hire");
-    cx.run_until_parked();
-    assert!(cx.has_text("a model is a model id"), "{:?}", cx.texts());
-    cx.host()
-        .handle::<Submit<harness::Harness>>(|_| Ok(applied(Vec::new())));
-    cx.simulate_input("create-model", "claude-opus-5-5");
+    assert!(
+        cx.has_text("the file changed since the base snapshot"),
+        "{:?}",
+        cx.texts()
+    );
+    files_take(&cx);
     cx.simulate_click("create-next");
-    cx.run_until_parked();
-    cx.simulate_click("create-hire");
     cx.run_until_parked();
     let created = cx
         .host()
@@ -720,7 +891,13 @@ fn a_refused_hire_resumes_without_a_second_account() {
         .filter(|op| matches!(op, identity::Op::CreateAgent { .. }))
         .count();
     assert_eq!(created, 1);
-    assert_eq!(cx.host().requests::<Submit<harness::Harness>>().len(), 2);
+    assert_eq!(cx.host().requests::<Submit<files::Files>>().len(), 2);
+    assert!(
+        cx.host()
+            .requests::<Submit<Identity>>()
+            .iter()
+            .any(|op| matches!(op, identity::Op::SetScript { .. }))
+    );
 }
 
 #[test]
@@ -735,9 +912,7 @@ fn a_create_with_no_answer_says_the_account_may_exist() {
     cx.simulate_click("agents-create");
     cx.run_until_parked();
     cx.simulate_input("create-name", "Rover");
-    cx.simulate_input("create-model", "claude-opus-5-5");
-    cx.simulate_input("create-max-tokens", "8192");
-    cx.simulate_click("service-anthropic");
+    fill(&mut cx);
     cx.simulate_click("create-next");
     cx.run_until_parked();
     assert!(
@@ -749,61 +924,90 @@ fn a_create_with_no_answer_says_the_account_may_exist() {
 }
 
 #[test]
-fn an_unhired_agent_continues_at_its_hire() {
+fn an_unscripted_agent_continues_at_its_configuration() {
     let (mut cx, _) = seated(Net::default(), EDDY);
-    cx.simulate_click(&format!("unhired-{PAGER}"));
+    identity_takes(&cx);
+    files_take(&cx);
+    cx.simulate_click(&format!("unscripted-{PAGER}"));
     cx.run_until_parked();
     assert!(cx.has_text("Account 19 created"), "{:?}", cx.texts());
-    cx.simulate_input("create-model", "claude-opus-5-5");
-    cx.simulate_input("create-max-tokens", "1024");
-    cx.simulate_click("service-anthropic");
+    fill(&mut cx);
     cx.simulate_click("create-next");
     cx.run_until_parked();
-    assert!(cx.has_text("agent Pager (account 19)"), "{:?}", cx.texts());
-    assert!(cx.host().requests::<Submit<Identity>>().is_empty());
-}
-
-#[test]
-fn edit_hires_again_and_says_open_threads_keep_theirs() {
-    let (mut cx, _) = seated(Net::default(), EDDY);
-    cx.host()
-        .handle::<Submit<harness::Harness>>(|_| Ok(applied(Vec::new())));
-    cx.simulate_click("agent-12");
-    cx.run_until_parked();
-    assert!(
-        cx.has_text("Edits do not reach open threads: system, model, service and max_tokens are fixed when a thread opens."),
-        "{:?}",
-        cx.texts()
-    );
-    cx.simulate_click("agent-edit");
-    cx.run_until_parked();
-    cx.simulate_input("create-model", "claude-opus-5-5");
-    cx.simulate_click("create-next");
-    cx.run_until_parked();
-    cx.simulate_click("create-hire");
-    cx.run_until_parked();
+    assert_eq!(cx.host().requests::<Submit<files::Files>>().len(), 1);
     assert_eq!(
-        cx.host().requests::<Submit<harness::Harness>>(),
-        [harness::Op::Hire {
-            agent: SCOUT,
-            system: "You are Scout.".into(),
-            model: "claude-opus-5-5".into(),
-            service: "anthropic".into(),
-            max_tokens: 4096,
+        cx.host().requests::<Submit<Identity>>(),
+        [identity::Op::SetScript {
+            account: PAGER,
+            script: Some(identity::Script {
+                calls: harness::PROGRAM.into(),
+                config: "/shared/agents/pager.md".into(),
+            })
         }]
     );
 }
 
 #[test]
-fn the_agent_shows_its_settings_threads_and_usage() {
+fn edit_commits_a_new_version_of_the_file_and_scripts_only_a_moved_path() {
+    let (mut cx, _) = seated(Net::default(), EDDY);
+    identity_takes(&cx);
+    files_take(&cx);
+    cx.simulate_click("agent-12");
+    cx.run_until_parked();
+    cx.simulate_click("agent-edit");
+    cx.run_until_parked();
+    cx.simulate_input("create-max-tokens", "1024");
+    cx.simulate_click("create-next");
+    cx.run_until_parked();
+    let smaller = Config {
+        max_tokens: 1024,
+        ..config_of("Scout")
+    };
+    assert_eq!(
+        cx.host().requests::<Submit<files::Files>>(),
+        [commit_of(
+            "/shared/agents/scout.md",
+            &smaller,
+            Some(SNAPSHOT),
+            "Configure agent Scout (account 12)".into()
+        )]
+    );
+    assert!(cx.host().requests::<Submit<Identity>>().is_empty());
+    assert!(cx.has_text("/shared/agents/scout.md"), "{:?}", cx.texts());
+
+    cx.simulate_click("agent-edit");
+    cx.run_until_parked();
+    cx.simulate_input("create-path", "/home/eddy/scout.md");
+    cx.simulate_click("create-next");
+    cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<Submit<Identity>>(),
+        [identity::Op::SetScript {
+            account: SCOUT,
+            script: Some(identity::Script {
+                calls: harness::PROGRAM.into(),
+                config: "/home/eddy/scout.md".into(),
+            })
+        }]
+    );
+}
+
+#[test]
+fn the_agent_shows_its_configuration_model_threads_and_usage() {
     let (mut cx, _) = seated(Net::default(), EDDY);
     cx.simulate_click("agent-12");
     cx.run_until_parked();
     for text in [
-        "account 12 · agent · managed by Eddy · hired at block 1,204",
-        "claude-sonnet-5-5",
+        "account 12 · agent · managed by Eddy",
+        "/shared/agents/scout.md",
+        "snapshot abababababab",
+        "sonnet",
+        "Anthropic Messages",
         "anthropic · 1 serving",
+        "claude-sonnet-5-5",
+        "200,000 tokens",
         "4,096 tokens",
+        "egress's default",
         "Its manager only",
         "2 · 1 write as Scout",
         "You are Scout.",
@@ -814,6 +1018,74 @@ fn the_agent_shows_its_settings_threads_and_usage() {
     ] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
     }
+}
+
+#[test]
+fn an_agent_whose_configuration_harness_cannot_run_says_what_is_wrong() {
+    let mut net = Net::default();
+    net.setups[0].configured = Configured::Malformed {
+        snapshot: SNAPSHOT,
+        malformed: harness::Malformed::NoClosingFence,
+    };
+    let (mut cx, _) = seated(net, EDDY);
+    let problem = "the agent's configuration /shared/agents/scout.md is malformed: its front matter has no closing +++ line";
+    assert!(cx.has_text("Not configured"), "{:?}", cx.texts());
+    assert!(cx.has_text(problem), "{:?}", cx.texts());
+    cx.simulate_click("agent-12");
+    cx.run_until_parked();
+    assert!(cx.has_text(problem), "{:?}", cx.texts());
+    assert!(
+        cx.has_text("No system prompt is read until the file is fixed."),
+        "{:?}",
+        cx.texts()
+    );
+    cx.simulate_click("thread-7");
+    cx.run_until_parked();
+    assert!(cx.has_text(problem), "{:?}", cx.texts());
+    assert!(
+        cx.has_text(
+            "thread 7 · opened at block 8,960 · asks no model until its configuration is fixed"
+        ),
+        "{:?}",
+        cx.texts()
+    );
+}
+
+#[test]
+fn the_models_page_lists_the_records_and_sets_one_after_a_yes() {
+    let (mut cx, _) = seated(Net::default(), EDDY);
+    cx.host()
+        .handle::<Submit<harness::Harness>>(|_| Ok(applied(Vec::new())));
+    cx.simulate_click("agents-models");
+    cx.run_until_parked();
+    for text in [
+        "Models",
+        "sonnet",
+        "Anthropic Messages",
+        "anthropic · 1 serving now",
+        "window 200,000 tokens",
+        "owner Ada",
+    ] {
+        assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
+    }
+    cx.simulate_input("model-id", "opus");
+    cx.simulate_click("service-anthropic");
+    cx.simulate_input("model-name", "claude-opus-5-5");
+    cx.simulate_click("model-next");
+    cx.run_until_parked();
+    assert!(cx.has_text("Set model · opus"), "{:?}", cx.texts());
+    assert!(cx.host().requests::<Submit<harness::Harness>>().is_empty());
+    cx.simulate_click("model-set");
+    cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<Submit<harness::Harness>>(),
+        [harness::Op::SetModel {
+            id: "opus".into(),
+            wire: Wire::AnthropicMessages,
+            service: "anthropic".into(),
+            name: "claude-opus-5-5".into(),
+        }]
+    );
 }
 
 #[test]
@@ -875,10 +1147,7 @@ fn screens() -> Vec<(&'static str, TestAppContext)> {
     };
     let mut create = open(Net::default(), &["agents-create"]);
     create.simulate_input("create-name", "Rover");
-    create.simulate_input("create-model", "claude-opus-5-5");
-    create.simulate_input("create-max-tokens", "8192");
-    create.simulate_click("service-anthropic");
-    create.simulate_click("create-next");
+    fill(&mut create);
     create.run_until_parked();
     vec![
         ("list", open(Net::default(), &[])),
@@ -902,6 +1171,17 @@ fn screens() -> Vec<(&'static str, TestAppContext)> {
         ("stuck", open(stuck, &["agent-12", "thread-7"])),
         ("no-node", open(unserved, &["agent-12"])),
         ("create", create),
+        ("models", open(Net::default(), &["agents-models"])),
+        (
+            "streaming",
+            open(
+                Net {
+                    partials: vec![(7, streaming())],
+                    ..Net::default()
+                },
+                &["agent-12", "thread-7"],
+            ),
+        ),
     ]
 }
 

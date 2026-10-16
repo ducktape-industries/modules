@@ -316,6 +316,16 @@ account the same way (`ctx.call_as`, `call_raw_as`, below), and the refusal
 is the call's answer. harness writes as the agents it runs with
 `call_raw_as`, so chat and files judge the agent's account, not harness's.
 
+The same script routes `attribution`. A program sends attribution
+`Register { deliver }` once (harness does in its `init`, which founding runs
+like any frame, so what `init` emits is delivered); `deliver` is the prefix
+attribution puts before each change it hands that program, the encoding of
+the program's own op variant. A change about an active program account whose
+script calls a registered program goes to that program alone, as
+`deliver ++ borsh(change)`; a change about a user, a suspended account, or an
+account whose script calls a program that never registered is recorded and
+handed to no one.
+
 A reply names only the message's id. A program that wants to know *what* it
 was waiting for keeps that itself:
 
@@ -404,7 +414,12 @@ It answers the elected node's output, in a later block (an `Http` request's
 is an encoded `http::Response`), or a refusal when the node reports a failure
 or the request expires, `wait` blocks after it was made (`DEFAULT_WAIT`, 64,
 for `None`). `Delivery::Events { deliver }` hears a `text/event-stream` reply
-event by event instead ([roles.md](roles.md), the egress row).
+event by event instead ([roles.md](roles.md), the egress row). harness asks
+a model's turn this way: `deliver` is `harness::streamed_as(thread)`, the
+encoding of its `Op::Streamed { thread, event }` up to the event, so each
+event arrives as that op. It checks the sender is the program bound to the
+egress role, and checks `seq` itself, because egress does not. The call's
+answer, an empty-bodied `http::Response`, says the stream ended.
 
 **A run for a later block.** `ctx.schedule(height, target, &op).await`
 asks the program bound to the scheduler role to run `target` with `op` at
