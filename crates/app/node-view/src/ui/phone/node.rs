@@ -32,7 +32,7 @@ const TIP_FRAME: Pixels = px(1.);
 /// The page of the member `key`, or why there is none.
 pub(super) fn render(view: &Nodes, key: &[u8], cx: &mut Context<Nodes>, theme: &Theme) -> Page {
     let back = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| {
-        view.open = None;
+        view.close_page();
         cx.notify();
     });
     let nodes = view.nodes.ready();
@@ -121,7 +121,14 @@ fn vote_facts(view: &Nodes, node: &Node, theme: &Theme) -> Div {
     div()
         .child(key_value("height", words::HEIGHT, mono(height), theme))
         .child(key_value("behind", words::BEHIND, mono(behind), theme))
-        .child(key_value("status", words::STATUS, badge, theme))
+        // the badge fits its word, centred in the value's column (Expo
+        // `Badge.tsx:20` `alignSelf: 'center'` in `Facts.tsx:67`'s column)
+        .child(key_value(
+            "status",
+            words::STATUS,
+            div().flex().justify_center().child(badge),
+            theme,
+        ))
 }
 
 /// The kit's `KeyValue` (Expo `src/kit/Facts.tsx:50-75`): at least a

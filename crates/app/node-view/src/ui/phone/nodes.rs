@@ -66,12 +66,12 @@ pub(super) fn render(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Pa
         .child(scroller("nodes-scroll", body))
 }
 
-/// The network's name, once the node says which it is on; Nodes before.
+/// The network's name, as the session names it (Expo `index.tsx:164`
+/// `connection?.network`), or as the node does; Nodes before either says.
 fn title(view: &Nodes) -> String {
-    view.status
-        .ready()
-        .map_or(words::NODES, |status| words::network(&status.chain_id))
-        .to_owned()
+    let chain = view.chain.as_deref();
+    let chain = chain.or(view.status.ready().map(|status| status.chain_id.as_str()));
+    chain.map_or(words::NODES, words::network).to_owned()
 }
 
 /// Whether this node answers, and which node it is.

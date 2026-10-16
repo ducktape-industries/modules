@@ -56,6 +56,9 @@ pub struct Nodes {
     /// the door's sheet is up (the phone's `⋯`)
     #[serde(skip)]
     pub(crate) door: bool,
+    /// the chain the host session is on, once it says
+    #[serde(skip)]
+    pub(crate) chain: Option<String>,
     /// clock ticks since the view opened, and the tick the node last
     /// answered its status on and the one its height last moved on
     #[serde(skip)]
@@ -116,8 +119,8 @@ impl View for Nodes {
     ];
     const TARGETS: &'static [&'static str] =
         &[valset::PROGRAM, programs::PROGRAM, identity::PROGRAM];
-    // the phone's screens fit 360; the desktop's table pans below 480
-    const MIN_WINDOW_WIDTH: u32 = 360;
+    // the set's table fits from 480 up
+    const MIN_WINDOW_WIDTH: u32 = 480;
 
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         cx.follow::<Changes<Valset>>((), |view, head, cx| match head {
@@ -290,9 +293,22 @@ impl Nodes {
         } else if self.door {
             self.door = false;
         } else {
-            self.open = None;
+            self.close_page();
         }
         cx.notify();
+    }
+
+    /// The member's page closes, and a landed vote's message pressed on it
+    /// goes with it.
+    pub(crate) fn close_page(&mut self) {
+        let Some(page) = self.open.take() else {
+            return;
+        };
+        let landed_here = matches!(self.voting.outcome, Some(Ok(_)))
+            && self.voting.pressed_on.as_ref() == Some(&page);
+        if landed_here {
+            self.voting.outcome = None;
+        }
     }
 
     /// Whether the node answered its status within [`SILENT_TICKS`].

@@ -647,11 +647,29 @@ fn a_vote_says_what_it_came_to() {
     );
     assert_eq!(
         said(Err(refusal(
-            methods::refusal::SESSION_LOCKED,
-            "No key is unlocked."
+            methods::refusal::NOT_CONNECTED,
+            "No node is connected."
         ))),
-        Err("Not sent: No key is unlocked.".into())
+        Err("Not sent: not connected to a node.".into())
     );
+    assert_eq!(
+        said(Err(refusal(
+            methods::refusal::CONSENT_REFUSED,
+            "not confirmed"
+        ))),
+        Err("That didn’t go through: not confirmed".into())
+    );
+    for code in [
+        methods::refusal::SESSION_LOCKED,
+        methods::refusal::STALE_CONNECTION,
+        methods::refusal::HOST_FAULT,
+    ] {
+        assert_eq!(
+            said(Err(refusal(code, "No key is unlocked."))),
+            Err("Not sent: No key is unlocked.".into()),
+            "{code}"
+        );
+    }
     assert_eq!(
         said(Ok(Submitted::InDoubt {
             frame: [0; 32],

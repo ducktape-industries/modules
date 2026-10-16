@@ -31,6 +31,11 @@ const SMALL_BUTTON: Pixels = px(36.);
 /// `hitSlop={8}`).
 const NOTICE_ACTION: Pixels = px(30.);
 const NOTICE_REACH: Pixels = px(8.);
+// SDK gap: a button sized by its caller (`design::button` takes the
+// ladder's control height); the SDK builds it later
+/// How tall the confirm card's Not now stands, as its Vote and enact
+/// (Expo `src/kit/Confirm.tsx:84` `height: size.primary`, `theme.ts:75`).
+const CONFIRM_ROW: Pixels = px(48.);
 // SDK gap: the empty state (`design::empty_state`; with `empty`), swap when feat/phone-kit lands
 /// The empty state's icon (Expo `src/design/theme.ts:87` `icon.empty`),
 /// its padding (`States.tsx:26`: 40 over and under, 32 at the sides) and
@@ -60,14 +65,18 @@ pub(super) fn press(
     cx.listener(move |view: &mut Nodes, _: &ClickEvent, _, cx| view.press(motion.clone(), cx))
 }
 
-/// What the last vote did on a success strip, or why it stopped on a
-/// danger one, until dismissed.
+/// What the last vote did on a success strip, on the screen it was
+/// pressed on; or why it stopped on a danger one, on every screen; until
+/// dismissed.
 pub(super) fn outcome(
     view: &Nodes,
     cx: &mut Context<Nodes>,
     theme: &Theme,
 ) -> Option<Stateful<Div>> {
     let outcome = view.voting.outcome.as_ref()?;
+    if outcome.is_ok() && view.voting.pressed_on != view.open {
+        return None;
+    }
     let dismiss = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.dismiss_outcome(cx));
     let action = action("nodes-outcome-dismiss", words::DISMISS, dismiss);
     Some(match outcome {
@@ -147,7 +156,14 @@ fn confirm_card(title: String, cx: &mut Context<Nodes>, theme: &Theme) -> Statef
                 .gap(space::SM)
                 .px(SHEET_INSET)
                 .pt(space::BLOCK)
-                .child(share(1.).flex().flex_col().child(not_now))
+                .child(
+                    share(1.)
+                        .h(CONFIRM_ROW)
+                        .flex()
+                        .flex_col()
+                        .justify_center()
+                        .child(not_now),
+                )
                 .child(share(2.).flex().flex_col().child(enact)),
         )
         .child(

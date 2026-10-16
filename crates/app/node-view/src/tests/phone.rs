@@ -6,7 +6,7 @@ use super::voting::{operators, sheet, sheet_view, submitted};
 use super::*;
 use crate::voting::cancel;
 use valset::{Motion, Op, Pending, Voted};
-use view::methods::Submit;
+use view::methods::{HostSession, Session, Submit, Submitted};
 use view::testing;
 
 /// The view as a phone 390 wide shows it.
@@ -190,6 +190,25 @@ fn a_network_with_no_members_says_so() {
         &cx,
         &["No members", "The validator set of this network is empty."],
     );
+}
+
+#[test]
+fn the_title_names_the_sessions_network_before_the_node_answers() {
+    let mut cx = TestAppContext::new();
+    node(&mut cx);
+    respond(&mut cx);
+    cx.host().never::<ChainStatus>();
+    let session = cx.host().stream::<HostSession>();
+    cx.open::<Nodes>();
+    session.send(Session {
+        connected: true,
+        chain_id: "Harbour#2".into(),
+        signer: String::new(),
+        account: None,
+        endpoint: String::new(),
+    });
+    phone(&mut cx);
+    shows(&cx, &["Harbour", "Reading node status…"]);
 }
 
 #[test]
@@ -425,10 +444,37 @@ fn a_vote_that_enacts_goes_on_yes_and_its_outcome_stays_until_dismissed() {
 }
 
 #[test]
-fn a_refused_vote_says_why_on_the_outcome_strip() {
+fn a_landed_vote_says_so_on_the_screen_it_was_pressed_on_only() {
     let mut cx = voter();
     cx.host()
-        .refuse::<Submit<Valset>>("unauthorized", "only a validator votes");
+        .handle::<Submit<Valset>>(|_| Ok(testing::applied(abi::encode(&Voted::Enacted))));
+    click(&mut cx, "nodes-door");
+    click(&mut cx, "nodes-door-open");
+    click(&mut cx, "nodes-member-9c1e");
+    assert!(cx.find("nodes-outcome").is_none(), "the list's, not the page's");
+    click(&mut cx, "nodes-node-back");
+    assert!(cx.has_text("Enacted"), "the list kept its message");
+    click(&mut cx, "nodes-outcome-dismiss");
+    click(&mut cx, "nodes-member-9c1e");
+    click(&mut cx, "nodes-node-demote");
+    assert!(cx.has_text("Enacted"));
+    cx.simulate_back();
+    cx.run_until_parked();
+    assert!(cx.find("nodes-outcome").is_none(), "gone with its page");
+    click(&mut cx, "nodes-member-9c1e");
+    assert!(cx.find("nodes-outcome").is_none(), "and not back on a new one");
+}
+
+#[test]
+fn a_refused_vote_says_why_on_the_outcome_strip() {
+    let mut cx = voter();
+    cx.host().handle::<Submit<Valset>>(|_| {
+        Ok(Submitted::Refused {
+            frame: [0; 32],
+            until: 0,
+            refusal: Error::new("unauthorized", "only a validator votes"),
+        })
+    });
     click(&mut cx, "nodes-door");
     click(&mut cx, "nodes-door-close");
     shows(
@@ -560,7 +606,7 @@ fn a_voter_promotes_a_resident_from_its_page() {
 /// to go back to.
 #[test]
 fn every_screen_fits_a_phone_360_390_and_430_wide() {
-    let mut cx = voter();
+    let (mut cx, nodes) = voter_view();
     testing::sweep(&mut cx, |cx| {
         assert_eq!(cx.back_handler(), None, "nothing to go back to");
         assert!(cx.find("nodes-member-abcd").is_some(), "the members");
@@ -569,6 +615,16 @@ fn every_screen_fits_a_phone_360_390_and_430_wide() {
             cx.find("nodes-scheduled-cancel-0").is_some(),
             "Propose cancel"
         );
+        set(cx, &nodes, |view| {
+            let refusal = Error::new("unavailable", "valset is restarting");
+            view.voting.motions = Loadable::Failed(refusal);
+            let said = "That didn’t go through: only a validator votes";
+            view.voting.outcome = Some(Err(said.into()));
+        });
+        assert!(cx.find("nodes-motions-refused").is_some(), "a refused read");
+        assert!(cx.find("nodes-outcome").is_some(), "a vote's outcome");
+        click(cx, "nodes-motions-retry");
+        click(cx, "nodes-outcome-dismiss");
         click(cx, "nodes-door");
         assert!(cx.find("nodes-door-sheet").is_some(), "the door sheet");
         cx.simulate_back();

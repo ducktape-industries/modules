@@ -32,7 +32,13 @@ pub(crate) struct Voting {
     /// a vote in flight: no other press until it lands
     pub(crate) busy: bool,
     /// what the last vote did, or the refusal it met
+    // ponytail: one outcome for every screen; Expo keeps a landed one per
+    // screen, so a vote on a page replaces the list's until Back
     pub(crate) outcome: Option<Result<String, String>>,
+    /// the member page the last vote was pressed on (`None`: the list); a
+    /// landed one's message shows only there (Expo: each screen's own
+    /// `usePress`), a failure on every screen (Expo's outbox rows)
+    pub(crate) pressed_on: Option<Vec<u8>>,
 }
 
 impl Voting {
@@ -85,6 +91,7 @@ impl Voting {
 
 impl Nodes {
     pub(crate) fn session_changed(&mut self, session: Session, cx: &mut Context<Self>) {
+        self.chain = Some(session.chain_id).filter(|chain| !chain.is_empty());
         let signer = abi::unhex(&session.signer).filter(|key| !key.is_empty());
         if signer != self.voting.signer {
             // another reader's voices are not this one's
@@ -169,10 +176,15 @@ impl Nodes {
     fn vote(&mut self, motion: Motion, cx: &mut Context<Self>) {
         self.voting.busy = true;
         self.voting.outcome = None;
+        self.voting.pressed_on = self.open.clone();
         let ask = cx.host().ask::<Submit<Valset>>(Op::Vote(motion));
         cx.land(ask, |view, answer, cx| {
             view.voting.busy = false;
-            view.voting.outcome = Some(said(answer));
+            let said = said(answer);
+            // its page closed while it was in flight: a landed message went
+            // with it
+            let closed = view.voting.pressed_on.is_some() && view.voting.pressed_on != view.open;
+            view.voting.outcome = (said.is_err() || !closed).then_some(said);
             view.read_voices(cx);
             cx.notify();
         })
@@ -189,10 +201,11 @@ impl Nodes {
 // SDK gap: a write's failure in words (Expo `src/write/words.ts`
 // `failure`), which every view that writes needs; the SDK builds it later
 /// What a vote came to, in the Expo app's words (mobile
-/// `src/network/nodes.ts` `votedWords`, `src/write/words.ts` `failure`):
-/// what a landed one did; else why it stopped, told apart by whether it
-/// was refused, never sent (nothing reached the node, or no key signed
-/// it: safe to send again), or may have gone through.
+/// `src/network/nodes.ts` `votedWords`, `src/write/words.ts:79-84`
+/// `failure`): what a landed one did; else why it stopped, told apart by
+/// whether it was refused (by the program, or not confirmed on the
+/// host), may have gone through, or was never sent (no node reached, none
+/// connected, or something before the send refused: safe to send again).
 pub(crate) fn said(answer: Result<Submitted, Error>) -> Result<String, String> {
     match answer {
         Ok(Submitted::Applied { output, .. }) => Ok(match abi::decode::<Voted>(&output) {
@@ -204,15 +217,19 @@ pub(crate) fn said(answer: Result<Submitted, Error>) -> Result<String, String> {
             "This may have gone through: no answer came back. What you see is read again from the node."
                 .into(),
         ),
-        Err(refusal) if refusal.code == methods::refusal::RPC_CLIENT => Err(
-            "Not sent: the node can’t be reached. Check the connection, then try again.".into(),
-        ),
-        Err(refusal) if refusal.code == methods::refusal::SESSION_LOCKED => {
-            Err(format!("Not sent: {}", refusal.message))
-        }
-        Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
+        Ok(Submitted::Refused { refusal, .. }) => {
             Err(format!("That didn’t go through: {}", refusal.message))
         }
+        Err(refusal) => Err(match refusal.code.as_str() {
+            methods::refusal::CONSENT_REFUSED => {
+                format!("That didn’t go through: {}", refusal.message)
+            }
+            methods::refusal::RPC_CLIENT => {
+                "Not sent: the node can’t be reached. Check the connection, then try again.".into()
+            }
+            methods::refusal::NOT_CONNECTED => "Not sent: not connected to a node.".into(),
+            _ => format!("Not sent: {}", refusal.message),
+        }),
     }
 }
 
