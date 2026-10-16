@@ -418,7 +418,7 @@ fn a_mention_by_its_manager_asks_the_model_in_the_agents_thread_for_that_channel
 }
 
 #[test]
-fn a_direct_message_reaches_the_agent_and_only_its_audience_is_heard() {
+fn a_direct_message_reaches_the_agent_and_only_those_it_answers_are_heard() {
     let world = world();
     let chain = &world.chain;
     world.post(
@@ -427,7 +427,7 @@ fn a_direct_message_reaches_the_agent_and_only_its_audience_is_heard() {
         "b1",
         &format!("<@{}> do my bidding", world.agent),
     );
-    assert!(world.threads().is_empty(), "Bo is not in Scout's audience");
+    assert!(world.threads().is_empty(), "Scout does not answer Bo");
 
     let open = chat::Op::CreateDmChannel {
         counterpart: world.agent,
@@ -452,11 +452,11 @@ fn a_direct_message_reaches_the_agent_and_only_its_audience_is_heard() {
     );
     assert!(posts[0].contains("mentioned you"), "{}", posts[0]);
 
-    let audience = identity::Op::SetAudience {
+    let ownership = identity::Op::SetOwnership {
         account: world.agent,
-        audience: identity::Audience::Accounts(vec![world.bo]),
+        ownership: identity::Ownership::Accounts(vec![world.bo]),
     };
-    identity_op(chain, ADA, audience).unwrap();
+    identity_op(chain, ADA, ownership).unwrap();
     world.post(BO, "general", "b2", &format!("<@{}> now?", world.agent));
     assert_eq!(world.threads().len(), 2);
 }

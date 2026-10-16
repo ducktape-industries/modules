@@ -8,9 +8,9 @@
 //! answers. Writes the open sheet (`open_sheet`, `close_sheet`,
 //! `open_answers`, `open_rename`, `cancel_rename_agent`) and each op
 //! through its submit (`submit_create_agent`, `submit_agent_key`,
-//! `submit_rename_agent`, `set_standing`, `pick_audience`,
-//! `submit_audience_person`, `remove_audience_person`).
-use identity::{Audience, Standing};
+//! `submit_rename_agent`, `set_standing`, `pick_ownership`,
+//! `submit_listed_person`, `remove_listed_person`).
+use identity::{Ownership, Standing};
 use view::design::{Kind as ButtonKind, Ladder};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
@@ -22,7 +22,7 @@ use super::parts::{
 use crate::Settings;
 use crate::queries::{Agent, Seat};
 use crate::state::{Choice, Form, Sheet};
-use crate::ui::shared::{agent_face, audience_choices};
+use crate::ui::shared::{agent_face, ownership_choices};
 use crate::words;
 
 // SDK gap: the sheet's inset, swap when feat/phone-kit lands
@@ -140,7 +140,7 @@ fn agent_row(
     let about = if revoked {
         keys
     } else {
-        format!("{keys} · answers {}", words::answers(&agent.audience))
+        format!("{keys} · answers {}", words::answers(&agent.ownership))
     };
     let tone = if revoked {
         theme.faint
@@ -321,7 +321,7 @@ fn actions(
                 answers,
             )
             .child(hint(
-                Choice::shown(&agent.audience, listing).label(),
+                Choice::shown(&agent.ownership, listing).label(),
                 ladder,
                 theme,
             )),
@@ -445,7 +445,7 @@ fn answers_form(
     let listing = answering.is_some_and(|answering| answering.listing);
     // what stopped the choice; a person's is the field's
     let refused = answering.and_then(|answering| problem_of(&answering.pick, ""));
-    let shown = Choice::shown(&agent.audience, listing);
+    let shown = Choice::shown(&agent.ownership, listing);
     // any write out (Expo's one `useBusy(SCOPE)`, `src/account/Agents.tsx:43`)
     let writing = view.writing();
     let people = match (shown, answering) {
@@ -473,8 +473,8 @@ fn answers_form(
             theme.muted,
             ladder,
         ))
-        .child(audience_choices(agent, shown, cx, ladder, theme))
-        .when(agent.audience == Audience::Anyone, |block| {
+        .child(ownership_choices(agent, shown, cx, ladder, theme))
+        .when(agent.ownership == Ownership::Anyone, |block| {
             block.child(note(words::ANYONE_WARNING, theme.warning, ladder))
         })
         .children(refused.map(|refused| note(refused, theme.danger, ladder)))
@@ -509,9 +509,9 @@ fn people(
     let busy = writing;
     let problem = problem_of(form, words::ADD_PERSON.empty);
     let number = agent.number;
-    let listed: &[u64] = match &agent.audience {
-        Audience::Accounts(numbers) => numbers,
-        Audience::Manager | Audience::Anyone => &[],
+    let listed: &[u64] = match &agent.ownership {
+        Ownership::Accounts(numbers) => numbers,
+        Ownership::Owner | Ownership::Anyone => &[],
     };
     let label = words::person_field(&agent.name);
     // a name or a number: nothing to correct, nothing to capitalise
@@ -525,7 +525,7 @@ fn people(
     .autocorrect(false)
     .autocapitalize(Autocapitalize::None);
     let add = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
-        v.submit_audience_person(number, cx)
+        v.submit_listed_person(number, cx)
     });
     column(format!("settings/agents/{number}/answers/people"))
         .gap(design::space::SM)
@@ -575,7 +575,7 @@ fn person_row(
 ) -> Stateful<Div> {
     let number = agent.number;
     let remove = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
-        v.remove_audience_person(number, person, cx)
+        v.remove_listed_person(number, person, cx)
     });
     div()
         .id(format!("settings/agents/{number}/answers/{person}"))

@@ -8,6 +8,7 @@ use abi::role::identity::{Kind, Profile};
 use crate::*;
 
 mod homes;
+mod ownership;
 
 fn profile(number: u64, name: &str) -> Profile {
     Profile {

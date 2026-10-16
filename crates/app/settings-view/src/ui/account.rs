@@ -4,7 +4,7 @@
 use super::*;
 use crate::queries::{Account, Agent, Key};
 use crate::state::{Answering, Choice};
-use identity::{Audience, Standing};
+use identity::{Ownership, Standing};
 use view::design::Ladder;
 
 /// The identity header's avatar.
@@ -442,9 +442,9 @@ fn answers(
     let answering = view.answering.get(&number);
     let listing = answering.is_some_and(|answering| answering.listing);
     let busy = answering.is_some_and(Answering::busy);
-    let shown = Choice::shown(&agent.audience, listing);
-    let choices = shared::audience_choices(agent, shown, cx, ladder, theme);
-    let open_to_anyone = agent.audience == Audience::Anyone;
+    let shown = Choice::shown(&agent.ownership, listing);
+    let choices = shared::ownership_choices(agent, shown, cx, ladder, theme);
+    let open_to_anyone = agent.ownership == Ownership::Anyone;
     let specific = shown == Choice::Specific;
     let picker = div()
         .flex()
@@ -503,16 +503,16 @@ fn people(
     theme: &Theme,
 ) -> Stateful<Div> {
     let number = agent.number;
-    let listed: &[u64] = match &agent.audience {
-        Audience::Accounts(numbers) => numbers,
-        Audience::Manager | Audience::Anyone => &[],
+    let listed: &[u64] = match &agent.ownership {
+        Ownership::Accounts(numbers) => numbers,
+        Ownership::Owner | Ownership::Anyone => &[],
     };
     let rows: Vec<Stateful<Div>> = listed
         .iter()
         .map(|&person| {
             let name = agent.person_name(person);
             let remove = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
-                v.remove_audience_person(number, person, cx)
+                v.remove_listed_person(number, person, cx)
             });
             div()
                 .id(format!("settings/agents/{number}/answers/{person}"))
@@ -551,13 +551,13 @@ fn people(
         )
     });
     let add = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
-        v.submit_audience_person(number, cx)
+        v.submit_listed_person(number, cx)
     });
     let add_id = format!("settings/agents/{number}/answers/add");
     let adding = match answering {
         Some(answering) => {
             let submitted = cx.listener(move |v: &mut Settings, _: &(), _, cx| {
-                v.submit_audience_person(number, cx)
+                v.submit_listed_person(number, cx)
             });
             let input = field(
                 &format!("settings/agents/{number}/answers/name"),

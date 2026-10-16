@@ -19,7 +19,7 @@ pub(crate) fn agent_face(agent: &Agent, face: impl Into<Face>, theme: &Theme) ->
 
 /// Whom an agent answers, `shown` picked: one press sends Only me or
 /// Anyone; Specific opens the people it lists.
-pub(crate) fn audience_choices(
+pub(crate) fn ownership_choices(
     agent: &Agent,
     shown: Choice,
     cx: &mut Context<Settings>,
@@ -40,7 +40,7 @@ pub(crate) fn audience_choices(
             )
         }),
         cx.processor(move |v: &mut Settings, index: usize, _, cx| {
-            v.pick_audience(number, Choice::ALL[index], cx)
+            v.pick_ownership(number, Choice::ALL[index], cx)
         }),
     )
 }

@@ -100,8 +100,8 @@ fn steps(draft: &Draft, home: Option<&str>, theme: &Theme) -> impl IntoElement +
             created,
         ),
         (
-            "Write its configuration",
-            "files · Commit",
+            "Write its configuration, which only you may change",
+            "files · Commit, write list: Owner",
             draft.committed,
             committed,
         ),
@@ -113,7 +113,7 @@ fn steps(draft: &Draft, home: Option<&str>, theme: &Theme) -> impl IntoElement +
         ),
         (
             "Who it answers, if more than you",
-            "identity · SetAudience",
+            "identity · SetOwnership",
             draft.answered,
             None,
         ),
@@ -246,7 +246,7 @@ fn fields(
         theme,
     ))
     .when(!draft.again && !draft.scripted, |form| {
-        form.child(audience(draft, cx, theme, ladder))
+        form.child(answers(draft, cx, theme, ladder))
     })
 }
 
@@ -345,7 +345,7 @@ pub(super) fn pickable(id: String, picked: bool, theme: &Theme) -> Stateful<Div>
         .focusable()
 }
 
-fn audience(
+fn answers(
     draft: &Draft,
     cx: &mut Context<Agents>,
     theme: &Theme,

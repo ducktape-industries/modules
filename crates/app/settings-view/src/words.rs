@@ -3,7 +3,7 @@
 //! an agent answers, an agent's standing, why a form did not go, the
 //! network's name, and every sentence both designs show. Pure: nothing here
 //! reads the state or writes.
-use identity::{Audience, Kind, Standing};
+use identity::{Kind, Ownership, Standing};
 use view::methods::Session;
 
 use crate::state::Problem;
@@ -140,11 +140,13 @@ pub(crate) fn key_label(label: Option<&str>, index: usize) -> String {
 }
 
 /// Whom an agent answers, as its row says it (Expo `answers`).
-pub(crate) fn answers(audience: &Audience) -> String {
-    match audience {
-        Audience::Manager => "only me".into(),
-        Audience::Anyone => "anyone".into(),
-        Audience::Accounts(people) => view::design::plural(people.len() as u64, "person", "people"),
+pub(crate) fn answers(ownership: &Ownership) -> String {
+    match ownership {
+        Ownership::Owner => "only me".into(),
+        Ownership::Anyone => "anyone".into(),
+        Ownership::Accounts(people) => {
+            view::design::plural(people.len() as u64, "person", "people")
+        }
     }
 }
 

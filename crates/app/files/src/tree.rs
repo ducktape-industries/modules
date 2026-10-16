@@ -1,14 +1,16 @@
 //! Reading a node at a path, and the copy-on-write edit a commit applies: only the
-//! directories on a touched path are opened, and only those are written back.
+//! directories on a touched path are opened, and only those are written back. A node's
+//! creator and write list sit beside it in its parent's tree and move and go with it.
 use std::collections::BTreeMap;
 
 use ::program::{
-    BlobId, Error, ExecCtx, QueryCtx, already_exists, invalid, not_found, wrong_state,
+    AccountNumber, BlobId, Error, ExecCtx, QueryCtx, already_exists, invalid, not_found,
+    wrong_state,
 };
 
 use crate::Node;
-use crate::objects::{put_tree, tree};
-use crate::paths::join;
+use crate::objects::{Access, put_tree, tree};
+use crate::paths::{is_namespace_root, join};
 
 pub(crate) fn node_at(
     ctx: &QueryCtx,
@@ -34,7 +36,19 @@ pub(crate) fn node_at(
 
 enum Slot {
     Kept(Node),
-    Open(BTreeMap<String, Slot>),
+    Open(Dir),
+}
+
+#[derive(Default)]
+struct Dir {
+    children: BTreeMap<String, Slot>,
+    access: BTreeMap<String, Access>,
+}
+
+enum Walk<'e> {
+    Edited(&'e Slot),
+    Stored(BlobId),
+    Gone,
 }
 
 pub(crate) struct TreeEdit {
@@ -45,9 +59,24 @@ impl TreeEdit {
     pub(crate) fn over(root: Option<BlobId>) -> TreeEdit {
         let root = match root {
             Some(tree) => Slot::Kept(Node::Dir { tree, entries: 0 }),
-            None => Slot::Open(BTreeMap::new()),
+            None => Slot::Open(Dir::default()),
         };
         TreeEdit { root }
+    }
+
+    pub(crate) fn access_along(
+        &self,
+        ctx: &QueryCtx,
+        segments: &[String],
+    ) -> Result<Vec<Option<Access>>, Error> {
+        let mut rows = Vec::with_capacity(segments.len());
+        let mut at = Walk::Edited(&self.root);
+        for name in segments {
+            let (row, next) = step(ctx, at, name)?;
+            rows.push(row);
+            at = next;
+        }
+        Ok(rows)
     }
 
     pub(crate) fn put(
@@ -55,29 +84,40 @@ impl TreeEdit {
         ctx: &QueryCtx,
         segments: &[String],
         node: Node,
+        by: Option<AccountNumber>,
     ) -> Result<(), Error> {
         let (name, dirs) = split(segments)?;
-        let parent = open_dir(&mut self.root, ctx, dirs, Create::Missing)?;
-        parent.insert(name.clone(), Slot::Kept(node));
+        let parent = open_dir(&mut self.root, ctx, dirs, Create::Missing(by))?;
+        parent.children.insert(name.clone(), Slot::Kept(node));
+        created(parent, segments, by);
         Ok(())
     }
 
-    pub(crate) fn mkdir(&mut self, ctx: &QueryCtx, segments: &[String]) -> Result<(), Error> {
+    pub(crate) fn mkdir(
+        &mut self,
+        ctx: &QueryCtx,
+        segments: &[String],
+        by: Option<AccountNumber>,
+    ) -> Result<(), Error> {
         let (name, dirs) = split(segments)?;
-        let parent = open_dir(&mut self.root, ctx, dirs, Create::Missing)?;
-        if parent.contains_key(name) {
+        let parent = open_dir(&mut self.root, ctx, dirs, Create::Missing(by))?;
+        if parent.children.contains_key(name) {
             return Err(already_exists(format!("{} exists", join(segments))));
         }
-        parent.insert(name.clone(), Slot::Open(BTreeMap::new()));
+        parent
+            .children
+            .insert(name.clone(), Slot::Open(Dir::default()));
+        created(parent, segments, by);
         Ok(())
     }
 
     pub(crate) fn remove(&mut self, ctx: &QueryCtx, segments: &[String]) -> Result<(), Error> {
         let (name, dirs) = split(segments)?;
         let parent = open_dir(&mut self.root, ctx, dirs, Create::Never)?;
-        if parent.remove(name).is_none() {
+        if parent.children.remove(name).is_none() {
             return Err(not_found(format!("nothing is at {}", join(segments))));
         }
+        parent.access.remove(name);
         Ok(())
     }
 
@@ -93,18 +133,45 @@ impl TreeEdit {
         if into_itself {
             return Err(invalid(format!("{} cannot move into itself", join(from))));
         }
+        let gone = || not_found(format!("nothing is at {}", join(from)));
         let source = open_dir(&mut self.root, ctx, from_dirs, Create::Never)?;
-        if !source.contains_key(from_name) {
-            return Err(not_found(format!("nothing is at {}", join(from))));
+        if !source.children.contains_key(from_name) {
+            return Err(gone());
         }
         let target = open_dir(&mut self.root, ctx, to_dirs, Create::Never)?;
-        if target.contains_key(to_name) {
+        if target.children.contains_key(to_name) {
             return Err(already_exists(format!("{} exists", join(to))));
         }
-        let moved = open_dir(&mut self.root, ctx, from_dirs, Create::Never)?
-            .remove(from_name)
-            .expect("checked present above");
-        open_dir(&mut self.root, ctx, to_dirs, Create::Never)?.insert(to_name.clone(), moved);
+        let source = open_dir(&mut self.root, ctx, from_dirs, Create::Never)?;
+        let Some(moved) = source.children.remove(from_name) else {
+            return Err(gone());
+        };
+        let access = source.access.remove(from_name);
+        let target = open_dir(&mut self.root, ctx, to_dirs, Create::Never)?;
+        target.children.insert(to_name.clone(), moved);
+        if let Some(access) = access {
+            target.access.insert(to_name.clone(), access);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn set_access(
+        &mut self,
+        ctx: &QueryCtx,
+        segments: &[String],
+        access: Access,
+    ) -> Result<(), Error> {
+        let (name, dirs) = split(segments)?;
+        let parent = open_dir(&mut self.root, ctx, dirs, Create::Never)?;
+        if !parent.children.contains_key(name) {
+            return Err(not_found(format!("nothing is at {}", join(segments))));
+        }
+        let recorded = access != Access::default();
+        if !recorded {
+            parent.access.remove(name);
+            return Ok(());
+        }
+        parent.access.insert(name.clone(), access);
         Ok(())
     }
 
@@ -119,14 +186,57 @@ impl TreeEdit {
                 &[],
                 format!("the root is a {}", other.kind()),
             )),
-            Slot::Open(children) => write(ctx, children),
+            Slot::Open(dir) => write(ctx, dir),
         }
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+fn step<'e>(ctx: &QueryCtx, at: Walk<'e>, name: &str) -> Result<(Option<Access>, Walk<'e>), Error> {
+    match at {
+        Walk::Edited(Slot::Open(dir)) => {
+            let next = dir.children.get(name).map_or(Walk::Gone, Walk::Edited);
+            Ok((dir.access.get(name).cloned(), next))
+        }
+        Walk::Edited(Slot::Kept(Node::Dir { tree, .. })) => stored(ctx, *tree, name),
+        Walk::Stored(tree) => stored(ctx, tree, name),
+        Walk::Edited(Slot::Kept(Node::File { .. } | Node::Symlink { .. })) | Walk::Gone => {
+            Ok((None, Walk::Gone))
+        }
+    }
+}
+
+fn stored<'e>(
+    ctx: &QueryCtx,
+    dir: BlobId,
+    name: &str,
+) -> Result<(Option<Access>, Walk<'e>), Error> {
+    let mut dir = tree(ctx, &dir)?;
+    let next = match dir.entries.remove(name) {
+        Some(Node::Dir { tree, .. }) => Walk::Stored(tree),
+        Some(Node::File { .. } | Node::Symlink { .. }) | None => Walk::Gone,
+    };
+    Ok((dir.access.remove(name), next))
+}
+
+fn created(dir: &mut Dir, segments: &[String], by: Option<AccountNumber>) {
+    let Some(creator) = by else {
+        return;
+    };
+    let Some(name) = segments.last() else {
+        return;
+    };
+    if is_namespace_root(segments) {
+        return;
+    }
+    dir.access.entry(name.clone()).or_insert(Access {
+        creator: Some(creator),
+        write: None,
+    });
+}
+
+#[derive(Clone, Copy)]
 enum Create {
-    Missing,
+    Missing(Option<AccountNumber>),
     Never,
 }
 
@@ -147,12 +257,16 @@ fn open(slot: &mut Slot, ctx: &QueryCtx, path: &[String]) -> Result<(), Error> {
             node.kind()
         )));
     };
-    let children = crate::objects::tree(ctx, tree)?
+    let stored = crate::objects::tree(ctx, tree)?;
+    let children = stored
         .entries
         .into_iter()
         .map(|(name, node)| (name, Slot::Kept(node)))
         .collect();
-    *slot = Slot::Open(children);
+    *slot = Slot::Open(Dir {
+        children,
+        access: stored.access,
+    });
     Ok(())
 }
 
@@ -161,41 +275,53 @@ fn open_dir<'e>(
     ctx: &QueryCtx,
     dirs: &[String],
     create: Create,
-) -> Result<&'e mut BTreeMap<String, Slot>, Error> {
+) -> Result<&'e mut Dir, Error> {
     let mut slot = root;
     for (depth, name) in dirs.iter().enumerate() {
         open(slot, ctx, &dirs[..depth])?;
-        let Slot::Open(children) = slot else {
+        let Slot::Open(dir) = slot else {
             unreachable!("open leaves a directory open");
         };
-        let missing = !children.contains_key(name);
-        if missing && create == Create::Never {
-            return Err(not_found(format!("no directory {}", join(&dirs[..=depth]))));
+        let missing = !dir.children.contains_key(name);
+        if missing {
+            let Create::Missing(by) = create else {
+                return Err(not_found(format!("no directory {}", join(&dirs[..=depth]))));
+            };
+            dir.children
+                .insert(name.clone(), Slot::Open(Dir::default()));
+            created(dir, &dirs[..=depth], by);
         }
-        slot = children
-            .entry(name.clone())
-            .or_insert_with(|| Slot::Open(BTreeMap::new()));
+        slot = dir
+            .children
+            .get_mut(name)
+            .ok_or_else(|| not_found(format!("no directory {}", join(&dirs[..=depth]))))?;
     }
     open(slot, ctx, dirs)?;
-    let Slot::Open(children) = slot else {
+    let Slot::Open(dir) = slot else {
         unreachable!("open leaves a directory open");
     };
-    Ok(children)
+    Ok(dir)
 }
 
-fn write(ctx: &ExecCtx, children: BTreeMap<String, Slot>) -> Result<(BlobId, u64), Error> {
+fn write(ctx: &ExecCtx, dir: Dir) -> Result<(BlobId, u64), Error> {
     let mut entries = BTreeMap::new();
-    for (name, slot) in children {
+    for (name, slot) in dir.children {
         let node = match slot {
             Slot::Kept(node) => node,
-            Slot::Open(grandchildren) => {
-                let (tree, entries) = write(ctx, grandchildren)?;
+            Slot::Open(child) => {
+                let (tree, entries) = write(ctx, child)?;
                 Node::Dir { tree, entries }
             }
         };
         entries.insert(name, node);
     }
     let count = entries.len() as u64;
-    let id = put_tree(ctx, &crate::Tree { entries })?;
+    let id = put_tree(
+        ctx,
+        &crate::Tree {
+            entries,
+            access: dir.access,
+        },
+    )?;
     Ok((id, count))
 }

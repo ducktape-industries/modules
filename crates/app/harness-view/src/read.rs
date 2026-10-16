@@ -1,6 +1,6 @@
 //! Every read the screens make: the roster (the accounts whose script calls harness, what
 //! harness resolves for each, their threads, and how many member nodes serve each model's
-//! service and relay), one agent in full, one thread's transcript with the reply its model is
+//! service and relay), one agent in full with who may change its configuration file, one thread's transcript with the reply its model is
 //! streaming back, the model records, and the services the models form offers.
 use std::collections::HashMap;
 
@@ -8,7 +8,7 @@ use egress::{RELAY, ServiceRow};
 use harness::{
     AgentSetup, Body, CallRow, Frame, ModelRow, Partial, ThreadRow, ToolInfo, Usage, WithheldFrame,
 };
-use identity::{Audience, Category, Kind, PageRequest};
+use identity::{Category, Kind, Ownership, PageRequest};
 use view::prelude::*;
 
 fn page(after: Option<Vec<u8>>) -> PageRequest {
@@ -182,7 +182,8 @@ pub(crate) fn sum<'a>(usages: impl IntoIterator<Item = &'a Usage>) -> Usage {
 pub(crate) struct Detail {
     /// `None` once no script hands the account to harness
     pub setup: Option<AgentSetup>,
-    pub audience: Audience,
+    pub ownership: Ownership,
+    pub config_writers: Option<files::Writers>,
     /// newest first, each with what its turns used
     pub threads: Vec<(ThreadRow, Usage)>,
     pub tools: Vec<ToolInfo>,
@@ -190,9 +191,20 @@ pub(crate) struct Detail {
 
 pub(crate) async fn detail(host: Host, agent: u64) -> Result<Detail, Error> {
     let setup = setup(&host, agent).await?;
-    let audience = host
-        .query(identity::ask::Audience { number: agent })
+    let ownership = host
+        .query(identity::ask::Ownership { number: agent })
         .await?;
+    let config_writers = match &setup {
+        Some(setup) => Some(
+            host.query(files::ask::Ownership {
+                path: setup.path.clone(),
+                at: None,
+            })
+            .await?
+            .writers,
+        ),
+        None => None,
+    };
     let threads = host
         .query_all(|after| harness::ask::Threads {
             agent,
@@ -209,7 +221,8 @@ pub(crate) async fn detail(host: Host, agent: u64) -> Result<Detail, Error> {
     let tools = host.query(harness::ask::Tools).await?;
     Ok(Detail {
         setup,
-        audience,
+        ownership,
+        config_writers,
         threads: used,
         tools,
     })
