@@ -21,8 +21,8 @@ use crate::recent::Recent;
 use crate::row::{self, Status};
 use crate::{Nodes, voting, words};
 
-/// How wide a key's label runs (Expo `src/kit/Facts.tsx:64`); SDK gap:
-/// the kit's `KeyValue` (`key_value`), swap when feat/phone-kit lands.
+// SDK gap: the kit's `KeyValue` (with `key_value`); the SDK builds it later
+/// How wide a key's label runs (Expo `src/kit/Facts.tsx:64`).
 const KEY_LABEL_W: Pixels = px(96.);
 /// How tall a block's mark is in the strip (Expo `[key].tsx:80`).
 const MARK: Pixels = px(14.);
@@ -181,8 +181,6 @@ fn span(view: &Nodes) -> Option<RangeInclusive<u64>> {
 /// `Proposed`, and at its right which blocks the strip spans.
 fn proposed_head(view: &Nodes, theme: &Theme) -> impl IntoElement {
     let range = span(view).map(|span| words::span(&span));
-    // SDK gap: a section head's text at its right, swap when feat/phone-kit
-    // lands
     design::section_head("nodes-node-proposed", words::PROPOSED, None, &LADDER, theme)
         .children(range)
 }

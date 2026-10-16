@@ -39,8 +39,8 @@ const EPOCH_BAR: Pixels = px(6.);
 /// The list page: its title row, the vote's outcome strip, and what
 /// scrolls under them.
 pub(super) fn render(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Page {
-    // SDK gap: a root page's constructor without a typed `None` Back, swap
-    // when feat/phone-kit lands
+    // SDK gap: a root page without a typed `None` Back (`Page::root`),
+    // swap when #406 lands
     let page = design::page(
         "nodes-page",
         title(view),
@@ -74,7 +74,7 @@ fn title(view: &Nodes) -> String {
 
 /// Whether this node answers, and which node it is.
 // SDK gap: a caption that takes a node (Expo draws the word in its tone
-// and the key in the data face), swap when feat/phone-kit lands
+// and the key in the data face); the SDK builds it later
 fn pulse(view: &Nodes) -> Option<String> {
     let status = view.status.ready()?;
     Some(format!(
@@ -132,8 +132,7 @@ fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
         .into_any_element()
 }
 
-// SDK gap: the kit's `Facts` (`Fact`, `facts`, `fact_cell`), swap when
-// feat/phone-kit lands
+// SDK gap: the kit's `Facts` (`Fact`, `facts`, `fact_cell`); the SDK builds it later
 
 /// One of the kit's `Facts` (Expo `src/kit/Facts.tsx`): an eyebrow over a
 /// value over a caption.
@@ -348,6 +347,7 @@ fn member_row(
             .text_color(tone)
             .child(status.word())
     }))
+    // SDK gap: the row's chevron (`design::chevron`), swap when feat/phone-kit lands
     .child(design::icon("chevron-right", LADDER.icon_row).text_color(theme.faint))
 }
 
@@ -378,6 +378,8 @@ fn member_title(node: &Node, theme: &Theme) -> Div {
         .whitespace_nowrap()
         .overflow_hidden()
         .text_type(LADDER.body)
+        // SDK gap: `design::mono` sized by the ladder
+        // (`design::mono(text, ladder)`), swap when feat/phone-kit lands
         .child(
             design::mono(design::short_hex(&hex(&node.key)))
                 .flex_none()
@@ -396,6 +398,7 @@ fn member_title(node: &Node, theme: &Theme) -> Div {
 /// A member's caption: its address in the data face, and `this node` on
 /// the one this app talks to.
 fn member_address(view: &Nodes, node: &Node, theme: &Theme) -> Div {
+    // SDK gap: the row's caption (`design::row_caption`), swap when feat/phone-kit lands
     div()
         .font_family(design::fonts::FAMILY_MONO)
         .text_type(LADDER.caption)
@@ -564,6 +567,7 @@ fn line(
     theme: &Theme,
 ) -> Stateful<Div> {
     let words = div().text_type(LADDER.body).truncate().child(words);
+    // SDK gap: the row's caption (`design::row_caption`), swap when feat/phone-kit lands
     let caption = div()
         .text_type(LADDER.caption)
         .text_color(theme.muted)

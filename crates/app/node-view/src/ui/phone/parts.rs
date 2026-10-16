@@ -15,20 +15,20 @@ use view::{Div, FontWeight, Stateful};
 use super::LADDER;
 use crate::{Nodes, words};
 
-// SDK gap: the sheet's inset, the small button, the notice and its action,
-// the refused strip, the quiet line and the empty state with an icon
-// (`SHEET_INSET` to `EMPTY_BODY_W`, `share`, `refused` to `empty`), swap
-// when feat/phone-kit lands
-
+// SDK gap: the sheet's inset (`design::SHEET_INSET`), swap when feat/phone-kit lands
 /// How far a sheet's content sits in from its sides (Expo
 /// `src/kit/Sheet.tsx:149,165` and `Confirm.tsx:65`: 20).
 const SHEET_INSET: Pixels = px(20.);
+// SDK gap: the small button (`Button::small`; with `small_button`), swap when feat/phone-kit lands
 /// The kit's small button's height (Expo `src/design/theme.ts:76`
 /// `size.small`, `Button.tsx:60`).
 const SMALL_BUTTON: Pixels = px(36.);
+// SDK gap: the notice and its action (with `notice`, `action`, `alert`);
+// the SDK builds it later
 /// A notice's action: its secondary line (18) with 6 over and under
 /// (Expo `src/kit/Notice.tsx:58`).
 const NOTICE_ACTION: Pixels = px(30.);
+// SDK gap: the empty state (`design::empty_state`; with `empty`), swap when feat/phone-kit lands
 /// The empty state's icon (Expo `src/design/theme.ts:87` `icon.empty`),
 /// its padding (`States.tsx:26`: 40 over and under, 32 at the sides) and
 /// how wide its body runs (`States.tsx:31`).
@@ -37,6 +37,7 @@ const EMPTY_Y: Pixels = px(40.);
 const EMPTY_X: Pixels = px(32.);
 const EMPTY_BODY_W: Pixels = px(280.);
 
+// SDK gap: the page's scroller; the SDK builds it later
 /// What a page scrolls, 16 clear at its end (Expo `index.tsx:182`
 /// `paddingBottom: gap.block`).
 pub(super) fn scroller(id: &'static str, body: Div) -> Stateful<Div> {
@@ -164,6 +165,7 @@ fn share(parts: f32, button: impl IntoElement) -> Div {
     column
 }
 
+// SDK gap: the refused strip (`design::refused` under a finger), swap when feat/phone-kit lands
 /// A refused read (the kit's `Refused`): its sentence on a danger strip,
 /// Retry at the right. The strip is `{name}-refused`, its press
 /// `{name}-retry`.
@@ -273,6 +275,7 @@ pub(super) fn small_button(
         .child(hit)
 }
 
+// SDK gap: the quiet line (`design::quiet(text, ladder, theme)`), swap when feat/phone-kit lands
 /// The kit's `Quiet`: one muted line of secondary text, 16 in all round.
 pub(super) fn quiet(
     id: &'static str,
