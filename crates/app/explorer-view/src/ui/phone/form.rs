@@ -53,10 +53,10 @@ pub(super) fn sheet(view: &Explorer, cx: Cx, k: &Look) -> Option<AnyElement> {
         design::sheet("explorer-form-sheet", form.title(), &k.ladder, &k.theme)
             .on_dismiss(dismiss)
             .child(
+                // as tall as what it holds, as Expo's form sheet has no
+                // snaps (`programs.tsx:459`)
                 div()
                     .id("explorer-form")
-                    .size_full()
-                    .overflow_y_scroll()
                     .flex()
                     .flex_col()
                     // SDK gap: `sheet_title`, swap when feat/phone-kit lands

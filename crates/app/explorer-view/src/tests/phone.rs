@@ -189,6 +189,11 @@ fn the_root_names_the_network_and_the_reader() {
     phone(&mut cx);
     shows(&cx, "Explorer");
     shows(&cx, "test · Ada");
+    // the reader's avatar leads the root's title row (Expo `root`)
+    assert!(cx.find("explorer-root-account").is_some());
+    click(&mut cx, "explorer-tab-accounts");
+    click(&mut cx, "explorer-account-5");
+    assert!(cx.find("explorer-root-account").is_none(), "only the root");
 }
 
 #[test]
@@ -267,12 +272,13 @@ fn a_refused_window_says_why_and_offers_retry() {
 fn the_overview_shows_the_figures_and_the_latest_blocks_and_transactions() {
     let cx = on_phone();
     for text in [
-        "HEIGHT",
+        // eyebrows cross as written; the host draws them in capitals
+        "Height",
         "12",
         "Block every 1.0 s",
-        "EPOCH",
-        "VALIDATORS",
-        "ACCOUNTS",
+        "Epoch",
+        "Validators",
+        "Accounts",
     ] {
         shows(&cx, text);
     }

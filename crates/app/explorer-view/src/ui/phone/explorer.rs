@@ -46,17 +46,19 @@ pub(super) fn root(view: &Explorer, cx: Cx, k: &Look) -> AnyElement {
     }
 }
 
+/// The reader's account name (Expo `index.tsx:61` `me.name`): none while
+/// the session or the accounts do not say it yet.
+fn me(view: &Explorer) -> Option<&str> {
+    let number = view.acting.account?;
+    Some(view.account(number)?.card.name.as_str())
+}
+
 // SDK gap: the root header's network caption, the SDK builds it later
 /// The network the session is on, by its label (`<label>#<salt>`), and the
 /// reader (Expo's root caption, `testkit · Dev`).
 fn network_and_me(view: &Explorer) -> Option<String> {
     let network = view.network_label()?;
-    let me = view
-        .acting
-        .account
-        .and_then(|number| view.account(number))
-        .map(|account| account.card.name.clone());
-    Some(match me {
+    Some(match me(view) {
         Some(me) => format!("{network} · {me}"),
         None => network.to_owned(),
     })
@@ -70,12 +72,12 @@ fn titled(view: &Explorer, cx: Cx, k: &Look) -> design::Page {
         window.focus("explorer-search");
         cx.notify();
     });
-    // SDK gap: the big title's -0.22 letter spacing (Expo `theme.ts:59`),
-    // swap when #409 lands
+    // the reader's avatar leads the row (Expo `index.tsx:80` `root`)
+    let reader = me(view).unwrap_or_default().to_owned();
     let page = design::page(
         "explorer-root",
         "Explorer",
-        design::Nav::Root,
+        design::Nav::root(reader),
         &k.ladder,
         &k.theme,
     )
