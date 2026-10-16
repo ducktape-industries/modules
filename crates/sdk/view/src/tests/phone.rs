@@ -35,7 +35,12 @@ impl Render for Phone {
         };
         let back =
             (depth > 0).then(|| cx.listener(move |view, _: &ClickEvent, _, cx| pop(view, cx)));
-        let page = design::page("rooms", self.pages.top().clone(), back, &ladder, &theme)
+        let page = design::page("rooms", self.pages.top().clone(), back, &ladder, &theme);
+        let page = match depth {
+            0 => page.account("mina"),
+            _ => page,
+        };
+        let page = page
             .caption(format!("{} deep", depth))
             .leading(div().id("avatar").size(ladder.avatar.side).rounded_full())
             .trailing(design::button(
@@ -189,12 +194,14 @@ fn under_touch_a_page_is_the_expo_header() {
     let root = text(&cx, "rooms-heading");
     assert_eq!(root.font_size, Some(px(22.).into()));
     assert_eq!(root.line_height, Some(px(27.).into()));
+    assert_eq!(root.letter_spacing, Some(px(-0.22)));
     assert_eq!(root.font_weight, Some(gpui::FontWeight::MEDIUM));
     assert_eq!(cx.style("rooms-title").border_widths.bottom, None);
     cx.simulate_click("Open");
     let detail = text(&cx, "rooms-heading");
     assert_eq!(detail.font_size, Some(px(17.).into()));
     assert_eq!(detail.line_height, Some(px(21.).into()));
+    assert_eq!(detail.letter_spacing, None);
     let row = cx.style("rooms-title");
     assert_eq!(row.border_widths.bottom, Some(px(1.).into()));
     assert_eq!(row.min_size.height, Some(px(56.).into()));
@@ -209,6 +216,33 @@ fn under_touch_a_page_is_the_expo_header() {
             if path == "icons/arrow-left.svg"),
         "{arrow:?}"
     );
+}
+
+/// A view's first page leads its title row with the reader's avatar in a
+/// press target, named "Account"; a press asks the host to bring up the
+/// reader's account, and a page with Back draws no avatar.
+#[test]
+fn a_first_page_leads_with_the_readers_account() {
+    let mut cx = TestAppContext::new();
+    cx.open::<Phone>();
+    cx.simulate_touch(true);
+    let row = cx.node("rooms-title").children();
+    assert_eq!(row[0].key(), Some("rooms-account"));
+    let account = cx.interactivity("rooms-account");
+    assert_eq!(account.role, Some(crate::Role::Button));
+    assert_eq!(account.aria.label.as_deref(), Some("Account"));
+    let hit = cx.style("rooms-account");
+    assert_eq!(
+        (hit.size.width, hit.size.height),
+        (Some(px(44.).into()), Some(px(44.).into()))
+    );
+    let avatar = cx.node("rooms-account").children()[0].style().unwrap();
+    assert_eq!(cx.styles()[avatar].size.width, Some(px(32.).into()));
+    assert!(cx.has_text("M"));
+    cx.simulate_click("Account");
+    assert_eq!(cx.host().requests::<HostShow>(), [Place::Account]);
+    cx.simulate_click("Open");
+    assert!(cx.find("rooms-account").is_none());
 }
 
 #[derive(Default, Serialize, Deserialize)]

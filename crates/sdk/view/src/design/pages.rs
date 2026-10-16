@@ -74,8 +74,9 @@ pub const CAPSULE_CLEARANCE: Pixels = px(96.);
 /// One page's frame: a title row (`{id}-title`, [`Ladder::header`] tall)
 /// with a Back control (`{id}-back`, [`Ladder::hit`] each way, named
 /// "Back") when `back` is given, the heading (`{id}-heading`, truncating),
-/// and what the page adds beside it ([`Page::leading`], [`Page::caption`],
-/// [`Page::trailing`]), over the children, which fill the rest.
+/// and what the page adds beside it ([`Page::account`], [`Page::leading`],
+/// [`Page::caption`], [`Page::trailing`]), over the children, which fill
+/// the rest.
 ///
 /// Under a finger the row is the Expo kit's `Header`: 56 tall, 8 in, the
 /// arrow-left Back, the title in [`Ladder::title`] medium and a hairline
@@ -127,6 +128,7 @@ pub fn page(
         title: title.into(),
         caption: None,
         back,
+        account: None,
         leading: Vec::new(),
         trailing: Vec::new(),
         ladder: *ladder,
@@ -138,8 +140,9 @@ pub fn page(
 /// A [`page`] being filled: its children go under the title row, in a
 /// column that takes the rest of the page's height. The title row is
 /// built when the page is drawn, so its slots can land after [`page`]:
-/// Back and [`leading`](Self::leading) first, the words (the heading over
-/// a [`caption`](Self::caption)) taking the slack and truncating, then
+/// Back, the reader's [`account`](Self::account) and
+/// [`leading`](Self::leading) first, the words (the heading over a
+/// [`caption`](Self::caption)) taking the slack and truncating, then
 /// [`trailing`](Self::trailing), before what the row keeps clear for the
 /// capsule under touch.
 pub struct Page {
@@ -149,6 +152,7 @@ pub struct Page {
     title: SharedString,
     caption: Option<SharedString>,
     back: Option<AnyElement>,
+    account: Option<AnyElement>,
     leading: Vec<AnyElement>,
     trailing: Vec<AnyElement>,
     ladder: Ladder,
@@ -163,7 +167,25 @@ impl Page {
         self.caption = Some(caption.into());
         self
     }
-    /// An element before the heading, after Back: a person's avatar.
+    /// The reader's own avatar (`{id}-account`, [`Ladder::avatar`] in a
+    /// [`Ladder::hit`] box, named "Account"), after Back: a press asks the
+    /// host to bring up the reader's account (`host.show`
+    /// [`Place::Account`], so the view declares `Capability::Host`). A
+    /// view's first page sets it, as the Expo kit's module root draws it
+    /// (`Header.tsx:46-54`); `name` is the reader's as the view reads it,
+    /// empty while it is still being read.
+    pub fn account(mut self, name: &str) -> Self {
+        let id = ElementId::Name(format!("{}-account", self.id).into());
+        let avatar = super::avatar(name, self.ladder.avatar, &self.theme);
+        let show = |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+            cx.host().notify::<HostShow>(Place::Account);
+        };
+        let button = super::icon_button(id, avatar, "Account", &self.ladder, &self.theme, show);
+        self.account = Some(button.into_any_element());
+        self
+    }
+    /// An element before the heading, after Back and the account: a
+    /// person's avatar.
     pub fn leading(mut self, element: impl IntoElement) -> Self {
         self.leading.push(element.into_any_element());
         self
@@ -227,6 +249,7 @@ impl IntoElement for Page {
                 false => row.gap(space::SM).px(space::LG),
             })
             .children(self.back)
+            .children(self.account)
             .map(|row| match ladder.touch {
                 // the kit's title block: 8 in, an avatar 8 from the words
                 true => row.child(
