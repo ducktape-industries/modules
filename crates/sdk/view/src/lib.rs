@@ -46,7 +46,8 @@ pub use interactivity::{
 };
 pub use list::{List, ListState, list};
 pub use media::{
-    Camera, MediaState, MediaStatus, MicHandle, Microphone, Playback, camera, microphone,
+    Camera, MediaState, MediaStatus, MicHandle, Microphone, Playback, RemoteAudio, RemoteVideo,
+    TrackState, camera, microphone, remote_audio, remote_video,
 };
 pub use primitives::{
     Anchored, Canvas, Deferred, ImageSource, ImageStyle, Img, StyledImage, Svg, Transformation,
@@ -79,10 +80,11 @@ pub mod prelude {
         MouseMoveEvent, MousePressureEvent, MouseUpEvent, ObjectFit, ParentElement, PinchEvent,
         Pixels, Playback, Render, RenderOnce, Role, ScrollHandle, ScrollStrategy, ScrollWheelEvent,
         SharedString, StatefulInteractiveElement, Styled, StyledImage, StyledText, Subscription,
-        Task, TextField, TextInputAction, Textarea, Theme, UniformListScrollHandle, View,
-        VirtualKeyboard, WebHandle, WebState, Window, anchored, camera, canvas, deferred, design,
-        div, export_notifier, export_view, hsla, img, list, microphone, modal_overlay, px, rems,
-        resize_handle, rgb, sensor, sheet, svg, uniform_list, web,
+        Task, TextField, TextInputAction, Textarea, Theme, TrackState, UniformListScrollHandle,
+        View, VirtualKeyboard, WebHandle, WebState, Window, anchored, camera, canvas, deferred,
+        design, div, export_notifier, export_view, hsla, img, list, microphone, modal_overlay, px,
+        remote_audio, remote_video, rems, resize_handle, rgb, sensor, sheet, svg, uniform_list,
+        web,
     };
 }
 mod text;

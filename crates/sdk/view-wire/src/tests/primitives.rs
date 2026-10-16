@@ -149,6 +149,8 @@ fn an_undeclared_piece_is_found_in_the_tree_a_patch_and_a_tooltip() {
         revision: 0,
         commands: Vec::new(),
         on_state: None,
+        publish: None,
+        muted: false,
     };
     let camera = Node::Camera {
         id: ElementIdWire::Name("camera".into()),
@@ -157,6 +159,7 @@ fn an_undeclared_piece_is_found_in_the_tree_a_patch_and_a_tooltip() {
         mirror: false,
         object_fit: ImageObjectFit::Contain,
         on_state: None,
+        publish: None,
     };
     let in_tree = Frame {
         root: Some(column(vec![text("a"), column(vec![web])])),

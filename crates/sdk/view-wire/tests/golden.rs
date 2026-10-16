@@ -30,10 +30,11 @@ use view_wire::{
     ContainerNode, DispatchPhase, Edit, ElementIdAtom, ElementIdWire, Error, Event, Frame,
     GroupRefinement, HasPopup, ImageData, ImageObjectFit, ImageStyle, Interactivity, Invalid,
     KeyClaim, ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live,
-    MediaState, MediaStatus, MicCommand, Node, Patch, Playback, Request, RichTextHighlightStyle,
-    RichTextHover, RichTextRuns, Style, StyleId, SvgSource, SvgTransformation, TextChange,
-    TextNode, TextRange, TextToken, TextTransform, Tooltip, TooltipResponse, WebCommand, WebState,
-    WidgetCommand, click, interactivity, keyboard, mouse,
+    MediaState, MediaStatus, MicCommand, Node, Patch, Playback, RemoteMedia, Request,
+    RichTextHighlightStyle, RichTextHover, RichTextRuns, Style, StyleId, SvgSource,
+    SvgTransformation, TextChange, TextNode, TextRange, TextToken, TextTransform, Tooltip,
+    TooltipResponse, TrackState, WebCommand, WebState, WidgetCommand, click, interactivity,
+    keyboard, mouse,
 };
 
 const MESSAGE: &str =
@@ -41,7 +42,7 @@ const MESSAGE: &str =
 
 /// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
-const NODE_VARIANTS: usize = 19;
+const NODE_VARIANTS: usize = 20;
 const EVENT_VARIANTS: usize = 38;
 
 fn golden(name: &str) -> PathBuf {
@@ -570,6 +571,17 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
         exchange::<NotifyPost>(notification(), Delivery::Banner),
         exchange::<NotifyPost>(notification(), Delivery::Logged),
         exchange::<NotifyPost>(notification(), Delivery::Blocked),
+        exchange::<NotifyPost>(
+            Notification {
+                title: "alice is calling".into(),
+                body: "Huddle with 3 people".into(),
+                tag: "call/c-1".into(),
+                link: "duck://local/huddle/call/c-1".into(),
+                kind: NoticeKind::Call,
+                until: 1_700_000_045,
+            },
+            Delivery::Banner,
+        ),
         exchange::<StoreGet>("reads/alice".into(), Some(vec![1, 2])),
         exchange::<StoreSet>(("reads/alice".into(), None), ()),
         exchange::<StoreSet>(("reads/alice".into(), Some(vec![1, 2])), ()),
@@ -745,6 +757,8 @@ fn notification() -> methods::Notification {
         body: "@bob hi".into(),
         tag: "room".into(),
         link: "duck://chat/room".into(),
+        kind: methods::NoticeKind::Notice,
+        until: 0,
     }
 }
 

@@ -152,8 +152,30 @@ fn sanitize_fields(
             walk.style(*style)?;
             canvas::sanitize(commands);
         }
-        Node::Web { style, .. } | Node::Camera { style, .. } | Node::Microphone { style, .. } => {
-            walk.style(*style)?
+        Node::Web { style, .. }
+        | Node::Camera {
+            style,
+            publish: None,
+            ..
+        }
+        | Node::Microphone {
+            style,
+            publish: None,
+            ..
+        } => walk.style(*style)?,
+        Node::Camera {
+            style,
+            publish: Some(track),
+            ..
+        }
+        | Node::Microphone {
+            style,
+            publish: Some(track),
+            ..
+        }
+        | Node::Remote { style, track, .. } => {
+            walk.style(*style)?;
+            track.check()?;
         }
         Node::Anchored {
             fit,

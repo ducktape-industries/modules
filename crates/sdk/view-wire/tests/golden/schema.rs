@@ -255,6 +255,8 @@ const TREE: &[Trace] = &[
     trace::<view_wire::MicCommand>,
     trace::<view_wire::MediaStatus>,
     trace::<view_wire::Playback>,
+    trace::<view_wire::RemoteMedia>,
+    trace::<view_wire::TrackState>,
     trace::<view_wire::click::Click>,
     trace::<view_wire::click::KeyboardButton>,
     trace::<view_wire::click::MouseButton>,

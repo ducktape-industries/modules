@@ -275,6 +275,7 @@ impl ForgeNotices {
             // a notice without a link is one the centre cannot open, not a bad one
             link: ducklink::mint(&self.session.chain_id, forge::PROGRAM, &[&change.repo, &n])
                 .unwrap_or_default(),
+            ..Notification::default()
         }
     }
 }

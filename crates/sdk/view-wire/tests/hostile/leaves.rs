@@ -270,6 +270,7 @@ pub(super) fn gen_media(rng: &mut Rng) -> Node {
                 ImageObjectFit::None,
             ]),
             on_state: rng.next_bool().then(|| rng.next_u64() as u32),
+            publish: None,
         };
     }
     let commands = (0..=rng.next_range(MIC_COMMANDS))
@@ -289,6 +290,8 @@ pub(super) fn gen_media(rng: &mut Rng) -> Node {
         revision: rng.next_u64(),
         commands,
         on_state: rng.next_bool().then(|| rng.next_u64() as u32),
+        publish: None,
+        muted: rng.next_bool(),
     }
 }
 

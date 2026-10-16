@@ -256,8 +256,9 @@ pub enum Event {
         state: crate::WebState,
     },
     /// Where a [`Node::Camera`]'s or [`Node::Microphone`]'s device is (and
-    /// a microphone's recording), to the node's `on_state`: sent when the
-    /// piece first reports, and whenever any of it changes after.
+    /// a microphone's recording), or a [`Node::Remote`]'s track, to the
+    /// node's `on_state`: sent when the piece first reports, and whenever
+    /// any of it changes after.
     Media {
         handler: u32,
         state: crate::MediaState,
@@ -325,15 +326,17 @@ pub struct Frame {
 }
 
 impl Frame {
-    /// A capability that a node the frame carries needs ([`Node::capability`])
+    /// A capability that a node the frame carries needs ([`Node::capabilities`])
     /// and `declared` leaves out, looked for in the tree, in every patch and
     /// in every tooltip's content; `None` when the view declared each. A
     /// host refuses such a frame and ends the view: sent again, it would be
     /// refused again.
     pub fn undeclared(&self, declared: &[Capability]) -> Option<Capability> {
         fn find(node: &Node, declared: &[Capability]) -> Option<Capability> {
-            node.capability()
-                .filter(|capability| !declared.contains(capability))
+            node.capabilities()
+                .iter()
+                .find(|capability| !declared.contains(capability))
+                .copied()
                 .or_else(|| {
                     node.children()
                         .iter()

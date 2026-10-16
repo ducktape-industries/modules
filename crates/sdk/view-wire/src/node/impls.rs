@@ -28,7 +28,8 @@ impl Node {
             | Self::Sheet { id, .. }
             | Self::Web { id, .. }
             | Self::Camera { id, .. }
-            | Self::Microphone { id, .. } => Some(id),
+            | Self::Microphone { id, .. }
+            | Self::Remote { id, .. } => Some(id),
             Self::Space | Self::Anchored { .. } | Self::Deferred { .. } | Self::Canvas { .. } => {
                 None
             }
@@ -68,7 +69,8 @@ impl Node {
             | Self::Canvas { style, .. }
             | Self::Web { style, .. }
             | Self::Camera { style, .. }
-            | Self::Microphone { style, .. } => Some(*style),
+            | Self::Microphone { style, .. }
+            | Self::Remote { style, .. } => Some(*style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => None,
         }
     }
@@ -93,7 +95,8 @@ impl Node {
             | Self::Canvas { style, .. }
             | Self::Web { style, .. }
             | Self::Camera { style, .. }
-            | Self::Microphone { style, .. } => visit(style),
+            | Self::Microphone { style, .. }
+            | Self::Remote { style, .. } => visit(style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => {}
         }
         if let Self::Container(crate::ContainerNode {
@@ -135,16 +138,24 @@ impl Node {
         }
     }
 
-    /// The capability a view's manifest declares to place this node: a
-    /// web page's, a camera's, a microphone's; `None` for every other node.
-    /// A host refuses the frame of a view that places one it did not
+    /// The capabilities a view's manifest declares to place this node: a
+    /// web page's, a camera's or a microphone's device, and `live` for a
+    /// piece that publishes or plays a live track; none for every other
+    /// node. A host refuses the frame of a view that places one it did not
     /// declare ([`crate::Frame::undeclared`]). One arm per variant, so a
     /// new one says whether a capability gates it.
-    pub fn capability(&self) -> Option<Capability> {
+    pub fn capabilities(&self) -> &'static [Capability] {
         match self {
-            Self::Web { .. } => Some(Capability::Web),
-            Self::Camera { .. } => Some(Capability::Camera),
-            Self::Microphone { .. } => Some(Capability::Microphone),
+            Self::Web { .. } => &[Capability::Web],
+            Self::Camera { publish: None, .. } => &[Capability::Camera],
+            Self::Camera {
+                publish: Some(_), ..
+            } => &[Capability::Camera, Capability::Live],
+            Self::Microphone { publish: None, .. } => &[Capability::Microphone],
+            Self::Microphone {
+                publish: Some(_), ..
+            } => &[Capability::Microphone, Capability::Live],
+            Self::Remote { .. } => &[Capability::Live],
             Self::RichText { .. }
             | Self::Anchored { .. }
             | Self::UniformList { .. }
@@ -160,14 +171,14 @@ impl Node {
             | Self::Space
             | Self::Overlay { .. }
             | Self::Sheet { .. }
-            | Self::Canvas { .. } => None,
+            | Self::Canvas { .. } => &[],
         }
     }
 
     /// The node's children in order. One arm per variant, here and in
     /// [`Node::children_mut`] and [`Node::child_list_mut`]: everything that
     /// walks, diffs or patches a tree goes through these three, so a new
-    /// variant is a new arm in each, one in [`Node::capability`], and
+    /// variant is a new arm in each, one in [`Node::capabilities`], and
     /// nothing else.
     pub fn children(&self) -> &[Node] {
         match self {
@@ -192,7 +203,8 @@ impl Node {
             | Self::Canvas { .. }
             | Self::Web { .. }
             | Self::Camera { .. }
-            | Self::Microphone { .. } => &[],
+            | Self::Microphone { .. }
+            | Self::Remote { .. } => &[],
         }
     }
 
@@ -227,7 +239,8 @@ impl Node {
             | Self::Canvas { .. }
             | Self::Web { .. }
             | Self::Camera { .. }
-            | Self::Microphone { .. } => &mut [],
+            | Self::Microphone { .. }
+            | Self::Remote { .. } => &mut [],
         }
     }
 
@@ -257,7 +270,8 @@ impl Node {
             | Self::Canvas { .. }
             | Self::Web { .. }
             | Self::Camera { .. }
-            | Self::Microphone { .. } => None,
+            | Self::Microphone { .. }
+            | Self::Remote { .. } => None,
         }
     }
 
