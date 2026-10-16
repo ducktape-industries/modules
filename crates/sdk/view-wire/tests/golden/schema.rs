@@ -456,6 +456,7 @@ pub(super) fn shapes() -> (BTreeMap<&'static str, Shape>, Definitions) {
         borsh::<HostVisible>(d),
         borsh::<HostBadge>(d),
         borsh::<HostTitle>(d),
+        borsh::<HostShow>(d),
         borsh::<LinkOpen>(d),
         borsh::<HostRoute>(d),
         borsh::<HostId>(d),

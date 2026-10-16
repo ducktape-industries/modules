@@ -460,6 +460,22 @@ pub struct Session {
     pub account: Option<u64>,
     pub endpoint: String,
 }
+/// A place of the host's own that a view asks it to bring up
+/// ([`HostShow`]). What a place looks like is the host's to decide on its
+/// platform: a sheet, a menu, a page. A place this host does not know does
+/// not decode, so the request is refused `malformed_request`.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum Place {
+    /// The reader's own account: who they are, on which network, and the
+    /// way to their account, the app's settings and another network (the
+    /// Expo app's account sheet, mobile `app/you.tsx`). A view's first
+    /// page asks for it from the reader's avatar (the SDK's
+    /// `Page::account`).
+    Account,
+}
 /// `host.widget`: a command on the mounted tree. The one method on the TREE
 /// side of the codec rule — a [`WidgetCommand`] names typed element ids the
 /// tree is drawn with — so it is the one method in the tree's MessagePack.
@@ -633,6 +649,10 @@ methods! {
     /// chars; the host trims longer names and drops control characters,
     /// bidi controls and line or paragraph separators.
     HostTitle, "host.title", String, ();
+    /// `host.show`: bring up one of the host's own places ([`Place`]).
+    /// Only a person's press or key in the view brings one up, as with
+    /// `link.open`: a request without one is refused `needs_gesture`.
+    HostShow, "host.show", Place, ();
 }
 
 /// The `<capability>` half of every kind in [`ALL`]: what a view's manifest
@@ -832,6 +852,19 @@ mod tests {
             Query::<Binary>::decode_reply(&Query::<Binary>::encode_reply(&reply)).unwrap(),
             reply
         );
+    }
+
+    /// A host reads the places it knows and refuses any other byte, so a
+    /// place a newer view names is `malformed_request` on an older host,
+    /// never some other place.
+    #[test]
+    fn a_place_this_host_does_not_know_does_not_decode() {
+        let account = HostShow::encode_request(&Place::Account);
+        assert_eq!(account, [0]);
+        assert_eq!(HostShow::decode_request(&account), Ok(Place::Account));
+        for hostile in [&[1][..], &[u8::MAX], &[], &[0, 0]] {
+            assert!(HostShow::decode_request(hostile).is_err(), "{hostile:?}");
+        }
     }
 
     #[test]

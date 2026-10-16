@@ -163,6 +163,9 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
     if let Some(clamp) = style.text.line_clamp {
         assert!(clamp >= 1);
     }
+    if let Some(spacing) = style.text.letter_spacing {
+        length_in(spacing.into(), true);
+    }
     if let Some(underline) = &style.text.underline {
         length_in(underline.thickness.into(), false);
         if let Some(color) = underline.color {
@@ -284,6 +287,7 @@ pub(super) fn gen_native_style(rng: &mut Rng) -> gpui::StyleRefinement {
     style.text.line_height = Some(definite(rng));
     style.text.font_weight = Some(gpui::FontWeight(gen_f32(rng)));
     style.text.line_clamp = Some(rng.next_u64() as usize);
+    style.text.letter_spacing = Some(px(gen_f32(rng)));
     style.text.underline = Some(gpui::UnderlineStyle {
         thickness: px(gen_f32(rng)),
         color: Some(gen_color(rng)),

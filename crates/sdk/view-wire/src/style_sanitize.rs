@@ -208,7 +208,8 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) -> Result<(), &'static str> 
     Ok(())
 }
 
-/// A text style's own bounds: colours, sizes, font lookup lists, ellipsis.
+/// A text style's own bounds: colours, sizes, letter spacing, font lookup
+/// lists, ellipsis.
 pub(crate) fn sanitize_text(text: &mut TextStyleRefinement) {
     if let Some(value) = &mut text.color {
         sanitize_hsla(value);
@@ -227,6 +228,15 @@ pub(crate) fn sanitize_text(text: &mut TextStyleRefinement) {
     }
     if let Some(value) = &mut text.line_clamp {
         *value = (*value).max(1);
+    }
+    // signed, as a margin is: tighter than the font is a valid value. Its
+    // natural floor, minus a glyph's advance (past it the pen runs
+    // backwards), is known only to the shaper; a refinement carries no
+    // cascaded font size to stand in for it, so this keeps it finite.
+    if let Some(value) = &mut text.letter_spacing {
+        let mut number = f32::from(*value);
+        bound(&mut number, true);
+        *value = px(number);
     }
     if let Some(features) = &mut text.font_features {
         let features = std::sync::Arc::make_mut(&mut features.0);
@@ -367,6 +377,22 @@ mod tests {
             style.grid_location.unwrap().row,
             GridPlacement::Span(1)..GridPlacement::Line(i16::MIN)
         );
+    }
+    /// Letter spacing is signed like a margin: tighter or looser passes as
+    /// authored, and only a non-finite value changes.
+    #[test]
+    fn letter_spacing_keeps_its_sign_and_is_made_finite() {
+        let spaced = |spacing: f32| {
+            let mut style = StyleRefinement::default().letter_spacing(px(spacing));
+            sanitize(&mut style).unwrap();
+            style.text.letter_spacing
+        };
+        assert_eq!(spaced(-0.22), Some(px(-0.22)));
+        assert_eq!(spaced(1.44), Some(px(1.44)));
+        assert_eq!(spaced(-1e9), Some(px(-1e9)));
+        assert_eq!(spaced(f32::NAN), Some(px(0.)));
+        assert_eq!(spaced(f32::INFINITY), Some(px(f32::MAX)));
+        assert_eq!(spaced(f32::NEG_INFINITY), Some(px(f32::MIN)));
     }
     /// A value inside its bound, or a field no bound reads (overflow),
     /// is left as authored; a second pass changes nothing.
