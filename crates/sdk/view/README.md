@@ -366,9 +366,11 @@ capability is not listed is refused `undeclared_capability`), `TARGETS` (the
 programs it addresses with `op.submit`, `program.query` and `program.changes`,
 by each `Program`'s `NAME`, `&[]` by default: a method naming another is
 refused `undeclared_target`, and a view with `op` or `program` that names
-none does not compile), `MIN_WINDOW_WIDTH` (the narrowest width in px it works at, default 480,
-at least 1 or it does not compile: the app never lays it out narrower, and
-a narrower window scrolls it sideways), `new(window, cx)`, the state on
+none does not compile), `MIN_WINDOW_WIDTH` (the narrowest pointer window in px it works at,
+default 480, at least 1 or it does not compile: on a desk the app never
+lays it out narrower, and a narrower window scrolls it sideways; a touch
+screen seats the view at its own width whatever this says, so it is not
+lowered for phones), `new(window, cx)`, the state on
 first mount (`Default::default()` unless the view says otherwise), and
 `attach(window, cx)`, which runs on every mount, first or restored from a
 snapshot, and starts what the view follows and reads. Subscribe in `attach`,

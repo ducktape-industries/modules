@@ -2,7 +2,7 @@
 //! holds it to the touch ladder (SPEC §8).
 use serde::{Deserialize, Serialize};
 
-use crate::design::{self, CAPSULE_CLEARANCE, Pages};
+use crate::design::{self, CAPSULE_CLEARANCE, Nav, Pages};
 use crate::prelude::*;
 use crate::testing::{self, TestAppContext};
 use crate::{BackEvent, Div, Stateful, View, wire};
@@ -33,9 +33,11 @@ impl Render for Phone {
             view.pages.pop();
             cx.notify();
         };
-        let back =
-            (depth > 0).then(|| cx.listener(move |view, _: &ClickEvent, _, cx| pop(view, cx)));
-        let page = design::page("rooms", self.pages.top().clone(), back, &ladder, &theme)
+        let nav = match depth {
+            0 => Nav::Root,
+            _ => Nav::back(cx.listener(move |view, _: &ClickEvent, _, cx| pop(view, cx))),
+        };
+        let page = design::page("rooms", self.pages.top().clone(), nav, &ladder, &theme)
             .caption(format!("{} deep", depth))
             .leading(div().id("avatar").size(ladder.avatar.side).rounded_full())
             .trailing(design::button(
@@ -177,9 +179,27 @@ fn page_draws_back_by_the_ladder_and_clears_the_capsule_under_touch() {
     assert_eq!(height(&cx), Some(design::TOUCH.header.into()));
 }
 
+/// A pointer draws a root page as any other: `Nav::Root` changes nothing
+/// on the desktop's title row.
+#[test]
+fn under_a_pointer_a_root_page_is_drawn_as_any_page() {
+    let mut cx = TestAppContext::new();
+    cx.open::<Phone>();
+    let row = |cx: &TestAppContext| {
+        let row = cx.style("rooms-title");
+        let heading = cx.style("rooms-heading").text.clone();
+        (row.border_widths.bottom, row.min_size.height, heading)
+    };
+    let root = row(&cx);
+    cx.simulate_click("Open");
+    assert!(cx.find("rooms-back").is_some(), "a page under the root");
+    assert_eq!(row(&cx), root);
+}
+
 /// Under a finger the title row is the Expo kit's `Header`: a first page's
-/// title is the big one with no hairline under the row; a page with Back
-/// has the 17 medium title, the hairline, and the Lucide arrow in a 44 box.
+/// title is the big one over a clear hairline; a page with Back has the
+/// 17 medium title, the hairline in `border`, and the Lucide arrow in a 44
+/// box.
 #[test]
 fn under_touch_a_page_is_the_expo_header() {
     let mut cx = TestAppContext::new();
@@ -190,14 +210,22 @@ fn under_touch_a_page_is_the_expo_header() {
     assert_eq!(root.font_size, Some(px(22.).into()));
     assert_eq!(root.line_height, Some(px(27.).into()));
     assert_eq!(root.font_weight, Some(gpui::FontWeight::MEDIUM));
-    assert_eq!(cx.style("rooms-title").border_widths.bottom, None);
+    let hairline = |cx: &TestAppContext| {
+        let row = cx.style("rooms-title");
+        (row.border_widths.bottom, row.border_color)
+    };
+    let clear = crate::Hsla::transparent_black();
+    assert_eq!(hairline(&cx), (Some(px(1.).into()), Some(clear)));
     cx.simulate_click("Open");
     let detail = text(&cx, "rooms-heading");
     assert_eq!(detail.font_size, Some(px(17.).into()));
     assert_eq!(detail.line_height, Some(px(21.).into()));
-    let row = cx.style("rooms-title");
-    assert_eq!(row.border_widths.bottom, Some(px(1.).into()));
-    assert_eq!(row.min_size.height, Some(px(56.).into()));
+    let theme = crate::Theme::light();
+    assert_eq!(hairline(&cx), (Some(px(1.).into()), Some(theme.border)));
+    assert_eq!(
+        cx.style("rooms-title").min_size.height,
+        Some(px(56.).into())
+    );
     let back = cx.style("rooms-back");
     assert_eq!(
         (back.size.width, back.size.height),
@@ -243,7 +271,7 @@ fn chip(ladder: Option<&design::Ladder>) -> Stateful<Div> {
     let chip = div().id("chip").h(px(30.)).min_w(px(40.)).child("👍 2");
     match ladder {
         Some(ladder) => chip.child(
-            design::hit("react", px(40.), px(30.), ladder)
+            design::hit("react", px(40.), px(30.), px(0.), ladder)
                 .role(crate::Role::Button)
                 .aria_label("👍 2")
                 .focusable()
@@ -314,6 +342,50 @@ fn a_short_chip_without_a_hit_does_not_fit_a_phone() {
     testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
 }
 
+/// A chip that leaves its height to layout (about 20 tall: one line), in
+/// a row `row` tall, pressing through a `design::hit` sized as if it were
+/// 30: the hit's reach is measured off the chip alone, so the row's height
+/// says nothing about the box and the chip must declare its own.
+fn loose_chip(row: f32) -> Stateful<Div> {
+    div().id("row").h(px(row)).child(
+        div().id("chip").min_w(px(40.)).child("👍 2").child(
+            design::hit("react", px(40.), px(30.), px(0.), &design::TOUCH)
+                .role(crate::Role::Button)
+                .aria_label("👍 2")
+                .focusable()
+                .on_click(|_, _, _| {}),
+        ),
+    )
+}
+
+/// [`loose_chip`] in a row `ROW` tall.
+#[derive(Default, Serialize, Deserialize)]
+struct LooseChip<const ROW: u16>;
+impl<const ROW: u16> View for LooseChip<ROW> {
+    const NAME: &'static str = "LooseChip";
+}
+impl<const ROW: u16> Render for LooseChip<ROW> {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        loose_chip(f32::from(ROW))
+    }
+}
+
+#[test]
+#[should_panic(expected = "a press box reaches past a parent that declares no height")]
+fn a_hit_in_a_chip_of_no_declared_height_does_not_fit_in_a_tall_row() {
+    let mut cx = TestAppContext::new();
+    cx.open::<LooseChip<48>>();
+    testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
+}
+
+#[test]
+#[should_panic(expected = "a press box reaches past a parent that declares no height")]
+fn a_hit_in_a_chip_of_no_declared_height_does_not_fit_in_a_short_row() {
+    let mut cx = TestAppContext::new();
+    cx.open::<LooseChip<30>>();
+    testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
+}
+
 #[derive(Default, Serialize, Deserialize)]
 struct NoWayBack;
 impl View for NoWayBack {
@@ -357,4 +429,144 @@ fn a_root_back_with_nowhere_to_go_does_not_fit_a_phone() {
     let mut cx = TestAppContext::new();
     cx.open::<BackToNothing>();
     testing::assert_fits(cx.root(), cx.styles(), 390., &design::TOUCH);
+}
+
+// What the sweep trusts. `assert_fits` reads declared sizes only, so each
+// press box below is under 44 on a phone and still passes, measured as
+// the 48 row above it. These pin its limits: a sweep that grows a layout
+// engine fails here first.
+
+/// Holds `press`, under 44 on a phone, to the sweep inside a 48 row.
+fn fits_in_a_tall_row(press: impl IntoElement) {
+    let (tree, styles) = testing::lower(|_: &mut Context<()>| {
+        div()
+            .id("row")
+            .h(px(48.))
+            .child(div().id("chip").child(press))
+    });
+    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+}
+
+/// A press the sweep reads.
+fn press(element: Stateful<Div>) -> Stateful<Div> {
+    element
+        .role(crate::Role::Button)
+        .aria_label("React")
+        .on_click(|_, _, _| {})
+}
+
+#[test]
+fn the_sweep_trusts_a_hit_told_its_parent_is_a_finger_tall() {
+    fits_in_a_tall_row(press(design::hit(
+        "react",
+        px(44.),
+        px(44.),
+        px(0.),
+        &design::TOUCH,
+    )));
+}
+
+#[test]
+fn the_sweep_trusts_a_box_whose_insets_add_up_to_zero() {
+    fits_in_a_tall_row(press(
+        div().id("react").absolute().top(px(-12.)).bottom(px(12.)),
+    ));
+}
+
+#[test]
+fn the_sweep_trusts_a_box_pinned_by_one_inset() {
+    fits_in_a_tall_row(press(div().id("react").absolute().top(px(-7.))));
+}
+
+#[test]
+fn the_sweep_trusts_a_press_with_no_height_of_its_own() {
+    fits_in_a_tall_row(press(div().id("react")));
+}
+
+/// A strip tab draws in the bar less its hairline, as Expo's (43), but its
+/// own box, which is the press, is the whole strip: the sweep reads a true
+/// 44 off the tab itself.
+#[test]
+fn under_touch_a_strip_tabs_press_is_the_whole_strip_over_its_hairline() {
+    let theme = crate::Theme::light();
+    let (tree, styles) = testing::lower(|_: &mut Context<()>| {
+        div()
+            .id("bar")
+            .h(design::TOUCH.strip)
+            .border_b_1()
+            .child(design::item(
+                design::tab("files", "Files", true, &design::TOUCH, &theme, |_, _, _| {}),
+                crate::Role::Tab,
+                true,
+            ))
+    });
+    let tab = &tree.children()[0];
+    let look = &styles[tab.style().expect("a styled tab")];
+    assert_eq!(look.size.height, Some(px(44.).into()));
+    assert_eq!(look.padding.bottom, Some(px(1.).into()));
+    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+}
+
+/// The other side of reading declared sizes: a hit in a chip that fills
+/// its 48 row by `h_full` fits on screen, but the sweep cannot read the
+/// chip's height, so it refuses it and says what to declare.
+#[test]
+#[should_panic(expected = "declare the parent's height")]
+fn the_sweep_refuses_a_hit_whose_parent_fills_its_row_by_layout() {
+    let (tree, styles) = testing::lower(|_: &mut Context<()>| {
+        div()
+            .id("row")
+            .h(px(48.))
+            .child(div().id("chip").h_full().child(press(design::hit(
+                "react",
+                px(44.),
+                px(30.),
+                px(0.),
+                &design::TOUCH,
+            ))))
+    });
+    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+}
+
+/// A chip 32 tall with a hairline edge, pressing through a `design::hit`
+/// told its edge: the box is placed inside the edge, so it reaches 7 past
+/// each side of the inside, and presses at 44.
+fn bordered_chip(edge: Pixels) -> Stateful<Div> {
+    div().id("row").h(px(48.)).child(
+        div()
+            .id("chip")
+            .relative()
+            .h(px(32.))
+            .min_w(px(44.))
+            .border_1()
+            .child("👍 2")
+            .child(press(design::hit(
+                "react",
+                px(44.),
+                px(32.),
+                edge,
+                &design::TOUCH,
+            ))),
+    )
+}
+
+#[test]
+fn a_bordered_chip_presses_at_44_through_a_hit_told_its_edge() {
+    let (tree, styles) = testing::lower(|_: &mut Context<()>| bordered_chip(px(1.)));
+    let hit = &tree.children()[0].children()[1];
+    let inset = &styles[hit.style().expect("a styled hit")].inset;
+    assert_eq!(
+        (inset.top, inset.bottom),
+        (Some(px(-7.).into()), Some(px(-7.).into()))
+    );
+    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
+}
+
+/// The same chip with its edge left out presses at 42 (30 inside the
+/// edge, 6 over and under), and the sweep says so.
+#[test]
+#[should_panic(expected = "comes to 42")]
+fn a_bordered_chip_whose_hit_is_not_told_its_edge_does_not_fit() {
+    let (tree, styles) = testing::lower(|_: &mut Context<()>| bordered_chip(px(0.)));
+    testing::assert_fits(&tree, &styles, 390., &design::TOUCH);
 }
