@@ -6,8 +6,8 @@ use view::prelude::*;
 
 use crate::{Cx, Explorer};
 
-use super::{Look, pages};
 use super::parts::over;
+use super::{Look, pages};
 
 pub(super) fn transactions(view: &Explorer, program: &str, cx: Cx, k: &Look) -> AnyElement {
     let list = pages::chain_gate(view, cx, k)

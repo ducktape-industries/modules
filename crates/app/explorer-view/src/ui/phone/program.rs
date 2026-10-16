@@ -5,18 +5,21 @@
 //! it, the way to its transactions. The reader's presses stay on the
 //! Programs page's sheet. Reads the programs role, the code's manifest
 //! (`manifest`), the window; writes the route and the clipboard (Copy).
-use view::{Div, Stateful};
 use view::design::space;
 use view::prelude::*;
 use view::wire::manifest::Manifest;
+use view::{Div, Stateful};
 
-use crate::{Cx, Explorer, Network, Route};
 use crate::decode::{bytes_preview, plural};
-use crate::state::{blob_ref, Declared};
+use crate::state::{Declared, blob_ref};
 use crate::words;
+use crate::{Cx, Explorer, Network, Route};
 
 use super::Look;
-use super::parts::{aside, copy_link, data, empty, key_value, opens, over, Press, quiet, refused, scroller, section, small};
+use super::parts::{
+    Press, aside, copy_link, data, empty, key_value, opens, over, quiet, refused, scroller,
+    section, small,
+};
 
 pub(super) fn program(view: &Explorer, name: &str, cx: Cx, k: &Look) -> AnyElement {
     let code = view.code_of(name);
@@ -147,7 +150,12 @@ fn about(
     let blob = view.manifest.ready().and_then(Option::as_ref);
     let declared = view_manifest(view);
     let entry = view.runs(name);
-    let mut rows = vec![key_value("explorer-field-code", "Code", code_and_copy(code, cx, k), k)];
+    let mut rows = vec![key_value(
+        "explorer-field-code",
+        "Code",
+        code_and_copy(code, cx, k),
+        k,
+    )];
     rows.extend(blob.map(|blob| {
         key_value(
             "explorer-field-size",
@@ -156,7 +164,9 @@ fn about(
             k,
         )
     }));
-    rows.extend(entry.map(|entry| key_value("explorer-field-params", "Params", params(&entry.params), k)));
+    rows.extend(
+        entry.map(|entry| key_value("explorer-field-params", "Params", params(&entry.params), k)),
+    );
     rows.push(key_value(
         "explorer-field-maintained-by",
         "Maintained by",
@@ -169,10 +179,21 @@ fn about(
         } else {
             format!("{} · {}", manifest.name, manifest.description)
         };
-        let talks = (!manifest.targets.is_empty())
-            .then(|| key_value("explorer-field-talks-to", "Talks to", data(manifest.targets.join(", ")), k));
+        let talks = (!manifest.targets.is_empty()).then(|| {
+            key_value(
+                "explorer-field-talks-to",
+                "Talks to",
+                data(manifest.targets.join(", ")),
+                k,
+            )
+        });
         [
-            Some(key_value("explorer-field-declares", "Declares", div().child(says), k)),
+            Some(key_value(
+                "explorer-field-declares",
+                "Declares",
+                div().child(says),
+                k,
+            )),
             Some(key_value(
                 "explorer-field-min-width",
                 "Min width",
@@ -180,7 +201,12 @@ fn about(
                 k,
             )),
             talks,
-            Some(key_value("explorer-field-wire", "Wire", data(manifest.wire_id.clone()), k)),
+            Some(key_value(
+                "explorer-field-wire",
+                "Wire",
+                data(manifest.wire_id.clone()),
+                k,
+            )),
         ]
         .into_iter()
         .flatten()

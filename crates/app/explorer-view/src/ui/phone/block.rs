@@ -3,16 +3,19 @@
 //! either side, its transactions. Reads the block from the window, or the
 //! one the node was asked for (`opened`), the validators and the head;
 //! writes the route (a step, a row, a link).
-use view::{Div, Stateful};
 use view::design::space;
 use view::prelude::*;
+use view::{Div, Stateful};
 
-use crate::{BlockRow, Cx, Explorer, Note, Route, TxRow};
 use crate::decode::{grouped, short};
 use crate::words::{self, unindexed};
+use crate::{BlockRow, Cx, Explorer, Note, Route, TxRow};
 
 use super::Look;
-use super::parts::{aside, column, copy_link, data, empty, gone, key_value, linked, over, Press, quiet, refused, scroller, section, small, time_and_age, tx_line, Who};
+use super::parts::{
+    Press, Who, aside, column, copy_link, data, empty, gone, key_value, linked, over, quiet,
+    refused, scroller, section, small, time_and_age, tx_line,
+};
 
 pub(super) fn block(view: &Explorer, height: u64, cx: Cx, k: &Look) -> AnyElement {
     let copy = copy_link(view, &Route::Block(height), cx, k);
@@ -31,7 +34,15 @@ pub(super) fn block(view: &Explorer, height: u64, cx: Cx, k: &Look) -> AnyElemen
 /// A block link's hash that nothing here has (Expo `block/[height].tsx:36-43`
 /// `ByHash`).
 pub(super) fn by_hash(note: &Note, cx: Cx, k: &Look) -> AnyElement {
-    gone("explorer-block-unfound", "Block", "search-x", "Not found", note, cx, k)
+    gone(
+        "explorer-block-unfound",
+        "Block",
+        "search-x",
+        "Not found",
+        note,
+        cx,
+        k,
+    )
 }
 
 /// A block not in hand: being read, refused, or not on this node (below
@@ -64,16 +75,38 @@ fn found(view: &Explorer, block: &BlockRow, txs: &[&TxRow], cx: Cx, k: &Look) ->
     } else {
         column(
             "explorer-block-txs",
-            txs.iter().map(|tx| tx_line(view, tx, Who::Signer, cx, k)).collect(),
+            txs.iter()
+                .map(|tx| tx_line(view, tx, Who::Signer, cx, k))
+                .collect(),
         )
         .into_any_element()
     };
     scroller("explorer-page")
-        .child(key_value("explorer-field-hash", "Hash", data(abi::hex(&block.id)), k))
-        .child(key_value("explorer-field-parent", "Parent", parent(block, cx, k), k))
-        .child(key_value("explorer-field-time", "Time", time_and_age(block.time, now, k), k))
+        .child(key_value(
+            "explorer-field-hash",
+            "Hash",
+            data(abi::hex(&block.id)),
+            k,
+        ))
+        .child(key_value(
+            "explorer-field-parent",
+            "Parent",
+            parent(block, cx, k),
+            k,
+        ))
+        .child(key_value(
+            "explorer-field-time",
+            "Time",
+            time_and_age(block.time, now, k),
+            k,
+        ))
         .children(proposer(view, block, k))
-        .child(key_value("explorer-field-epoch", "Epoch", data(grouped(block.epoch)), k))
+        .child(key_value(
+            "explorer-field-epoch",
+            "Epoch",
+            data(grouped(block.epoch)),
+            k,
+        ))
         .child(steps(view, block.height, cx, k))
         .child(section(
             "explorer-block-txs-heading",
@@ -137,9 +170,7 @@ fn steps(view: &Explorer, height: u64, cx: Cx, k: &Look) -> Div {
     let step = |id: &'static str, label: String, to: Option<u64>| {
         let press = to.map(|to| -> Press {
             Box::new(
-                cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| {
-                    view.step(to, cx)
-                }),
+                cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.step(to, cx)),
             )
         });
         small(id, label, design::Kind::Outline, press, k)

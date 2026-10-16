@@ -311,10 +311,12 @@ pub(super) fn program(
         )
         .child(copy);
     let sizes = blob.map(|blob| words::code_size(blob, listed));
-    let params = entry.map(|entry| if entry.params.is_empty() {
-        muted(words::NO_PARAMS, theme)
-    } else {
-        mono(bytes_preview(&entry.params)).into_any_element()
+    let params = entry.map(|entry| {
+        if entry.params.is_empty() {
+            muted(words::NO_PARAMS, theme)
+        } else {
+            mono(bytes_preview(&entry.params)).into_any_element()
+        }
     });
     let mut who = changers(view, network, name, theme, ladder);
     if who.is_empty() {

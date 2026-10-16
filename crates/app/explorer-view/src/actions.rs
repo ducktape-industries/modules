@@ -182,9 +182,11 @@ impl Explorer {
         if let Some(opened) = Route::from_path(route) {
             return self.go(opened, cx);
         }
-        let hashed = (route.strip_prefix("block/").map(|hash| (hash, Linked::Block)))
-            .or_else(|| route.strip_prefix("tx/").map(|hash| (hash, Linked::Tx)))
-            .and_then(|(hash, link)| Some((hash_of(hash)?, link)));
+        let hashed = (route
+            .strip_prefix("block/")
+            .map(|hash| (hash, Linked::Block)))
+        .or_else(|| route.strip_prefix("tx/").map(|hash| (hash, Linked::Tx)))
+        .and_then(|(hash, link)| Some((hash_of(hash)?, link)));
         if let Some((hash, link)) = hashed {
             return self.find_hash(hash, Some(link), cx);
         }

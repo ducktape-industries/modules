@@ -9,5 +9,13 @@ use super::Look;
 use super::parts::gone;
 
 pub(super) fn unlinked(note: &Note, cx: Cx, k: &Look) -> AnyElement {
-    gone("explorer-unlinked", "Explorer", "link-2-off", "Nothing to show", note, cx, k)
+    gone(
+        "explorer-unlinked",
+        "Explorer",
+        "link-2-off",
+        "Nothing to show",
+        note,
+        cx,
+        k,
+    )
 }

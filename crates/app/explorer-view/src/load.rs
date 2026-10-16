@@ -269,7 +269,12 @@ impl Explorer {
         };
         let located = self.located.ready().and_then(Option::as_ref);
         let acted = self.acted_rows.ready().map_or(&[][..], Vec::as_slice);
-        self.chain.txs.iter().chain(opened).chain(located).chain(acted)
+        self.chain
+            .txs
+            .iter()
+            .chain(opened)
+            .chain(located)
+            .chain(acted)
     }
 
     pub(crate) fn tx(&self, hash: &[u8; 32]) -> Option<&TxRow> {

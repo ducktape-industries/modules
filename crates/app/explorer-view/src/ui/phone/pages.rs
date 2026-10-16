@@ -6,16 +6,19 @@
 //! route a row opens.
 use std::ops::Range;
 
-use view::{Div, Stateful};
 use view::design::space;
 use view::prelude::*;
+use view::{Div, Stateful};
 
-use crate::{Cx, Explorer, Route, TxRow};
 use crate::decode::{grouped, plural};
 use crate::words::{self, unindexed};
+use crate::{Cx, Explorer, Route, TxRow};
 
 use super::Look;
-use super::parts::{aside, block_lines, caption, chevron, column, face, Fact, facts, list_row, more_link, opens, quiet, refused, scroller, section, tail, title_and_caption, tx_line, Who};
+use super::parts::{
+    Fact, Who, aside, block_lines, caption, chevron, column, face, facts, list_row, more_link,
+    opens, quiet, refused, scroller, section, tail, title_and_caption, tx_line,
+};
 
 /// The rows each Overview section draws (Expo `pages.tsx:20` `LATEST`).
 const LATEST: usize = 12;
@@ -274,15 +277,21 @@ fn account_line(view: &Explorer, account: &identity::Account, cx: Cx, k: &Look) 
         plural(account.keys().len() as u64, "device", "devices")
     );
     let row = list_row(SharedString::from(format!("explorer-account-{number}")), k);
-    opens(row, account.card.name.clone(), Route::Account(number), cx, k)
-        .child(design::lead(face(account, k.ladder.avatar, k)))
-        .child(title_and_caption(
-            div().truncate().child(account.card.name.clone()),
-            caption(about, k),
-        ))
-        .child(tail(
-            sent.map_or_else(|| words::NO_COUNT.to_owned(), words::tx_count),
-            k,
-        ))
-        .child(chevron(k))
+    opens(
+        row,
+        account.card.name.clone(),
+        Route::Account(number),
+        cx,
+        k,
+    )
+    .child(design::lead(face(account, k.ladder.avatar, k)))
+    .child(title_and_caption(
+        div().truncate().child(account.card.name.clone()),
+        caption(about, k),
+    ))
+    .child(tail(
+        sent.map_or_else(|| words::NO_COUNT.to_owned(), words::tx_count),
+        k,
+    ))
+    .child(chevron(k))
 }

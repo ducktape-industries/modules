@@ -6,16 +6,16 @@
 //! through the model's actions (`go`, `copy`, `read_all`).
 //!
 //! The Expo line numbers below are mobile dev 266633c.
-use view::{Div, FontWeight, Stateful};
 use view::design::{Face, mono, space};
 use view::prelude::*;
+use view::{Div, FontWeight, Stateful};
 
-use crate::{BlockRow, Cx, Explorer, Note, Route, TxRow};
 use crate::chain::{Line, lines};
 use crate::decode::{ago, clip, date, grouped, short, sized};
 use crate::words;
+use crate::{BlockRow, Cx, Explorer, Note, Route, TxRow};
 
-use super::{back, Look};
+use super::{Look, back};
 
 /// A caption's line (Expo `src/design/theme.ts:47`): the box a section
 /// head's link draws in.
@@ -114,7 +114,13 @@ pub(super) fn gone(
 ) -> AnyElement {
     let dismiss = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.dismiss_note(cx));
     design::page(id, title, design::Nav::back(dismiss), &k.ladder, &k.theme)
-        .child(empty("explorer-gone-why", icon, heading, words::note(note), k))
+        .child(empty(
+            "explorer-gone-why",
+            icon,
+            heading,
+            words::note(note),
+            k,
+        ))
         .into_any_element()
 }
 
@@ -150,8 +156,8 @@ pub(super) fn reach(
     side: Pixels,
     k: &Look,
 ) -> Stateful<Div> {
-    let to_hit = px(((f32::from(k.ladder.hit) - f32::from(height)) / 2.).max(0.));
-    let y = to_hit.max(side);
+    let to_hit = (f32::from(k.ladder.hit) - f32::from(height)) / 2.;
+    let y = px(to_hit.max(f32::from(side)));
     div()
         .id(id)
         .absolute()
@@ -175,11 +181,7 @@ impl Tone {
     /// How a run went: success where it applied, danger where it was
     /// refused.
     pub(super) fn of_run(applied: bool) -> Tone {
-        if applied {
-            Tone::Success
-        } else {
-            Tone::Danger
-        }
+        if applied { Tone::Success } else { Tone::Danger }
     }
 
     /// The tone's words and marks.
@@ -219,7 +221,13 @@ pub(super) fn note(view: &Explorer, cx: Cx, k: &Look) -> Option<Stateful<Div>> {
         label: "Dismiss",
         press: Box::new(dismiss),
     };
-    Some(notice("explorer-note", words::note(note), tone, Some(dismiss), k))
+    Some(notice(
+        "explorer-note",
+        words::note(note),
+        tone,
+        Some(dismiss),
+        k,
+    ))
 }
 
 /// A notice's one action (Expo `Notice action`).
@@ -256,10 +264,10 @@ pub(super) fn notice(
             .child(label)
             .child(
                 reach(id, NOTICE_ACTION_H, NOTICE_REACH, k)
-                .role(Role::Button)
-                .aria_label(label)
-                .focusable()
-                .on_click(press),
+                    .role(Role::Button)
+                    .aria_label(label)
+                    .focusable()
+                    .on_click(press),
             )
     });
     div()
@@ -295,7 +303,13 @@ pub(super) fn refused(sentence: &str, cx: Cx, k: &Look) -> AnyElement {
         label: "Retry",
         press: Box::new(retry),
     };
-    notice("explorer-refused", sentence.to_owned(), Tone::Danger, Some(retry), k)
+    notice(
+        "explorer-refused",
+        sentence.to_owned(),
+        Tone::Danger,
+        Some(retry),
+        k,
+    )
     .into_any_element()
 }
 
@@ -818,15 +832,10 @@ pub(super) fn tx_line(view: &Explorer, tx: &TxRow, who: Who, cx: Cx, k: &Look) -
         .text_type(k.ladder.caption)
         .text_color(k.theme.muted)
         .child(mono(short(&tx.hash)).flex_none())
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .child(match who {
-                    Who::Signer => format!(" · {}", signer_words(view, &tx.signer)),
-                    Who::Block => format!(" · block {}", grouped(height)),
-                }),
-        );
+        .child(div().min_w_0().truncate().child(match who {
+            Who::Signer => format!(" · {}", signer_words(view, &tx.signer)),
+            Who::Block => format!(" · block {}", grouped(height)),
+        }));
     let row = list_row(
         SharedString::from(format!("explorer-tx-{height}-{position}")),
         k,

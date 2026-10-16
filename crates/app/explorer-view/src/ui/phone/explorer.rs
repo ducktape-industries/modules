@@ -5,15 +5,15 @@
 //! page's list ([`pages::body`]). Reads the session, the root page and the
 //! search field; writes the root page (`go`), the search (`search`) and
 //! whether the field is open.
-use view::{Div, Stateful};
 use view::design::{CAPSULE_CLEARANCE, space};
 use view::prelude::*;
+use view::{Div, Stateful};
 
-use crate::{Cx, Explorer, Note, Route};
 use crate::words;
+use crate::{Cx, Explorer, Note, Route};
 
-use super::{Look, pages};
 use super::parts::note;
+use super::{Look, pages};
 
 /// The five pages, in the strip's order: each one's key, label and list.
 const PAGES: [(&str, &str, Route); 5] = [
@@ -79,16 +79,14 @@ fn titled(view: &Explorer, cx: Cx, k: &Look) -> design::Page {
         &k.ladder,
         &k.theme,
     )
-    .trailing(
-        design::icon_button(
-            "explorer-search-open",
-            design::icon("search", k.ladder.icon),
-            "Search",
-            &k.ladder,
-            &k.theme,
-            open,
-        ),
-    );
+    .trailing(design::icon_button(
+        "explorer-search-open",
+        design::icon("search", k.ladder.icon),
+        "Search",
+        &k.ladder,
+        &k.theme,
+        open,
+    ));
     let page = match network_and_me(view) {
         Some(caption) => page.caption(caption),
         None => page,

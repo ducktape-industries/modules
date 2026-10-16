@@ -6,18 +6,21 @@
 //! writes a Cancel, a Step down or a revoke (`press`), which sheet is open
 //! (`sheet`) and the form a sheet opens (`open_form`).
 use ::programs::{Grant, NOTICE, Pending, Scope};
-use view::{Div, FontWeight, Stateful};
 use view::design::{mono, space};
 use view::prelude::*;
+use view::{Div, FontWeight, Stateful};
 
-use crate::{Cx, Explorer, Network, Note, Route};
 use crate::acting::{self, Edit, Offer, Path};
 use crate::decode::{minutes, plural};
 use crate::state::Sheet;
 use crate::words;
+use crate::{Cx, Explorer, Network, Note, Route};
 
 use super::Look;
-use super::parts::{aside, caption, chevron, column, list_row, module_face, note, Press, quiet, refused, scroller, section, small, title_and_caption};
+use super::parts::{
+    Press, aside, caption, chevron, column, list_row, module_face, note, quiet, refused, scroller,
+    section, small, title_and_caption,
+};
 
 /// The block time Expo words a maintainer's wait in before the node's
 /// status is read (`programs.tsx:94`).
@@ -148,16 +151,19 @@ pub(super) fn scheduled_row(
     pending: &Pending,
     k: &Look,
 ) -> Stateful<Div> {
-    list_row(SharedString::from(format!("explorer-change-{}", change_key(pending))), k)
-        .child(design::lead(
-            design::icon("clock", k.ladder.icon_row).text_color(k.theme.muted),
-        ))
-        .child(title_and_caption(
-            div()
-                .truncate()
-                .child(words::scheduled_words(pending, network)),
-            caption(by_words(view, pending), k),
-        ))
+    list_row(
+        SharedString::from(format!("explorer-change-{}", change_key(pending))),
+        k,
+    )
+    .child(design::lead(
+        design::icon("clock", k.ladder.icon_row).text_color(k.theme.muted),
+    ))
+    .child(title_and_caption(
+        div()
+            .truncate()
+            .child(words::scheduled_words(pending, network)),
+        caption(by_words(view, pending), k),
+    ))
 }
 
 /// Cancel by the grant that made it, or Propose cancel by vote; nothing
@@ -302,15 +308,18 @@ fn grant_row(view: &Explorer, network: &Network, grant: &Grant, cx: Cx, k: &Look
     if matches!(&grant.scope, Scope::Program(id) if !network.names(id)) {
         about = format!("{about} · {}", words::may_add(&view.name_of(grant.account)));
     }
-    list_row(SharedString::from(format!("explorer-grant-{}", grant_key(grant))), k)
-        .child(title_and_caption(
-            mono(grant.scope.to_string())
-                .truncate()
-                .text_type(k.ladder.secondary),
-            caption(about, k),
-        ))
-        .children(revoke(view, grant, cx, k))
-        .into_any_element()
+    list_row(
+        SharedString::from(format!("explorer-grant-{}", grant_key(grant))),
+        k,
+    )
+    .child(title_and_caption(
+        mono(grant.scope.to_string())
+            .truncate()
+            .text_type(k.ladder.secondary),
+        caption(about, k),
+    ))
+    .children(revoke(view, grant, cx, k))
+    .into_any_element()
 }
 
 /// Step down from one's own grant, or Propose revoke by vote; nothing where

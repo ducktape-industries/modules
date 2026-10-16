@@ -67,11 +67,7 @@ pub(crate) const TYPE_ACCOUNT: &str = "Type the account's number.";
 
 /// What a programs role entry is: a program, or a view with none behind it.
 pub(crate) fn entry_kind(listed: bool) -> &'static str {
-    if listed {
-        VIEW_ONLY
-    } else {
-        "program"
-    }
+    if listed { VIEW_ONLY } else { "program" }
 }
 
 /// How big the code is, and for a program whose code carries a view
@@ -167,11 +163,7 @@ pub(crate) fn you(name: &str) -> String {
 /// A maintainer by its name, the reader and an agent marked so (Expo
 /// `holderName`, and `· agent` after it): `Ada (you) · agent`.
 pub(crate) fn holder(name: &str, reader: bool, agent: bool) -> String {
-    let name = if reader {
-        you(name)
-    } else {
-        name.to_owned()
-    };
+    let name = if reader { you(name) } else { name.to_owned() };
     if agent {
         format!("{name} · {AGENT}")
     } else {

@@ -152,9 +152,8 @@ fn step(
         .child(text);
     match to {
         Some(to) => {
-            let go = cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| {
-                view.step(to, cx)
-            });
+            let go =
+                cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.step(to, cx));
             let hover = theme.hover;
             button.focusable().hover(move |s| s.bg(hover)).on_click(go)
         }

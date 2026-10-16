@@ -44,7 +44,11 @@ pub(crate) fn render(view: &Explorer, cx: Cx) -> AnyElement {
     // a link that opened nothing is a page of its own over the stack
     let gone = match &view.note {
         Some(note @ Note::Unlinked(_)) => Some(unlinked::unlinked(note, cx, k)),
-        Some(note @ Note::NoSuchHash { link: Some(link), .. }) => Some(match link {
+        Some(
+            note @ Note::NoSuchHash {
+                link: Some(link), ..
+            },
+        ) => Some(match link {
             Linked::Block => block::by_hash(note, cx, k),
             Linked::Tx => tx::by_hash(note, cx, k),
         }),

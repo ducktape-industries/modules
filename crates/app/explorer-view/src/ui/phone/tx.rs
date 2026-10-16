@@ -5,16 +5,19 @@
 //! the one the node was asked for (`located`), the accounts and the
 //! programs role; asks its program to describe it (`open`); writes the
 //! route (a link).
-use view::{Div, Stateful};
 use view::design::space;
 use view::prelude::*;
+use view::{Div, Stateful};
 
-use crate::{Cx, Explorer, Note, Route, TxRow};
 use crate::decode::{amount, clip, date, preview, short};
 use crate::words;
+use crate::{Cx, Explorer, Note, Route, TxRow};
 
 use super::Look;
-use super::parts::{copy_link, data, empty, gone, key_value, linked, over, quiet, refused, scroller, section, time_and_age, title_of, Tone};
+use super::parts::{
+    Tone, copy_link, data, empty, gone, key_value, linked, over, quiet, refused, scroller, section,
+    time_and_age, title_of,
+};
 
 /// An operation field's label column (Expo `tx/[hash].tsx:180`).
 const OP_KEY_W: Pixels = px(88.);
@@ -44,7 +47,15 @@ pub(super) fn tx(view: &Explorer, height: u64, position: u32, cx: Cx, k: &Look) 
 /// A transaction link's hash that nothing here has (Expo `tx/[hash].tsx:43`).
 pub(super) fn by_hash(note: &Note, cx: Cx, k: &Look) -> AnyElement {
     let heading = words::NO_TRANSACTION;
-    gone("explorer-tx-unfound", "Transaction", "search-x", heading, note, cx, k)
+    gone(
+        "explorer-tx-unfound",
+        "Transaction",
+        "search-x",
+        heading,
+        note,
+        cx,
+        k,
+    )
 }
 
 /// A transaction not in hand: being read, refused, or not at its place.
@@ -82,18 +93,37 @@ fn found(view: &Explorer, tx: &TxRow, cx: Cx, k: &Look) -> AnyElement {
         cx,
         k,
     );
-    let status = tx
-        .receipt
-        .as_ref()
-        .map(|run| key_value("explorer-field-status", "Status", status(run, "explorer-tx", k), k));
+    let status = tx.receipt.as_ref().map(|run| {
+        key_value(
+            "explorer-field-status",
+            "Status",
+            status(run, "explorer-tx", k),
+            k,
+        )
+    });
     scroller("explorer-page")
         .child(key_value("explorer-field-block", "Block", block, k))
         .children(status)
         // SDK gap: selectable text (Expo's hash is `selectable`, a long
         // press copies it), swap when the SDK has it
-        .child(key_value("explorer-field-hash", "Hash", data(abi::hex(&tx.hash)).id("tx-hash"), k))
-        .child(key_value("explorer-field-from", "From", from(view, tx, cx, k), k))
-        .child(key_value("explorer-field-program", "Program", program(view, tx, k), k))
+        .child(key_value(
+            "explorer-field-hash",
+            "Hash",
+            data(abi::hex(&tx.hash)).id("tx-hash"),
+            k,
+        ))
+        .child(key_value(
+            "explorer-field-from",
+            "From",
+            from(view, tx, cx, k),
+            k,
+        ))
+        .child(key_value(
+            "explorer-field-program",
+            "Program",
+            program(view, tx, k),
+            k,
+        ))
         .child(key_value("explorer-field-anchor", "Anchor", anchor, k))
         .child(key_value(
             "explorer-field-time",

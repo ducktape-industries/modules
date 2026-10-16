@@ -5,13 +5,13 @@
 //! the programs role, the accounts and the tip; writes the fields, the
 //! program or view choice (`add_view`), the send (`submit_form`) and Close
 //! (`close_form`).
-use view::{Div, FontWeight};
 use view::design::space;
 use view::prelude::*;
+use view::{Div, FontWeight};
 
-use crate::{Cx, Explorer};
 use crate::acting::{Asked, Edit, Form, FormField, Problem, Takes};
 use crate::words;
+use crate::{Cx, Explorer};
 
 use super::Look;
 

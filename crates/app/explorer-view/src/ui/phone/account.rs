@@ -3,16 +3,19 @@
 //! last signed, the programs it used, what it signed. Reads the accounts,
 //! what activity recorded for it (`used`, `acted`); writes the route (a
 //! chip, a row).
-use view::{Div, FontWeight, Stateful};
 use view::design::{mono, space};
 use view::prelude::*;
+use view::{Div, FontWeight, Stateful};
 
-use crate::{Cx, Explorer, Route};
 use crate::decode::{grouped, plural, scheme, short};
 use crate::words;
+use crate::{Cx, Explorer, Route};
 
 use super::Look;
-use super::parts::{aside, column, copy_link, empty, face, Fact, facts, list_row, over, quiet, refused, scroller, section, tail, title_and_caption, tx_line, Who};
+use super::parts::{
+    Fact, Who, aside, column, copy_link, empty, face, facts, list_row, over, quiet, refused,
+    scroller, section, tail, title_and_caption, tx_line,
+};
 
 /// A chip of the programs an account used (Expo `src/design/theme.ts:78`
 /// `size.chip`).
@@ -156,18 +159,21 @@ fn devices(view: &Explorer, account: &identity::Account, k: &Look) -> Vec<AnyEle
         let last = signed.iter().find(|frame| frame.signer == key.key);
         let label = key.label.clone().unwrap_or_else(|| words::device(index));
         let used = words::last_used(now, last.map(|frame| frame.time));
-        list_row(SharedString::from(format!("explorer-device-{}", abi::hex(&key.key))), k)
-            .child(design::lead(
-                design::icon("key-round", k.ladder.icon_row).text_color(k.theme.muted),
-            ))
-            .child(title_and_caption(
-                div().truncate().child(label),
-                mono(format!("{} {}", scheme(key.scheme), short(&key.key)))
-                    .text_type(k.ladder.caption)
-                    .text_color(k.theme.faint),
-            ))
-            .child(tail(used, k))
-            .into_any_element()
+        list_row(
+            SharedString::from(format!("explorer-device-{}", abi::hex(&key.key))),
+            k,
+        )
+        .child(design::lead(
+            design::icon("key-round", k.ladder.icon_row).text_color(k.theme.muted),
+        ))
+        .child(title_and_caption(
+            div().truncate().child(label),
+            mono(format!("{} {}", scheme(key.scheme), short(&key.key)))
+                .text_type(k.ladder.caption)
+                .text_color(k.theme.faint),
+        ))
+        .child(tail(used, k))
+        .into_any_element()
     });
     std::iter::once(head.into_any_element())
         .chain(rows)

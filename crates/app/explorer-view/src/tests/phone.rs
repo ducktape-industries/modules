@@ -130,7 +130,10 @@ fn a_link_that_names_nothing_is_a_page_back_leaves() {
     let mut cx = opened("nowhere/at/all");
     assert!(cx.find("explorer-unlinked").is_some(), "{:?}", cx.texts());
     shows(&cx, "Nothing to show");
-    shows(&cx, "This link names nothing the Explorer shows: nowhere/at/all");
+    shows(
+        &cx,
+        "This link names nothing the Explorer shows: nowhere/at/all",
+    );
     back(&mut cx);
     assert!(cx.find("explorer-unlinked").is_none() && cx.back_handler().is_none());
 }
@@ -138,7 +141,11 @@ fn a_link_that_names_nothing_is_a_page_back_leaves() {
 #[test]
 fn a_block_link_whose_hash_nothing_has_is_a_page_saying_so() {
     let cx = opened(&format!("block/{}", abi::hex(&[0xee; 32])));
-    assert!(cx.find("explorer-block-unfound").is_some(), "{:?}", cx.texts());
+    assert!(
+        cx.find("explorer-block-unfound").is_some(),
+        "{:?}",
+        cx.texts()
+    );
     shows(&cx, "Not found");
     shows(&cx, "No block or transaction has this hash.");
 }
@@ -436,7 +443,11 @@ fn a_transaction_the_node_does_not_keep_says_so() {
 fn a_page_read_past_the_window_says_reading_then_refused_and_retry_asks_again() {
     for (path, reading, asked_again) in [
         ("block/99", "Reading the block…", "No block 99"),
-        ("tx/11/7", "Reading the transaction…", "Transaction not found"),
+        (
+            "tx/11/7",
+            "Reading the transaction…",
+            "Transaction not found",
+        ),
     ] {
         let cx = opened_over(path, |cx| {
             cx.host().never::<ChainBlock>();
@@ -444,8 +455,10 @@ fn a_page_read_past_the_window_says_reading_then_refused_and_retry_asks_again() 
         });
         shows(&cx, reading);
         let mut cx = opened_over(path, |cx| {
-            cx.host().refuse::<ChainBlock>("unavailable", "the archive is offline");
-            cx.host().refuse::<ChainTx>("unavailable", "the archive is offline");
+            cx.host()
+                .refuse::<ChainBlock>("unavailable", "the archive is offline");
+            cx.host()
+                .refuse::<ChainTx>("unavailable", "the archive is offline");
         });
         shows(&cx, "the archive is offline");
         serve(&cx, || chain(12));
@@ -946,7 +959,10 @@ fn the_add_form_asks_what_it_adds_and_lands_its_schedule() {
     phone(&mut cx);
     click(&mut cx, "explorer-more");
     click(&mut cx, "explorer-add");
-    assert!(cx.find("explorer-form-params").is_some(), "a program's params");
+    assert!(
+        cx.find("explorer-form-params").is_some(),
+        "a program's params"
+    );
     click(&mut cx, "explorer-form-view");
     assert!(cx.find("explorer-form-params").is_none(), "a view has none");
     click(&mut cx, "explorer-form-program");
