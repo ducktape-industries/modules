@@ -10,29 +10,6 @@ impl Node {
         self.identity().and_then(ElementIdWire::name)
     }
 
-    /// The variant's name, for a report.
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::RichText { .. } => "RichText",
-            Self::Anchored { .. } => "Anchored",
-            Self::UniformList { .. } => "UniformList",
-            Self::List { .. } => "List",
-            Self::Container(_) => "Container",
-            Self::ResizeHandle { .. } => "ResizeHandle",
-            Self::Deferred { .. } => "Deferred",
-            Self::Sensor { .. } => "Sensor",
-            Self::Text(_) => "Text",
-            Self::Image { .. } => "Image",
-            Self::Svg { .. } => "Svg",
-            Self::Field { .. } => "Field",
-            Self::Space => "Space",
-            Self::Overlay { .. } => "Overlay",
-            Self::Sheet { .. } => "Sheet",
-            Self::Canvas { .. } => "Canvas",
-            Self::Web { .. } => "Web",
-        }
-    }
-
     /// The node's typed identity, when the variant carries one.
     pub fn identity(&self) -> Option<&ElementIdWire> {
         match self {

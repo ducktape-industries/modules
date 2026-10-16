@@ -72,7 +72,7 @@ fn sanitize_tree_with(root: &mut Node, walk: &mut Walk) -> Result<(), Refused> {
             .iter()
             .try_fold(&*root, |node, &child| node.children().get(child as usize));
         Refused::At {
-            kind: node.map_or("?", Node::kind),
+            kind: node.map_or("?", <&str>::from),
             key: node.and_then(Node::key).map(str::to_owned),
             at: std::mem::take(&mut walk.at),
             refused: Box::new(refused),

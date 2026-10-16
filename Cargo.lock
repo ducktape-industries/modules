@@ -6095,6 +6095,7 @@ dependencies = [
  "serde-reflection",
  "serde_json",
  "slotmap",
+ "strum",
  "unicode-segmentation",
  "uuid",
  "view-wire",
