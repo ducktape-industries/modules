@@ -9,11 +9,6 @@ use view::{Div, FontWeight, Svg};
 
 use crate::{Members, Row, words};
 
-/// A row with a caption under its title is this tall (`Row.tsx:44`,
-/// `size.rowTall`).
-// SDK gap: `Ladder::row_tall`, swap when feat/phone-kit lands
-pub(super) const ROW_TALL: Pixels = px(design::height::touch::ROW_TALL as f32);
-
 /// How far a row's caption sits under its title (`Row.tsx:58`, `gap: 1`).
 // SDK gap: the row's title over caption, swap when feat/phone-kit lands
 const TITLE_GAP: Pixels = px(1.);
@@ -92,7 +87,7 @@ pub(super) fn chevron(ladder: &Ladder, theme: &Theme) -> Svg {
 }
 
 /// One muted status line (the kit's `Quiet`): secondary, 16 all round.
-// SDK gap: `quiet` at the ladder's sizes, swap when feat/phone-kit lands
+// SDK gap: `quiet` at the ladder's sizes; the SDK builds it later
 pub(super) fn quiet(
     id: &'static str,
     text: impl Into<SharedString>,

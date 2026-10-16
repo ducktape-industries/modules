@@ -176,6 +176,16 @@ impl Group {
         }
     }
 
+    /// The roster's one word for an account of this group, its row's tail
+    /// (`index.tsx:69`).
+    pub fn word(self) -> &'static str {
+        match self {
+            Group::People => words::USER,
+            Group::Agents => words::AGENT,
+            Group::Programs => words::PROGRAM,
+        }
+    }
+
     /// An avatar in this group's look: a person's as it is, an agent's in
     /// the agent tint, a program's square in the data face.
     fn face(self, avatar: Div, theme: &Theme) -> Div {
@@ -394,6 +404,7 @@ impl Render for Members {
         self.width = window.viewport_size().width.into();
         // the pointer is in hand from the first tick, after `attach` read a
         // restored member's activity: a finger reads it again, titled
+        // SDK gap: attach's window carries no pointer yet; the SDK builds it later
         if self.touch != window.touch() {
             self.touch = window.touch();
             self.seen.clear();

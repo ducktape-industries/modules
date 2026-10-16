@@ -125,6 +125,13 @@ pub(crate) fn device(index: usize) -> String {
     format!("Device {}", index + 1)
 }
 
+/// A transaction no describe reads, by its program and size:
+/// `chat · 95 bytes` (Expo `words.ts:93-95` `sized`; explorer-view's
+/// `decode::sized`).
+pub(crate) fn sized(program: &str, size: u64) -> String {
+    format!("{program} · {}", design::plural(size, "byte", "bytes"))
+}
+
 /// The day a key joined: `added 15 Oct 2026` (`[number].tsx:124`).
 pub(crate) fn added(at: u64) -> String {
     format!("added {}", design::day(at))

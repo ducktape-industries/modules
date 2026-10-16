@@ -7,13 +7,11 @@
 //! Writes the page stack only: Back, and a manager or an agent opened over
 //! this page (`Members::open`). Open DM and Explorer leave through the
 //! host's links.
-use view::design::{self, Ladder, space};
+use view::design::{self, Ladder, Nav, space};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
-use super::parts::{
-    ROW_TALL, caption, chevron, face, name_line, quiet, refused, title_and_caption,
-};
+use super::parts::{caption, chevron, face, name_line, quiet, refused, title_and_caption};
 use crate::activity::Signed;
 use crate::{
     Device, Group, Members, Row, explorer_account, explorer_block, name_or_number, opens,
@@ -67,7 +65,7 @@ pub(super) fn page(
     design::page(
         "members-member",
         row.name.clone(),
-        Some(back),
+        Nav::back(back),
         ladder,
         theme,
     )
@@ -111,7 +109,7 @@ fn missing(
     design::page(
         "members-member",
         words::account_title(number),
-        Some(back),
+        Nav::back(back),
         ladder,
         theme,
     )
@@ -239,13 +237,8 @@ fn actions(view: &Members, row: &Row, explorer: String, ladder: &Ladder, theme: 
 /// Devices: the section head and a row per key the account acts with.
 fn devices(view: &Members, row: &Row, ladder: &Ladder, theme: &Theme) -> Vec<AnyElement> {
     let count = row.devices.len();
-    let head = design::section_head(
-        "members-devices",
-        words::DEVICES,
-        Some(count),
-        ladder,
-        theme,
-    );
+    let head = design::section_head("members-devices", words::DEVICES, ladder, theme)
+        .child(count.to_string());
     let mut section = vec![head.into_any_element()];
     if row.devices.is_empty() {
         section.push(quiet(
@@ -283,7 +276,7 @@ fn device_row(
         .text_color(theme.faint)
         .child(words::added(device.added_at));
     design::row(format!("members-device-{index}"), ladder, theme)
-        .min_h(ROW_TALL)
+        .min_h(ladder.row_tall)
         .child(design::lead(
             design::icon(glyph, ladder.icon_row).text_color(theme.muted),
         ))
@@ -306,13 +299,8 @@ fn manages(
     ladder: &Ladder,
     theme: &Theme,
 ) -> Vec<AnyElement> {
-    let head = design::section_head(
-        "members-manages",
-        words::MANAGES,
-        Some(managed.len()),
-        ladder,
-        theme,
-    );
+    let head = design::section_head("members-manages", words::MANAGES, ladder, theme)
+        .child(managed.len().to_string());
     let rows = managed
         .iter()
         .map(|agent| managed_row(agent, cx, ladder, theme));
@@ -332,26 +320,29 @@ fn managed_row(
     let number = agent.number;
     let about = words::agent(number);
     let life = agent.life();
-    let row = design::row(format!("members-manages-{number}"), ladder, theme)
-        .min_h(ROW_TALL)
-        .role(Role::Button)
-        // the agent's name, not the avatar's initial drawn before it
-        .aria_label(agent.name.clone())
-        .aria_description(format!("{about} · {life}"))
-        .focusable()
-        .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.open(number, cx)))
-        .child(design::lead(face(agent, ladder.avatar, theme)))
-        .child(title_and_caption(
-            div().truncate().child(agent.name.clone()),
-            Some(caption(about, ladder, theme)),
-        ))
-        .children(standing_badge(
-            "members-manages-standing",
-            agent,
-            ladder,
-            theme,
-        ))
-        .child(chevron(ladder, theme));
+    let row = design::pressed(
+        design::row(format!("members-manages-{number}"), ladder, theme),
+        ladder,
+    )
+    .min_h(ladder.row_tall)
+    .role(Role::Button)
+    // the agent's name, not the avatar's initial drawn before it
+    .aria_label(agent.name.clone())
+    .aria_description(format!("{about} · {life}"))
+    .focusable()
+    .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.open(number, cx)))
+    .child(design::lead(face(agent, ladder.avatar, theme)))
+    .child(title_and_caption(
+        div().truncate().child(agent.name.clone()),
+        Some(caption(about, ladder, theme)),
+    ))
+    .children(standing_badge(
+        "members-manages-standing",
+        agent,
+        ladder,
+        theme,
+    ))
+    .child(chevron(ladder, theme));
     row.into_any_element()
 }
 
@@ -359,13 +350,7 @@ fn managed_row(
 /// or the quiet line for its read: on its way, refused (a network with no
 /// activity program says so; there is nothing to retry), or nothing yet.
 fn activity(view: &Members, ladder: &Ladder, theme: &Theme) -> Vec<AnyElement> {
-    let head = design::section_head(
-        "members-activity",
-        words::RECENT_ACTIVITY,
-        None,
-        ladder,
-        theme,
-    );
+    let head = design::section_head("members-activity", words::RECENT_ACTIVITY, ladder, theme);
     let body = match &view.activity {
         Loadable::Idle | Loadable::Loading(_) => vec![quiet(
             "members-activity-loading",
@@ -375,7 +360,8 @@ fn activity(view: &Members, ladder: &Ladder, theme: &Theme) -> Vec<AnyElement> {
         )],
         // SDK gap: an `unknown_program` refusal carries the bare name, which
         // Expo's core words for every screen (mobile
-        // `crates/mobile-core/src/lib.rs:104-118`); the SDK builds it later
+        // `crates/mobile-core/src/lib.rs:104-118`); swap for
+        // `design::sentence` when feat/phone-kit lands
         Loadable::Failed(refusal) => vec![quiet(
             "members-activity-refused",
             refusal.message.clone(),
@@ -429,14 +415,9 @@ fn signed_row(
         ))
         .child(format!(" · {}", design::ago(now, signed.time)));
     design::row(format!("members-signed-{index}"), ladder, theme)
-        .min_h(ROW_TALL)
+        .min_h(ladder.row_tall)
         .child(title_and_caption(
-            div().truncate().child(
-                signed
-                    .title
-                    .clone()
-                    .unwrap_or_else(|| signed.target.clone()),
-            ),
+            div().truncate().child(signed.title().to_owned()),
             Some(when),
         ))
         .into_any_element()
@@ -452,7 +433,12 @@ fn small_button(
     ladder: &Ladder,
     theme: &Theme,
 ) -> Div {
-    let drawn = div()
+    // the press reaches 4 past the 36 button, its hairline included (44);
+    // both buttons are wider than 44, so it reaches no further sideways
+    div()
+        .relative()
+        .flex_none()
+        .h(SMALL)
         .flex()
         .items_center()
         .justify_center()
@@ -462,19 +448,9 @@ fn small_button(
         .text_type(ladder.secondary)
         .font_weight(FontWeight::MEDIUM)
         .whitespace_nowrap()
-        .child(label);
-    // the press is pinned inside its frame's border, so the frame draws
-    // none and the outline is its child: the press reaches 4 past a 36
-    // frame (44); both buttons are wider than 44, so it reaches no further
-    // sideways
-    div()
-        .relative()
-        .flex_none()
-        .h(SMALL)
-        .flex()
-        .child(drawn)
+        .child(label)
         .child(
-            design::hit(id, ladder.hit, SMALL, ladder)
+            design::hit(id, ladder.hit, SMALL, px(1.), ladder)
                 .role(Role::Button)
                 .aria_label(label)
                 .focusable()
@@ -507,7 +483,7 @@ fn inline_link(
         .whitespace_nowrap()
         .child(label.clone())
         .child(
-            design::hit(id, px(0.), line, ladder)
+            design::hit(id, px(0.), line, px(0.), ladder)
                 .role(Role::Link)
                 .aria_label(label)
                 .focusable()

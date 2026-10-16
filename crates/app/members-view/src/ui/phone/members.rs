@@ -6,15 +6,15 @@
 //! the filter, whether the filter is open (`filtering`), the arrows'
 //! `cursor`, and the page stack: a row opens its member
 //! (`Members::open`).
-use view::design::{self, CAPSULE_CLEARANCE, Ladder, space};
+use view::design::{self, CAPSULE_CLEARANCE, Ladder, Nav, space};
 use view::prelude::*;
 use view::{Div, Stateful};
 
-use super::parts::{
-    ROW_TALL, caption, chevron, face, name_line, quiet, refused, title_and_caption,
-};
+use super::parts::{caption, chevron, face, name_line, quiet, refused, title_and_caption};
 use crate::{Group, Members, Roster, Row, name_or_number, standing_badge, words};
 
+/// The filter field's id: opened, the view gives it the keyboard.
+const FILTER_ID: &str = "members-filter";
 /// A filter chip is this tall (`theme.ts:78`, `size.chip`).
 // SDK gap: the kit's `Chips`; the SDK builds it later
 const CHIP: Pixels = px(32.);
@@ -49,17 +49,10 @@ pub(super) fn page(
     }
     let open_filter = cx.listener(|view, _: &ClickEvent, window, cx| {
         view.filtering = true;
-        window.focus("members-filter");
+        window.focus(FILTER_ID);
         cx.notify();
     });
-    let page = design::page(
-        "members-roster",
-        words::MEMBERS,
-        // SDK gap: a root page with no Back still types its `None`; the SDK builds it later
-        None::<fn(&ClickEvent, &mut Window, &mut App)>,
-        ladder,
-        theme,
-    );
+    let page = design::page("members-roster", words::MEMBERS, Nav::Root, ladder, theme);
     // SDK gap: the network caption; the SDK builds it later
     let page = match view.network() {
         "" => page,
@@ -80,7 +73,7 @@ pub(super) fn page(
 /// The title row while the filter is open (the kit's `Header` with its
 /// `center`): the field, its magnifier inside the edge, and Close filter,
 /// which empties it.
-// SDK gap: a `center` slot on `design::page`, which the SDK builds it later
+// SDK gap: a `center` slot on `design::page`; the SDK builds it later
 fn filter_row(
     view: &Members,
     cx: &mut Context<Members>,
@@ -95,7 +88,7 @@ fn filter_row(
     });
     // Expo's testID; a name or a number wants no autocorrection and no
     // capitals
-    let input = Input::new("members-filter", &view.filter, words::FILTER_LABEL)
+    let input = Input::new(FILTER_ID, &view.filter, words::FILTER_LABEL)
         .autocorrect(false)
         .autocapitalize(Autocapitalize::None)
         .placeholder(words::FILTER_HINT);
@@ -192,7 +185,14 @@ fn chip(
         view.cursor = None;
         cx.notify();
     });
-    let drawn = div()
+    // the press reaches 6 past the 32 chip, its hairline included, into
+    // the row's 8 above and below (44), never over the row's neighbours;
+    // it is as wide as the chip, every chip being wider than 44, so it
+    // never reaches the next chip either
+    div()
+        .relative()
+        .flex_none()
+        .h(CHIP)
         .flex()
         .items_center()
         .px(space::MD)
@@ -209,25 +209,20 @@ fn chip(
                 .text_size(ladder.tiny.size)
                 .text_color(number)
                 .child(format!("  {count}")),
-        );
-    // the press is pinned inside its frame's border, so the frame draws
-    // none and the chip's outline is its child: the press reaches 6 past
-    // a 32 frame into the row's 8 above and below (44), never over the
-    // row's neighbours; it is as wide as the chip, every chip being wider
-    // than 44, so it never reaches the next chip either
-    div()
-        .relative()
-        .flex_none()
-        .h(CHIP)
-        .flex()
-        .child(drawn)
+        )
         .child(
-            design::hit(format!("members-chip-{index}"), ladder.hit, CHIP, ladder)
-                .role(Role::Button)
-                .aria_label(format!("{label} {count}"))
-                .aria_toggled(chosen.into())
-                .focusable()
-                .on_click(pick),
+            design::hit(
+                format!("members-chip-{index}"),
+                ladder.hit,
+                CHIP,
+                px(1.),
+                ladder,
+            )
+            .role(Role::Button)
+            .aria_label(format!("{label} {count}"))
+            .aria_toggled(chosen.into())
+            .focusable()
+            .on_click(pick),
         )
 }
 
@@ -273,13 +268,15 @@ fn list(view: &Members, cx: &mut Context<Members>, ladder: &Ladder, theme: &Them
         if members.is_empty() {
             continue;
         }
-        list = list.child(design::section_head(
-            format!("members-group-{}", group.label().to_lowercase()),
-            group.label(),
-            Some(members.len()),
-            ladder,
-            theme,
-        ));
+        list = list.child(
+            design::section_head(
+                format!("members-group-{}", group.label().to_lowercase()),
+                group.label(),
+                ladder,
+                theme,
+            )
+            .child(members.len().to_string()),
+        );
         for row in members {
             let place = Place {
                 active: index == active,
@@ -326,10 +323,7 @@ fn member_row(
         // a person or a program: no standing. The roster says only which
         // (`index.tsx:69`), never the program a program account runs
         None => {
-            let word = match row.kind {
-                identity::Kind::System(_) => words::PROGRAM,
-                _ => words::USER,
-            };
+            let word = row.group().word();
             let tail = caption(word, ladder, theme).flex_none();
             (tail.into_any_element(), word)
         }
@@ -339,22 +333,25 @@ fn member_row(
         .flatten()
         .collect::<Vec<_>>()
         .join(" · ");
-    let element = design::row(format!("members-row-{number}"), ladder, theme)
-        .when(managed_by.is_some(), |row| row.min_h(ROW_TALL))
-        .when(place.cursor, |row| row.bg(theme.surface_raised))
-        // the name, not the avatar's initial drawn before it
-        .aria_label(row.name.clone())
-        .aria_description(description)
-        // a press opens the member: the option the arrows rest on is the
-        // chosen one
-        .aria_selected(place.cursor)
-        .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.open(number, cx)))
-        .child(design::lead(face(row, ladder.avatar, theme)))
-        .child(title_and_caption(
-            name_line(row, me, ladder.body, ladder, theme),
-            managed_by.map(|words| caption(words, ladder, theme)),
-        ))
-        .child(tail)
-        .child(chevron(ladder, theme));
+    let element = design::pressed(
+        design::row(format!("members-row-{number}"), ladder, theme),
+        ladder,
+    )
+    .when(managed_by.is_some(), |row| row.min_h(ladder.row_tall))
+    .when(place.cursor, |row| row.bg(theme.surface_raised))
+    // the name, not the avatar's initial drawn before it
+    .aria_label(row.name.clone())
+    .aria_description(description)
+    // a press opens the member: the option the arrows rest on is the
+    // chosen one
+    .aria_selected(place.cursor)
+    .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.open(number, cx)))
+    .child(design::lead(face(row, ladder.avatar, theme)))
+    .child(title_and_caption(
+        name_line(row, me, ladder.body, ladder, theme),
+        managed_by.map(|words| caption(words, ladder, theme)),
+    ))
+    .child(tail)
+    .child(chevron(ladder, theme));
     design::item(element, Role::ListBoxOption, place.active)
 }

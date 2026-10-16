@@ -4,12 +4,11 @@
 //! list their frames and read no transaction (#378).
 use ::activity::{Frame, PageRequest};
 use serde::{Deserialize, Serialize};
-use view::design;
 use view::prelude::*;
 
 pub const SHOWN: usize = 8;
 /// A transaction's payload is read up to this many bytes for its title
-/// (Expo's `ROW_PAYLOAD`, `query/page.ts:11`); past it, it is titled by
+/// (Expo's `ROW_PAYLOAD`, `query/page.ts:9`); past it, it is titled by
 /// its size.
 const ROW_PAYLOAD: u32 = 4 << 10;
 
@@ -30,6 +29,14 @@ pub struct Signed {
     pub height: u64,
     pub position: u32,
     pub time: u64,
+}
+
+impl Signed {
+    /// What the row says the frame did: its transaction's title, or, on
+    /// the desk, whose rows are untitled, the program it went to.
+    pub fn title(&self) -> &str {
+        self.title.as_deref().unwrap_or(&self.target)
+    }
 }
 
 impl From<Frame> for Signed {
@@ -106,6 +113,8 @@ async fn title(host: &Host, frame: &Frame) -> Result<Option<String>, Error> {
     };
     // a describe that cannot read the bytes leaves the size, as Expo's does
     let described = described.unwrap_or_else(|refusal| {
+        // SDK gap: Context::log_refused's line; a read holds a Host, not a
+        // Context; the SDK builds it later
         let name = <crate::Members as View>::NAME;
         host.log(format!("{name}: a description refused: {refusal}"));
         None
@@ -114,10 +123,6 @@ async fn title(host: &Host, frame: &Frame) -> Result<Option<String>, Error> {
         .map(|op| op.title)
         .filter(|title| !title.is_empty());
     Ok(Some(title.unwrap_or_else(|| {
-        format!(
-            "{} · {}",
-            tx.target,
-            design::plural(tx.size.into(), "byte", "bytes")
-        )
+        crate::words::sized(&tx.target, tx.size.into())
     })))
 }

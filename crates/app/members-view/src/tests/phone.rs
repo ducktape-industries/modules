@@ -407,23 +407,30 @@ fn a_phone_titles_activity_by_what_each_transaction_did() {
     cx.run_until_parked();
     let row = format!("{:?}", cx.node("members-signed-0"));
     assert!(row.contains("\"Post in #general\""), "{row}");
+    // read by its place, up to Expo's 4 KiB of payload
     let places: Vec<_> = cx
         .host()
         .requests::<ChainTx>()
         .into_iter()
-        .map(|ask| ask.tx)
+        .map(|ask| (ask.tx, ask.most))
         .collect();
     assert_eq!(
         places,
         [
-            TxRef::At {
-                height: 12,
-                position: 0
-            },
-            TxRef::At {
-                height: 11,
-                position: 0
-            },
+            (
+                TxRef::At {
+                    height: 12,
+                    position: 0
+                },
+                4096
+            ),
+            (
+                TxRef::At {
+                    height: 11,
+                    position: 0
+                },
+                4096
+            ),
         ]
     );
     // a program whose code cannot read the bytes leaves their size
@@ -432,6 +439,36 @@ fn a_phone_titles_activity_by_what_each_transaction_did() {
     cx.simulate_click("members-row-9");
     cx.run_until_parked();
     assert!(cx.has_text("chat · 2 bytes"), "{:?}", cx.texts());
+}
+
+/// A frame whose transaction the chain does not hold is left out, as
+/// Expo leaves it (`query/activity.ts:29-30`).
+#[test]
+fn a_frame_whose_transaction_the_chain_lacks_is_left_out() {
+    let mut cx = phone();
+    cx.host().handle::<ChainTx>(|_| Ok(None));
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    assert!(cx.has_text("No activity recorded."), "{:?}", cx.texts());
+}
+
+/// A description the host refuses leaves the size, as Expo's (which
+/// cannot refuse) would show for bytes it cannot read, and is logged.
+#[test]
+fn a_refused_description_leaves_the_size_and_is_logged() {
+    let mut cx = phone();
+    cx.host()
+        .refuse::<ProgramDescribe>("internal", "describe trapped");
+    cx.simulate_click("members-row-9");
+    cx.run_until_parked();
+    assert!(cx.has_text("chat · 2 bytes"), "{:?}", cx.texts());
+    let logged = cx.host().requests::<view::methods::HostLog>();
+    assert!(
+        logged
+            .iter()
+            .any(|line| line == "Members: a description refused: internal: describe trapped"),
+        "{logged:?}"
+    );
 }
 
 /// A phone restored onto a member page titles its activity as before:
@@ -499,21 +536,19 @@ fn parent<'a>(node: &'a Node, key: &str) -> Option<&'a Node> {
         })
 }
 
-/// The press `key` reaches 44 tall from a frame `drawn` tall: the frame
-/// declares that height and no border (the press is pinned inside the
-/// border, so one would take 2 off it: a 32 chip pressed at 42), and the
-/// press reaches half the difference past its top and bottom.
+/// The press `key` reaches 44 tall from a frame `drawn` tall with a
+/// hairline edge: the frame declares that height, and the press, placed
+/// inside the edge, reaches past it and half the difference beyond.
 fn presses_44(cx: &TestAppContext, key: &str, drawn: f32) {
     let frame = parent(cx.root(), key).unwrap_or_else(|| panic!("no {key}"));
     let frame = &cx.styles()[frame.style().expect("a styled frame")];
-    let declared = StyleRefinement::default().h(view::px(drawn));
+    let declared = StyleRefinement::default().h(view::px(drawn)).border_1();
     assert_eq!(frame.size.height, declared.size.height, "{key}'s frame");
     assert_eq!(
-        (frame.border_widths.top, frame.border_widths.bottom),
-        (None, None),
-        "{key}'s frame draws a border inside its press"
+        frame.border_widths.top, declared.border_widths.top,
+        "{key}'s edge"
     );
-    let reach = (drawn - 44.) / 2.;
+    let reach = (drawn - 44.) / 2. - 1.;
     let pinned = StyleRefinement::default()
         .top(view::px(reach))
         .bottom(view::px(reach));
