@@ -52,9 +52,14 @@ const ANCHOR_WINDOW: u64 = 256;
 
 type Override = Box<dyn FnMut(&[u8]) -> Result<Vec<u8>, Error>>;
 type Writes = Vec<(Vec<u8>, Option<Vec<u8>>)>;
-/// A hook: its name, its host, and its `hook` entry, which the kernel
-/// calls with each frame a block carries.
-type Hook = (ProgramId, MockHost, HookEntry);
+/// A seat the roster lists as a hook.
+struct Hook {
+    name: ProgramId,
+    host: MockHost,
+    /// Its `hook` entry, which the kernel calls with each frame a block
+    /// carries.
+    entry: HookEntry,
+}
 type HookEntry = fn(&ExecCtx, hook::Record) -> Result<(), Error>;
 
 struct State {
@@ -209,14 +214,17 @@ impl Network {
     }
 
     /// Seats `M` as `program` and lists it among the roster's hooks: each
-    /// frame after is told to it, as the kernel tells a hook.
+    /// frame after is told to it, as the kernel tells a hook. Like every
+    /// [`seat`](Self::seat), it comes before the roster is founded
+    /// ([`back`](Self::back), [`run`]): the roster lists the hooks seated by
+    /// then.
     pub fn hook<M: Program>(&self, program: &str) -> MockHost {
         let host = self.seat::<M>(program);
-        let entry = ::program::hook::<M>;
-        self.0
-            .borrow_mut()
-            .hooks
-            .push((program.to_owned(), host.clone(), entry));
+        self.0.borrow_mut().hooks.push(Hook {
+            name: program.to_owned(),
+            host: host.clone(),
+            entry: ::program::hook::<M>,
+        });
         host
     }
 
@@ -812,7 +820,7 @@ impl Network {
                 &Roster {
                     programs,
                     views,
-                    hooks: state.hooks.iter().map(|(name, ..)| name.clone()).collect(),
+                    hooks: state.hooks.iter().map(|hook| hook.name.clone()).collect(),
                 },
             )
             .expect("the programs role founds with the seated programs");
@@ -877,8 +885,8 @@ impl Network {
             target: target.clone(),
             applied: ran.is_ok(),
         };
-        for (name, host, entry) in &state.hooks {
-            tell(&state.chain, name, host, *entry, record.clone());
+        for hook in &state.hooks {
+            tell(&state.chain, hook, record.clone());
         }
         let outcome = match ran {
             Ok(output) => methods::Outcome::Applied { output },
@@ -955,7 +963,7 @@ impl Network {
 
 /// The account a frame signed by `key` acts as, asked of identity as the
 /// kernel asks it; none for a key that holds none, or that identity
-/// refuses (the submission is then refused too).
+/// refuses (`submit_raw` then refuses the frame itself).
 fn acting(chain: &MockChain, key: &[u8]) -> Option<AccountNumber> {
     let asked = abi::role::identity::Query::Account(key.to_vec());
     match chain.query(identity::PROGRAM, &asked) {
@@ -967,7 +975,8 @@ fn acting(chain: &MockChain, key: &[u8]) -> Option<AccountNumber> {
 /// Hook `name` told of a frame as the kernel tells it: by the chain itself,
 /// its writes undone when it refuses or sends a message (a hook sends
 /// none), and the frame kept either way.
-fn tell(chain: &MockChain, name: &str, host: &MockHost, entry: HookEntry, record: hook::Record) {
+fn tell(chain: &MockChain, hook: &Hook, record: hook::Record) {
+    let Hook { name, host, entry } = hook;
     let kept = host.borrow().state.clone();
     let height = record.height;
     let told = entry(&host.exec(chain.env(name)), record);
