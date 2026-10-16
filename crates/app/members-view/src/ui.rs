@@ -199,7 +199,7 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladde
         Roster::Refused(refusal) => {
             return pad(refused(refusal, cx, ladder, theme)).into_any_element();
         }
-        Roster::Empty(id, title, detail) => {
+        Roster::Empty { id, title, detail } => {
             return design::empty_state(id, title, detail, theme).into_any_element();
         }
     };

@@ -21,7 +21,7 @@ const TITLE_GAP: Pixels = px(1.);
 /// An account that no longer acts shows its face at this opacity
 /// (`Avatar.tsx:38`, `off`).
 // SDK gap: the kit's face, 0.5 when off; the SDK builds it later
-const OFF: f32 = 0.5;
+const NOT_ACTING_OPACITY: f32 = 0.5;
 
 /// An account's initial (the kit's `Avatar`): round for a person, the
 /// agent tint for an agent, square and in the data face for a program;
@@ -31,13 +31,15 @@ pub(super) fn face(row: &Row, size: Face, theme: &Theme) -> Div {
     let avatar = row
         .group()
         .face(design::avatar(&row.name, size, theme), theme);
-    avatar.when(row.kind.note().is_some(), |avatar| avatar.opacity(OFF))
+    avatar.when(row.kind.note().is_some(), |avatar| {
+        avatar.opacity(NOT_ACTING_OPACITY)
+    })
 }
 
 /// An account's name on one line in `role`, faint when it no longer acts,
 /// with `you` after the reader's own: secondary, faint, regular, two
 /// spaces on (`index.tsx:57-60`, `[number].tsx:84-88`).
-pub(super) fn name_line(row: &Row, me: bool, role: Type, theme: &Theme, ladder: &Ladder) -> Div {
+pub(super) fn name_line(row: &Row, me: bool, role: Type, ladder: &Ladder, theme: &Theme) -> Div {
     div()
         .flex()
         .items_baseline()
@@ -75,7 +77,7 @@ pub(super) fn title_and_caption(title: impl IntoElement, caption: Option<Div>) -
 
 /// A row's caption: one muted line in caption size.
 // SDK gap: the row's title over caption, swap when feat/phone-kit lands
-pub(super) fn caption(text: impl Into<SharedString>, theme: &Theme, ladder: &Ladder) -> Div {
+pub(super) fn caption(text: impl Into<SharedString>, ladder: &Ladder, theme: &Theme) -> Div {
     div()
         .truncate()
         .text_type(ladder.caption)
@@ -85,7 +87,7 @@ pub(super) fn caption(text: impl Into<SharedString>, theme: &Theme, ladder: &Lad
 
 /// The chevron at a row's end: the row opens a page.
 // SDK gap: the row's chevron, swap when feat/phone-kit lands
-pub(super) fn chevron(theme: &Theme, ladder: &Ladder) -> Svg {
+pub(super) fn chevron(ladder: &Ladder, theme: &Theme) -> Svg {
     design::icon("chevron-right", ladder.icon_row).text_color(theme.faint)
 }
 
@@ -94,8 +96,8 @@ pub(super) fn chevron(theme: &Theme, ladder: &Ladder) -> Svg {
 pub(super) fn quiet(
     id: &'static str,
     text: impl Into<SharedString>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> AnyElement {
     div()
         .id(id)
@@ -111,8 +113,8 @@ pub(super) fn quiet(
 pub(super) fn refused(
     refusal: &Error,
     cx: &mut Context<Members>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> AnyElement {
     div()
         .px(space::BLOCK)

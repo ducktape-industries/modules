@@ -27,8 +27,8 @@ pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> Stateful<Div>
     // Back follows the page drawn: a member's page has its Back, the roster
     // none
     let (page, back) = match *view.pages.top() {
-        Page::Roster => (members::page(view, cx, &theme, ladder), false),
-        Page::Member(number) => (member::page(view, number, cx, &theme, ladder), true),
+        Page::Roster => (members::page(view, cx, ladder, &theme), false),
+        Page::Member(number) => (member::page(view, number, cx, ladder, &theme), true),
     };
     div()
         .id("members")

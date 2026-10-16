@@ -117,8 +117,15 @@ pub(crate) enum Roster<'a> {
     /// the first read is on its way
     Reading,
     Refused(&'a Error),
-    /// nobody to show: the state's id, what is missing and why
-    Empty(&'static str, &'static str, String),
+    /// nobody to show
+    Empty {
+        /// the empty state's element id
+        id: &'static str,
+        /// what is missing
+        title: &'static str,
+        /// and why
+        detail: String,
+    },
 }
 
 /// The list's three groups, in the order they are drawn.
@@ -532,13 +539,21 @@ impl Members {
         };
         if all.is_empty() {
             let why = words::NO_ACCOUNTS_WHY.into();
-            return Roster::Empty("members-empty", words::NO_ACCOUNTS, why);
+            return Roster::Empty {
+                id: "members-empty",
+                title: words::NO_ACCOUNTS,
+                detail: why,
+            };
         }
         let shown = self.shown();
         if shown.is_empty() {
             let only = self.only.map(Group::label);
             let detail = words::no_match(self.filter.text().trim(), only);
-            return Roster::Empty("members-no-match", words::NOTHING_MATCHES, detail);
+            return Roster::Empty {
+                id: "members-no-match",
+                title: words::NOTHING_MATCHES,
+                detail,
+            };
         }
         Roster::Rows(shown)
     }

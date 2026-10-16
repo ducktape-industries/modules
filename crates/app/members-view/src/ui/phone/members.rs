@@ -30,8 +30,8 @@ const FIELD_INSET: Pixels = px(11.);
 pub(super) fn page(
     view: &Members,
     cx: &mut Context<Members>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> AnyElement {
     let count = view.rows.ready().map_or(0, Vec::len);
     let body = div()
@@ -39,15 +39,15 @@ pub(super) fn page(
         .min_h_0()
         .flex()
         .flex_col()
-        .when(count > 0, |body| body.child(chips(view, cx, theme, ladder)))
-        .child(list(view, cx, theme, ladder));
+        .when(count > 0, |body| body.child(chips(view, cx, ladder, theme)))
+        .child(list(view, cx, ladder, theme));
     if view.filtering {
         return div()
             .id("members-roster")
             .flex()
             .flex_col()
             .size_full()
-            .child(filter_row(view, cx, theme, ladder))
+            .child(filter_row(view, cx, ladder, theme))
             .child(body)
             .into_any_element();
     }
@@ -89,8 +89,8 @@ pub(super) fn page(
 fn filter_row(
     view: &Members,
     cx: &mut Context<Members>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> Stateful<Div> {
     let close = cx.listener(|view, _: &ClickEvent, _, cx| {
         view.filtering = false;
@@ -105,7 +105,7 @@ fn filter_row(
         .autocapitalize(Autocapitalize::None)
         .placeholder(words::FILTER_HINT)
         .flex_1()
-        .min_w(px(0.))
+        .min_w_0()
         .text_type(ladder.body)
         .text_color(theme.foreground);
     // the kit's `Field` as it opens, focused: 2 wide in the foreground
@@ -130,7 +130,7 @@ fn filter_row(
         .px(space::SM)
         .pr(CAPSULE_CLEARANCE)
         .bg(theme.background)
-        .child(div().flex_1().min_w(px(0.)).px(space::XS).child(field))
+        .child(div().flex_1().min_w_0().px(space::XS).child(field))
         .child(design::icon_button(
             "members-filter-close",
             design::icon("x", ladder.icon),
@@ -147,14 +147,14 @@ fn filter_row(
 fn chips(
     view: &Members,
     cx: &mut Context<Members>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> Stateful<Div> {
     let chips: Vec<Div> = view
         .choices()
         .into_iter()
         .enumerate()
-        .map(|(index, choice)| chip(view, index, choice, cx, theme, ladder))
+        .map(|(index, choice)| chip(view, index, choice, cx, ladder, theme))
         .collect();
     div()
         .id("members-chips")
@@ -174,8 +174,8 @@ fn chip(
     index: usize,
     (group, label, count): (Option<Group>, &'static str, usize),
     cx: &mut Context<Members>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> Div {
     let chosen = view.only == group;
     let (edge, words, number) = match chosen {
@@ -225,12 +225,12 @@ fn chip(
 /// The rows under their groups' section heads, or why there are none: the
 /// first read, a refusal with Retry, nobody on the network, nobody the
 /// filter and the chip let through.
-fn list(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladder) -> AnyElement {
+fn list(view: &Members, cx: &mut Context<Members>, ladder: &Ladder, theme: &Theme) -> AnyElement {
     let shown = match view.roster() {
         Roster::Rows(shown) => shown,
-        Roster::Reading => return quiet("members-loading", words::READING_ROSTER, theme, ladder),
-        Roster::Refused(refusal) => return refused(refusal, cx, theme, ladder),
-        Roster::Empty(id, title, detail) => {
+        Roster::Reading => return quiet("members-loading", words::READING_ROSTER, ladder, theme),
+        Roster::Refused(refusal) => return refused(refusal, cx, ladder, theme),
+        Roster::Empty { id, title, detail } => {
             return design::empty_state(id, title, detail, theme).into_any_element();
         }
     };
@@ -248,7 +248,7 @@ fn list(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladde
         .on_press(cx.processor(move |view, index: usize, _, cx| view.open(numbers[index], cx)))
         .build()
         .flex_1()
-        .min_h(px(0.))
+        .min_h_0()
         .overflow_y_scroll()
         .flex()
         .flex_col();
@@ -274,7 +274,7 @@ fn list(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladde
                 active: index == active,
                 cursor: cursor == Some(index),
             };
-            list = list.child(member_row(view, row, place, cx, theme, ladder));
+            list = list.child(member_row(view, row, place, cx, ladder, theme));
             index += 1;
         }
     }
@@ -300,8 +300,8 @@ fn member_row(
     row: &Row,
     place: Place,
     cx: &mut Context<Members>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> Stateful<Div> {
     let all = view.all();
     let number = row.number;
@@ -319,7 +319,7 @@ fn member_row(
                 identity::Kind::System(_) => words::PROGRAM,
                 _ => words::PHONE_PERSON,
             };
-            let tail = caption(word, theme, ladder).flex_none();
+            let tail = caption(word, ladder, theme).flex_none();
             (tail.into_any_element(), word)
         }
     };
@@ -340,10 +340,10 @@ fn member_row(
         .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.open(number, cx)))
         .child(design::lead(face(row, ladder.avatar, theme)))
         .child(title_and_caption(
-            name_line(row, me, ladder.body, theme, ladder),
-            managed_by.map(|words| caption(words, theme, ladder)),
+            name_line(row, me, ladder.body, ladder, theme),
+            managed_by.map(|words| caption(words, ladder, theme)),
         ))
         .child(tail)
-        .child(chevron(theme, ladder));
+        .child(chevron(ladder, theme));
     design::item(element, Role::ListBoxOption, place.active)
 }
