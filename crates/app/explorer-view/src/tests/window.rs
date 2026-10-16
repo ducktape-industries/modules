@@ -181,6 +181,58 @@ fn a_tip_past_the_pushed_head_keeps_the_overviews_rows_on_every_frame() {
     assert_eq!(new, [(None, 1), (Some(14), 1)], "only the blocks it lacks");
 }
 
+/// A node that answers the read below with the same page again moves
+/// nothing: the read stops after that one ask, the window stays drawn, and
+/// the next head reads on as ever.
+#[test]
+fn a_read_below_that_reaches_no_lower_stops_and_keeps_the_window() {
+    let mut cx = TestAppContext::new();
+    let heads = cx.host().stream::<ChainHeads>();
+    let tip = Rc::new(RefCell::new(12));
+    node(&mut cx, tip.clone());
+    let explorer = cx.open::<Explorer>();
+    cx.run_until_parked();
+    let asked = cx.host().requests::<ChainBlocks>().len();
+    // block 14, whatever is asked
+    cx.host().handle::<ChainBlocks>(|_| {
+        let top = BlockPage {
+            before: None,
+            limit: 1,
+            most: 0,
+        };
+        Ok(page(&chain(14), &top))
+    });
+    let head = |height: u64| Head {
+        height,
+        time: T0 + height * 1000,
+        id: [(height as u8).wrapping_add(100); 32],
+    };
+    heads.send(head(13));
+    cx.run_until_parked();
+    let new: Vec<_> = cx.host().requests::<ChainBlocks>()[asked..]
+        .iter()
+        .map(|ask| (ask.before, ask.limit))
+        .collect();
+    assert_eq!(new, [(None, 1), (Some(14), 1)]);
+    let heights = |cx: &mut TestAppContext| {
+        cx.update(&explorer, |view, _, _| {
+            view.chain
+                .blocks
+                .iter()
+                .map(|block| block.height)
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(heights(&mut cx), (0..=12).rev().collect::<Vec<_>>());
+    assert!(cx.find("explorer-tx-11-0").is_some(), "{:?}", cx.texts());
+    // the node answers as it should again: the next head joins
+    *tip.borrow_mut() = 14;
+    serve(&cx, move || chain(*tip.borrow()));
+    heads.send(head(14));
+    cx.run_until_parked();
+    assert_eq!(heights(&mut cx), (0..=14).rev().collect::<Vec<_>>());
+}
+
 #[test]
 fn a_refused_window_says_why_and_retry_reads_again() {
     let mut cx = TestAppContext::new();

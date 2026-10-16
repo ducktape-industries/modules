@@ -173,15 +173,15 @@ impl Explorer {
             // the node's tip moves on while the ask travels, so a page read
             // down from it can stop short of the window: read on below it
             // until it joins (Expo `advance`), and the window, the rows on
-            // screen, stays whole until it lands. A head past a whole
-            // window starts it again.
+            // screen, stays whole until it lands. An answer a whole window
+            // past the top starts it again.
             let Some(top) = top.filter(|_| before.is_none()) else {
                 return Ok(page);
             };
             let newest = page.blocks.first().map_or(top, |block| block.height);
             while let Some(oldest) = page.blocks.last().map(|block| block.height)
                 && oldest > top + 1
-                && newest - top <= WINDOW as u64
+                && newest.saturating_sub(top) <= WINDOW as u64
             {
                 let below = host
                     .ask::<ChainBlocks>(BlockPage {
@@ -190,8 +190,16 @@ impl Explorer {
                         most: 0,
                     })
                     .await?;
-                if below.blocks.is_empty() {
-                    break;
+                match below.blocks.last() {
+                    // the archive moved past the window: it starts again
+                    None => break,
+                    // an answer that reaches no lower moves nothing: the
+                    // window stays, and the next head reads again
+                    Some(block) if block.height >= oldest => {
+                        page.blocks.clear();
+                        break;
+                    }
+                    Some(_) => {}
                 }
                 page.listed_from = below.listed_from;
                 page.blocks.extend(below.blocks);
