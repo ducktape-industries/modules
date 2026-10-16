@@ -501,16 +501,9 @@ impl Chat {
         let submit = cx.host().ask::<Submit<::chat::Chat>>(op);
         cx.land(submit, |chat, result, cx| {
             cx.notify();
-            match result {
-                Ok(Submitted::Applied { .. }) => chat.refresh(cx),
-                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
-                    chat.notice = format!("That didn’t go through: {}", refusal.message)
-                }
-                // SDK gap: `design::failure`'s words for the in-doubt case
-                // (kit.md §4), swap when #417 lands
-                Ok(Submitted::InDoubt { .. }) => {
-                    chat.notice = "No answer came back: it may have gone through.".into()
-                }
+            match design::failure(&result) {
+                None => chat.refresh(cx),
+                Some(said) => chat.notice = said,
             }
         })
         .detach();

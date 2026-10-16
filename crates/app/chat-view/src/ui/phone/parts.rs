@@ -1,7 +1,7 @@
 //! What the phone's chat screens share (Expo `src/chat/parts.tsx`, and the
-//! kit pieces the SDK does not draw yet: `Notice`, `Refused`, `Quiet`, a
-//! labelled `Field`, a small `Button`): a person's face, the room's notice
-//! and write-gate strip. Reads the open room's notice and gate; writes
+//! kit pieces the SDK does not draw yet: `Notice`, `Quiet`, a small
+//! `Button` with an icon): a person's face, the room's notice and
+//! write-gate strip. Reads the open room's notice and gate; writes
 //! only what their actions do (dismiss the notice, unarchive).
 use view::prelude::*;
 use view::{Div, Stateful};
@@ -21,7 +21,8 @@ const NOTICE_ICON: Pixels = px(18.);
 /// A notice action's drawn height: its secondary line and `gap.xs` over
 /// and under (mobile `src/kit/Notice.tsx:60`); its press reaches `hit`.
 const NOTICE_ACTION_HEIGHT: Pixels = px(30.);
-// SDK gap: the small Button, swap when feat/phone-kit lands
+// SDK gap: a Button's icon (mobile `src/kit/Button.tsx:75`), kept local
+// until the kit takes it; kit.md does not list it yet
 /// A small kit `Button` (mobile `src/design/theme.ts:76`, `size.small`)
 /// and its icon (mobile `src/kit/Button.tsx:75`).
 const SMALL_BUTTON: Pixels = px(36.);
@@ -131,37 +132,14 @@ pub(super) fn notice_action(
         .into_any_element()
 }
 
-// SDK gap: the kit Refused, swap when feat/phone-kit lands
-/// The kit `Refused`: a read the node refused, its sentence verbatim in a
-/// danger notice, and Retry. The notice is `{name}-refused`, Retry
-/// `{name}-retry`.
-pub(super) fn refused(
-    name: &str,
-    sentence: impl Into<SharedString>,
-    theme: &Theme,
-    ladder: &Ladder,
-    retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> AnyElement {
-    let retry = notice_action(format!("{name}-retry"), "Retry", ladder, retry);
-    notice(
-        format!("{name}-refused"),
-        NoticeKind::Danger,
-        None,
-        sentence,
-        Some(retry),
-        theme,
-        ladder,
-    )
-    .into_any_element()
-}
-
-// SDK gap: the small Button, swap when feat/phone-kit lands
-/// The kit's small outline `Button`: 36 tall, 12 in, secondary medium, an
-/// icon before its label; its press reaches `hit`. Drawn on the window's
-/// ground, so it reads over a list.
+// SDK gap: a Button's icon, as above
+/// The kit's small outline `Button` with an icon before its label
+/// (`design::button(..).small()` has no icon): 36 tall, 12 in, secondary
+/// medium; its press reaches `hit`. Drawn on the window's ground, so it
+/// reads over a list.
 pub(super) fn small_button(
     id: impl Into<ElementId>,
-    icon: Option<&'static str>,
+    icon: &'static str,
     label: &'static str,
     theme: &Theme,
     ladder: &Ladder,
@@ -182,7 +160,7 @@ pub(super) fn small_button(
         .text_type(ladder.secondary)
         .font_weight(FontWeight::MEDIUM)
         .text_color(theme.foreground)
-        .children(icon.map(|icon| design::icon(icon, SMALL_BUTTON_ICON)))
+        .child(design::icon(icon, SMALL_BUTTON_ICON))
         .child(label)
         .child(
             design::hit(id, ladder.hit, SMALL_BUTTON, HAIRLINE, ladder)
@@ -190,76 +168,6 @@ pub(super) fn small_button(
                 .aria_label(label)
                 .focusable()
                 .on_click(click),
-        )
-}
-
-/// A search field's magnifier (mobile `src/chat/Actions.tsx:157`,
-/// `app/(tabs)/chat/search.tsx:88`).
-const SEARCH_ICON: Pixels = px(20.);
-
-// SDK gap: field lead slot, swap when feat/phone-kit lands
-/// A search field (the kit `Field` with a magnifier `lead`): `input` is a
-/// [`design::field`], so the edge is the field's own hairline, which the
-/// host draws in the ink while the field is focused (mobile
-/// `src/kit/Field.tsx:38-39`). The magnifier, muted, lies in the field's
-/// padding where Expo's `lead` sits: past the hairline and `gap.lg`, the
-/// words `gap.sm` after it.
-pub(super) fn search_field(input: Input, theme: &Theme, ladder: &Ladder) -> Div {
-    let lead = div()
-        .absolute()
-        .top_0()
-        .bottom_0()
-        .left(HAIRLINE + design::space::LG)
-        .flex()
-        .items_center()
-        .child(design::icon("search", SEARCH_ICON).text_color(theme.muted));
-    div()
-        .child(
-            design::field(input, ladder, theme)
-                .w_full()
-                .pl(design::space::LG + SEARCH_ICON + design::space::SM),
-        )
-        .child(lead)
-}
-
-// SDK gap: the labelled field, swap when feat/phone-kit lands
-/// The kit `Field`: `input` (a [`design::field`]) with its label over it
-/// (caption, muted) and, where the value will not do, its problem under it
-/// in danger on a 2 edge; the field itself says it is wrong and why, for
-/// assistive technology.
-pub(super) fn field(
-    label: &'static str,
-    input: Input,
-    problem: Option<&str>,
-    theme: &Theme,
-    ladder: &Ladder,
-) -> Div {
-    // a problem's edge is 2 (mobile `src/kit/Field.tsx:38`); the thicker
-    // edge eats into the padding, so the words stay put
-    let input = match problem {
-        Some(problem) => input
-            .invalid(view::accesskit::Invalid::True)
-            .description(problem)
-            .border_2()
-            .border_color(theme.danger)
-            .px(design::space::LG - HAIRLINE),
-        None => input,
-    };
-    let caption = |words: SharedString, tone: Hsla| {
-        div()
-            .text_type(ladder.caption)
-            .text_color(tone)
-            .child(words)
-    };
-    div()
-        .flex()
-        .flex_col()
-        .child(caption(label.into(), theme.muted).mb(design::space::XS))
-        .child(input)
-        .children(
-            problem.map(|problem| {
-                caption(problem.to_owned().into(), theme.danger).mt(design::space::XS)
-            }),
         )
 }
 

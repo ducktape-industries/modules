@@ -56,11 +56,11 @@ pub(super) fn list(
             cx.notify();
             chat.retry_read(pane, cx)
         });
-        let refused = parts::refused(
+        let refused = design::refused(
             "chat-messages",
-            refusal.message.clone(),
-            theme,
+            design::sentence(refusal),
             ladder,
+            theme,
             retry,
         );
         return frame.child(refused).into_any_element();
@@ -271,7 +271,7 @@ fn latest(room: String, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) 
         .justify_center()
         .child(parts::small_button(
             "chat-jump-latest-button",
-            Some("arrow-down"),
+            "arrow-down",
             "Latest",
             theme,
             ladder,

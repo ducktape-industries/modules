@@ -261,32 +261,19 @@ fn owner_actions(
             .into_any_element(),
         action_row("chat-details-rename", "pencil", theme, ladder)
             .on_click(rename)
-            .child(
-                div()
-                    .flex_1()
-                    .text_type(ladder.body)
-                    .child(words::RENAME_CHANNEL),
-            )
-            // SDK gap: the row's chevron, swap when feat/phone-kit lands
-            .child(design::icon("chevron-right", ladder.icon_row).text_color(theme.faint))
+            .child(design::row_words(design::row_title(
+                words::RENAME_CHANNEL,
+                ladder,
+                theme,
+            )))
+            .child(design::chevron(ladder, theme))
             .into_any_element(),
         action_row("chat-details-archive", icon, theme, ladder)
             .min_h(ladder.row_tall)
             .on_click(archive)
-            // SDK gap: the row's title over its caption, swap when
-            // feat/phone-kit lands
             .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .child(div().text_type(ladder.body).child(title))
-                    .child(
-                        div()
-                            .text_type(ladder.caption)
-                            .text_color(theme.muted)
-                            .child(caption),
-                    ),
+                design::row_words(design::row_title(title, ladder, theme))
+                    .child(design::row_caption(caption, ladder, theme)),
             )
             .into_any_element(),
     ]
@@ -335,13 +322,13 @@ pub(super) fn sheet(
             });
             let row = design::sheet_row(
                 "chat-details-remove",
-                Some("user-minus"),
                 "Remove from this channel",
-                true,
                 ladder,
                 theme,
                 remove,
-            );
+            )
+            .icon("user-minus")
+            .danger();
             (
                 names.member(&Principal::Account(account)),
                 vec![row.into_any_element()],
@@ -392,11 +379,9 @@ fn add_body(
     .autocorrect(false)
     .autocapitalize(Autocapitalize::None)
     .on_submit(submit);
-    // an account number, in the data face at the secondary size
-    let input = design::field(input, ladder, theme)
-        .font_family(design::fonts::FAMILY_MONO)
-        .text_type(ladder.secondary);
-    let field = parts::field(words::ACCOUNT_NUMBER, input, None, theme, ladder);
+    let field = design::field(input, ladder, theme)
+        .label(words::ACCOUNT_NUMBER)
+        .mono();
     let form = div()
         .flex()
         .flex_col()
@@ -423,23 +408,14 @@ fn add_body(
                 chat.set_member(Principal::Account(account), true, cx);
             });
             let name = names.member(&Principal::Account(account));
-            // SDK gap: the sheet row's hint (`design::sheet_row(..).hint`,
-            // kit.md §1), swap when #417 lands
             design::sheet_row(
                 format!("chat-details-person-{account}"),
-                None,
                 name,
-                false,
                 ladder,
                 theme,
                 pick,
             )
-            .child(
-                div()
-                    .text_type(ladder.caption)
-                    .text_color(theme.muted)
-                    .child(words::account(account)),
-            )
+            .hint(words::account(account))
             .into_any_element()
         });
     std::iter::once(form.into_any_element())
@@ -466,14 +442,13 @@ fn rename_body(
         .autocorrect(false)
         .autocapitalize(Autocapitalize::None)
         .on_submit(submit);
-    let input = design::field(input, ladder, theme);
     vec![
         div()
             .flex()
             .flex_col()
             .gap(design::space::LG)
             .p(design::space::BLOCK)
-            .child(parts::field(words::NAME, input, None, theme, ladder))
+            .child(design::field(input, ladder, theme).label(words::NAME))
             .child(
                 design::button(
                     "chat-details-rename/submit",

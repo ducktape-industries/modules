@@ -9,7 +9,7 @@ use view::prelude::*;
 use view::{Div, Stateful};
 use view::{FontWeight, HighlightStyle};
 
-use super::parts::{self, face, quiet};
+use super::parts::{face, quiet};
 use crate::words;
 use crate::{Chat, Hits};
 use chat::MsgRow;
@@ -64,9 +64,10 @@ fn title_row(
     // the page opens with the field focused, so it wears the focused
     // kit field's edge (mobile `app/(tabs)/chat/search.tsx:84` draws it
     // fixed)
-    let field = parts::search_field(input, theme, ladder)
+    let field = div()
         .flex_1()
-        .min_w(px(0.));
+        .min_w(px(0.))
+        .child(design::field(input, ladder, theme).lead("search"));
     div()
         .id("chat-search-title")
         .flex_none()
@@ -131,13 +132,16 @@ fn hits(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> 
                 cx.notify();
                 chat.search_now(cx)
             });
-            Some(parts::refused(
-                "chat-search",
-                refusal.message.clone(),
-                theme,
-                ladder,
-                retry,
-            ))
+            Some(
+                design::refused(
+                    "chat-search",
+                    design::sentence(refusal),
+                    ladder,
+                    theme,
+                    retry,
+                )
+                .into_any_element(),
+            )
         }
         Loadable::Ready(hits) | Loadable::Reloading(hits, _) => {
             Some(list(chat, hits, cx, theme, ladder).into_any_element())

@@ -83,7 +83,9 @@ fn field(chat: &Chat, theme: &Theme, ladder: &Ladder) -> Div {
     .autocorrect(false)
     .autocapitalize(Autocapitalize::None)
     .placeholder(words::SEARCH_EMOJI);
-    super::parts::search_field(input, theme, ladder)
+    design::field(input, ladder, theme)
+        .lead("search")
+        .into_element()
 }
 
 /// No search: Frequently used, the tabs, the chosen tab's grid.

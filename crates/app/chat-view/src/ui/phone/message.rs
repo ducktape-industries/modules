@@ -69,9 +69,6 @@ pub(super) fn row(
         .id(format!("chat-message-{}-row", message.id))
         .relative()
         .w_full()
-        // a message list is a dense list: the row keeps its own box, as
-        // Expo's (a one-line continuation is ~26), the one place a press
-        // stays under `hit` (chief, 10-16)
         .flex()
         .gap(design::space::MD)
         .px(design::space::BLOCK)
@@ -97,6 +94,9 @@ pub(super) fn row(
                 })),
         )
         .child(content(chat, message, pane, cx, theme, ladder));
+    // a message list is a dense list: the row keeps its own box, as Expo's
+    // (a one-line continuation is ~26), under a finger's 44 (chief, 10-16)
+    let row = design::dense(row);
     match message.pending {
         true => row.into_any_element(),
         false => {

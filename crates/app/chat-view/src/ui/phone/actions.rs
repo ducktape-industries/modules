@@ -21,9 +21,6 @@ use view::design::Ladder;
 /// (`:102`).
 const QUICK: usize = 6;
 const ALL_REACTIONS_ICON: Pixels = px(20.);
-// SDK gap: the sheet inset, swap when feat/phone-kit lands
-/// The delete dialog's inset (mobile `src/kit/Dialog.tsx:32`).
-const DIALOG_INSET: Pixels = px(20.);
 // SDK gap: the scrim token, kept local until the kit takes it (kit.md §2)
 /// The scrim under a dialog, by appearance (mobile
 /// `src/design/theme.ts:12` and `:13`).
@@ -167,7 +164,9 @@ fn rows(
     let link = chat.message_link(seq);
     let row =
         |id: &'static str, icon: &'static str, label: &'static str, danger: bool, click: Press| {
-            design::sheet_row(id, Some(icon), label, danger, ladder, theme, click)
+            design::sheet_row(id, label, ladder, theme, click)
+                .icon(icon)
+                .when(danger, |row| row.danger())
                 .into_any_element()
         };
     let mut rows = Vec::new();
@@ -335,8 +334,9 @@ fn delete_dialog(cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> Stat
         .w_full()
         .flex()
         .flex_col()
-        .pt(DIALOG_INSET)
-        .px(DIALOG_INSET)
+        // the kit's sheet inset, 20 (mobile `src/kit/Dialog.tsx:32`)
+        .pt(design::SHEET_INSET)
+        .px(design::SHEET_INSET)
         .pb(design::space::LG)
         .border_1()
         .border_color(theme.border_strong)

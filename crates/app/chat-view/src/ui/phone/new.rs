@@ -5,7 +5,6 @@
 use view::prelude::*;
 use view::{Div, Stateful};
 
-use super::parts;
 use crate::words;
 use crate::{ChannelCreate, Chat};
 use view::FontWeight;
@@ -104,9 +103,11 @@ fn name_field(
         .autocorrect(false)
         .autocapitalize(Autocapitalize::None)
         .on_submit(submit);
-    let input = design::field(input, ladder, theme);
-    let problem = (!create.error.is_empty()).then_some(create.error.as_str());
-    parts::field(words::NAME, input, problem, theme, ladder)
+    let problem = (!create.error.is_empty()).then(|| create.error.clone());
+    design::field(input, ladder, theme)
+        .label(words::NAME)
+        .when_some(problem, design::Field::problem)
+        .into_element()
 }
 
 /// Who may post: Anyone or Members only.

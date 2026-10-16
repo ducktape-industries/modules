@@ -8,23 +8,15 @@
 use view::prelude::*;
 use view::{Div, Stateful};
 
-use super::parts::{self, face, quiet};
+use super::parts::{face, quiet};
 use crate::Chat;
 use crate::room_list::DmEntry;
 use crate::words;
 use chat::{ChannelInfo, Principal};
-use view::FontWeight;
 use view::design::Ladder;
 
 /// The unread dot (mobile `src/kit/Badge.tsx:31`).
 const DOT: Pixels = px(8.);
-// SDK gap: the kit EmptyState, swap when feat/phone-kit lands
-/// The kit `EmptyState`'s icon, its padding and how wide its words run
-/// (mobile `src/design/theme.ts:87`, `src/kit/States.tsx:26` and `:31`).
-const EMPTY_ICON: Pixels = px(28.);
-const EMPTY_PAD_Y: Pixels = px(40.);
-const EMPTY_PAD_X: Pixels = px(32.);
-const EMPTY_WORDS: Pixels = px(280.);
 
 pub(super) fn screen(
     chat: &Chat,
@@ -81,11 +73,11 @@ pub(super) fn screen(
                 cx.notify();
                 chat.load_channels(cx);
             });
-            page.child(parts::refused(
+            page.child(design::refused(
                 "chat-rooms",
-                refusal.message.clone(),
-                theme,
+                design::sentence(refusal),
                 ladder,
+                theme,
                 retry,
             ))
         }
@@ -295,9 +287,9 @@ fn dot(row: &str, theme: &Theme) -> Stateful<Div> {
         .bg(theme.accent)
 }
 
-// SDK gap: the kit EmptyState, swap when feat/phone-kit lands
-/// No channel on the network yet (the kit `EmptyState`): what is missing,
-/// what would fill it, and New channel.
+/// No channel on the network yet (the kit `EmptyState`, mobile
+/// `app/(tabs)/chat/index.tsx:142-148`): what is missing, what would fill
+/// it, and New channel.
 fn no_rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> Stateful<Div> {
     let create = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         chat.begin_create();
@@ -307,41 +299,25 @@ fn no_rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder)
         "" => "this network",
         network => network,
     };
-    div()
-        .id("chat-rooms-empty")
-        .flex()
-        .flex_col()
-        .items_center()
-        .gap(design::space::SM)
-        .py(EMPTY_PAD_Y)
-        .px(EMPTY_PAD_X)
-        .child(design::icon("message-square", EMPTY_ICON).text_color(theme.faint))
-        .child(
-            div()
-                .text_center()
-                .text_type(ladder.body)
-                .font_weight(FontWeight::MEDIUM)
-                .child("No rooms yet"),
-        )
-        .child(
-            div()
-                .max_w(EMPTY_WORDS)
-                .text_center()
-                .text_type(ladder.secondary)
-                .text_color(theme.muted)
-                .child(format!(
-                    "Nobody has created a channel on {network}. Open one, or message a person from the list below."
-                )),
-        )
-        .child(
-            parts::small_button(
-                "chat-rooms-empty-new-channel",
-                None,
-                words::NEW_CHANNEL,
-                theme,
-                ladder,
-                create,
-            )
-            .mt(design::space::SM),
-        )
+    let detail = format!(
+        "Nobody has created a channel on {network}. Open one, or message a person from the list below."
+    );
+    let create = design::button(
+        "chat-rooms-empty-new-channel",
+        words::NEW_CHANNEL,
+        ladder,
+        theme,
+        create,
+    )
+    .kind(design::Kind::Outline)
+    .small();
+    design::empty_state(
+        "chat-rooms-empty",
+        "message-square",
+        "No rooms yet",
+        detail,
+        ladder,
+        theme,
+    )
+    .child(div().mt(design::space::SM).child(create))
 }
