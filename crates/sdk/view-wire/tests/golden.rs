@@ -533,10 +533,10 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                         kind: AudioKind::Speaker,
                     },
                     AudioDevice {
-                        id: "Receiver".into(),
+                        id: "Earpiece".into(),
                         name: "iPhone".into(),
                         default: false,
-                        kind: AudioKind::Receiver,
+                        kind: AudioKind::Earpiece,
                     },
                     AudioDevice {
                         id: "Headphones".into(),

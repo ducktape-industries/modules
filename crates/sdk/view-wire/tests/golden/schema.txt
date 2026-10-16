@@ -46,10 +46,10 @@ store.set None (String, Option<Vec<u8>>) -> ()
 (String, Vec<u8>) = Tuple { elements: ["String", "Vec<u8>"] }
 AudioDevice = Struct { fields: NamedFields([("id", "String"), ("name", "String"), ("default", "bool"), ("kind", "AudioKind")]) }
 AudioDevices = Struct { fields: NamedFields([("inputs", "Vec<AudioDevice>"), ("outputs", "Vec<AudioDevice>")]) }
-AudioKind = Enum { tag_width: 1, variants: [(0, "Speaker", "AudioKind__Speaker"), (1, "Receiver", "AudioKind__Receiver"), (2, "Headphones", "AudioKind__Headphones"), (3, "Other", "AudioKind__Other")] }
+AudioKind = Enum { tag_width: 1, variants: [(0, "Speaker", "AudioKind__Speaker"), (1, "Earpiece", "AudioKind__Earpiece"), (2, "Headphones", "AudioKind__Headphones"), (3, "Other", "AudioKind__Other")] }
+AudioKind__Earpiece = Struct { fields: Empty }
 AudioKind__Headphones = Struct { fields: Empty }
 AudioKind__Other = Struct { fields: Empty }
-AudioKind__Receiver = Struct { fields: Empty }
 AudioKind__Speaker = Struct { fields: Empty }
 Block = Struct { fields: NamedFields([("height", "u64"), ("id", "[u8; 32]"), ("parent", "[u8; 32]"), ("time", "u64"), ("epoch", "u64"), ("proposer", "Option<Vec<u8>>"), ("txs", "Vec<Tx>")]) }
 BlockAsk = Struct { fields: NamedFields([("by", "BlockRef"), ("most", "u32")]) }

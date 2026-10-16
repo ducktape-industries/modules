@@ -1176,10 +1176,10 @@
           "kind": "Speaker"
         },
         {
-          "id": "Receiver",
+          "id": "Earpiece",
           "name": "iPhone",
           "default": false,
-          "kind": "Receiver"
+          "kind": "Earpiece"
         },
         {
           "id": "Headphones",

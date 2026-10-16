@@ -637,7 +637,7 @@ pub enum AudioKind {
     /// speakers plugged in. The microphone hears what it plays.
     Speaker,
     /// A phone's earpiece, held to the ear.
-    Receiver,
+    Earpiece,
     /// Headphones or a headset, wired or Bluetooth; for an input, the
     /// headset's microphone.
     Headphones,
