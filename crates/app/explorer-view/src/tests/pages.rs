@@ -350,7 +350,7 @@ fn the_desktop_keeps_only_the_page_shown_over_its_list() {
     node(&mut cx, Rc::new(RefCell::new(12)));
     let explorer = cx.open::<Explorer>();
     cx.run_until_parked();
-    let pages = |_: &TestAppContext| {
+    let pages = || {
         explorer.read(|view| {
             let pages = &view.pages;
             (pages.depth(), pages.first().clone(), pages.top().clone())
@@ -362,7 +362,7 @@ fn the_desktop_keeps_only_the_page_shown_over_its_list() {
     cx.run_until_parked();
     assert!(cx.has_text("2 transactions recorded"), "{:?}", cx.texts());
     // one page over the root, not the transaction under the account
-    assert_eq!(pages(&cx), (1, Route::Overview, Route::Account(3)));
+    assert_eq!(pages(), (1, Route::Overview, Route::Account(3)));
 }
 
 #[test]

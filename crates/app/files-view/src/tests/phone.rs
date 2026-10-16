@@ -57,6 +57,8 @@ fn a_file_screen_shows_what_it_is_and_its_text() {
 #[test]
 fn an_empty_folder_says_what_would_fill_it() {
     let net = seeded();
+    // the newest snapshot's byline is drawn: its time pinned as the seed's
+    net.at(T0 + 240_000);
     commit(
         &net,
         net.me(),

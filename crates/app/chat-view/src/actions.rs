@@ -541,12 +541,12 @@ impl Chat {
                 }
                 // why not, in every view's words, under the name (Expo
                 // `new.tsx` `problem={said}`)
-                Ok((_, answer)) => design::failure(&Ok(answer)),
-                Err(refusal) => design::failure(&Err(refusal)),
+                answer => design::failure(&answer.map(|(_, submitted)| submitted))
+                    .expect("only a landed write has no failure"),
             };
             if let Some(create) = &mut chat.create {
                 create.busy = false;
-                create.error = problem.unwrap_or_default();
+                create.error = problem;
             }
         })
         .detach();

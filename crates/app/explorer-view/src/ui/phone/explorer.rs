@@ -153,6 +153,8 @@ fn searching(view: &Explorer, cx: Cx, k: &Look) -> Stateful<Div> {
 fn field(view: &Explorer, cx: Cx, k: &Look) -> impl IntoElement {
     let submit = cx.listener(|view: &mut Explorer, _: &(), window, cx| {
         view.search(cx);
+        // SDK gap: the wire has no blur; the keyboard goes to the root's
+        // container instead of nowhere, the SDK builds a blur later
         if view.searching {
             window.focus("explorer-root");
         }

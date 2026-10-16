@@ -238,7 +238,8 @@ impl Styled for ModalOverlay {
 /// open (it renders the sheet or not); the host owns the drag, the scrim,
 /// the snap and the keyboard lift. `label` names the dialog, as
 /// [`modal_overlay`]'s does. It holds every child given, as a `div` does,
-/// in one column when there is more than one.
+/// in one column when there is more than one; a body that fills or scrolls
+/// the sheet goes in as its one child.
 pub struct Sheet {
     id: ElementId,
     label: String,

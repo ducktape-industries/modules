@@ -21,7 +21,7 @@ pub struct Agents {
     // that holds no account.
     me: Option<u64>,
     // Why the last create did not land, in the words every view uses.
-    refused: Option<String>,
+    failed: Option<String>,
     // Never saved: a `Task` holds only while this instance runs. `Some`
     // while a create waits for its answer; dropping it cancels the wait.
     #[serde(skip)]
@@ -96,7 +96,7 @@ impl Agents {
         if name.is_empty() || self.creating.is_some() {
             return;
         }
-        self.refused = None;
+        self.failed = None;
         // A write to the program. It is sent here; the task only waits.
         let submit = cx
             .host()
@@ -113,7 +113,7 @@ impl Agents {
                     view.name.reset("");
                     view.reread(cx);
                 }
-                Some(said) => view.refused = Some(said),
+                Some(said) => view.failed = Some(said),
             }
             cx.notify();
         }));
@@ -243,7 +243,7 @@ impl Render for Agents {
             )
             // Why the create did not land, under the field.
             .children(
-                self.refused
+                self.failed
                     .clone()
                     .map(|why| div().text_color(theme.danger).child(why)),
             )

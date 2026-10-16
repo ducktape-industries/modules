@@ -1,6 +1,5 @@
 //! What the reader's presses do: reads again, each form's submit, and the
 //! invite. A refusal lands on the form it came from.
-use view::methods::Submitted;
 use view::prelude::*;
 
 use crate::queries::Found;
@@ -402,10 +401,11 @@ impl Settings {
         };
         let ask = cx.host().ask::<Submit<Identity>>(op);
         cx.land(ask, move |view, result, cx| {
-            let landed = matches!(result, Ok(Submitted::Applied { .. }));
+            let problem = design::failure(&result);
+            let landed = problem.is_none();
             let form = form(view);
             form.busy = false;
-            match design::failure(&result) {
+            match problem {
                 None => form.text.reset(""),
                 Some(said) => form.problem = Some(Problem::Refused(said)),
             }

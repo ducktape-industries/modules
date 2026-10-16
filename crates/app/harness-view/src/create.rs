@@ -242,22 +242,33 @@ impl Agents {
         let submit = cx.host().ask::<Submit<Identity>>(op.clone());
         self.draft.sending = Some(cx.land(submit, move |view, answer, cx| {
             view.draft.sending = None;
-            let landed = applied(answer).and_then(|output| match op {
-                identity::Op::CreateAgent { .. } => {
-                    let number = view::methods::decode::<u64>(&output)
-                        .map_err(|error| format!("No account number came back: {error}"))?;
-                    view.draft.created = Some(number);
-                    Ok(())
-                }
-                identity::Op::SetScript { .. } => {
-                    view.draft.scripted = true;
-                    Ok(())
-                }
-                _ => {
-                    view.draft.answered = true;
-                    Ok(())
-                }
-            });
+            // a create in doubt may have made the account, and nothing here
+            // reads the chain for it: say so before Next makes a second one
+            // (follow-up: settle a doubt by its frame, as Expo does)
+            let in_doubt = matches!(answer, Ok(view::methods::Submitted::InDoubt { .. }));
+            let landed = applied(answer)
+                .map_err(|said| match &op {
+                    identity::Op::CreateAgent { .. } if in_doubt => {
+                        format!("{said} Look for the account before you create another.")
+                    }
+                    _ => said,
+                })
+                .and_then(|output| match op {
+                    identity::Op::CreateAgent { .. } => {
+                        let number = view::methods::decode::<u64>(&output)
+                            .map_err(|error| format!("No account number came back: {error}"))?;
+                        view.draft.created = Some(number);
+                        Ok(())
+                    }
+                    identity::Op::SetScript { .. } => {
+                        view.draft.scripted = true;
+                        Ok(())
+                    }
+                    _ => {
+                        view.draft.answered = true;
+                        Ok(())
+                    }
+                });
             view.landed(landed, cx);
         }));
         cx.notify();

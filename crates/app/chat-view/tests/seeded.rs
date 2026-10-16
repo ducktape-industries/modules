@@ -8,6 +8,12 @@ use view::methods::{HostId, HostSession, HostVisible, StoreGet};
 use view::rig::Network;
 use view::testing::TestAppContext;
 
+/// The time of the test's `n`th block (unix ms), a minute apart: pinned
+/// with `Network::at`, so the times the room draws are the same every run.
+fn minute(n: u64) -> u64 {
+    1_790_000_000_000 + n * 60_000
+}
+
 fn post(net: &Network, who: u64, id: &str, text: &str) {
     net.submit(
         who,
@@ -26,7 +32,9 @@ fn post(net: &Network, who: u64, id: &str, text: &str) {
 fn a_seeded_room_is_read_off_the_chain_and_a_post_comes_back_through_it() {
     let net = Network::new();
     net.seat::<chat::Chat>(chat::PROGRAM);
+    net.at(minute(0));
     let ada = net.person("ada");
+    net.at(minute(1));
     net.submit(
         ada,
         chat::PROGRAM,
@@ -37,7 +45,9 @@ fn a_seeded_room_is_read_off_the_chain_and_a_post_comes_back_through_it() {
         },
     )
     .unwrap();
+    net.at(minute(2));
     post(&net, ada, "m1", "hello from ada");
+    net.at(minute(3));
     post(&net, net.me(), "m2", "and from me");
 
     let mut cx = TestAppContext::new();
@@ -66,6 +76,7 @@ fn a_seeded_room_is_read_off_the_chain_and_a_post_comes_back_through_it() {
     // ada posts while the room is open: the view asked nothing, so her
     // post reaches it only as the block's `program.changes` item and the
     // re-read that item causes
+    net.at(minute(4));
     post(&net, ada, "m3", "ada again, while the room is open");
     cx.run_until_parked();
     assert!(
@@ -77,6 +88,7 @@ fn a_seeded_room_is_read_off_the_chain_and_a_post_comes_back_through_it() {
     // a post through the composer: chat's rules run it, as the signed-in
     // account
     cx.simulate_input("draft-general/editor", "typed in the live test");
+    net.at(minute(5));
     cx.simulate_click("draft-general/send");
     cx.run_until_parked();
     assert!(cx.has_text("typed in the live test"), "{:?}", cx.texts());

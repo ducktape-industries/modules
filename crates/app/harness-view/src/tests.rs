@@ -957,7 +957,7 @@ fn a_refused_commit_resumes_without_a_second_account() {
 }
 
 #[test]
-fn a_create_with_no_answer_says_it_may_have_gone_through() {
+fn a_create_with_no_answer_says_the_account_may_exist() {
     let (mut cx, _) = seated(Net::default(), EDDY);
     cx.host().handle::<Submit<Identity>>(|_| {
         Ok(Submitted::InDoubt {
@@ -973,7 +973,7 @@ fn a_create_with_no_answer_says_it_may_have_gone_through() {
     cx.run_until_parked();
     assert!(
         cx.has_text(
-            "This may have gone through: no answer came back. What you see is read again from the node."
+            "This may have gone through: no answer came back. What you see is read again from the node. Look for the account before you create another."
         ),
         "{:?}",
         cx.texts()
