@@ -2,7 +2,10 @@
 //! programs' own types, worded only when drawn (`ui/`).
 use serde::{Deserialize, Serialize};
 use view::borsh_bytes;
+use view::design::Pages;
+use view::methods::CarriedView;
 use view::prelude::*;
+use view::wire::manifest::Manifest;
 
 use crate::acting::Acting;
 use crate::chain::{BlockRow, Chain, TxRow};
@@ -63,6 +66,18 @@ impl Route {
             ["program", name] if !name.is_empty() => Route::Program((*name).into()),
             _ => return None,
         })
+    }
+
+    /// A tab's own list: the root a page opened from it returns to.
+    pub(crate) fn listed(&self) -> bool {
+        matches!(
+            self,
+            Route::Overview
+                | Route::Blocks
+                | Route::Transactions(None)
+                | Route::Accounts
+                | Route::Programs
+        )
     }
 
     /// The tab this page sits under.
@@ -164,7 +179,11 @@ pub enum Note {
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Explorer {
+    /// the page on screen
     pub(crate) route: Route,
+    /// the tab's list `route` was opened from: the root of the view's one
+    /// page stack ([`Explorer::pages`]), where Back returns
+    pub(crate) root: Route,
     /// the search field, as typed
     pub(crate) search: TextField,
     pub(crate) note: Option<Note>,
@@ -215,9 +234,114 @@ pub struct Explorer {
     /// who reads and what they change, read again on every open
     #[serde(skip)]
     pub(crate) acting: Acting,
+    /// the phone's root title row is the search field (the Expo header's
+    /// search), not the title
+    #[serde(skip)]
+    pub(crate) searching: bool,
+    /// the phone's sheet over the page, if one is open
+    #[serde(skip)]
+    pub(crate) sheet: Option<Sheet>,
+}
+
+/// A sheet the phone opens over the Programs page (Expo `programs.tsx`);
+/// a form is [`Acting::form`], as on the desktop.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Sheet {
+    /// More: add a program, propose a grant
+    More,
+    /// one program's or view-only entry's sheet: its page, its
+    /// transactions, the reader's presses on it
+    Program(String),
+}
+
+/// What the code behind a program page declares, as far as it has been
+/// read (`blob.manifest`).
+pub(crate) enum Declared<'a> {
+    Reading,
+    /// the node refused the read, in its words
+    Refused(&'a str),
+    /// no capability to list, and why
+    Nothing(Unlisted),
+    /// what its view asks of the host
+    Asks(&'a Manifest),
+}
+
+/// Why a program page lists no capability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Unlisted {
+    /// the node does not hold the code
+    NoCode,
+    /// a program whose code carries no view
+    NoView,
+    /// a view-only entry whose blob carries no view
+    NoListedView,
+    /// a view whose manifest this app cannot read
+    Unreadable,
+    /// a view that asks for nothing
+    AsksNothing,
+}
+
+impl Unlisted {
+    pub(crate) fn sentence(self) -> &'static str {
+        match self {
+            Unlisted::NoCode => "The node does not hold this code yet.",
+            Unlisted::NoView => {
+                "This program draws nothing: no view, so nothing is asked of the host."
+            }
+            Unlisted::NoListedView => "This app cannot read this view's manifest.",
+            Unlisted::Unreadable => {
+                "Its view carries a manifest this app cannot read: built for another wire, or asking a capability this app does not have."
+            }
+            Unlisted::AsksNothing => "Its view asks nothing of the host.",
+        }
+    }
 }
 
 impl Explorer {
+    /// The view's one route model in both designs: the tab's list at the
+    /// root, and the page opened from it on top. The phone draws the top
+    /// alone, Back popping to the list; the desktop draws the top under its
+    /// tab bar.
+    pub(crate) fn pages(&self) -> Pages<Route> {
+        let mut pages = Pages::root(self.root.clone());
+        if self.route != self.root {
+            pages.push(self.route.clone());
+        }
+        pages
+    }
+
+    /// Back has somewhere to go: a page over the list, or a sheet over the
+    /// phone's page (More, a program's, a form).
+    pub(crate) fn backs(&self) -> bool {
+        self.pages().depth() > 0 || self.sheet.is_some() || self.acting.form.is_some()
+    }
+
+    /// What the code of the program page on screen declares; `listed`, a
+    /// view-only entry's.
+    pub(crate) fn declared(&self, listed: bool) -> Declared<'_> {
+        let blob = match &self.manifest {
+            Loadable::Idle | Loadable::Loading(_) => return Declared::Reading,
+            Loadable::Failed(refusal) => return Declared::Refused(&refusal.message),
+            Loadable::Ready(blob) | Loadable::Reloading(blob, _) => blob,
+        };
+        let manifest = match blob.as_ref().map(|blob| &blob.view) {
+            None => return Declared::Nothing(Unlisted::NoCode),
+            Some(None) if listed => return Declared::Nothing(Unlisted::NoListedView),
+            Some(None) => return Declared::Nothing(Unlisted::NoView),
+            Some(Some(CarriedView { manifest: None, .. })) => {
+                return Declared::Nothing(Unlisted::Unreadable);
+            }
+            Some(Some(CarriedView {
+                manifest: Some(manifest),
+                ..
+            })) => manifest,
+        };
+        match manifest.capabilities.is_empty() {
+            true => Declared::Nothing(Unlisted::AsksNothing),
+            false => Declared::Asks(manifest),
+        }
+    }
+
     /// Every account identity listed, or none yet.
     pub(crate) fn account_list(&self) -> &[identity::Account] {
         self.accounts

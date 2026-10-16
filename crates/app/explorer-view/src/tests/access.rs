@@ -10,7 +10,7 @@ use valset::{Motion, Voted};
 use view::methods::Submit;
 
 /// Ada (account 3) maintains chat; Scout, her agent (5), every program.
-fn grants() -> Vec<Grant> {
+pub(super) fn grants() -> Vec<Grant> {
     vec![
         Grant {
             scope: Scope::Program("chat".into()),
@@ -25,7 +25,7 @@ fn grants() -> Vec<Grant> {
 
 /// A change waiting: chat's at 700, made by Ada's grant, and forge's
 /// removal at 120, made by the vote.
-fn waiting() -> Vec<Pending> {
+pub(super) fn waiting() -> Vec<Pending> {
     vec![
         Pending {
             height: 120,
@@ -45,7 +45,7 @@ const CODE: [u8; 32] = [0x7e; 32];
 /// The Programs page for a reader whose key is `signer`, acting as
 /// `account`, voting for the validator when `votes`; the programs role holding
 /// `grants` and `scheduled`, chat a hook-free program, identity a role's.
-fn reader(
+pub(super) fn reader(
     account: Option<u64>,
     signer: [u8; 32],
     votes: bool,
@@ -313,7 +313,11 @@ fn a_refusal_shows_in_the_form_in_the_hosts_words() {
         "the form says why"
     );
     assert!(cx.find("explorer-note").is_none(), "and nothing else does");
-    assert!(cx.has_text(refusal), "{:?}", cx.texts());
+    assert!(
+        cx.has_text(&format!("Not sent: {refusal}")),
+        "{:?}",
+        cx.texts()
+    );
     // pressed again, the old refusal goes at the press, not when the
     // answer lands: the app's confirm card waits over the form meanwhile
     cx.host().never::<Submit<Programs>>();

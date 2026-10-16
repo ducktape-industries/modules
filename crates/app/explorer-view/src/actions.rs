@@ -12,7 +12,29 @@ enum Found {
 }
 
 impl Explorer {
+    /// Opens `route`: a tab's own list becomes the root, any other page
+    /// goes over the list it was opened from.
     pub(crate) fn go(&mut self, route: Route, cx: &mut Context<Self>) {
+        if route.listed() {
+            self.root = route.clone();
+        }
+        self.arrive(route, cx);
+    }
+
+    /// Back: a sheet over the page closes first, then the page goes and its
+    /// list shows.
+    pub(crate) fn back(&mut self, cx: &mut Context<Self>) {
+        if self.sheet.is_some() || self.acting.form.is_some() {
+            self.sheet = None;
+            self.acting.form = None;
+            return cx.notify();
+        }
+        if self.route != self.root {
+            self.arrive(self.root.clone(), cx);
+        }
+    }
+
+    fn arrive(&mut self, route: Route, cx: &mut Context<Self>) {
         if let Route::Block(height) = route {
             let held = self.chain.block(height).is_some();
             let opened =
@@ -39,6 +61,8 @@ impl Explorer {
         self.read_acted(cx);
         self.note = None;
         self.cursor = None;
+        self.searching = false;
+        self.sheet = None;
         self.scroll.scroll_to_item(0, ScrollStrategy::Top);
         // the field holds only what is being typed: a search that lands, a
         // tab, prev/next and a row all leave it empty

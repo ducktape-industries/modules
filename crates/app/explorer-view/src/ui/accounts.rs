@@ -7,7 +7,7 @@ use view::design::Ladder;
 /// What `account` is, its manager named from the list: "User", "Agent ·
 /// managed by Dev · suspended", "Program · forge" (identity's own wording,
 /// [`identity::view::kind`], over `Kind::badge` and `Kind::note`).
-fn kind(view: &Explorer, account: &Account) -> String {
+pub(super) fn kind(view: &Explorer, account: &Account) -> String {
     identity::view::kind(&account.kind(), |manager| {
         view.account(manager)
             .map(|manager| manager.card.name.clone())

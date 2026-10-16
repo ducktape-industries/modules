@@ -1,0 +1,563 @@
+//! The phone's screens (`ui/phone`): under a finger the view draws the
+//! Expo app's Explorer. Each screen's states (reading, refused, empty,
+//! full) and presses, by screen; then the sweep, every screen held to
+//! `assert_fits` at 360, 390 and 430.
+use super::access::{grants, reader, waiting};
+use super::*;
+use view::methods::Submit;
+use view::testing::{self, StreamSender};
+
+/// Under a finger, 390 wide: the phone tree.
+fn phone(cx: &mut TestAppContext) {
+    cx.simulate_touch(true);
+    cx.simulate_resize(390., 844.);
+    cx.run_until_parked();
+}
+
+/// The suite's node at block 12, on a phone.
+fn on_phone() -> TestAppContext {
+    let (mut cx, _) = ready();
+    phone(&mut cx);
+    cx
+}
+
+/// The suite's node at `tip`, on a phone, with the host's links to send.
+fn linked(tip: u64) -> (TestAppContext, StreamSender<HostRoute>) {
+    let mut cx = TestAppContext::new();
+    node(&mut cx, Rc::new(RefCell::new(tip)));
+    let routes = cx.host().stream::<HostRoute>();
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    phone(&mut cx);
+    (cx, routes)
+}
+
+/// The page a link names, opened on a phone.
+fn opened(path: &str) -> TestAppContext {
+    let (mut cx, routes) = linked(12);
+    routes.send(path.to_owned());
+    cx.run_until_parked();
+    cx
+}
+
+fn click(cx: &mut TestAppContext, name: &str) {
+    cx.simulate_click(name);
+    cx.run_until_parked();
+}
+
+fn back(cx: &mut TestAppContext) {
+    cx.simulate_back();
+    cx.run_until_parked();
+}
+
+fn shows(cx: &TestAppContext, text: &str) {
+    assert!(cx.has_text(text), "no {text:?} in {:?}", cx.texts());
+}
+
+// ---------- the stack ----------
+
+#[test]
+fn the_root_has_no_back_and_a_page_over_it_has_one() {
+    let mut cx = on_phone();
+    assert!(cx.back_handler().is_none(), "Back leaves the program");
+    click(&mut cx, "explorer-block-11");
+    assert!(cx.back_handler().is_some());
+    back(&mut cx);
+    assert!(cx.find("explorer-tabs").is_some() && cx.back_handler().is_none());
+}
+
+#[test]
+fn back_from_a_page_returns_to_the_page_it_was_opened_from() {
+    let mut cx = on_phone();
+    click(&mut cx, "explorer-tab-blocks");
+    click(&mut cx, "explorer-block-12");
+    click(&mut cx, "explorer-tx-12-0");
+    back(&mut cx);
+    assert!(
+        cx.find("explorer-blocks-list").is_some(),
+        "{:?}",
+        cx.texts()
+    );
+}
+
+#[test]
+fn the_desktop_draws_its_own_pages_under_a_pointer() {
+    let (mut cx, _) = ready();
+    cx.simulate_resize(390., 844.);
+    cx.run_until_parked();
+    assert!(
+        cx.find("explorer-search").is_some() && cx.find("explorer-search-open").is_none(),
+        "the desktop's bar holds the field; the phone's title row opens it"
+    );
+}
+
+// ---------- the root (`explorer.rs`) ----------
+
+#[test]
+fn the_root_names_the_network_and_the_reader() {
+    let mut cx = reader(Some(3), ADA, false, grants(), waiting());
+    phone(&mut cx);
+    shows(&cx, "Explorer");
+    shows(&cx, "test · Ada");
+}
+
+#[test]
+fn search_turns_the_title_row_into_the_field_and_close_puts_it_back() {
+    let mut cx = on_phone();
+    click(&mut cx, "explorer-search-open");
+    assert!(cx.find("explorer-search").is_some() && !cx.has_text("Explorer"));
+    click(&mut cx, "explorer-search-close");
+    assert!(cx.find("explorer-search").is_none());
+    shows(&cx, "Explorer");
+}
+
+#[test]
+fn a_search_that_lands_opens_its_page_and_closes_the_field() {
+    let mut cx = on_phone();
+    click(&mut cx, "explorer-search-open");
+    cx.simulate_input("explorer-search", "11");
+    cx.simulate_submit("explorer-search");
+    cx.run_until_parked();
+    shows(&cx, "Block 11");
+    back(&mut cx);
+    assert!(cx.find("explorer-search").is_none(), "the field closed");
+}
+
+#[test]
+fn a_search_that_finds_nothing_says_so_under_the_field() {
+    let mut cx = on_phone();
+    click(&mut cx, "explorer-search-open");
+    cx.simulate_input("explorer-search", "nothing-here");
+    cx.simulate_submit("explorer-search");
+    cx.run_until_parked();
+    shows(&cx, "Nothing here is called “nothing-here”.");
+    assert!(cx.find("explorer-search").is_some(), "the field stays open");
+}
+
+#[test]
+fn the_strip_opens_each_page_as_the_root() {
+    let mut cx = on_phone();
+    for (tab, list) in [
+        ("blocks", "explorer-blocks-list"),
+        ("transactions", "explorer-transactions-list"),
+        ("accounts", "explorer-accounts-list"),
+        ("programs", "explorer-programs-list"),
+        ("overview", "explorer-stats"),
+    ] {
+        click(&mut cx, &format!("explorer-tab-{tab}"));
+        assert!(cx.find(list).is_some(), "{tab}: {:?}", cx.texts());
+        assert!(cx.back_handler().is_none(), "{tab} is a root");
+    }
+}
+
+// ---------- the pages under the strip (`pages.rs`) ----------
+
+#[test]
+fn a_page_of_the_window_says_reading_the_chain_until_it_lands() {
+    let mut cx = TestAppContext::new();
+    quiet_host(&cx);
+    cx.open::<Explorer>();
+    phone(&mut cx);
+    shows(&cx, "Reading the chain…");
+}
+
+#[test]
+fn a_refused_window_says_why_and_offers_retry() {
+    let mut cx = TestAppContext::new();
+    quiet_host(&cx);
+    cx.host()
+        .refuse::<ChainBlocks>("unavailable", "the node is catching up");
+    cx.open::<Explorer>();
+    phone(&mut cx);
+    shows(&cx, "the node is catching up");
+    assert!(cx.find("explorer-refused-retry").is_some());
+}
+
+#[test]
+fn the_overview_shows_the_figures_and_the_latest_blocks_and_transactions() {
+    let cx = on_phone();
+    for text in [
+        "HEIGHT",
+        "12",
+        "Block every 1.0 s",
+        "EPOCH",
+        "VALIDATORS",
+        "ACCOUNTS",
+    ] {
+        shows(&cx, text);
+    }
+    shows(&cx, "Latest activity");
+    shows(&cx, "0–10 · 11 empty blocks");
+    shows(&cx, "Latest transactions");
+    assert!(cx.find("explorer-tx-11-0").is_some() && cx.find("explorer-tx-12-0").is_some());
+}
+
+#[test]
+fn a_window_without_transactions_says_so() {
+    let (cx, _) = linked(10);
+    shows(&cx, "No transactions in the last 11 blocks.");
+}
+
+#[test]
+fn the_overviews_links_open_all_blocks_and_all_transactions() {
+    let mut cx = on_phone();
+    click(&mut cx, "explorer-all-blocks");
+    assert!(cx.find("explorer-blocks-list").is_some());
+    click(&mut cx, "explorer-tab-overview");
+    click(&mut cx, "explorer-all-txs");
+    assert!(cx.find("explorer-transactions-list").is_some());
+}
+
+#[test]
+fn the_transactions_page_counts_the_window_and_lists_it_newest_first() {
+    let mut cx = on_phone();
+    click(&mut cx, "explorer-tab-transactions");
+    shows(&cx, "3 transactions in the last 13 blocks");
+    let rows: Vec<&str> = ["explorer-tx-12-0", "explorer-tx-11-0", "explorer-tx-11-1"]
+        .into_iter()
+        .filter(|row| cx.find(row).is_some())
+        .collect();
+    assert_eq!(rows.len(), 3, "{:?}", cx.texts());
+}
+
+#[test]
+fn the_accounts_page_says_reading_until_identity_answers() {
+    let mut cx = TestAppContext::new();
+    quiet_host(&cx);
+    cx.open::<Explorer>();
+    phone(&mut cx);
+    click(&mut cx, "explorer-tab-accounts");
+    shows(&cx, "Reading accounts…");
+}
+
+#[test]
+fn the_accounts_page_lists_each_account_and_what_it_is() {
+    let mut cx = on_phone();
+    click(&mut cx, "explorer-tab-accounts");
+    shows(&cx, "3 · tx recorded");
+    shows(&cx, "Ada");
+    assert!(cx.find("explorer-account-5").is_some() && cx.find("explorer-account-6").is_some());
+}
+
+// ---------- one block (`block.rs`) ----------
+
+#[test]
+fn a_block_page_shows_its_facts_and_its_transactions() {
+    let mut cx = on_phone();
+    click(&mut cx, "explorer-block-11");
+    shows(&cx, "Block 11");
+    shows(&cx, &abi::hex(&[111; 32]));
+    shows(&cx, "validator 1 ");
+    assert!(cx.find("explorer-parent").is_some());
+    assert!(cx.find("explorer-tx-11-0").is_some() && cx.find("explorer-tx-11-1").is_some());
+}
+
+#[test]
+fn the_steps_walk_the_blocks_and_stop_at_the_head() {
+    let mut cx = on_phone();
+    click(&mut cx, "explorer-block-12");
+    assert!(
+        cx.interactivity("explorer-next").on_click.is_none(),
+        "no block past the head"
+    );
+    click(&mut cx, "explorer-previous");
+    shows(&cx, "Block 11");
+    click(&mut cx, "explorer-next");
+    shows(&cx, "Block 12");
+    back(&mut cx);
+    assert!(
+        cx.find("explorer-tabs").is_some(),
+        "a step replaces the page"
+    );
+}
+
+#[test]
+fn a_block_with_no_transactions_says_so() {
+    let cx = opened("block/5");
+    shows(&cx, "No transactions in this block.");
+}
+
+#[test]
+fn a_block_the_node_does_not_keep_says_so() {
+    let cx = opened("block/99");
+    shows(&cx, "No block 99");
+    shows(&cx, "This node keeps no finalized block at this height.");
+}
+
+// ---------- one transaction (`tx.rs`) ----------
+
+#[test]
+fn a_transaction_page_shows_where_it_sits_how_it_ran_and_its_op() {
+    let mut cx = on_phone();
+    click(&mut cx, "explorer-tx-11-0");
+    shows(&cx, "Transaction");
+    shows(&cx, "In block 11");
+    shows(&cx, "Accepted");
+    assert!(cx.find("tx-hash").is_some(), "Expo's testID on the hash");
+    shows(&cx, "Ada");
+    shows(&cx, "Operation");
+    shows(&cx, "Messages");
+    shows(&cx, "the inbox is full");
+}
+
+#[test]
+fn a_refused_transaction_shows_the_refusal_and_its_reason() {
+    let mut cx = on_phone();
+    click(&mut cx, "explorer-tx-12-0");
+    shows(&cx, "Rejected");
+    shows(&cx, "not a member");
+    shows(&cx, "unauthorized");
+}
+
+#[test]
+fn a_transaction_the_node_does_not_keep_says_so() {
+    let cx = opened("tx/11/7");
+    shows(&cx, "Transaction not found");
+}
+
+// ---------- one account (`account.rs`) ----------
+
+#[test]
+fn an_account_page_shows_its_devices_the_programs_it_used_and_its_activity() {
+    let mut cx = on_phone();
+    click(&mut cx, "explorer-tab-accounts");
+    click(&mut cx, "explorer-account-3");
+    shows(&cx, "account 3 · User");
+    shows(&cx, "laptop");
+    shows(&cx, "Programs used");
+    shows(&cx, "Activity");
+    click(&mut cx, "explorer-used-chat");
+    shows(&cx, "Transactions · chat");
+}
+
+#[test]
+fn an_account_with_no_activity_says_so() {
+    let cx = opened("account/5");
+    shows(&cx, "No activity recorded.");
+}
+
+#[test]
+fn an_account_identity_does_not_hold_says_so() {
+    let cx = opened("account/99");
+    shows(&cx, "No account #99");
+    shows(&cx, "Identity holds no account by this number.");
+}
+
+// ---------- the programs (`programs.rs`, `program.rs`, `txs.rs`) ----------
+
+#[test]
+fn the_programs_page_says_reading_until_the_role_answers() {
+    let mut cx = TestAppContext::new();
+    quiet_host(&cx);
+    cx.open::<Explorer>();
+    phone(&mut cx);
+    click(&mut cx, "explorer-tab-programs");
+    shows(&cx, "Reading the programs role…");
+}
+
+#[test]
+fn the_programs_page_lists_what_is_scheduled_runs_and_is_listed() {
+    let mut cx = on_phone();
+    click(&mut cx, "explorer-tab-programs");
+    shows(&cx, "Remove forge at block 120");
+    shows(&cx, "by vote");
+    shows(&cx, "sha256:abababab…abab · Validators' vote");
+    shows(&cx, "view only · sha256:efefefef…efef · Validators' vote");
+    shows(
+        &cx,
+        "No account maintains a program: only the validators' vote changes the programs role.",
+    );
+}
+
+#[test]
+fn a_running_program_opens_its_sheet_and_the_sheet_its_page() {
+    let mut cx = on_phone();
+    click(&mut cx, "explorer-tab-programs");
+    click(&mut cx, "explorer-program-chat");
+    assert!(cx.find("explorer-program-sheet").is_some());
+    shows(&cx, "capabilities, code, scheduled");
+    shows(&cx, "to chat");
+    click(&mut cx, "explorer-program-about");
+    assert!(
+        cx.find("explorer-program-sheet").is_none(),
+        "the sheet left"
+    );
+    shows(&cx, "reads and writes the clipboard");
+    shows(&cx, "Maintained by");
+}
+
+#[test]
+fn a_program_page_copies_its_code_id() {
+    let mut cx = opened("program/chat");
+    let copied = Rc::new(RefCell::new(Vec::new()));
+    let written = copied.clone();
+    cx.host().handle::<ClipboardWrite>(move |text| {
+        written.borrow_mut().push(text);
+        Ok(())
+    });
+    click(&mut cx, "explorer-copy-code");
+    shows(&cx, "Copied the code id.");
+    assert_eq!(*copied.borrow(), [CHAT_CODE.to_owned()]);
+}
+
+#[test]
+fn a_program_page_opens_the_programs_transactions() {
+    let mut cx = opened("program/chat");
+    shows(&cx, "2 transactions in the last 13 blocks →");
+    click(&mut cx, "explorer-program-txs");
+    shows(&cx, "Transactions · chat");
+    assert!(
+        cx.find("explorer-tx-12-0").is_none(),
+        "mystery's is not chat's"
+    );
+}
+
+#[test]
+fn a_view_only_entry_has_no_way_to_transactions() {
+    let cx = opened("program/explorer");
+    shows(&cx, "view only");
+    assert!(cx.find("explorer-program-txs").is_none());
+}
+
+#[test]
+fn a_name_the_programs_role_does_not_hold_says_so() {
+    let cx = opened("program/nothing");
+    shows(&cx, "Nothing called nothing");
+}
+
+#[test]
+fn more_offers_a_grant_to_a_reader_with_voices() {
+    let mut cx = reader(Some(3), ADA, true, grants(), waiting());
+    phone(&mut cx);
+    click(&mut cx, "explorer-more");
+    shows(&cx, "Propose a grant");
+    assert!(
+        cx.find("explorer-add").is_none(),
+        "Ada's grant names a running program: nothing to add"
+    );
+}
+
+#[test]
+fn more_offers_add_to_a_holder_of_every_program() {
+    let mut cx = reader(Some(5), STRANGER, false, grants(), waiting());
+    phone(&mut cx);
+    click(&mut cx, "explorer-more");
+    shows(&cx, "Add a program");
+    shows(&cx, "by your grant");
+}
+
+#[test]
+fn a_reader_with_no_grant_and_no_voice_has_no_more() {
+    let mut cx = reader(None, STRANGER, false, grants(), waiting());
+    phone(&mut cx);
+    assert!(cx.find("explorer-more").is_none());
+}
+
+#[test]
+fn a_maintainer_cancels_a_change_their_grant_made() {
+    let mut cx = reader(Some(3), ADA, false, grants(), waiting());
+    phone(&mut cx);
+    click(&mut cx, "explorer-cancel-1");
+    assert_eq!(cx.host().requests::<Submit<Programs>>().len(), 1);
+}
+
+#[test]
+fn the_holder_steps_down_from_their_own_grant() {
+    let mut cx = reader(Some(3), ADA, false, grants(), waiting());
+    phone(&mut cx);
+    shows(&cx, "Step down");
+    click(&mut cx, "explorer-revoke-0");
+    assert_eq!(cx.host().requests::<Submit<Programs>>().len(), 1);
+}
+
+// ---------- the form (`form.rs`) ----------
+
+/// Ada with voices, the grant form open from More.
+fn grant_form() -> TestAppContext {
+    let mut cx = reader(Some(3), ADA, true, grants(), waiting());
+    phone(&mut cx);
+    click(&mut cx, "explorer-more");
+    click(&mut cx, "explorer-propose-grant");
+    cx
+}
+
+#[test]
+fn a_grant_form_names_the_account_typed() {
+    let mut cx = grant_form();
+    shows(&cx, "Type the account's number.");
+    cx.simulate_input("explorer-form-account", "#3");
+    cx.run_until_parked();
+    shows(&cx, "#3 · Ada");
+    cx.simulate_input("explorer-form-account", "9");
+    cx.run_until_parked();
+    shows(&cx, "No account 9 here.");
+    shows(
+        &cx,
+        "This proposes a vote: the validators carry it in Nodes.",
+    );
+}
+
+#[test]
+fn a_form_that_builds_nothing_says_why_and_sends_nothing() {
+    let mut cx = grant_form();
+    click(&mut cx, "explorer-form-submit");
+    shows(&cx, "An account is its number.");
+    assert!(cx.host().requests::<Submit<Valset>>().is_empty());
+}
+
+#[test]
+fn a_write_the_program_refuses_says_it_did_not_go_through() {
+    let mut cx = reader(Some(3), ADA, false, grants(), waiting());
+    cx.host().handle::<Submit<Programs>>(|_| {
+        Ok(view::methods::Submitted::Refused {
+            frame: [0; 32],
+            until: 0,
+            refusal: Error {
+                code: "unauthorized".into(),
+                message: "no grant covers chat".into(),
+            },
+        })
+    });
+    phone(&mut cx);
+    click(&mut cx, "explorer-program-chat");
+    click(&mut cx, "explorer-remove-chat");
+    click(&mut cx, "explorer-form-submit");
+    shows(&cx, "That didn’t go through: no grant covers chat");
+}
+
+#[test]
+fn back_closes_a_sheet_before_it_leaves_the_page() {
+    let mut cx = grant_form();
+    assert!(cx.find("explorer-form-sheet").is_some());
+    back(&mut cx);
+    assert!(cx.find("explorer-form-sheet").is_none());
+    assert!(cx.back_handler().is_none(), "the root again");
+}
+
+// ---------- the sweep ----------
+
+#[test]
+fn every_screen_fits_a_phone() {
+    let mut cx = reader(Some(3), ADA, true, grants(), waiting());
+    testing::sweep(&mut cx, |cx| {
+        for tab in ["overview", "blocks", "transactions", "accounts"] {
+            click(cx, &format!("explorer-tab-{tab}"));
+        }
+        click(cx, "explorer-account-3");
+        back(cx);
+        click(cx, "explorer-tab-overview");
+        click(cx, "explorer-block-11");
+        click(cx, "explorer-tx-11-0");
+        back(cx);
+        click(cx, "explorer-tab-programs");
+        click(cx, "explorer-more");
+        click(cx, "explorer-propose-grant");
+        back(cx);
+        click(cx, "explorer-program-chat");
+        click(cx, "explorer-program-about");
+        click(cx, "explorer-program-txs");
+        back(cx);
+        click(cx, "explorer-search-open");
+        click(cx, "explorer-search-close");
+    });
+}

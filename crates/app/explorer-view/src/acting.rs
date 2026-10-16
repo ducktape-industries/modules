@@ -75,6 +75,69 @@ pub(crate) struct Form {
     pub(crate) problem: Option<String>,
 }
 
+impl Form {
+    /// The account a grant form names, as typed: a number, `#` allowed.
+    pub(crate) fn account_number(&self) -> Option<u64> {
+        self.account
+            .text()
+            .trim()
+            .trim_start_matches('#')
+            .parse()
+            .ok()
+    }
+
+    /// What the form is titled: what it changes, and how.
+    pub(crate) fn title(&self) -> String {
+        match (&self.edit, self.path) {
+            (Edit::Upgrade { name, .. }, Path::Grant) => format!("Upgrade {name}"),
+            (Edit::Upgrade { name, .. }, Path::Vote) => format!("Propose upgrade · {name}"),
+            (Edit::Remove { name, .. }, Path::Grant) => format!("Remove {name}"),
+            (Edit::Remove { name, .. }, Path::Vote) => format!("Propose remove · {name}"),
+            (Edit::Add, _) => "Add a program".into(),
+            (Edit::Grant, _) => "Propose a grant".into(),
+        }
+    }
+
+    /// Its send button's word: straight to the programs by grant, else a
+    /// proposal.
+    pub(crate) fn verb(&self) -> &'static str {
+        match self.path {
+            Path::Grant => "Schedule",
+            Path::Vote => "Propose",
+        }
+    }
+
+    /// What the form says under its fields at `tip`: when its change can
+    /// land, and the params an upgrade keeps; a grant, that it is a vote.
+    /// The account a grant names is each design's own line before these.
+    pub(crate) fn notes(&self, network: &Network, tip: u64) -> Vec<String> {
+        if self.edit == Edit::Grant {
+            return vec!["This proposes a vote: the validators carry it in Nodes.".into()];
+        }
+        let lands = match self.path {
+            Path::Grant => format!(
+                "Block {} or later: the validators get {NOTICE} blocks to look, and can cancel it by vote until it lands.",
+                design::grouped(earliest(tip))
+            ),
+            Path::Vote => "Lands at this block once the validators carry the vote.".into(),
+        };
+        let kept = match &self.edit {
+            Edit::Upgrade { name, view: false } => network
+                .programs
+                .iter()
+                .find(|entry| &entry.program == name)
+                .map(|entry| {
+                    format!(
+                        "Params kept: {}, as {name} runs now.",
+                        design::plural(entry.params.len() as u64, "byte", "bytes")
+                    )
+                }),
+            _ => None,
+        };
+        std::iter::once(lands).chain(kept).collect()
+    }
+}
+
 impl Acting {
     pub(crate) fn votes(&self) -> bool {
         !self.voices.is_empty()
@@ -89,6 +152,57 @@ impl Explorer {
             return Some(Path::Grant);
         }
         self.acting.votes().then_some(Path::Vote)
+    }
+
+    /// Upgrade and Remove on the reader's path to `name`, each with the
+    /// words its press says: straight to the programs by grant, proposed by
+    /// vote, or none. A role's program is never removed; a hook only by
+    /// vote, which a maintainer with voices proposes.
+    pub(crate) fn edits(
+        &self,
+        network: &Network,
+        name: &str,
+        listed: bool,
+    ) -> Vec<(Edit, Path, &'static str)> {
+        let Some(path) = self.path(name) else {
+            return Vec::new();
+        };
+        let bound = network
+            .roles
+            .as_ref()
+            .is_none_or(|roles| programs::role_bound(roles, name));
+        let hook = network.hooks.iter().any(|hook| hook == name);
+        let upgrade = match path {
+            Path::Grant => "Upgrade",
+            Path::Vote => "Propose upgrade",
+        };
+        let mut out = vec![(
+            Edit::Upgrade {
+                name: name.to_owned(),
+                view: listed,
+            },
+            path,
+            upgrade,
+        )];
+        let removes = match path {
+            Path::Grant if hook => self.acting.votes().then_some(Path::Vote),
+            path => Some(path),
+        };
+        if let Some(path) = removes.filter(|_| !bound) {
+            let remove = match path {
+                Path::Grant => "Remove",
+                Path::Vote => "Propose remove",
+            };
+            out.push((
+                Edit::Remove {
+                    name: name.to_owned(),
+                    view: listed,
+                },
+                path,
+                remove,
+            ));
+        }
+        out
     }
 
     /// Whether the reader's grants cover `program`, as the programs role reads them.
@@ -262,7 +376,12 @@ impl Explorer {
                 cx.notify();
                 return;
             }
-            Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => refusal.message,
+            // the Expo outbox's words (`write/words.ts` `failure`): the
+            // program refused it, or it never reached a node
+            Ok(Submitted::Refused { refusal, .. }) => {
+                format!("That didn’t go through: {}", refusal.message)
+            }
+            Err(refusal) => format!("Not sent: {}", refusal.message),
             Ok(Submitted::InDoubt { .. }) => {
                 "No answer came back: it may have gone through.".into()
             }
@@ -281,6 +400,34 @@ impl Network {
         self.programs.iter().any(|entry| entry.program == name)
             || self.views.iter().any(|view| view.name == name)
     }
+
+    /// Who changes `name` by a grant: `None` for a role's program, which
+    /// only the validators' vote changes.
+    pub(crate) fn maintainers(&self, name: &str) -> Option<Maintainers> {
+        let bound = self
+            .roles
+            .as_ref()
+            .is_some_and(|roles| programs::role_bound(roles, name));
+        if bound {
+            return None;
+        }
+        let named = self
+            .grants
+            .iter()
+            .filter(|grant| grant.scope == Scope::Program(name.to_owned()))
+            .map(|grant| grant.account)
+            .collect();
+        let every = self.grants.iter().any(|grant| grant.scope == Scope::All);
+        Some(Maintainers { named, every })
+    }
+}
+
+/// The accounts whose grants cover a name ([`Network::maintainers`]).
+pub(crate) struct Maintainers {
+    /// each account whose grant names it, in the grants' order
+    pub(crate) named: Vec<u64>,
+    /// some account holds every program
+    pub(crate) every: bool,
 }
 
 /// What an op that landed did, in words.
@@ -363,13 +510,7 @@ pub(crate) fn built(form: &Form, network: &Network, tip: u64) -> Result<programs
             at(height(&form.height.text(), tip)?, change)
         }
         Edit::Grant => {
-            let account = form
-                .account
-                .text()
-                .trim()
-                .trim_start_matches('#')
-                .parse()
-                .map_err(|_| "An account is its number.".to_owned())?;
+            let account = form.account_number().ok_or("An account is its number.")?;
             let program = form.name.text().trim().to_owned();
             let scope = match program.is_empty() {
                 true => Scope::All,

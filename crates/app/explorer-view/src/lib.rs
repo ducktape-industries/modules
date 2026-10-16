@@ -76,7 +76,13 @@ impl Render for Explorer {
         // a program page asks what its code declares once the roster
         // names the code, whichever lands first
         self.read_manifest(cx);
-        ui::render(self, window.touch(), cx)
+        // two designs, picked once: under a finger the Expo app's screens
+        // (`ui/phone`), under a pointer the desktop's pages
+        let touch = window.touch();
+        match touch {
+            true => ui::phone::render(self, cx),
+            false => ui::render(self, touch, cx),
+        }
     }
 }
 

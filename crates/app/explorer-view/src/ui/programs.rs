@@ -8,7 +8,7 @@ use super::*;
 use crate::Network;
 use crate::acting::{self, Edit, Form, Path};
 use crate::decode::{preview, size};
-use crate::state::blob_ref;
+use crate::state::{Declared, Unlisted, blob_ref};
 use ::programs::{Grant, NOTICE, Pending, Scope};
 use view::design::Ladder;
 
@@ -213,26 +213,24 @@ fn changers(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Vec<AnyElement> {
-    let bound = network
-        .roles
-        .as_ref()
-        .is_some_and(|roles| ::programs::role_bound(roles, name));
-    if bound {
+    let Some(maintainers) = network.maintainers(name) else {
         return vec![muted("validators' vote", theme)];
-    }
-    let every = network.grants.iter().any(|grant| grant.scope == Scope::All);
-    network
-        .grants
-        .iter()
-        .filter(|grant| grant.scope == Scope::Program(name.to_owned()))
-        .map(|grant| holder(view, grant.account, theme, ladder))
-        .chain(every.then(|| muted("every-program maintainers", theme)))
+    };
+    maintainers
+        .named
+        .into_iter()
+        .map(|account| holder(view, account, theme, ladder))
+        .chain(
+            maintainers
+                .every
+                .then(|| muted("every-program maintainers", theme)),
+        )
         .collect()
 }
 
 /// The role `name` fills for the kernel, in the kernel's word for it: the
 /// roles are the chain's own table, so a role it gains is named here as is.
-fn role_of<'a>(roles: &'a abi::Roles, name: &str) -> Option<&'a str> {
+pub(super) fn role_of<'a>(roles: &'a abi::Roles, name: &str) -> Option<&'a str> {
     roles
         .iter()
         .find(|(_, program)| program.as_str() == name)
@@ -242,7 +240,7 @@ fn role_of<'a>(roles: &'a abi::Roles, name: &str) -> Option<&'a str> {
 /// What a capability lets a view do, in a line a person reads: the phone's
 /// "uses camera" for a view. Every capability is worded here, so a new one
 /// is worded before it ships.
-fn allows(capability: Capability) -> &'static str {
+pub(super) fn allows(capability: Capability) -> &'static str {
     match capability {
         Capability::Chain => "reads the chain: blocks, transactions and the node's status",
         Capability::Program => "asks programs questions and follows what they change",
@@ -490,58 +488,26 @@ fn capabilities(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Vec<AnyElement> {
-    let blob = match &view.manifest {
-        Loadable::Idle | Loadable::Loading(_) => {
+    let manifest = match view.declared(listed) {
+        Declared::Reading => {
             return vec![quiet(
                 "explorer-manifest-loading",
                 "Reading the code…",
                 theme,
             )];
         }
-        Loadable::Failed(refusal) => return vec![failed(&refusal.message, cx, theme, ladder)],
-        Loadable::Ready(blob) | Loadable::Reloading(blob, _) => blob,
-    };
-    let Some(blob) = blob else {
-        return vec![quiet(
-            "explorer-no-code",
-            "The node does not hold this code yet.",
-            theme,
-        )];
-    };
-    let manifest = match &blob.view {
-        None if listed => {
-            return vec![quiet(
-                "explorer-unread-view",
-                "This app cannot read this view's manifest.",
-                theme,
-            )];
+        Declared::Refused(sentence) => return vec![failed(sentence, cx, theme, ladder)],
+        Declared::Nothing(why) => {
+            let id = match why {
+                Unlisted::NoCode => "explorer-no-code",
+                Unlisted::NoView => "explorer-no-view",
+                Unlisted::NoListedView | Unlisted::Unreadable => "explorer-unread-view",
+                Unlisted::AsksNothing => "explorer-no-capabilities",
+            };
+            return vec![quiet(id, why.sentence(), theme)];
         }
-        None => {
-            return vec![quiet(
-                "explorer-no-view",
-                "This program draws nothing: no view, so nothing is asked of the host.",
-                theme,
-            )];
-        }
-        Some(CarriedView { manifest: None, .. }) => {
-            return vec![quiet(
-                "explorer-unread-view",
-                "Its view carries a manifest this app cannot read: built for another wire, or asking a capability this app does not have.",
-                theme,
-            )];
-        }
-        Some(CarriedView {
-            manifest: Some(manifest),
-            ..
-        }) => manifest,
+        Declared::Asks(manifest) => manifest,
     };
-    if manifest.capabilities.is_empty() {
-        return vec![quiet(
-            "explorer-no-capabilities",
-            "Its view asks nothing of the host.",
-            theme,
-        )];
-    }
     manifest
         .capabilities
         .iter()
@@ -605,9 +571,7 @@ fn holder(view: &Explorer, number: u64, theme: &Theme, ladder: &Ladder) -> AnyEl
         .into_any_element()
 }
 
-/// Upgrade and Remove on the reader's path to `name`: straight to the
-/// programs by grant, proposed by vote, or none. A role's program is never
-/// removed; a hook only by vote, which a maintainer with voices proposes.
+/// [`Explorer::edits`] as presses beside a row or a title.
 fn presses(
     view: &Explorer,
     network: &Network,
@@ -616,59 +580,18 @@ fn presses(
     cx: Cx,
     theme: &Theme,
 ) -> Vec<AnyElement> {
-    let Some(path) = view.path(name) else {
-        return Vec::new();
-    };
-    let bound = network
-        .roles
-        .as_ref()
-        .is_none_or(|roles| ::programs::role_bound(roles, name));
-    let hook = network.hooks.iter().any(|hook| hook == name);
-    let edit = |remove: bool, path: Path| {
-        let name = name.to_owned();
-        move |view: &mut Explorer, cx: &mut Context<Explorer>| {
-            let edit = match remove {
-                false => Edit::Upgrade {
-                    name: name.clone(),
-                    view: listed,
-                },
-                true => Edit::Remove {
-                    name: name.clone(),
-                    view: listed,
-                },
+    view.edits(network, name, listed)
+        .into_iter()
+        .map(|(edit, path, label)| {
+            let id = match edit {
+                Edit::Remove { .. } => format!("explorer-remove-{name}"),
+                _ => format!("explorer-upgrade-{name}"),
             };
-            view.open_form(edit, path, cx)
-        }
-    };
-    let upgrade = match path {
-        Path::Grant => "Upgrade",
-        Path::Vote => "Propose upgrade",
-    };
-    let mut out = vec![press(
-        format!("explorer-upgrade-{name}"),
-        upgrade,
-        cx,
-        theme,
-        edit(false, path),
-    )];
-    let removes = match path {
-        Path::Grant if hook => view.acting.votes().then_some(Path::Vote),
-        path => Some(path),
-    };
-    if let Some(path) = removes.filter(|_| !bound) {
-        let remove = match path {
-            Path::Grant => "Remove",
-            Path::Vote => "Propose remove",
-        };
-        out.push(press(
-            format!("explorer-remove-{name}"),
-            remove,
-            cx,
-            theme,
-            edit(true, path),
-        ));
-    }
-    out
+            press(id, label, cx, theme, move |view, cx| {
+                view.open_form(edit.clone(), path, cx)
+            })
+        })
+        .collect()
 }
 
 /// One change the programs role will fold in: what it does, to what, when, who
@@ -751,11 +674,11 @@ fn scheduled(
 }
 
 /// How long `blocks` take at the node's block time, in whole minutes.
-fn minutes(blocks: u64, block_time_ms: u64) -> u64 {
+pub(super) fn minutes(blocks: u64, block_time_ms: u64) -> u64 {
     (blocks * block_time_ms).div_ceil(60_000)
 }
 
-fn name_of(view: &Explorer, number: u64) -> String {
+pub(super) fn name_of(view: &Explorer, number: u64) -> String {
     view.account(number)
         .map_or_else(|| format!("account {number}"), |a| a.card.name.clone())
 }
@@ -869,14 +792,7 @@ fn form(
     let form = view.acting.form.as_ref().filter(|form| here(&form.edit))?;
     let network = view.network.ready()?;
     let tip = view.status.ready().map_or(0, |status| status.height);
-    let title = match (&form.edit, form.path) {
-        (Edit::Upgrade { name, .. }, Path::Grant) => format!("Upgrade {name}"),
-        (Edit::Upgrade { name, .. }, Path::Vote) => format!("Propose upgrade · {name}"),
-        (Edit::Remove { name, .. }, Path::Grant) => format!("Remove {name}"),
-        (Edit::Remove { name, .. }, Path::Vote) => format!("Propose remove · {name}"),
-        (Edit::Add, _) => "Add a program".into(),
-        (Edit::Grant, _) => "Propose a grant".into(),
-    };
+    let title = form.title();
     let field = |id: &str, field: &TextField, name: &str, hint: &str, width: f32| {
         Input::new(id.to_owned(), field, name.to_owned())
             .h(design::size::CONTROL)
@@ -933,7 +849,6 @@ fn form(
                 240.,
             ));
             notes.push(who(view, form));
-            notes.push("This proposes a vote: the validators carry it in Nodes.".into());
         }
         Edit::Upgrade { .. } | Edit::Remove { .. } => {}
     }
@@ -963,26 +878,9 @@ fn form(
             "block height",
             140.,
         ));
-        notes.push(match form.path {
-            Path::Grant => format!(
-                "Block {} or later: the validators get {NOTICE} blocks to look, and can cancel it by vote until it lands.",
-                grouped(acting::earliest(tip))
-            ),
-            Path::Vote => "Lands at this block once the validators carry the vote.".into(),
-        });
     }
-    if let Edit::Upgrade { name, view: false } = &form.edit
-        && let Some(entry) = network.programs.iter().find(|entry| &entry.program == name)
-    {
-        notes.push(format!(
-            "Params kept: {}, as {name} runs now.",
-            plural(entry.params.len() as u64, "byte", "bytes")
-        ));
-    }
-    let submit = match form.path {
-        Path::Grant => "Schedule",
-        Path::Vote => "Propose",
-    };
+    notes.extend(form.notes(network, tip));
+    let submit = form.verb();
     let send = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.submit_form(cx));
     let close = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.close_form(cx));
     Some(
@@ -1038,9 +936,7 @@ fn form(
 
 /// The account a grant form names, as typed: its name and what it is.
 fn who(view: &Explorer, form: &Form) -> String {
-    let typed = form.account.text();
-    let typed = typed.trim().trim_start_matches('#');
-    match typed.parse::<u64>().ok() {
+    match form.account_number() {
         None => "Type the account's number.".into(),
         Some(number) => match view.account(number) {
             Some(account) => format!(
