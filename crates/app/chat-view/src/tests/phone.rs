@@ -306,22 +306,16 @@ fn a_room_scrolled_up_offers_latest() {
 
 #[test]
 fn a_refused_older_page_is_said_at_the_lists_end() {
-    let (mut cx, view) = phone();
+    let (mut cx, view) = in_general();
     cx.host().handle::<Ask<::chat::Chat>>(|query| match query {
-        Query::Roots {
-            page: ::chat::PageRequest { after: None, .. },
-            ..
-        } => Ok(Reply::Roots(::chat::PageResponse {
-            height: 1,
-            items: vec![row(2, 7, "hello")],
-            next: Some(vec![1]),
-        })),
         Query::Roots { .. } => Err(view::host::Error::new("refused", "the node is busy")),
         query => Ok(chat_reply(query)),
     });
-    cx.simulate_click("chat-rooms-channel-general");
-    cx.run_until_parked();
-    cx.update(&view, |chat, _, cx| chat.load_older(cx));
+    cx.update(&view, |chat, _, cx| {
+        chat.room.as_mut().expect("a room is open").has_older = true;
+        chat.load_older(cx);
+        cx.notify();
+    });
     cx.run_until_parked();
     assert!(cx.has_text("Couldn’t read this room: the node is busy"));
     assert!(cx.find("chat-room-notice").is_none(), "not as a notice");
