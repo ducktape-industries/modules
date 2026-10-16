@@ -163,6 +163,9 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
     if let Some(clamp) = style.text.line_clamp {
         assert!(clamp >= 1);
     }
+    if let Some(spacing) = style.text.letter_spacing {
+        length_in(spacing.into(), true);
+    }
     if let Some(underline) = &style.text.underline {
         length_in(underline.thickness.into(), false);
         if let Some(color) = underline.color {
@@ -293,6 +296,7 @@ pub(super) fn gen_native_style(rng: &mut Rng) -> gpui::StyleRefinement {
         thickness: px(gen_f32(rng)),
         color: Some(gen_color(rng)),
     });
+    style.text.letter_spacing = Some(px(gen_f32(rng)));
     style
 }
 
@@ -360,5 +364,5 @@ fn a_style_entry_is_the_same_bytes_however_the_writer_walks_it() {
         feed(&entry);
     }
     assert_eq!(corpus.len(), 260);
-    assert_eq!(digest, 0xa384_0e9b_bfaf_0a93, "{digest:#018x}");
+    assert_eq!(digest, 0x025d_432c_889f_c584, "{digest:#018x}");
 }
