@@ -233,8 +233,10 @@ fn body(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -
         Loadable::Ready(nodes) | Loadable::Reloading(nodes, _) if nodes.is_empty() => {
             design::empty_state(
                 "nodes-empty",
+                "server",
                 words::NO_MEMBERS,
                 words::NO_MEMBERS_WHY,
+                ladder,
                 theme,
             )
             .into_any_element()

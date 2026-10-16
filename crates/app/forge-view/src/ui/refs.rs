@@ -50,8 +50,10 @@ pub(crate) fn render(
         return column
             .child(empty_state(
                 id("forge-refs-empty"),
+                "git-branch",
                 "No refs",
                 "This repository is unborn: nothing has been pushed to it yet.",
+                &ladder,
                 theme,
             ))
             .into_any_element();

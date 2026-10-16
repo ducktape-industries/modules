@@ -46,8 +46,15 @@ pub(super) fn block(
                     Some(from) => unindexed(from),
                     None => words::NO_BLOCK_HERE.into(),
                 };
-                empty_state("explorer-no-block", words::no_block(height), why, theme)
-                    .into_any_element()
+                empty_state(
+                    "explorer-no-block",
+                    "blocks",
+                    words::no_block(height),
+                    why,
+                    ladder,
+                    theme,
+                )
+                .into_any_element()
             }
             Loadable::Failed(refusal) => failed(&refusal.message, cx, theme, ladder),
             Loadable::Idle

@@ -78,8 +78,10 @@ pub(super) fn tx(
         return match &view.located {
             Loadable::Ready(None) | Loadable::Reloading(None, _) => empty_state(
                 "explorer-no-tx",
+                "search-x",
                 words::NO_TRANSACTION,
                 words::no_transaction_at(height, position),
+                ladder,
                 theme,
             )
             .into_any_element(),

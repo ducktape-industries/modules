@@ -16,7 +16,7 @@ use view::{Div, FontWeight, Stateful};
 
 use super::agents;
 use super::parts::{
-    column, labelled, mono, muted_icon, name_input, name_line, named, note, problem_of, quiet,
+    column, mono, muted_icon, name_input, name_line, named, note, problem_of, quiet,
     title_and_caption,
 };
 use crate::Settings;
@@ -193,11 +193,12 @@ fn no_account(view: &Settings, ladder: &Ladder, theme: &Theme) -> Stateful<Div> 
             ladder,
             theme,
         ),
-        // SDK gap: the centred empty state with its icon, swap when feat/phone-kit lands
         _ => design::empty_state(
             "settings/account/empty",
+            "user-round",
             words::NO_ACCOUNT,
             words::NO_KEY,
+            ladder,
             theme,
         ),
     }
@@ -293,7 +294,6 @@ fn create_account(
         form,
         words::ACCOUNT_NAME,
         words::CREATE_ACCOUNT.prompt,
-        problem.as_deref(),
     )
     // Return creates it (Expo `app/account/index.tsx:189`)
     .on_submit(cx.listener(|v: &mut Settings, _: &(), _, cx| v.submit_create_account(cx)));
@@ -323,13 +323,11 @@ fn create_account(
                 .child(words::CREATE_ACCOUNT_TITLE),
         )
         .child(note(words::CREATE_ACCOUNT_WHY, theme.muted, ladder))
-        .child(labelled(
-            words::ACCOUNT_NAME,
-            design::field(name, ladder, theme),
-            problem,
-            ladder,
-            theme,
-        ))
+        .child(
+            design::field(name, ladder, theme)
+                .label(words::ACCOUNT_NAME)
+                .when_some(problem, design::Field::problem),
+        )
         .child(div().flex().child(create))
 }
 

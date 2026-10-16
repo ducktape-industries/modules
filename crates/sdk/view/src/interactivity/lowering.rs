@@ -26,6 +26,9 @@ impl Interactions {
         {
             handle.track(lowering.slots(), lowering.current_path());
         }
+        if self.dense && identified {
+            lowering.mark_dense();
+        }
         let mut aria = self.aria;
         if !self.a11y_actions.is_empty() {
             let offered: std::rc::Rc<[i32]> =

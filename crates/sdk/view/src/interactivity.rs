@@ -102,6 +102,10 @@ pub(crate) struct Interactions {
     tooltip_show_delay: Option<Duration>,
     occlude: bool,
     block_mouse_except_scroll: bool,
+    /// A press in a dense list ([`design::dense`](crate::design::dense)):
+    /// nothing drawn or sent, only what the sweep lets press under a
+    /// finger's height.
+    pub(crate) dense: bool,
 }
 
 /// Add GPUI's stateless and stateful interactivity declarations to an element.

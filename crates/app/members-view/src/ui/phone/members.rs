@@ -108,27 +108,8 @@ fn filter_row(
         .autocorrect(false)
         .autocapitalize(Autocapitalize::None)
         .placeholder(words::FILTER_HINT);
-    // The kit's `Field`: the edge is the field's own hairline, which the
-    // host draws 2 wide in the ink while the field is focused, as Expo's
-    // `Field` does (`Field.tsx:38-39`). The magnifier lies in the field's
-    // padding, where Expo's `lead` sits: past the hairline and `gap.lg`,
-    // the text `gap.sm` after it.
-    // SDK gap: field lead slot, swap when feat/phone-kit lands
-    let lead = div()
-        .absolute()
-        .top_0()
-        .bottom_0()
-        .left(px(1.) + space::LG)
-        .flex()
-        .items_center()
-        .child(design::icon("search", ladder.icon_row).text_color(theme.muted));
-    let field = div()
-        .child(
-            design::field(input, ladder, theme)
-                .w_full()
-                .pl(space::LG + ladder.icon_row + space::SM),
-        )
-        .child(lead);
+    // the kit's `Field`, its magnifier the lead (Expo `app/(tabs)/members/index.tsx:90-98`)
+    let field = design::field(input, ladder, theme).lead("search");
     div()
         .id("members-roster-title")
         .flex_none()
@@ -251,9 +232,9 @@ fn list(view: &Members, cx: &mut Context<Members>, ladder: &Ladder, theme: &Them
         Roster::Reading => return quiet("members-loading", words::READING_ROSTER, ladder, theme),
         Roster::Refused(refusal) => return refused(refusal, cx, ladder, theme),
         Roster::Empty { id, title, detail } => {
-            // SDK gap: the kit's `EmptyState` (centred, with its icon),
-            // swap when feat/phone-kit lands
-            return design::empty_state(id, title, detail, theme).into_any_element();
+            // Expo's `Users` (`app/(tabs)/members/index.tsx:33`, `:37`)
+            return design::empty_state(id, "users", title, detail, ladder, theme)
+                .into_any_element();
         }
     };
     // one Tab stop: the arrows move a cursor, shown only once they have

@@ -21,8 +21,15 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) 
         }
     };
     if network.is_empty() {
-        return empty_state("explorer-empty", "No programs", words::RUNS_NOTHING, theme)
-            .into_any_element();
+        return empty_state(
+            "explorer-empty",
+            "package",
+            "No programs",
+            words::RUNS_NOTHING,
+            ladder,
+            theme,
+        )
+        .into_any_element();
     }
     let add = view.adds().then(|| {
         press("explorer-add", "Add", cx, theme, |view, cx| {
@@ -239,8 +246,10 @@ pub(super) fn program(
     let Some(code) = view.code_of(name) else {
         return empty_state(
             "explorer-no-program",
+            "search-x",
             words::nothing_called(name),
             words::NO_PROGRAM_HERE,
+            ladder,
             theme,
         )
         .into_any_element();

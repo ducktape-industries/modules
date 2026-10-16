@@ -106,8 +106,10 @@ pub(super) fn account(
         return match &view.accounts {
             Loadable::Ready(_) | Loadable::Reloading(_, _) => empty_state(
                 "explorer-no-account",
+                "user-x",
                 words::no_account(number),
                 words::NO_ACCOUNT_HERE,
+                ladder,
                 theme,
             )
             .into_any_element(),
