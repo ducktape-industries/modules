@@ -60,10 +60,19 @@ pub(crate) fn render(view: &Files, cx: Cx) -> AnyElement {
         .into_any_element()
 }
 
-/// Where a page sits: the places are the root, every other page has Back.
+/// Where a page sits: the places are the root, led by the reader (their
+/// name, empty while it is read or when identity gives none), every other
+/// page has Back.
 fn nav(view: &Files, cx: Cx) -> Nav {
     match view.pages.depth() {
-        0 => Nav::Root,
+        0 => Nav::root(
+            view.reader
+                .name
+                .ready()
+                .cloned()
+                .flatten()
+                .unwrap_or_default(),
+        ),
         _ => Nav::back(cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.back(cx))),
     }
 }
