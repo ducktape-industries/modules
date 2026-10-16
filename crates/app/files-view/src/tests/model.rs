@@ -1,12 +1,18 @@
 //! The rules both designs read, without a screen: who writes where, what a
-//! form commits, and when bytes are text.
+//! form commits, when bytes are text or a picture, and how a desktop lays
+//! its pages out.
 use std::collections::BTreeMap;
 
 use files::{Change, Content, EntryInfo, Node, Ownership, PathOwnership, Writers};
+use view::ImageFormat;
 use view::TextField;
 use view::prelude::Loadable;
 
-use crate::state::{Folder, Opened, Reader, child_of, name_of};
+use crate::state::{
+    Folder, Holds, Opened, Reader, child_of, holds_by_name, name_of, parent_of, picture_format,
+};
+use crate::tests::PNG;
+use crate::ui::Layout;
 use crate::words;
 use crate::write::{Form, Write, built};
 
@@ -63,6 +69,7 @@ fn opened(bytes: &[u8], whole: bool) -> Opened {
         }),
         bytes: bytes.to_vec(),
         whole,
+        picture: None,
         ownership: None,
     }
 }
@@ -259,4 +266,57 @@ fn a_path_is_named_by_its_last_segment_and_made_in_its_folder() {
     assert_eq!(name_of("/"), "/");
     assert_eq!(child_of("/", "shared"), "/shared");
     assert_eq!(child_of("/shared", "a"), "/shared/a");
+    assert_eq!(parent_of("/home/dev/notes.txt"), "/home/dev");
+    assert_eq!(parent_of("/shared"), "/");
+}
+
+#[test]
+fn a_picture_is_known_by_its_first_bytes_and_is_never_text() {
+    assert_eq!(picture_format(&PNG), Some(ImageFormat::Png));
+    assert_eq!(
+        picture_format(&[0xff, 0xd8, 0xff, 0xe0]),
+        Some(ImageFormat::Jpeg)
+    );
+    assert_eq!(picture_format(b"GIF89a.."), Some(ImageFormat::Gif));
+    assert_eq!(
+        picture_format(b"RIFF\0\0\0\0WEBPVP8 "),
+        Some(ImageFormat::Webp)
+    );
+    assert_eq!(
+        picture_format(b"BM\x36\0\0\0\0\0\0\0"),
+        Some(ImageFormat::Bmp)
+    );
+    // a text that starts as a bitmap's mark has no zero bytes after it
+    assert_eq!(picture_format(b"BMW owners' notes"), None);
+    let picture = opened(&PNG, true);
+    assert_eq!(picture.holds(), Holds::Picture);
+    assert_eq!(picture.text(), None);
+    assert!(
+        !picture.editable(),
+        "a picture's bytes are not edited as text"
+    );
+    assert_eq!(opened(b"plain", true).holds(), Holds::Text);
+    assert_eq!(opened(&[0xff, 0xfe], true).holds(), Holds::Bytes);
+}
+
+#[test]
+fn a_listed_file_is_known_by_its_name() {
+    assert_eq!(holds_by_name("cat.JPG"), Holds::Picture);
+    assert_eq!(holds_by_name("notes.md"), Holds::Text);
+    assert_eq!(holds_by_name("archive.zip"), Holds::Bytes);
+    assert_eq!(
+        holds_by_name(".png"),
+        Holds::Bytes,
+        "a dotfile has no extension"
+    );
+    assert_eq!(holds_by_name("README"), Holds::Bytes);
+}
+
+#[test]
+fn a_desktop_folds_its_side_under_880_and_splits_from_1200() {
+    assert_eq!(Layout::of(479.), Layout::Narrow);
+    assert_eq!(Layout::of(879.), Layout::Narrow);
+    assert_eq!(Layout::of(880.), Layout::Wide);
+    assert_eq!(Layout::of(1199.), Layout::Wide);
+    assert_eq!(Layout::of(1200.), Layout::Split);
 }

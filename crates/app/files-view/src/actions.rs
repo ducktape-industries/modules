@@ -9,9 +9,15 @@ use crate::Files;
 use crate::state::{Route, Sheet};
 
 impl Files {
-    /// Opens `route` over the page on screen.
+    /// Opens `route` over the page on screen. A file's or a snapshot's
+    /// page is only ever opened from a list (a wide desktop shows each
+    /// beside it), so a route opened from one takes its place: the stack
+    /// does not grow with every row looked at, and Back leaves the list.
     pub(crate) fn open(&mut self, route: Route, cx: &mut Context<Self>) {
-        self.pages.push(route);
+        match self.page() {
+            Route::File(_) | Route::Snapshot(_) => self.pages.replace(route),
+            Route::Places | Route::Folder(_) | Route::History => self.pages.push(route),
+        }
         self.moved(cx);
     }
 

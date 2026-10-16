@@ -1,7 +1,7 @@
 //! `cargo run -p files-view --example live`: Files in the real app over a
 //! fake node with the real `files` program seated. The dev account (named
 //! `dev`) keeps notes and a plan in its home; ada shares a readme, a link
-//! to it and a small image, and keeps a diary in hers; the first snapshot
+//! to it and a picture, and keeps a diary in hers; the first snapshot
 //! is pinned `v1`. Dev writes in its home and `/shared`, and reads ada's.
 use files::{Change, Content, Op};
 use view::rig;
@@ -15,8 +15,8 @@ fn put(path: &str, bytes: &[u8]) -> Change {
     }
 }
 
-/// The first eight bytes of a PNG: a file that is not text.
-const PNG_HEAD: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+/// A picture, 640 by 400: the tape roll on yellow.
+const TAPE: &[u8] = include_bytes!("tape.png");
 
 fn main() {
     rig::run("files", |net| {
@@ -57,7 +57,7 @@ fn main() {
                     "/shared/readme.txt",
                     b"Everything under /shared is anyone's to write.",
                 ),
-                put("/shared/logo.png", &PNG_HEAD),
+                put("/shared/tape.png", TAPE),
                 Change::Symlink {
                     path: "/shared/latest".into(),
                     target: "/shared/readme.txt".into(),

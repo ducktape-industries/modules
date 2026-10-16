@@ -2,6 +2,7 @@
 //! and what each page read. Rows are the program's own types, worded only
 //! where they are drawn (`words.rs`, `ui/`).
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use files::{BlobId, DiffEntry, EntryInfo, Node, PathOwnership, PinRow, SnapshotRow, Writers};
 use serde::{Deserialize, Serialize};
@@ -23,12 +24,77 @@ pub const HISTORY_GLYPH: &str = "clock";
 pub const SNAPSHOT_GLYPH: &str = "git-commit-horizontal";
 pub const PIN_GLYPH: &str = "pin";
 
-/// The glyph a node's row leads with.
-pub fn node_glyph(node: &Node) -> &'static str {
-    match node {
+/// What a file holds, as both designs draw it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Holds {
+    /// a picture the app draws
+    Picture,
+    Text,
+    /// bytes neither: shown by their size
+    Bytes,
+}
+
+/// What a file named `name` holds, by what its name ends with: a listing
+/// carries no bytes. The page that opens it reads the bytes and knows.
+pub fn holds_by_name(name: &str) -> Holds {
+    const PICTURES: [&str; 6] = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
+    const TEXTS: [&str; 18] = [
+        "txt", "md", "markdown", "json", "toml", "yaml", "yml", "csv", "log", "html", "css", "js",
+        "ts", "rs", "py", "sh", "svg", "xml",
+    ];
+    let extension = match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => extension.to_ascii_lowercase(),
+        _ => return Holds::Bytes,
+    };
+    if PICTURES.contains(&extension.as_str()) {
+        Holds::Picture
+    } else if TEXTS.contains(&extension.as_str()) {
+        Holds::Text
+    } else {
+        Holds::Bytes
+    }
+}
+
+/// The glyph an entry's row leads with: a folder's, a link's, else what
+/// its name says the file holds.
+pub fn entry_glyph(entry: &EntryInfo) -> &'static str {
+    match entry.node {
         Node::Dir { .. } => "folder",
-        Node::File { .. } => "file-text",
         Node::Symlink { .. } => "link",
+        Node::File { .. } => match holds_by_name(name_of(&entry.path)) {
+            Holds::Picture => "image",
+            Holds::Text => "file-text",
+            Holds::Bytes => "file",
+        },
+    }
+}
+
+/// The picture `bytes` begin as, among the kinds the app draws (PNG, JPEG,
+/// GIF, WebP, BMP); `None` for anything else. An SVG is text, and shows
+/// as its text.
+pub fn picture_format(bytes: &[u8]) -> Option<ImageFormat> {
+    match bytes {
+        [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, ..] => Some(ImageFormat::Png),
+        [0xff, 0xd8, 0xff, ..] => Some(ImageFormat::Jpeg),
+        [b'G', b'I', b'F', b'8', b'7' | b'9', b'a', ..] => Some(ImageFormat::Gif),
+        [
+            b'R',
+            b'I',
+            b'F',
+            b'F',
+            _,
+            _,
+            _,
+            _,
+            b'W',
+            b'E',
+            b'B',
+            b'P',
+            ..,
+        ] => Some(ImageFormat::Webp),
+        // a bitmap's reserved bytes are zero, which no text has
+        [b'B', b'M', _, _, _, _, 0, 0, 0, 0, ..] => Some(ImageFormat::Bmp),
+        _ => None,
     }
 }
 
@@ -187,6 +253,14 @@ impl Folder {
 /// for its text to be edited here: an edit writes the whole file back.
 pub const PREVIEW: u64 = 64 * 1024;
 
+/// The most a picture may hold to be read whole and drawn; a larger one
+/// says its size.
+// ponytail: a picture shown is held whole in the view's memory and read
+// a chunk per query, then crosses to the app once; the app draws at most
+// 64 MiB of pixels (about 4096 x 4096), whatever the file holds. Read a
+// smaller rendition (made at upload) to show larger files.
+pub const SHOW_MOST: u64 = 8 << 20;
+
 /// One file as `files` answered it at one snapshot.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Opened {
@@ -201,6 +275,10 @@ pub struct Opened {
     pub bytes: Vec<u8>,
     /// `bytes` is the whole file
     pub whole: bool,
+    /// the whole picture, when the file is one of at most [`SHOW_MOST`]
+    /// bytes. Never kept: a restored view reads it again
+    #[serde(skip)]
+    pub picture: Option<Arc<Image>>,
     /// who writes it
     #[serde(with = "borsh_bytes")]
     pub ownership: Option<PathOwnership>,
@@ -215,9 +293,30 @@ impl Opened {
             .filter(|entry| !matches!(entry.node, Node::Dir { .. }))
     }
 
+    /// The picture on screen and the content it was read from: kept,
+    /// unread, while a later read finds the file's content the same.
+    pub fn kept_picture(&self) -> Option<(BlobId, Arc<Image>)> {
+        match (self.file().map(|entry| &entry.node), &self.picture) {
+            (Some(Node::File { file, .. }), Some(picture)) => Some((*file, picture.clone())),
+            _ => None,
+        }
+    }
+
+    /// What the file holds, by its first bytes.
+    pub fn holds(&self) -> Holds {
+        match (picture_format(&self.bytes), self.text()) {
+            (Some(_), _) => Holds::Picture,
+            (None, Some(_)) => Holds::Text,
+            (None, None) => Holds::Bytes,
+        }
+    }
+
     /// The bytes as text, when they are UTF-8; a read cut inside a
     /// character's bytes still is, up to that character.
     pub fn text(&self) -> Option<&str> {
+        if picture_format(&self.bytes).is_some() {
+            return None;
+        }
         match std::str::from_utf8(&self.bytes) {
             Ok(text) => Some(text),
             Err(cut) if cut.error_len().is_none() && !self.whole => {
@@ -333,6 +432,10 @@ pub struct Files {
     /// how many forms have opened: the next one's [`Form::id`]
     #[serde(skip)]
     pub(crate) forms: u64,
+    /// the pane's width, as the host lays the frame out: a desktop lays
+    /// its pages out by it (`ui::Layout`)
+    #[serde(skip)]
+    pub(crate) width: f32,
 }
 
 impl Default for Files {
@@ -348,6 +451,7 @@ impl Default for Files {
             note: None,
             sheet: None,
             forms: 0,
+            width: 0.,
         }
     }
 }
@@ -396,6 +500,14 @@ pub fn name_of(path: &str) -> &str {
     match path.rsplit_once('/') {
         Some((_, "")) | None => ROOT,
         Some((_, name)) => name,
+    }
+}
+
+/// The folder a path is in; `/` for the root's own entries.
+pub fn parent_of(path: &str) -> &str {
+    match path.rsplit_once('/') {
+        Some(("", _)) | None => ROOT,
+        Some((folder, _)) => folder,
     }
 }
 

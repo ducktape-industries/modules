@@ -2,10 +2,15 @@
 //! snapshot: the first answer names it, and every later page and read of
 //! the same screen asks that snapshot, so a commit landing in between never
 //! mixes two trees on one page.
+use std::sync::Arc;
+
 use files::{BlobId, PageRequest};
 use view::prelude::*;
 
-use crate::state::{Folder, HISTORY_PAGE, History, Names, Opened, PREVIEW, ROOT, Snapshot};
+use crate::state::{
+    Folder, HISTORY_PAGE, History, Names, Opened, PREVIEW, ROOT, SHOW_MOST, Snapshot,
+    picture_format,
+};
 
 /// A folder's entries, every page of them, and who writes it.
 pub(crate) async fn folder(host: Host, path: String) -> Result<Folder, Error> {
@@ -53,19 +58,24 @@ async fn ownership(
         .map(Some)
 }
 
-/// What is at `path`, its first [`PREVIEW`] bytes, and who writes it.
-pub(crate) async fn file(host: Host, path: String) -> Result<Opened, Error> {
+/// What is at `path`, its first [`PREVIEW`] bytes (the whole of a
+/// picture the app draws), and who writes it. `kept` is the picture on
+/// screen and the content it was read from: while the file's content is
+/// the same, it is kept and not read again.
+pub(crate) async fn file(
+    host: Host,
+    path: String,
+    kept: Option<(BlobId, Arc<Image>)>,
+) -> Result<Opened, Error> {
     let (snapshot, entry) = host
         .query(files::ask::Stat {
             path: path.clone(),
             at: None,
         })
         .await?;
-    let readable = entry
-        .as_ref()
-        .is_some_and(|entry| !matches!(entry.node, files::Node::Dir { .. }));
-    let (bytes, whole) = match readable {
-        true => {
+    let (bytes, whole, picture) = match entry.as_ref().map(|entry| &entry.node) {
+        None | Some(files::Node::Dir { .. }) => (Vec::new(), true, None),
+        Some(node) => {
             let contents = host
                 .query(files::ask::Read {
                     path: path.clone(),
@@ -74,9 +84,14 @@ pub(crate) async fn file(host: Host, path: String) -> Result<Opened, Error> {
                     len: PREVIEW,
                 })
                 .await?;
-            (contents.bytes, contents.eof)
+            let picture = match (node, kept) {
+                (files::Node::File { file, .. }, Some((was, kept))) if *file == was => Some(kept),
+                // a link's bytes are its target, never a picture's
+                (files::Node::File { .. }, _) => picture(&host, &path, snapshot, &contents).await?,
+                (_, _) => None,
+            };
+            (contents.bytes, contents.eof, picture)
         }
-        false => (Vec::new(), true),
     };
     let ownership = match entry {
         Some(_) => ownership(&host, &path, snapshot).await?,
@@ -88,8 +103,48 @@ pub(crate) async fn file(host: Host, path: String) -> Result<Opened, Error> {
         entry,
         bytes,
         whole,
+        picture,
         ownership,
     })
+}
+
+/// The whole picture a file's first bytes begin, read on from them a
+/// chunk at a time at the same snapshot; `None` when they begin none, or
+/// the file holds more than [`SHOW_MOST`].
+async fn picture(
+    host: &Host,
+    path: &str,
+    at: Option<BlobId>,
+    first: &files::Contents,
+) -> Result<Option<Arc<Image>>, Error> {
+    let Some(format) = picture_format(&first.bytes) else {
+        return Ok(None);
+    };
+    if first.size > SHOW_MOST {
+        return Ok(None);
+    }
+    let mut bytes = first.bytes.clone();
+    while (bytes.len() as u64) < first.size {
+        let next = host
+            .query(files::ask::Read {
+                path: path.to_owned(),
+                at,
+                offset: bytes.len() as u64,
+                len: files::CHUNK_SIZE,
+            })
+            .await?;
+        // a read at one snapshot short of the size it states would draw
+        // half a picture, or never end
+        if next.bytes.is_empty() {
+            return Err(view::host::malformed(format!(
+                "{path} ends at {} of its {} bytes",
+                bytes.len(),
+                first.size
+            )));
+        }
+        bytes.extend(next.bytes);
+    }
+    Ok(Some(Arc::new(Image::from_bytes(format, bytes))))
 }
 
 /// The newest [`HISTORY_PAGE`] snapshots, and every pin.

@@ -1,6 +1,6 @@
 //! A file's screen: its name over its path, its writes behind the title
-//! row's control, what it is and how big, then its text, where a link
-//! points, or that it is not text. New design in the kit's look; nearest
+//! row's control, what it is and how big, then its picture, its text,
+//! where a link points, or that it is neither. New design in the kit's look; nearest
 //! Expo screen `mobile/app/(tabs)/forge/[repo]/code/[...path].tsx` (a
 //! file's view). Reads the file; writes the route and opens the page's
 //! writes.
@@ -8,7 +8,7 @@ use files::Node;
 use view::design::space;
 
 use super::*;
-use crate::state::{Opened, name_of};
+use crate::state::{Holds, Opened, name_of};
 
 pub(super) fn file(view: &Files, path: &str, cx: Cx, k: &Kit) -> AnyElement {
     let page = page("files-file", name_of(path).to_owned(), view, cx, k).caption(path.to_owned());
@@ -38,22 +38,22 @@ fn opened(file: &Opened, k: &Kit) -> AnyElement {
         )
         .into_any_element();
     };
-    let text = file.text();
     let facts = div()
         .flex()
         .flex_col()
         .child(key_value(
             words::KIND,
-            words::kind(&entry.node, text.is_some()),
+            words::kind(&entry.node, file.holds()),
             k,
         ))
         .child(key_value(words::SIZE, words::size(file.size()), k));
-    let shown = match (&entry.node, text) {
-        (Node::Symlink { target }, _) => {
+    let shown = match (&entry.node, file.holds(), file.text()) {
+        (Node::Symlink { target }, _, _) => {
             key_value(words::TARGET, data(target.clone(), k), k).into_any_element()
         }
-        (_, Some(text)) => text_block(text, file, k),
-        (_, None) => quiet("files-not-text", words::not_text(file.size()), k),
+        (_, Holds::Picture, _) => picture(file, k),
+        (_, _, Some(text)) => text_block(text, file, k),
+        (_, _, None) => quiet("files-not-text", words::not_text(file.size()), k),
     };
     div()
         .flex()
@@ -80,4 +80,32 @@ fn text_block(text: &str, file: &Opened, k: &Kit) -> AnyElement {
         .children(cut)
         .child(data(text.to_owned(), k))
         .into_any_element()
+}
+
+/// The picture, the screen's width at most, never grown past its own
+/// size; or why it does not show.
+fn picture(file: &Opened, k: &Kit) -> AnyElement {
+    let theme = k.theme;
+    let ladder = k.ladder;
+    match words::picture(file) {
+        Ok(picture) => div()
+            .p(space::BLOCK)
+            .child(
+                img(picture.clone())
+                    .id("files-picture")
+                    .max_w_full()
+                    .object_fit(ObjectFit::ScaleDown)
+                    .role(Role::Image)
+                    .aria_label(name_of(&file.path).to_owned())
+                    .with_fallback(move || {
+                        quiet(
+                            "files-picture-note",
+                            words::NOT_DRAWN,
+                            &Kit { theme, ladder },
+                        )
+                    }),
+            )
+            .into_any_element(),
+        Err(sentence) => quiet("files-picture-note", sentence, k),
+    }
 }

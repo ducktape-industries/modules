@@ -1,12 +1,14 @@
 //! The desktop's pages over the seeded network: what each page shows, a
 //! refused read, and each write committed through the real program, as dev.
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use files::DiffKind;
+use files::{BlobId, DiffKind};
 use view::methods::{Query as Ask, Submit};
+use view::wire;
 
 use super::*;
+use crate::state::{Holds, SHOW_MOST};
 use crate::words;
 
 /// The place in the texts on screen of the first text containing `part`.
@@ -406,4 +408,285 @@ fn a_removed_folder_returns_to_the_folder_it_was_in() {
     commit_form(&mut cx);
     assert!(cx.has_text("notes.txt"), "{:?}", cx.texts());
     assert!(cx.find("files/entry/docs").is_none());
+}
+
+#[test]
+fn a_wide_pane_lists_the_places_down_the_side_in_place_of_the_tabs() {
+    let net = seeded();
+    let mut cx = desktop_at(&net, 1000.);
+    assert!(cx.find("files-side").is_some(), "{:?}", cx.texts());
+    assert!(cx.find("files-tabs").is_none());
+    assert!(
+        cx.find("files/side/pin/v1").is_some(),
+        "the pins are listed"
+    );
+    cx.simulate_click("files/side/home");
+    cx.run_until_parked();
+    assert!(cx.has_text(words::KIND), "a wide folder lists in columns");
+    assert!(
+        cx.has_text(words::kind(&file(), Holds::Text)),
+        "{:?}",
+        cx.texts()
+    );
+    cx.simulate_resize(700., 900.);
+    cx.run_until_parked();
+    assert!(cx.find("files-side").is_none());
+    assert!(
+        cx.find("files-tabs").is_some(),
+        "narrowed, the tabs are back"
+    );
+}
+
+#[test]
+fn split_a_file_opens_beside_its_folder_and_a_folder_there_takes_its_place() {
+    let net = seeded();
+    let mut cx = desktop_at(&net, 1440.);
+    cx.simulate_click("files/side/home");
+    cx.run_until_parked();
+    assert!(cx.has_text(words::PICK_A_FILE));
+    cx.simulate_click("files/entry/notes.txt");
+    cx.run_until_parked();
+    assert!(cx.find("files-list").is_some() && cx.find("files-detail").is_some());
+    assert!(cx.has_text(NOTES), "the file shows: {:?}", cx.texts());
+    assert!(cx.has_text("docs"), "its folder stays listed beside it");
+    cx.simulate_click("files/entry/docs");
+    cx.run_until_parked();
+    assert!(cx.has_text("plan.md"), "{:?}", cx.texts());
+    assert!(
+        cx.has_text(words::PICK_A_FILE),
+        "the folder took the file's place"
+    );
+}
+
+#[test]
+fn split_a_snapshot_opens_beside_the_history() {
+    let net = seeded();
+    let mut cx = desktop_at(&net, 1440.);
+    cx.simulate_click("files/side/pin/v1");
+    cx.run_until_parked();
+    assert!(cx.has_text(words::FIRST_SNAPSHOT), "{:?}", cx.texts());
+    assert!(
+        cx.has_text("Say more"),
+        "the history stays listed beside it"
+    );
+}
+
+#[test]
+fn an_image_shows_as_its_picture() {
+    let net = seeded();
+    let mut cx = desktop(&net);
+    cx.simulate_click("files/place/shared");
+    cx.run_until_parked();
+    cx.simulate_click("files/entry/dot.png");
+    cx.run_until_parked();
+    let under = format!(
+        "{} · {}",
+        words::kind(&file(), Holds::Picture),
+        words::size(PNG.len() as u64)
+    );
+    assert!(shows(&cx, &under), "{:?}", cx.texts());
+    assert!(
+        matches!(cx.find("files-picture"), Some(wire::Node::Image { .. })),
+        "{:?}",
+        cx.texts()
+    );
+}
+
+/// Whether the side's row for `key` is the one picked.
+fn picked(cx: &TestAppContext, key: &str) -> bool {
+    cx.interactivity(&format!("files/side/{key}")).aria.selected == Some(true)
+}
+
+#[test]
+fn a_pin_made_while_a_folder_is_open_joins_the_side() {
+    let net = seeded();
+    let mut cx = desktop_at(&net, 1000.);
+    cx.simulate_click("files/side/home");
+    cx.run_until_parked();
+    let snapshot = commit(
+        &net,
+        net.me(),
+        "More notes",
+        vec![put("/home/dev/more.txt", b"more")],
+    );
+    let pin = Op::Pin {
+        name: "v2".into(),
+        snapshot,
+    };
+    net.submit(net.me(), files::PROGRAM, &pin)
+        .expect("a pin on a minted snapshot");
+    cx.run_until_parked();
+    assert!(cx.find("files/side/pin/v2").is_some(), "{:?}", cx.texts());
+}
+
+#[test]
+fn a_restored_view_reads_what_landed_while_it_was_away() {
+    let net = seeded();
+    let mut cx = desktop_at(&net, 1000.);
+    cx.simulate_click("files/side/home");
+    cx.run_until_parked();
+    let bytes = cx.snapshot().unwrap();
+    let snapshot = commit(
+        &net,
+        net.me(),
+        "Share more",
+        vec![put("/shared/more.txt", b"more")],
+    );
+    let pin = Op::Pin {
+        name: "v2".into(),
+        snapshot,
+    };
+    net.submit(net.me(), files::PROGRAM, &pin)
+        .expect("a pin on a minted snapshot");
+    cx.restore::<Files>(&bytes).unwrap();
+    cx.run_until_parked();
+    assert!(cx.find("files/side/pin/v2").is_some(), "{:?}", cx.texts());
+}
+
+#[test]
+fn the_side_picks_the_place_or_the_pin_the_page_is_under() {
+    let net = seeded();
+    let mut cx = desktop_at(&net, 1000.);
+    cx.simulate_click("files/side/home");
+    cx.run_until_parked();
+    cx.simulate_click("files/entry/notes.txt");
+    cx.run_until_parked();
+    assert!(picked(&cx, "home") && !picked(&cx, "everything"));
+    cx.simulate_click("files/side/shared");
+    cx.run_until_parked();
+    cx.simulate_click("files/entry/readme.txt");
+    cx.run_until_parked();
+    assert!(picked(&cx, "shared"));
+    cx.simulate_click("files/side/pin/v1");
+    cx.run_until_parked();
+    assert!(picked(&cx, "pin/v1") && !picked(&cx, "history"));
+    // one Tab stop: the arrows open the item over or under
+    cx.simulate_focus("files-side-list");
+    cx.simulate_key_down("files-side-list", "up");
+    cx.run_until_parked();
+    assert!(picked(&cx, "history"), "{:?}", cx.texts());
+    assert!(cx.has_text("Say more"), "the history opened");
+    cx.simulate_key_down("files-side-list", "down");
+    cx.run_until_parked();
+    assert!(picked(&cx, "pin/v1"));
+}
+
+/// The snapshot each `Read` a page asked was at.
+type Reads = Rc<RefCell<Vec<Option<BlobId>>>>;
+
+/// A file at `/shared/big.png` that begins as a PNG and is `size` bytes in
+/// all, committed by dev; then its page, the `Read`s it asked kept.
+fn picture_page(size: usize) -> (TestAppContext, Network, Reads) {
+    let net = seeded();
+    let mut bytes = PNG.to_vec();
+    bytes.resize(size, 0);
+    commit(
+        &net,
+        net.me(),
+        "A big picture",
+        vec![put("/shared/big.png", &bytes)],
+    );
+    let mut cx = desktop(&net);
+    let reads = Reads::default();
+    let kept = reads.clone();
+    let chain = net.clone();
+    cx.host().handle::<Ask<files::Files>>(move |query| {
+        if let files::Query::Read { at, .. } = &query {
+            kept.borrow_mut().push(*at);
+        }
+        chain.query(files::PROGRAM, &query)
+    });
+    cx.simulate_click("files/place/shared");
+    cx.run_until_parked();
+    cx.simulate_click("files/entry/big.png");
+    cx.run_until_parked();
+    (cx, net, reads)
+}
+
+#[test]
+fn a_picture_larger_than_one_read_is_read_whole_at_one_snapshot() {
+    let size = 2 * files::CHUNK_SIZE as usize + 8;
+    let (cx, _, reads) = picture_page(size);
+    // the first 64 KiB, then a chunk at a time
+    let reads = reads.borrow();
+    assert_eq!(reads.len(), 3);
+    assert!(reads[0].is_some() && reads.iter().all(|at| *at == reads[0]));
+    let Some(wire::Node::Image {
+        data: Some(wire::ImageData::Encoded(bytes)),
+        ..
+    }) = cx.find("files-picture")
+    else {
+        panic!("no picture: {:?}", cx.texts());
+    };
+    assert_eq!(bytes.len(), size);
+}
+
+#[test]
+fn a_picture_on_screen_is_not_read_again_by_a_commit_that_leaves_it() {
+    let (mut cx, net, reads) = picture_page(2 * files::CHUNK_SIZE as usize + 8);
+    assert_eq!(reads.borrow().len(), 3);
+    commit(
+        &net,
+        net.me(),
+        "Another file",
+        vec![put("/shared/other.txt", b"other")],
+    );
+    cx.run_until_parked();
+    assert_eq!(reads.borrow().len(), 4, "its first bytes again, no more");
+    assert!(
+        matches!(cx.find("files-picture"), Some(wire::Node::Image { .. })),
+        "{:?}",
+        cx.texts()
+    );
+}
+
+#[test]
+fn a_picture_read_short_of_its_size_says_so() {
+    let net = seeded();
+    let mut bytes = PNG.to_vec();
+    bytes.resize(2 * files::CHUNK_SIZE as usize, 0);
+    commit(
+        &net,
+        net.me(),
+        "A big picture",
+        vec![put("/shared/big.png", &bytes)],
+    );
+    let mut cx = desktop(&net);
+    let chain = net.clone();
+    // every read past the first brings nothing
+    cx.host().handle::<Ask<files::Files>>(move |query| {
+        let past = matches!(query, files::Query::Read { offset, .. } if offset > 0);
+        match chain.query(files::PROGRAM, &query) {
+            Ok(files::Reply::Contents(contents)) if past => {
+                Ok(files::Reply::Contents(files::Contents {
+                    bytes: Vec::new(),
+                    eof: true,
+                    ..contents
+                }))
+            }
+            reply => reply,
+        }
+    });
+    cx.simulate_click("files/place/shared");
+    cx.run_until_parked();
+    cx.simulate_click("files/entry/big.png");
+    cx.run_until_parked();
+    assert!(cx.find("files-picture").is_none());
+    assert!(cx.find("files-file-refused").is_some(), "{:?}", cx.texts());
+}
+
+#[test]
+fn a_picture_too_large_to_draw_says_its_size_and_is_not_read_on() {
+    let (cx, _, reads) = picture_page(SHOW_MOST as usize + 1);
+    assert_eq!(
+        reads.borrow().len(),
+        1,
+        "only the first bytes, which say it is a picture"
+    );
+    assert!(cx.find("files-picture").is_none());
+    assert!(
+        shows(&cx, &words::too_big_to_show(SHOW_MOST + 1)),
+        "{:?}",
+        cx.texts()
+    );
 }

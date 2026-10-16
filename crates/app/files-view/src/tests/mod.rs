@@ -18,6 +18,14 @@ use crate::Files;
 pub(crate) const NOTES: &str = "hello\nfrom dev";
 /// Bytes that are not UTF-8.
 pub(crate) const NOT_TEXT: [u8; 4] = [0xff, 0xfe, 0x00, 0x01];
+/// A one-pixel PNG.
+pub(crate) const PNG: [u8; 67] = [
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+    0x42, 0x60, 0x82,
+];
 
 /// When the seed's first block lands (unix ms), each next one a minute
 /// on: pinned, so a byline drawn to the second is the same on every run.
@@ -57,7 +65,8 @@ pub(crate) fn commit(
 /// The network every test starts from: three commits and a pin.
 /// 1. dev: `/home/dev/notes.txt`, `/home/dev/docs/plan.md`
 /// 2. ada: `/home/ada/diary.txt`, `/shared/readme.txt`, `/shared/blob.bin`
-///    (not text), the link `/shared/latest` to the readme
+///    (not text), `/shared/dot.png` ([`PNG`]), the link `/shared/latest` to
+///    the readme
 /// 3. dev: `/home/dev/notes.txt` again, its text [`NOTES`]
 ///
 /// and the pin `v1` on the first snapshot.
@@ -85,6 +94,7 @@ pub(crate) fn seeded() -> Network {
             put("/home/ada/diary.txt", b"dear diary"),
             put("/shared/readme.txt", b"read me"),
             put("/shared/blob.bin", &NOT_TEXT),
+            put("/shared/dot.png", &PNG),
             Change::Symlink {
                 path: "/shared/latest".into(),
                 target: "/shared/readme.txt".into(),
@@ -108,6 +118,15 @@ pub(crate) fn seeded() -> Network {
     net
 }
 
+/// A file node, for the words a file's kind is said in.
+pub(crate) fn file() -> files::Node {
+    files::Node::File {
+        file: files::BlobId::Sha256([0; 32]),
+        size: 0,
+        exec: false,
+    }
+}
+
 /// The view over `net`, read by `session`'s account, under a finger when
 /// `touch`.
 pub(crate) fn opened_as(net: &Network, session: Session, touch: bool) -> TestAppContext {
@@ -124,6 +143,15 @@ pub(crate) fn opened_as(net: &Network, session: Session, touch: bool) -> TestApp
 /// The view over `net`, read by dev, under a pointer.
 pub(crate) fn desktop(net: &Network) -> TestAppContext {
     opened_as(net, net.session(), false)
+}
+
+/// The view over `net`, read by dev, under a pointer in a pane `width`
+/// wide.
+pub(crate) fn desktop_at(net: &Network, width: f32) -> TestAppContext {
+    let mut cx = desktop(net);
+    cx.simulate_resize(width, 900.);
+    cx.run_until_parked();
+    cx
 }
 
 /// The view over `net`, read by dev, under a finger.
