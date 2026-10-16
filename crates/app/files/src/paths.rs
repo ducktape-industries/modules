@@ -98,9 +98,20 @@ pub fn writers(segments: &[String], along: &[Option<Access>], act: Act) -> Write
         return listed;
     }
     match (segments, act) {
-        ([root, _, ..], _) if root == "shared" => Writers::Shared,
-        ([root, home, _, ..], _) if root == "home" => Writers::Home(home.clone()),
         ([root, home], Act::SetOwnership) if root == "home" => Writers::Home(home.clone()),
+        ([folder @ .., _], _) => made_in(folder),
+        _ => Writers::Chain,
+    }
+}
+
+/// Who may write what is made in `folder` when no write list applies: a
+/// child of `/shared` or below it is anyone's, a child of `/home/<name>`
+/// or below it that account's, any other the chain's. A view asks it to
+/// offer only the writes files would take.
+pub fn made_in(folder: &[String]) -> Writers {
+    match folder {
+        [root, ..] if root == "shared" => Writers::Shared,
+        [root, home, ..] if root == "home" => Writers::Home(home.clone()),
         _ => Writers::Chain,
     }
 }
