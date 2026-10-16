@@ -1,9 +1,10 @@
 //! Where the reader goes: a tab or a row, a search, a link opened into the
 //! explorer, and a page's link copied out of it.
+use view::design::Pages;
 use view::prelude::*;
 
 use crate::Explorer;
-use crate::state::{Note, Route, hash_of};
+use crate::state::{Linked, Note, Route, hash_of};
 
 enum Found {
     Block,
@@ -12,12 +13,29 @@ enum Found {
 
 impl Explorer {
     /// Opens `route`: a tab's own list becomes the root, any other page
-    /// goes over the list it was opened from.
+    /// goes over the page it was opened from (Expo's `router.push`).
     pub(crate) fn go(&mut self, route: Route, cx: &mut Context<Self>) {
         if route.listed() {
-            self.root = route.clone();
+            self.pages = Pages::root(route);
+        } else {
+            self.pages.push(route);
         }
-        self.arrive(route, cx);
+        self.arrive(cx);
+    }
+
+    /// A block's step to the one before or after: it takes the page's
+    /// place, so Back leaves the blocks (Expo's `router.setParams`,
+    /// `block/[height].tsx:57`).
+    pub(crate) fn step(&mut self, height: u64, cx: &mut Context<Self>) {
+        self.pages.replace(Route::Block(height));
+        self.arrive(cx);
+    }
+
+    /// The line under the title row goes (its Dismiss), and with it a page
+    /// a link opened that shows nothing.
+    pub(crate) fn dismiss_note(&mut self, cx: &mut Context<Self>) {
+        self.note = None;
+        cx.notify();
     }
 
     /// Back over a drawn sheet: More, a program's sheet or a form closes.
@@ -27,17 +45,21 @@ impl Explorer {
         cx.notify();
     }
 
-    /// Back with no sheet drawn: the page over the root goes and its list
-    /// shows. A sheet held but not drawn (its network still reading) goes
-    /// with the page, so it never opens over the list.
+    /// Back with no sheet drawn: the top page goes and the one it was
+    /// opened from shows, read again. A sheet held but not drawn (its
+    /// network still reading) goes with the page, so it never opens over
+    /// the one under it.
     pub(crate) fn leave_page(&mut self, cx: &mut Context<Self>) {
         self.acting.form = None;
-        self.arrive(self.root.clone(), cx);
+        self.pages.pop();
+        self.arrive(cx);
     }
 
-    fn arrive(&mut self, route: Route, cx: &mut Context<Self>) {
-        self.left[route.tab()] = Some(route.clone());
-        self.route = route;
+    /// The top page shows: what it reads past the window is asked, and
+    /// what belonged to the page before goes.
+    fn arrive(&mut self, cx: &mut Context<Self>) {
+        let top = self.pages.top();
+        self.left[top.tab()] = Some(top.clone());
         self.read_page(cx);
         self.read_acted(cx);
         self.note = None;
@@ -64,7 +86,7 @@ impl Explorer {
             return self.go(Route::Block(height), cx);
         }
         if let Some(hash) = hash_of(&query) {
-            return self.find_hash(hash, cx);
+            return self.find_hash(hash, None, cx);
         }
         let number = query
             .strip_prefix('#')
@@ -90,9 +112,10 @@ impl Explorer {
         cx.notify();
     }
 
-    /// A hash, as search and a link read it: a transaction or a block in the
-    /// window, else a block or a transaction the node finds by it.
-    fn find_hash(&mut self, hash: [u8; 32], cx: &mut Context<Self>) {
+    /// A hash, as search and a link (`link`, the page it named) read it: a
+    /// transaction or a block in the window, else a block or a transaction
+    /// the node finds by it.
+    fn find_hash(&mut self, hash: [u8; 32], link: Option<Linked>, cx: &mut Context<Self>) {
         if let Some(tx) = self.tx(&hash) {
             let at = Route::Tx {
                 height: tx.height,
@@ -144,7 +167,7 @@ impl Explorer {
                     view.opened = Loadable::Ready(Some((row, txs)));
                     view.go(route, cx);
                 }
-                Ok(None) => view.note = Some(Note::NoSuchHash { listed_from }),
+                Ok(None) => view.note = Some(Note::NoSuchHash { listed_from, link }),
                 Err(refusal) => view.note = Some(Note::Refused(refusal.message)),
             }
             cx.notify();
@@ -156,12 +179,11 @@ impl Explorer {
         if let Some(opened) = Route::from_path(route) {
             return self.go(opened, cx);
         }
-        let hashed = route
-            .strip_prefix("block/")
-            .or_else(|| route.strip_prefix("tx/"))
-            .and_then(hash_of);
-        if let Some(hash) = hashed {
-            return self.find_hash(hash, cx);
+        let hashed = (route.strip_prefix("block/").map(|hash| (hash, Linked::Block)))
+            .or_else(|| route.strip_prefix("tx/").map(|hash| (hash, Linked::Tx)))
+            .and_then(|(hash, link)| Some((hash_of(hash)?, link)));
+        if let Some((hash, link)) = hashed {
+            return self.find_hash(hash, Some(link), cx);
         }
         self.note = Some(Note::Unlinked(route.to_owned()));
         cx.notify();

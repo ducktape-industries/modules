@@ -20,6 +20,12 @@ pub(super) fn block(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> AnyElement
     page.child(body).into_any_element()
 }
 
+/// A block link's hash that nothing here has (Expo `block/[height].tsx:36-43`
+/// `ByHash`).
+pub(super) fn by_hash(note: &Note, cx: Cx, k: &Kit) -> AnyElement {
+    gone("explorer-block-unfound", "Block", "search-x", "Not found", note, cx, k)
+}
+
 /// A block not in hand: being read, refused, or not on this node (below
 /// where its archive starts, or never finalized).
 fn missing(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> AnyElement {
@@ -122,7 +128,7 @@ fn steps(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> Div {
         let press = to.map(|to| -> Press {
             Box::new(
                 cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| {
-                    view.go(Route::Block(to), cx)
+                    view.step(to, cx)
                 }),
             )
         });

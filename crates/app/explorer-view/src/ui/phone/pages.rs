@@ -14,7 +14,7 @@ const LIST_ROWS: usize = 50;
 
 /// The root page's list under the strip.
 pub(super) fn body(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
-    match view.root {
+    match view.pages.first() {
         Route::Blocks => chain_gate(view, cx, k).unwrap_or_else(|| blocks(view, cx, k)),
         Route::Transactions(_) => {
             chain_gate(view, cx, k).unwrap_or_else(|| transactions(view, None, cx, k))

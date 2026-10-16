@@ -31,7 +31,7 @@ impl Explorer {
     /// code blanks the one shown. Nothing to ask while no program page is
     /// open or the roster does not name it.
     pub(crate) fn read_manifest(&mut self, cx: &mut Context<Self>) {
-        let Route::Program(name) = &self.route else {
+        let Route::Program(name) = self.pages.top() else {
             return;
         };
         let Some(code) = self.code_of(name) else {
@@ -123,7 +123,7 @@ impl Explorer {
     }
 
     pub(crate) fn read_acted(&mut self, cx: &mut Context<Self>) {
-        let Route::Account(number) = self.route else {
+        let Route::Account(number) = *self.pages.top() else {
             return;
         };
         let unheld = self.acted(number).is_none();
@@ -275,7 +275,7 @@ impl Explorer {
     /// What the page on screen reads past the window: a block or a
     /// transaction the window does not hold. On arriving, and on a retry.
     pub(crate) fn read_page(&mut self, cx: &mut Context<Self>) {
-        match self.route {
+        match *self.pages.top() {
             Route::Block(height) => self.open_block(height, cx),
             Route::Tx { height, position } => self.locate(height, position, cx),
             _ => {}

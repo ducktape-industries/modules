@@ -354,7 +354,7 @@ pub(crate) fn unindexed(from: u64) -> String {
 pub(crate) fn note(note: &Note) -> String {
     match note {
         Note::NotFound(query) => format!("Nothing here is called “{query}”."),
-        Note::NoSuchHash { listed_from } => {
+        Note::NoSuchHash { listed_from, .. } => {
             let since = listed_from.filter(|from| *from > 0);
             match since {
                 Some(from) => format!(

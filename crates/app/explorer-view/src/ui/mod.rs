@@ -93,7 +93,7 @@ pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
         );
     }
     let scroller = div().id("explorer-page").flex_1().flex().flex_col();
-    let scroller = match view.route {
+    let scroller = match view.pages.top() {
         Route::Transactions(_) | Route::Blocks | Route::Accounts => scroller.min_h_0(),
         _ => scroller.overflow_y_scroll(),
     };
@@ -110,7 +110,7 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> impl IntoElem
         ("programs", "Programs", Route::Programs),
     ];
     let submit = cx.listener(|view: &mut Explorer, _: &(), _, cx| view.search(cx));
-    let shown = view.route.tab();
+    let shown = view.pages.top().tab();
     let routes: Vec<Route> = tabs.iter().map(|(_, _, route)| route.clone()).collect();
     let pressed = routes.clone();
     let tabs = tabs.into_iter().map(|(key, label, route)| {
@@ -192,7 +192,7 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> impl IntoElem
 
 fn page(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let without_chain = matches!(
-        view.route,
+        view.pages.top(),
         Route::Programs | Route::Program(_) | Route::Accounts
     );
     if view.chain.blocks.is_empty() && !without_chain {
@@ -201,7 +201,7 @@ fn page(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
             None => quiet("explorer-loading", words::READING_CHAIN, theme),
         };
     }
-    match view.route.clone() {
+    match view.pages.top().clone() {
         Route::Overview => overview(view, cx, theme, ladder),
         Route::Blocks => blocks(view, cx, theme),
         Route::Block(height) => block(view, height, cx, theme, ladder),

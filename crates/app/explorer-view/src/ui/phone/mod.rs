@@ -16,7 +16,7 @@ use view::{Div, FontWeight, Stateful};
 
 use crate::chain::{Line, lines};
 use crate::decode::{ago, date, grouped, plural};
-use crate::state::Sheet;
+use crate::state::{Linked, Sheet};
 use crate::words::{self, unindexed};
 use crate::{BlockRow, Cx, Explorer, Note, Route, TxRow};
 use design::mono;
@@ -31,6 +31,7 @@ mod program;
 mod programs;
 mod tx;
 mod txs;
+mod unlinked;
 use parts::*;
 
 /// What every piece draws with: the theme, and the touch ladder (the Expo
@@ -46,7 +47,17 @@ pub(crate) fn render(view: &Explorer, cx: Cx) -> AnyElement {
         theme: *cx.global::<Theme>(),
         ladder: design::TOUCH,
     };
-    let page = match view.pages().top().clone() {
+    // a link that opened nothing is a page of its own over the stack
+    let gone = match &view.note {
+        Some(note @ Note::Unlinked(_)) => Some(unlinked::unlinked(note, cx, k)),
+        Some(note @ Note::NoSuchHash { link: Some(link), .. }) => Some(match link {
+            Linked::Block => block::by_hash(note, cx, k),
+            Linked::Tx => tx::by_hash(note, cx, k),
+        }),
+        _ => None,
+    };
+    let lost = gone.is_some();
+    let page = gone.unwrap_or_else(|| match view.pages.top().clone() {
         Route::Block(height) => block::block(view, height, cx, k),
         Route::Tx { height, position } => tx::tx(view, height, position, cx, k),
         Route::Account(number) => account::account(view, number, cx, k),
@@ -57,19 +68,22 @@ pub(crate) fn render(view: &Explorer, cx: Cx) -> AnyElement {
         | Route::Transactions(None)
         | Route::Accounts
         | Route::Programs => explorer::root(view, cx, k),
-    };
+    });
     let sheet = match &view.sheet {
         Some(Sheet::More) => Some(programs::more_sheet(view, cx, k)),
         Some(Sheet::Program(name)) => programs::program_sheet(view, name, cx, k),
         None => form::sheet(view, cx, k),
     };
-    // Back undoes what is drawn: the sheet on screen, else the page over
-    // the root; with neither, the host leaves the program
+    // Back undoes what is drawn: the sheet on screen, else a link's page
+    // that shows nothing, else the top page; with none, the host leaves the
+    // program
     let drawn = sheet.is_some();
-    let back = (drawn || view.pages().depth() > 0).then(|| {
+    let back = (drawn || lost || view.pages.depth() > 0).then(|| {
         cx.listener(move |view: &mut Explorer, _: &BackEvent, _, cx| {
             if drawn {
                 view.close_sheet(cx)
+            } else if lost {
+                view.dismiss_note(cx)
             } else {
                 view.leave_page(cx)
             }

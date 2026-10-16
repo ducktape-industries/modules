@@ -162,14 +162,24 @@ pub struct Network {
     pub roles: Option<abi::Roles>,
 }
 
+/// The page a link named by a hash (`block/<hash>`, `tx/<hash>`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Linked {
+    Block,
+    Tx,
+}
+
 /// The line under the bar: what a search, a link or a copy came to. Worded
 /// when drawn.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Note {
     /// a search that names nothing here
     NotFound(String),
+    /// a hash nothing here has: searched for (`link` none), or named by a
+    /// block or transaction link
     NoSuchHash {
         listed_from: Option<u64>,
+        link: Option<Linked>,
     },
     /// a link whose path names no page
     Unlinked(String),
@@ -183,11 +193,11 @@ pub enum Note {
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Explorer {
-    /// the page on screen
-    pub(crate) route: Route,
-    /// the tab's list `route` was opened from: the root of the view's one
-    /// page stack ([`Explorer::pages`]), where Back returns
-    pub(crate) root: Route,
+    /// The view's one route model in both designs (Expo's `Stack`): the
+    /// tab's list at the root, each page opened from it pushed over it, a
+    /// block's steps replacing the top. The phone draws the top alone, Back
+    /// popping one; the desktop draws the top under its tab bar.
+    pub(crate) pages: Pages<Route>,
     /// the search field, as typed
     pub(crate) search: TextField,
     pub(crate) note: Option<Note>,
@@ -302,18 +312,6 @@ impl Unlisted {
 }
 
 impl Explorer {
-    /// The view's one route model in both designs: the tab's list at the
-    /// root, and the page opened from it on top. The phone draws the top
-    /// alone, Back popping to the list; the desktop draws the top under its
-    /// tab bar.
-    pub(crate) fn pages(&self) -> Pages<Route> {
-        let mut pages = Pages::root(self.root.clone());
-        if self.route != self.root {
-            pages.push(self.route.clone());
-        }
-        pages
-    }
-
     /// What the code of the program page on screen declares; `listed`, a
     /// view-only entry's.
     pub(crate) fn declared(&self, listed: bool) -> Declared<'_> {

@@ -80,7 +80,7 @@ fn titled(view: &Explorer, cx: Cx, k: &Kit) -> design::Page {
         Some(caption) => page.caption(caption),
         None => page,
     };
-    match view.root {
+    match view.pages.first() {
         Route::Programs => super::programs::more(view, page, cx, k),
         _ => page,
     }
@@ -168,7 +168,7 @@ fn field(view: &Explorer, cx: Cx, k: &Kit) -> Div {
 /// The five pages on a strip that scrolls sideways (Expo `Strip`): one Tab
 /// stop, ← → move through the pages, a press opens a page's list.
 fn strip(view: &Explorer, cx: Cx, k: &Kit) -> Stateful<Div> {
-    let shown = view.root.tab();
+    let shown = view.pages.first().tab();
     let routes = || PAGES.map(|(_, _, route)| route);
     let (moved, pressed) = (routes(), routes());
     let pages: Vec<Stateful<Div>> = PAGES

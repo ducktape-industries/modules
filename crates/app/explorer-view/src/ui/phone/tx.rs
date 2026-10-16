@@ -33,6 +33,12 @@ pub(super) fn tx(view: &Explorer, height: u64, position: u32, cx: Cx, k: &Kit) -
     page.child(found(view, tx, cx, k)).into_any_element()
 }
 
+/// A transaction link's hash that nothing here has (Expo `tx/[hash].tsx:43`).
+pub(super) fn by_hash(note: &Note, cx: Cx, k: &Kit) -> AnyElement {
+    let heading = words::NO_TRANSACTION;
+    gone("explorer-tx-unfound", "Transaction", "search-x", heading, note, cx, k)
+}
+
 /// A transaction not in hand: being read, refused, or not at its place.
 /// The words are ours: a transaction opens by its place here, not by a
 /// hash in the window as in the Expo app.

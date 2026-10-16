@@ -88,6 +88,24 @@ pub(super) fn over(
     }
 }
 
+/// A page a link opened that shows nothing (Expo's `Unlinked` and
+/// `ByHash`): its title row with Back, which dismisses the note the link
+/// left, over the empty state saying why.
+pub(super) fn gone(
+    id: &'static str,
+    title: &'static str,
+    icon: &str,
+    heading: &'static str,
+    note: &Note,
+    cx: Cx,
+    k: &Kit,
+) -> AnyElement {
+    let dismiss = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.dismiss_note(cx));
+    design::page(id, title, design::Nav::back(dismiss), &k.ladder, &k.theme)
+        .child(empty("explorer-gone-why", icon, heading, words::note(note), k))
+        .into_any_element()
+}
+
 /// Copy link in a page's title row (Expo `CopyLink`): absent while the
 /// session names no chain to mint the link in.
 pub(super) fn copy_link(view: &Explorer, route: &Route, cx: Cx, k: &Kit) -> Option<AnyElement> {
@@ -183,10 +201,7 @@ pub(super) fn note(view: &Explorer, cx: Cx, k: &Kit) -> Option<Stateful<Div>> {
             Tone::Quiet
         }
     };
-    let dismiss = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| {
-        view.note = None;
-        cx.notify();
-    });
+    let dismiss = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.dismiss_note(cx));
     let dismiss = Act {
         id: "explorer-note-dismiss",
         label: "Dismiss",
