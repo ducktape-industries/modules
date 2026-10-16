@@ -4,8 +4,9 @@
 //! captions, why the validators' cells are empty, and the footnote. The
 //! desktop's sheet (`ui.rs`, `table.rs`, `motions.rs`) and the phone's
 //! screens (`ui/phone/`) read them here; a sentence only one tree shows
-//! stays in that tree. What a motion does in words is `voting.rs`'s, and a
-//! validator's status word `row.rs`'s.
+//! stays in that tree. What a motion does in words is `voting.rs`'s
+//! (`words`, and the labels in `motions_on`), what a vote came to
+//! `voting::said`'s, and a validator's status word `row.rs`'s.
 use programs::Pending as Scheduled;
 use valset::Pending;
 use view::prelude::*;
@@ -16,6 +17,8 @@ use crate::voting::{self, Voting};
 
 /// The view's title until the node names its network.
 pub(crate) const NODES: &str = "Nodes";
+/// The door's press and its sheet's title.
+pub(crate) const DOOR: &str = "The door";
 /// A fact the node has not given: an address, a vote, how far behind.
 pub(crate) const NO_VALUE: &str = "—";
 pub(crate) const READING_STATUS: &str = "Reading node status…";
@@ -64,11 +67,23 @@ pub(crate) const NOT_NOW: &str = "Not now";
 pub(crate) const DISMISS: &str = "Dismiss";
 
 /// The door's motion as a press names it, and what it means.
-pub(crate) fn door(open: bool) -> (&'static str, &'static str) {
+pub(crate) fn door(open: bool) -> Door {
     match open {
-        true => ("Open the door", "anyone enrolls without an invite"),
-        false => ("Close the door", "enrolling takes an invite"),
+        true => Door {
+            label: "Open the door",
+            meaning: "anyone enrolls without an invite",
+        },
+        false => Door {
+            label: "Close the door",
+            meaning: "enrolling takes an invite",
+        },
     }
+}
+
+/// A door motion's words: what it does, and what that means.
+pub(crate) struct Door {
+    pub(crate) label: &'static str,
+    pub(crate) meaning: &'static str,
 }
 
 /// Whether the connected node answers.

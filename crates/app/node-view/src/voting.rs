@@ -186,6 +186,8 @@ impl Nodes {
     }
 }
 
+// SDK gap: a write's failure in words (Expo `src/write/words.ts`
+// `failure`), which every view that writes needs; the SDK builds it later
 /// What a vote came to, in the Expo app's words (mobile
 /// `src/network/nodes.ts` `votedWords`, `src/write/words.ts` `failure`):
 /// what a landed one did; else why it stopped, told apart by whether it
@@ -268,8 +270,8 @@ pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String 
         Motion::Demote { key } => format!("Demote {} to resident", key_words(key)),
         Motion::Remove { key } => format!("Remove {} from the network", key_words(key)),
         Motion::Door { open } => {
-            let (door, meaning) = crate::words::door(*open);
-            format!("{door}: {meaning}")
+            let door = crate::words::door(*open);
+            format!("{}: {}", door.label, door.meaning)
         }
         Motion::Role { role, op } if role == abi::role::PROGRAMS => match abi::decode(op) {
             Ok(programs::Op::Schedule(scheduled)) => {

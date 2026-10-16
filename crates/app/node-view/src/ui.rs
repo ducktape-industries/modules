@@ -61,7 +61,7 @@ fn head(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -
             .child(
                 design::button(
                     "nodes-door-open",
-                    words::door(true).0,
+                    words::door(true).label,
                     ladder,
                     theme,
                     press(true),
@@ -72,7 +72,7 @@ fn head(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -
             .child(
                 design::button(
                     "nodes-door-close",
-                    words::door(false).0,
+                    words::door(false).label,
                     ladder,
                     theme,
                     press(false),

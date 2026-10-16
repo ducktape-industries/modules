@@ -94,7 +94,7 @@ fn door_button(cx: &mut Context<Nodes>, theme: &Theme) -> impl IntoElement {
     design::icon_button(
         "nodes-door",
         design::icon("ellipsis", LADDER.icon),
-        "The door",
+        words::DOOR,
         &LADDER,
         theme,
         open,
@@ -592,7 +592,7 @@ pub(super) fn door(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Opti
     let open = door_row("nodes-door-open", true, cx, theme);
     let shut = door_row("nodes-door-close", false, cx, theme);
     Some(
-        design::sheet("nodes-door-sheet", "The door", &LADDER, theme)
+        design::sheet("nodes-door-sheet", words::DOOR, &LADDER, theme)
             .on_dismiss(close)
             .child(div().flex().flex_col().child(open).child(shut))
             .into_any_element(),
@@ -602,18 +602,18 @@ pub(super) fn door(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Opti
 /// One of the door's sheet rows: the motion that opens or closes the
 /// door, and what it means as the row's hint.
 fn door_row(id: &'static str, open: bool, cx: &Context<Nodes>, theme: &Theme) -> impl IntoElement {
-    let (label, meaning) = words::door(open);
+    let door = words::door(open);
     let vote = cx.listener(move |view: &mut Nodes, _: &ClickEvent, _, cx| {
         view.door = false;
         view.press(Motion::Door { open }, cx);
     });
     // SDK gap: the sheet row's hint (caption, muted, at the right), swap
     // when feat/phone-kit lands
-    design::sheet_row(id, None, label, false, &LADDER, theme, vote).child(
+    design::sheet_row(id, None, door.label, false, &LADDER, theme, vote).child(
         div()
             .flex_none()
             .text_type(LADDER.caption)
             .text_color(theme.muted)
-            .child(meaning),
+            .child(door.meaning),
     )
 }
