@@ -19,8 +19,9 @@ pub struct TextNode {
     /// reader hears, and what a selection copies.
     pub content: String,
     /// A change of case the host draws `content` in; absent, it draws the
-    /// words as written. Left out of the bytes when absent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// words as written. A text from a build before this field, which
+    /// ends at `content`, reads as absent.
+    #[serde(default)]
     pub transform: Option<TextTransform>,
 }
 

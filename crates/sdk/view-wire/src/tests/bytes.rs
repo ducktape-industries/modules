@@ -181,10 +181,10 @@ fn bytes_after_the_value_are_refused() {
 }
 
 /// A text drawn in another case still crosses with its words as written. A
-/// text with no transform writes the bytes it wrote before the field came,
-/// and a transform this build does not know does not decode.
+/// text from a build before the field reads as drawn as written, and a
+/// transform this build does not know does not decode.
 #[test]
-fn a_text_transform_is_left_out_unset_and_refused_unknown() {
+fn a_text_transform_reads_absent_from_an_older_text_and_refused_unknown() {
     #[derive(serde::Serialize)]
     struct Before {
         id: Option<ElementIdWire>,
@@ -215,7 +215,7 @@ fn a_text_transform_is_left_out_unset_and_refused_unknown() {
         style: StyleId(0),
         content: words.into(),
     };
-    assert_eq!(encode(&plain), encode(&before));
+    assert_eq!(decode::<TextNode>(&encode(&before)), Ok(plain.clone()));
     let drawn = TextNode {
         transform: Some(TextTransform::Uppercase),
         ..plain
