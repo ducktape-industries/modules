@@ -294,7 +294,7 @@ pub(super) fn small_button(
         true => (theme.border_strong, theme.foreground),
         false => (theme.border, theme.faint),
     };
-    let hit = design::hit(id, LADDER.hit, SMALL_BUTTON, &LADDER)
+    let hit = design::hit(id, LADDER.hit, SMALL_BUTTON, px(1.), &LADDER)
         .role(Role::Button)
         .aria_label(label);
     let hit = match pressable {
