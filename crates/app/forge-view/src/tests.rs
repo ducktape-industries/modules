@@ -3066,7 +3066,7 @@ fn a_long_ref_list_keeps_the_picker_in_the_window() {
 fn a_long_ref_name_is_cut_in_the_middle_and_whole_on_hover() {
     use crate::ui::components::{name_cell, whole_name};
     let long = "people/ada/a-rather-long-branch-name-about-the-perf-work-35";
-    let (node, styles) = view::testing::lower::<Forge, _>(|_| {
+    let (node, styles, _) = view::testing::lower::<Forge, _>(|_| {
         div()
             .id("names")
             .child(whole_name(

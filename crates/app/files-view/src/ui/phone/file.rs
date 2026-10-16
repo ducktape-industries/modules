@@ -26,7 +26,17 @@ pub(super) fn file(view: &Files, path: &str, cx: Cx, k: &Kit) -> AnyElement {
 fn opened(file: &Opened, k: &Kit) -> AnyElement {
     let Some(entry) = file.file() else {
         let name = name_of(&file.path).to_owned();
-        return design::empty_state("files-gone", name, words::GONE, &k.theme).into_any_element();
+        // the glyph Expo's forge gives a path that is not there
+        // (`app/(tabs)/forge/[repo]/code/[...path].tsx:70`)
+        return design::empty_state(
+            "files-gone",
+            "file-question-mark",
+            name,
+            words::GONE,
+            &k.ladder,
+            &k.theme,
+        )
+        .into_any_element();
     };
     let text = file.text();
     let facts = div()

@@ -55,8 +55,10 @@ pub fn render(chat: &Chat, touch: bool, cx: &mut Context<Chat>) -> impl IntoElem
         } else {
             empty_state(
                 "chat-disconnected",
+                "wifi-off",
                 "Not connected",
                 "Choose a network from the sidebar to reconnect.",
+                ladder,
                 &theme,
             )
             .into_any_element()

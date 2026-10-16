@@ -31,8 +31,15 @@ pub(super) fn folder(view: &Files, path: &str, cx: Cx, k: &Kit) -> AnyElement {
 fn entries(entries: &[EntryInfo], writable: bool, cx: Cx, k: &Kit) -> AnyElement {
     if entries.is_empty() {
         let detail = words::empty_folder(writable);
-        return design::empty_state("files-empty", words::EMPTY_FOLDER, detail, &k.theme)
-            .into_any_element();
+        return design::empty_state(
+            "files-empty",
+            "folder-open",
+            words::EMPTY_FOLDER,
+            detail,
+            &k.ladder,
+            &k.theme,
+        )
+        .into_any_element();
     }
     // ponytail: every entry is drawn; a uniform_list once folders hold
     // more than a screenful of hundreds

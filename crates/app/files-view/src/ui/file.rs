@@ -24,8 +24,10 @@ pub(super) fn file(view: &Files, path: &str, cx: Cx, k: &Kit) -> AnyElement {
         return page
             .child(design::empty_state(
                 "files-gone",
+                "file-question-mark",
                 name_of(path).to_owned(),
                 words::GONE,
+                &k.ladder,
                 &k.theme,
             ))
             .into_any_element();

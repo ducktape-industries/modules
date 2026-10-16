@@ -39,7 +39,9 @@ pub(super) fn actions(view: &Files, cx: Cx, k: &Kit) -> Option<AnyElement> {
         let label = words::verb(&write);
         let begin = cx
             .listener(move |view: &mut Files, _: &ClickEvent, _, cx| view.begin(write.clone(), cx));
-        design::sheet_row(id, Some(glyph), label, danger, &k.ladder, &k.theme, begin)
+        design::sheet_row(id, label, &k.ladder, &k.theme, begin)
+            .icon(glyph)
+            .when(danger, design::SheetRow::danger)
     });
     Some(
         design::sheet("files/actions-sheet", words::ACTIONS, &k.ladder, &k.theme)
@@ -101,7 +103,7 @@ pub(super) fn form(form: &Form, cx: Cx, k: &Kit) -> AnyElement {
 
 /// A new name, or a rename's new path. Return commits, unless the form
 /// takes text still to be typed below it.
-fn naming(form: &Form, cx: Cx, k: &Kit) -> Option<Div> {
+fn naming(form: &Form, cx: Cx, k: &Kit) -> Option<impl IntoElement> {
     let naming = form.write.naming()?;
     let label = words::naming(naming);
     let input = Input::new("files/write/name", &form.name, label)
@@ -112,7 +114,11 @@ fn naming(form: &Form, cx: Cx, k: &Kit) -> Option<Div> {
         true => input,
         false => input.on_submit(cx.listener(|view: &mut Files, _: &(), _, cx| view.submit(cx))),
     };
-    Some(labelled(label, input, form.problem.as_deref(), k))
+    Some(
+        design::field(input, &k.ladder, &k.theme)
+            .label(label)
+            .when_some(form.problem.clone(), design::Field::problem),
+    )
 }
 
 /// A new file's text, or an edit's: many lines, so Return is a new line
@@ -143,13 +149,13 @@ fn text(form: &Form, k: &Kit) -> Option<Div> {
 }
 
 /// The commit's message; its placeholder is what it says left empty.
-fn message(form: &Form, cx: Cx, k: &Kit) -> Div {
+fn message(form: &Form, cx: Cx, k: &Kit) -> impl IntoElement {
     let submit = cx.listener(|view: &mut Files, _: &(), _, cx| view.submit(cx));
     let input = Input::new("files/write/message", &form.message, words::MESSAGE)
         .w_full()
         .placeholder(form.placeholder())
         .on_submit(submit);
-    labelled(words::MESSAGE, input, None, k)
+    design::field(input, &k.ladder, &k.theme).label(words::MESSAGE)
 }
 
 /// Cancel, then Commit, which waits on its answer.

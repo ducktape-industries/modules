@@ -253,35 +253,6 @@ pub(super) fn field_label(label: &'static str, k: &Kit) -> Div {
         .child(label)
 }
 
-// SDK gap: design::field with .label and .problem, swap when feat/phone-kit lands
-/// A field under its label (Expo `Field label`), the problem with its
-/// value under it and said to assistive tech.
-pub(super) fn labelled(label: &'static str, input: Input, problem: Option<&str>, k: &Kit) -> Div {
-    let input = match problem {
-        Some(problem) => input
-            .invalid(view::accesskit::Invalid::True)
-            .description(problem.to_owned()),
-        None => input,
-    };
-    let edge = match problem {
-        Some(_) => k.theme.danger,
-        None => k.theme.border_strong,
-    };
-    div()
-        .flex()
-        .flex_col()
-        .child(field_label(label, k))
-        .child(design::field(input, &k.ladder, &k.theme).border_color(edge))
-        .children(problem.map(|problem| {
-            div()
-                .id("files/write/problem")
-                .mt(space::XS)
-                .text_type(k.ladder.caption)
-                .text_color(k.theme.danger)
-                .child(problem.to_owned())
-        }))
-}
-
 // SDK gap: design::form_verbs, swap when feat/phone-kit lands
 /// A form sheet's foot (Expo `Agents.tsx:224-232`): Cancel quiet, then
 /// the verb as the primary, taking the rest of the row.

@@ -16,8 +16,8 @@ use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
 use super::parts::{
-    STOPPED_LINES, caption, chevron, column, hint, labelled, mono, muted_icon, name_input,
-    name_line, named, note, problem_of, quiet, title_and_caption,
+    caption, chevron, column, mono, muted_icon, name_input, name_line, named, note, problem_of,
+    quiet, title_and_caption,
 };
 use crate::Settings;
 use crate::queries::{Agent, Seat};
@@ -300,43 +300,39 @@ fn actions(
         v.set_standing(identity::Op::Revoke { account: number }, cx)
     });
     column(format!("settings/agents/{number}/actions"))
-        .child(design::sheet_row(
-            format!("settings/agents/{number}/rename/open"),
-            Some("pencil"),
-            words::RENAME_AGENT,
-            false,
-            ladder,
-            theme,
-            rename,
-        ))
+        .child(
+            design::sheet_row(
+                format!("settings/agents/{number}/rename/open"),
+                words::RENAME_AGENT,
+                ladder,
+                theme,
+                rename,
+            )
+            .icon("pencil"),
+        )
         .child(
             design::sheet_row(
                 format!("settings/agents/{number}/answers/open"),
-                Some("users"),
                 words::WHO_IT_ANSWERS,
-                false,
                 ladder,
                 theme,
                 answers,
             )
-            .child(hint(
-                Choice::shown(&agent.ownership, listing).label(),
-                ladder,
-                theme,
-            )),
+            .icon("users")
+            .hint(Choice::shown(&agent.ownership, listing).label().to_owned()),
         )
         .child(standing_row(view, agent, cx, ladder, theme))
         .child(
             design::sheet_row(
                 format!("settings/agents/{number}/revoke"),
-                Some("x"),
                 words::REVOKE,
-                true,
                 ladder,
                 theme,
                 revoke,
             )
-            .child(hint("final", ladder, theme)),
+            .icon("x")
+            .hint("final")
+            .danger(),
         )
         .children(view.agent_standing.problem.as_ref().map(|problem| {
             div().px(SHEET_INSET).child(note(
@@ -361,7 +357,7 @@ fn standing_row(
     cx: &mut Context<Settings>,
     ladder: &Ladder,
     theme: &Theme,
-) -> Stateful<Div> {
+) -> impl IntoElement {
     let (slug, word, op) = agent.standing_toggle();
     let glyph = match agent.standing() {
         Standing::Suspended => "play",
@@ -371,17 +367,16 @@ fn standing_row(
         cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.set_standing(op.clone(), cx));
     design::sheet_row(
         format!("settings/agents/{}/{slug}", agent.number),
-        Some(glyph),
         if view.agent_standing.busy {
             words::WORKING
         } else {
             word
         },
-        false,
         ladder,
         theme,
         press,
     )
+    .icon(glyph)
 }
 
 /// An agent's new name: the field holding it, Cancel back to its actions,
@@ -397,13 +392,7 @@ fn rename(
     let form = view.rename_agent.get(&number)?;
     let label = words::rename_field(&agent.name);
     let problem = problem_of(form, words::RENAME.empty);
-    let input = name_input(
-        rename_id(number),
-        form,
-        label.clone(),
-        words::RENAME.prompt,
-        problem.as_deref(),
-    );
+    let input = name_input(rename_id(number), form, label.clone(), words::RENAME.prompt);
     let save = cx
         .listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.submit_rename_agent(number, cx));
     let cancel = cx
@@ -411,13 +400,11 @@ fn rename(
     let form = column(format!("settings/agents/{number}/rename/form"))
         .gap(design::space::LG)
         .p(SHEET_INSET)
-        .child(labelled(
-            &label,
-            design::field(input, ladder, theme),
-            problem,
-            ladder,
-            theme,
-        ))
+        .child(
+            design::field(input, ladder, theme)
+                .label(label)
+                .when_some(problem, design::Field::problem),
+        )
         .child(verbs(
             &format!("settings/agents/{number}/rename"),
             words::RENAME.verb,
@@ -519,7 +506,6 @@ fn people(
         form,
         label.clone(),
         words::ADD_PERSON.prompt,
-        problem.as_deref(),
     )
     .autocorrect(false)
     .autocapitalize(Autocapitalize::None);
@@ -536,13 +522,11 @@ fn people(
         .when(listed.is_empty(), |people| {
             people.child(note(words::NOBODY_LISTED, theme.muted, ladder))
         })
-        .child(labelled(
-            &label,
-            design::field(input, ladder, theme),
-            problem,
-            ladder,
-            theme,
-        ))
+        .child(
+            design::field(input, ladder, theme)
+                .label(label)
+                .when_some(problem, design::Field::problem),
+        )
         .child(
             // SDK gap: the busy button, swap when feat/phone-kit lands (its spinner needs a wire and host change)
             div().flex().child(
@@ -621,7 +605,6 @@ fn create_agent(
         form,
         words::AGENT_NAME,
         words::CREATE_AGENT.prompt,
-        problem.as_deref(),
     )
     // Return creates it (Expo `src/account/Agents.tsx:203`)
     .on_submit(cx.listener(|v: &mut Settings, _: &(), _, cx| v.submit_create_agent(cx)));
@@ -630,13 +613,9 @@ fn create_agent(
     add_sheet(
         "settings/agents/create",
         words::CREATE_AGENT_TITLE,
-        labelled(
-            words::AGENT_NAME,
-            design::field(input, ladder, theme),
-            problem,
-            ladder,
-            theme,
-        ),
+        design::field(input, ladder, theme)
+            .label(words::AGENT_NAME)
+            .when_some(problem, design::Field::problem),
         verbs(
             "settings/agents/create",
             words::CREATE_AGENT.verb,
@@ -659,11 +638,9 @@ fn add_key(
     theme: &Theme,
 ) -> AnyElement {
     let form = &view.agent_key;
-    // SDK gap: the labelled field, swap when feat/phone-kit lands
     // a key request is many lines in the data face, and Return is a new
-    // line: a `Textarea`, styled as `design::field` styles an `Input`
-    // (Expo `src/kit/Field.tsx:79`, `multiline`); hex: no correction, no
-    // capitals, no suggestions
+    // line: a `Textarea` (Expo `src/kit/Field.tsx:79`, `multiline`); hex:
+    // no correction, no capitals, no suggestions
     let request = Textarea::new(
         "settings/agents/key/request",
         &form.text,
@@ -673,31 +650,19 @@ fn add_key(
     .read_only(form.busy)
     .autocorrect(false)
     .autocapitalize(Autocapitalize::None)
-    .suggestions(false)
-    .min_h(ladder.control)
-    .px(design::space::LG)
-    .py(match form.problem {
-        Some(_) => STOPPED_LINES,
-        None => design::space::MD,
-    })
-    .border_1()
-    .border_color(theme.border_strong)
-    .bg(theme.background)
-    .text_color(theme.foreground)
-    .font_family(design::fonts::FAMILY_MONO)
-    .text_type(ladder.secondary);
+    .suggestions(false);
     let add = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_agent_key(cx));
     let cancel = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.close_sheet(cx));
     add_sheet(
         "settings/agents/key",
         words::ADD_KEY_TITLE,
-        labelled(
-            words::KEY_REQUEST,
-            request,
-            problem_of(form, words::ADD_KEY.empty),
-            ladder,
-            theme,
-        ),
+        design::field(request, ladder, theme)
+            .mono()
+            .label(words::KEY_REQUEST)
+            .when_some(
+                problem_of(form, words::ADD_KEY.empty),
+                design::Field::problem,
+            ),
         verbs(
             "settings/agents/key",
             words::ADD_KEY.verb,
@@ -717,7 +682,7 @@ fn add_key(
 fn add_sheet(
     id: &str,
     title: &str,
-    field: Div,
+    field: impl IntoElement,
     verbs: Div,
     ladder: &Ladder,
     theme: &Theme,

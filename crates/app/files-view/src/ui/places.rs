@@ -83,8 +83,10 @@ fn latest(view: &Files, cx: Cx, k: &Kit) -> AnyElement {
     if history.snapshots.is_empty() {
         return design::empty_state(
             "files-no-snapshots",
+            "history",
             words::NO_SNAPSHOTS,
             words::NO_SNAPSHOTS_DETAIL,
+            &k.ladder,
             &k.theme,
         )
         .into_any_element();

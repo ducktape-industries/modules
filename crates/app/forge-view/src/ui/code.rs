@@ -58,7 +58,7 @@ fn tree(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) 
         // a repo with no commits: without this, a freshly created repo sat
         // on "Resolving the ref…" forever instead of saying so.
         let waiting = match forge.refs() {
-            Some(_) => no_commits(forge, theme),
+            Some(_) => no_commits(forge, theme, ladder),
             None => quiet("Resolving the ref…", theme).into_any_element(),
         };
         return column.child(waiting).into_any_element();
@@ -79,8 +79,10 @@ fn tree(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) 
         return column
             .child(empty_state(
                 id("forge-tree-empty"),
+                "folder-open",
                 "Nothing here",
                 "This tree holds no file the filter keeps.",
+                ladder,
                 theme,
             ))
             .into_any_element();
@@ -277,12 +279,14 @@ fn tree_row(
     line.into_any_element()
 }
 
-pub(crate) fn no_commits(forge: &Forge, theme: &Theme) -> AnyElement {
+pub(crate) fn no_commits(forge: &Forge, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let address = crate::ui::repo_link(forge, &forge.repo_name());
     empty_state(
         id("forge-tree-no-commits"),
+        "git-commit-horizontal",
         "No commits yet",
         format!("Push code to this ref to browse it here: `git push {address} main`."),
+        ladder,
         theme,
     )
     .into_any_element()
@@ -295,8 +299,10 @@ fn body(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) 
             .flex_1()
             .child(empty_state(
                 id("forge-code-empty"),
+                "file-text",
                 "Pick a file",
                 "Open a folder in the tree to see what it holds; press a file to read it here.",
+                ladder,
                 theme,
             ))
             .into_any_element();
@@ -329,7 +335,7 @@ fn body(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) 
     let Reply::Blob { blob, .. } = reply else {
         return pane.into_any_element();
     };
-    pane.child(blob_content(forge, &path, &oid, blob, cx, theme))
+    pane.child(blob_content(forge, &path, &oid, blob, cx, theme, ladder))
         .into_any_element()
 }
 
@@ -374,6 +380,7 @@ fn blob_content(
     blob: &BlobView,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let name = path_text(path);
     let dir = path[..path.iter().rposition(|b| *b == b'/').unwrap_or(0)].to_vec();
@@ -395,25 +402,31 @@ fn blob_content(
         Content::Text => lines(forge.blob_cache.lines(oid, &name, &blob.bytes), theme),
         Content::Binary => empty_state(
             id("forge-blob-binary"),
+            "file-question-mark",
             "Binary file",
             format!("{} bytes. Nothing here reads as text.", blob.size),
+            ladder,
             theme,
         )
         .into_any_element(),
         Content::Oversize => empty_state(
             id("forge-blob-oversize"),
+            "file-question-mark",
             "Too large to show",
             format!(
                 "{} bytes, above this network's inline blob bound. Fetch the repository to read it.",
                 blob.size
             ),
+            ladder,
             theme,
         )
         .into_any_element(),
         Content::Gitlink => empty_state(
             id("forge-blob-gitlink"),
+            "file-question-mark",
             "Submodule",
             "This entry points at another repository.",
+            ladder,
             theme,
         )
         .into_any_element(),
