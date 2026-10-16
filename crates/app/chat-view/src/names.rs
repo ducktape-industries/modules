@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use chat::view::Names;
 use chat::{Category, Kind, Principal, Standing};
-use identity::Audience;
+use identity::Ownership;
 
 /// Autocomplete candidates: every user and program account that acts
 /// ([`Names::people`]), then the room's other such members, labelled
@@ -41,12 +41,12 @@ pub fn mention_token(principal: &Principal) -> String {
 }
 
 /// Why `agent` would give `reader` no answer, by the rule harness answers
-/// by: an active agent's manager always gets one, anyone else by its
-/// audience. None when it answers them, for anyone not an active agent,
-/// and while its audience is unread.
+/// by: an active agent's manager always gets one, anyone else as its
+/// `Ownership` in identity says. None when it answers them, for anyone not
+/// an active agent, and while its `Ownership` is unread.
 pub fn unanswered(
     names: &Names,
-    audiences: &BTreeMap<u64, Audience>,
+    ownerships: &BTreeMap<u64, Ownership>,
     agent: &Principal,
     reader: u64,
 ) -> Option<&'static str> {
@@ -62,26 +62,26 @@ pub fn unanswered(
     if *manager == reader {
         return None;
     }
-    match audiences.get(&agent.account()?)? {
-        Audience::Manager => Some("its manager only"),
-        Audience::Accounts(listed) if !listed.contains(&reader) => Some("listed people only"),
-        Audience::Accounts(_) | Audience::Anyone => None,
+    match ownerships.get(&agent.account()?)? {
+        Ownership::Owner => Some("its manager only"),
+        Ownership::Accounts(listed) if !listed.contains(&reader) => Some("listed people only"),
+        Ownership::Accounts(_) | Ownership::Anyone => None,
     }
 }
 
-/// Whom an agent answers, in words: its manager, and whom its audience
+/// Whom an agent answers, in words: its manager, and whom its `Ownership`
 /// adds.
-pub fn answers(names: &Names, audience: &Audience) -> String {
-    match audience {
-        Audience::Manager => "Answers its manager only".into(),
-        Audience::Accounts(listed) => {
+pub fn answers(names: &Names, ownership: &Ownership) -> String {
+    match ownership {
+        Ownership::Owner => "Answers its manager only".into(),
+        Ownership::Accounts(listed) => {
             let listed: Vec<String> = listed
                 .iter()
                 .map(|number| names.member(&Principal::Account(*number)))
                 .collect();
             format!("Answers its manager and {}", listed.join(", "))
         }
-        Audience::Anyone => "Answers anyone".into(),
+        Ownership::Anyone => "Answers anyone".into(),
     }
 }
 
@@ -148,8 +148,8 @@ mod tests {
     }
 
     /// An active agent answers its manager always, and anyone else as its
-    /// audience says; nothing is said of a person, a program, an agent
-    /// that does not act, or one whose audience is unread.
+    /// `Ownership` says; nothing is said of a person, a program, an agent
+    /// that does not act, or one whose `Ownership` is unread.
     #[test]
     fn who_an_agent_leaves_unanswered() {
         let names = Names::from_roster([
@@ -160,29 +160,29 @@ mod tests {
             profile(5, "idle", agent(1, Standing::Suspended)),
         ]);
         let scout = Principal::Account(2);
-        let heard = |audience: Audience, reader| {
-            let audiences = BTreeMap::from([(2, audience)]);
-            unanswered(&names, &audiences, &scout, reader)
+        let heard = |ownership: Ownership, reader| {
+            let ownerships = BTreeMap::from([(2, ownership)]);
+            unanswered(&names, &ownerships, &scout, reader)
         };
-        assert_eq!(heard(Audience::Manager, 1), None, "its manager");
-        assert_eq!(heard(Audience::Manager, 4), Some("its manager only"));
-        assert_eq!(heard(Audience::Accounts(vec![4]), 4), None);
+        assert_eq!(heard(Ownership::Owner, 1), None, "its manager");
+        assert_eq!(heard(Ownership::Owner, 4), Some("its manager only"));
+        assert_eq!(heard(Ownership::Accounts(vec![4]), 4), None);
         assert_eq!(
-            heard(Audience::Accounts(vec![4]), 9),
+            heard(Ownership::Accounts(vec![4]), 9),
             Some("listed people only")
         );
-        assert_eq!(heard(Audience::Anyone, 9), None);
+        assert_eq!(heard(Ownership::Anyone, 9), None);
         let none = BTreeMap::new();
         assert_eq!(unanswered(&names, &none, &scout, 4), None, "unread");
         for other in [1, 3, 5] {
-            let audiences = BTreeMap::from([(other, Audience::Manager)]);
+            let ownerships = BTreeMap::from([(other, Ownership::Owner)]);
             assert_eq!(
-                unanswered(&names, &audiences, &Principal::Account(other), 4),
+                unanswered(&names, &ownerships, &Principal::Account(other), 4),
                 None
             );
         }
         assert_eq!(
-            answers(&names, &Audience::Accounts(vec![4, 9])),
+            answers(&names, &Ownership::Accounts(vec![4, 9])),
             "Answers its manager and bo, account 9"
         );
     }

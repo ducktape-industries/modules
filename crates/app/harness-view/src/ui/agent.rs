@@ -3,7 +3,7 @@
 //! what its turns used. Its manager edits its configuration from here, or takes it back from
 //! harness.
 use harness::{AgentSetup, Configured};
-use identity::Audience;
+use identity::Ownership;
 use view::FontWeight;
 use view::design::Ladder;
 use view::design::{size, space, text};
@@ -170,11 +170,18 @@ fn configuration(
         .card(setup.agent)
         .and_then(|card| card.serving)
         .unwrap_or_default();
-    let mut facts = div().flex().flex_wrap().gap(space::XL).child(fact(
-        "Configuration",
-        setup.path.clone(),
-        theme,
-    ));
+    let mut facts = div()
+        .flex()
+        .flex_wrap()
+        .gap(space::XL)
+        .child(fact("Configuration", setup.path.clone(), theme))
+        .children(detail.config_writers.as_ref().map(|writers| {
+            fact(
+                "Who may change it",
+                config_writers(writers, &setup.path, roster),
+                theme,
+            )
+        }));
     if let Some((snapshot, config)) = setup.configured.config() {
         let wait = config.wait.map_or_else(
             || "egress's default".to_owned(),
@@ -202,7 +209,7 @@ fn configuration(
             .child(fact("Window", window_words(model.window), theme));
     }
     facts = facts
-        .child(fact("Answers", answers(&detail.audience, roster), theme))
+        .child(fact("Answers", answers(&detail.ownership, roster), theme))
         .child(fact(
             "Tools",
             format!("{} · {writes} write as {name}", detail.tools.len()),
@@ -261,14 +268,46 @@ fn system_prompt(setup: &AgentSetup, theme: &Theme) -> impl IntoElement + use<> 
         )
 }
 
-fn answers(audience: &Audience, roster: &Roster) -> String {
-    match audience {
-        Audience::Manager => "Its manager only".into(),
-        Audience::Anyone => "Anyone".into(),
-        Audience::Accounts(numbers) => {
+fn answers(ownership: &Ownership, roster: &Roster) -> String {
+    match ownership {
+        Ownership::Owner => "Its manager only".into(),
+        Ownership::Anyone => "Anyone".into(),
+        Ownership::Accounts(numbers) => {
             let names: Vec<String> = numbers.iter().map(|number| roster.name(*number)).collect();
             format!("Its manager, {}", names.join(", "))
         }
+    }
+}
+
+fn config_writers(writers: &files::Writers, config: &str, roster: &Roster) -> String {
+    let named = |number: Option<u64>| match number {
+        Some(number) => roster.name(number),
+        None => "no account".into(),
+    };
+    match writers {
+        files::Writers::Listed {
+            path,
+            creator,
+            write,
+        } => {
+            let who = match write {
+                Ownership::Owner => format!("Only {}", named(*creator)),
+                Ownership::Accounts(numbers) => {
+                    let names: Vec<String> =
+                        numbers.iter().map(|number| roster.name(*number)).collect();
+                    format!("{}, {}", named(*creator), names.join(", "))
+                }
+                Ownership::Anyone => "Any account".into(),
+            };
+            let own_list = path == config;
+            match own_list {
+                true => who,
+                false => format!("{who}, by the list on {path}"),
+            }
+        }
+        files::Writers::Home(name) => format!("The account named {name}"),
+        files::Writers::Shared => "Any account".into(),
+        files::Writers::Chain => "The network alone".into(),
     }
 }
 

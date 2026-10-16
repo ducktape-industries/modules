@@ -1,7 +1,13 @@
-//! Paths as files spells them (NFC, absolute, `/`-separated) and who may write
-//! where: any account under `/home/<label>/` and `/shared/`, the chain anywhere.
-use ::program::{Error, Principal, invalid, unauthorized};
+//! Paths as files spells them (NFC, absolute, `/`-separated) and the one check of who
+//! may write a path: the nearest write list at or above it, else an account under
+//! `/shared/` and its own home, `/home/<its identity name>/`; the chain anywhere.
+use ::program::{
+    AccountNumber, Error, Ownership, Principal, QueryCtx, invalid, unauthorized, unexpected_reply,
+};
 use unicode_normalization::UnicodeNormalization;
+
+use crate::Writers;
+use crate::objects::Access;
 
 pub fn segments(path: &str) -> Result<Vec<String>, Error> {
     if !path.starts_with('/') {
@@ -42,73 +48,203 @@ pub fn is_namespace_root(segments: &[String]) -> bool {
     }
 }
 
-pub fn writable(writer: &Principal, segments: &[String]) -> Result<(), Error> {
-    let Principal::Account(_) = writer else {
+pub enum Writer {
+    Chain,
+    Account {
+        number: AccountNumber,
+        label: Option<String>,
+    },
+}
+
+impl Writer {
+    pub fn number(&self) -> Option<AccountNumber> {
+        match self {
+            Writer::Chain => None,
+            Writer::Account { number, .. } => Some(*number),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Act {
+    Write,
+    SetOwnership,
+}
+
+pub fn writer(ctx: &QueryCtx, principal: &Principal) -> Result<Writer, Error> {
+    use abi::role::identity::{Query, Reply};
+    let Principal::Account(number) = *principal else {
+        return Ok(Writer::Chain);
+    };
+    let identity = ctx.env().role(abi::role::IDENTITY)?.clone();
+    let label = match ctx.query::<Query, Reply>(&identity, &Query::Profile(number))? {
+        Reply::Profile(profile) => profile.map(|profile| profile.name),
+        other => return Err(unexpected_reply(&identity, "Profile", &other)),
+    };
+    Ok(Writer::Account { number, label })
+}
+
+pub fn writers(segments: &[String], along: &[Option<Access>], act: Act) -> Writers {
+    let nearest = along.iter().enumerate().rev().find_map(|(depth, row)| {
+        let row = row.as_ref()?;
+        let write = row.write.clone()?;
+        Some(Writers::Listed {
+            path: join(&segments[..=depth]),
+            creator: row.creator,
+            write,
+        })
+    });
+    if let Some(listed) = nearest {
+        return listed;
+    }
+    match (segments, act) {
+        ([root, _, ..], _) if root == "shared" => Writers::Shared,
+        ([root, home, _, ..], _) if root == "home" => Writers::Home(home.clone()),
+        ([root, home], Act::SetOwnership) if root == "home" => Writers::Home(home.clone()),
+        _ => Writers::Chain,
+    }
+}
+
+pub fn writable(
+    writer: &Writer,
+    segments: &[String],
+    along: &[Option<Access>],
+    act: Act,
+) -> Result<(), Error> {
+    let Writer::Account { number, label } = writer else {
         return Ok(());
     };
-    let under_a_home = segments.len() >= 3 && segments[0] == "home";
-    let under_shared = segments.len() >= 2 && segments[0] == "shared";
-    if under_a_home || under_shared {
+    let label = label.as_deref();
+    allowed(*number, label, segments, &writers(segments, along, act))?;
+    match act {
+        Act::Write => Ok(()),
+        Act::SetOwnership => sets_list(*number, label, segments, along),
+    }
+}
+
+fn allowed(
+    number: AccountNumber,
+    label: Option<&str>,
+    segments: &[String],
+    writers: &Writers,
+) -> Result<(), Error> {
+    match writers {
+        Writers::Listed {
+            path,
+            creator,
+            write,
+        } => listed(number, segments, path, *creator, write),
+        Writers::Home(home) => owned(number, label, home, segments),
+        Writers::Shared => Ok(()),
+        Writers::Chain => Err(unauthorized(format!(
+            "{} is outside /shared/ and an account's own home, /home/<its name>/",
+            join(segments)
+        ))),
+    }
+}
+
+fn listed(
+    number: AccountNumber,
+    segments: &[String],
+    path: &str,
+    creator: Option<AccountNumber>,
+    write: &Ownership,
+) -> Result<(), Error> {
+    if write.allows(creator, number) {
         return Ok(());
     }
     Err(unauthorized(format!(
-        "{} is outside /home/<name>/ and /shared/, which an account writes",
-        join(segments)
+        "account {number} may not write {}: the write list on {path} allows {}",
+        join(segments),
+        allows(creator, write)
     )))
 }
 
-pub fn writable_path(writer: &Principal, path: &str) -> Result<Vec<String>, Error> {
+pub fn allows(creator: Option<AccountNumber>, write: &Ownership) -> String {
+    let accounts = |listed: &[AccountNumber]| {
+        listed
+            .iter()
+            .map(|number| format!("account {number}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match (write, creator) {
+        (Ownership::Owner, Some(creator)) => format!("only its creator, account {creator}"),
+        (Ownership::Owner, None) => "no account: no account created it".into(),
+        (Ownership::Accounts(listed), Some(creator)) => {
+            format!("its creator, account {creator}, and {}", accounts(listed))
+        }
+        (Ownership::Accounts(listed), None) => accounts(listed),
+        (Ownership::Anyone, _) => "any account".into(),
+    }
+}
+
+fn owned(
+    number: AccountNumber,
+    label: Option<&str>,
+    home: &str,
+    segments: &[String],
+) -> Result<(), Error> {
+    let own_home = label == Some(home);
+    if own_home {
+        return Ok(());
+    }
+    let whose = format!(
+        "{} is in /home/{home}/, the home of the account named {home}",
+        join(segments)
+    );
+    let mine = match label {
+        Some(label) => format!(
+            "account {number} is named {label} and writes under /home/{label}/ and /shared/"
+        ),
+        None => format!("account {number} has no name in identity and writes under /shared/ only"),
+    };
+    Err(unauthorized(format!("{whose}: {mine}")))
+}
+
+fn sets_list(
+    number: AccountNumber,
+    label: Option<&str>,
+    segments: &[String],
+    along: &[Option<Access>],
+) -> Result<(), Error> {
+    let path = join(segments);
+    if let [root, home] = segments
+        && root == "home"
+    {
+        let named = label == Some(home.as_str());
+        if named {
+            return Ok(());
+        }
+        return Err(unauthorized(format!(
+            "the write list on {path} is set by the account named {home}: account {number} is not"
+        )));
+    }
+    let creator = along
+        .last()
+        .and_then(|row| row.as_ref())
+        .and_then(|row| row.creator);
+    let creates = creator == Some(number);
+    if creates {
+        return Ok(());
+    }
+    match creator {
+        Some(creator) => Err(unauthorized(format!(
+            "the write list on {path} is set by its creator, account {creator}: account {number} is not"
+        ))),
+        None => Err(unauthorized(format!(
+            "no account created {path}, so no account sets its write list"
+        ))),
+    }
+}
+
+pub fn change_path(path: &str) -> Result<Vec<String>, Error> {
     let segments = segments(path)?;
     if segments.is_empty() {
         return Err(invalid("the root is not a path a change names"));
     }
-    writable(writer, &segments)?;
     Ok(segments)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_path_is_absolute_and_composed() {
-        assert_eq!(segments("/").unwrap(), Vec::<String>::new());
-        assert_eq!(segments("/shared/a").unwrap(), ["shared", "a"]);
-        for bad in [
-            "shared",
-            "/shared//a",
-            "/shared/a/",
-            "/shared/./a",
-            "/shared/../a",
-            "/a\0b",
-            "/cafe\u{301}",
-        ] {
-            assert_eq!(
-                segments(bad).unwrap_err().code,
-                ::program::code::INVALID_INPUT,
-                "{bad:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn an_account_writes_under_a_home_and_shared_and_the_chain_anywhere() {
-        let ada = Principal::Account(1);
-        for ok in ["/home/ada/notes", "/home/bo/x/y", "/shared/a"] {
-            assert!(writable_path(&ada, ok).is_ok(), "{ok}");
-        }
-        for refused in ["/home", "/home/ada", "/shared", "/etc/passwd", "/x"] {
-            let error = writable_path(&ada, refused).unwrap_err();
-            assert!(
-                [
-                    ::program::code::UNAUTHORIZED,
-                    ::program::code::INVALID_INPUT
-                ]
-                .contains(&error.code.as_str()),
-                "{refused}"
-            );
-        }
-        assert!(writable_path(&Principal::Root, "/etc/passwd").is_ok());
-        assert!(writable_path(&Principal::Root, "/").is_err());
-    }
-}
+mod tests;
