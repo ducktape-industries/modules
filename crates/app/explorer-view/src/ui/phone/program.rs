@@ -1,11 +1,10 @@
-//! Expo `app/(tabs)/explorer/program/[name].tsx` (mobile `explorer-detail`
-//! b2de83e, no screenshot yet): one program, or one view-only entry, over
-//! the root. Its hook and role, what its code's view asks of the host,
-//! the code and its size, the params, who maintains it, what the view
-//! declares, what is scheduled for it, the way to its transactions. The
-//! reader's presses stay on the Programs page's sheet. Reads the programs
-//! role, the code's manifest (`manifest`), the window; writes the route
-//! and the clipboard (Copy).
+//! Expo `app/(tabs)/explorer/program/[name].tsx` (mobile dev 266633c):
+//! one program, or one view-only entry, over the root. Its hook and role,
+//! what its code's view asks of the host, the code and its size, the
+//! params, who maintains it, what the view declares, what is scheduled for
+//! it, the way to its transactions. The reader's presses stay on the
+//! Programs page's sheet. Reads the programs role, the code's manifest
+//! (`manifest`), the window; writes the route and the clipboard (Copy).
 use super::*;
 use crate::Network;
 use crate::decode::{preview, size};

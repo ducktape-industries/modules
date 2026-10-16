@@ -1,10 +1,10 @@
-//! Expo `src/network/explorer/programs.tsx` (mobile `explorer-detail`
-//! b2de83e): the Programs page under the strip. What the programs role
-//! will change (Scheduled), runs (Running) and lists (Views), and who
-//! changes each name (Access); a program's sheet, and More. Reads the
-//! programs role, the accounts, the status and the reader's grants and
-//! voices (`acting`); writes a Cancel, a Step down or a revoke (`press`),
-//! which sheet is open (`sheet`) and the form a sheet opens (`open_form`).
+//! Expo `src/network/explorer/programs.tsx` (mobile dev 266633c): the
+//! Programs page under the strip. What the programs role will change
+//! (Scheduled), runs (Running) and lists (Views), and who changes each name
+//! (Access); a program's sheet, and More. Reads the programs role, the
+//! accounts, the status and the reader's grants and voices (`acting`);
+//! writes a Cancel, a Step down or a revoke (`press`), which sheet is open
+//! (`sheet`) and the form a sheet opens (`open_form`).
 use super::*;
 use crate::Network;
 use crate::acting::{self, Edit, Path};

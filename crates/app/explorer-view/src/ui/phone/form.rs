@@ -1,10 +1,10 @@
-//! Expo `src/network/explorer/programs.tsx` `FormSheet` (mobile
-//! `explorer-detail` b2de83e): the open form as a sheet over the Programs
-//! page or a program's page. Its title, the fields its edit reads, its
-//! notes, why it builds nothing, Close and Schedule or Propose. Reads the
-//! form (`acting.form`), the programs role, the accounts and the tip;
-//! writes the fields, the program or view choice (`add_view`), the send
-//! (`submit_form`) and Close (`close_form`).
+//! Expo `src/network/explorer/programs.tsx` `FormSheet` (mobile dev
+//! 266633c): the open form as a sheet over the Programs page or a program's
+//! page. Its title, the fields its edit reads, its notes, why it builds
+//! nothing, Close and Schedule or Propose. Reads the form (`acting.form`),
+//! the programs role, the accounts and the tip; writes the fields, the
+//! program or view choice (`add_view`), the send (`submit_form`) and Close
+//! (`close_form`).
 use super::*;
 use crate::acting::{Edit, Form};
 

@@ -5,7 +5,7 @@
 //! at the Expo kit's sizes. Each draws what it is handed; a press goes
 //! through the model's actions (`go`, `copy`, `read_all`).
 //!
-//! The Expo line numbers below are mobile `explorer-detail` b2de83e.
+//! The Expo line numbers below are mobile dev 266633c.
 use super::*;
 use crate::decode::{clip, short, sized};
 

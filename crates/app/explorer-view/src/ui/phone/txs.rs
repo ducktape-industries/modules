@@ -1,7 +1,7 @@
-//! Expo `app/(tabs)/explorer/txs/[name].tsx` (mobile `explorer-detail`
-//! b2de83e): one program's transactions in the window, over the root; the
-//! program as the title, "Transactions" under it. Reads the window; writes
-//! the route (a row).
+//! Expo `app/(tabs)/explorer/txs/[name].tsx` (mobile dev 266633c): one
+//! program's transactions in the window, over the root; the program as the
+//! title, "Transactions" under it. Reads the window; writes the route (a
+//! row).
 use super::*;
 
 pub(super) fn transactions(view: &Explorer, program: &str, cx: Cx, k: &Kit) -> AnyElement {
