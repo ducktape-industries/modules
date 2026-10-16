@@ -20,8 +20,8 @@ pub(super) fn account(
         Loadable::Ready(Some(Seat::Bare(key))) | Loadable::Reloading(Some(Seat::Bare(key)), _) => {
             column("settings/account/data")
                 .gap_0()
-                .child(who("Unregistered key", "no account yet", theme))
-                .child(group("settings/keys", "Keys", Some(1), theme))
+                .child(who(words::UNREGISTERED, words::NO_ACCOUNT_YET, theme))
+                .child(group("settings/keys", words::KEYS, Some(1), theme))
                 .child(key_row(0, "Host key", key, theme, ladder))
                 .child(create_account(view, cx, theme, ladder))
                 .into_any_element()
@@ -31,8 +31,8 @@ pub(super) fn account(
         | Loadable::Reloading(Some(Seat::Stopped { key, name, note }), _) => {
             column("settings/account/data")
                 .gap_0()
-                .child(who(name, "a key of an agent", theme))
-                .child(group("settings/keys", "Keys", Some(1), theme))
+                .child(who(name, words::AGENT_KEY, theme))
+                .child(group("settings/keys", words::KEYS, Some(1), theme))
                 .child(key_row(0, "Host key", key, theme, ladder))
                 .child(secondary("settings/account/note", note, theme).pt(design::space::MD))
                 .into_any_element()
@@ -40,7 +40,7 @@ pub(super) fn account(
         Loadable::Ready(Some(Seat::Account(account)))
         | Loadable::Reloading(Some(Seat::Account(account)), _) => {
             let kind = identity::view::kind(&account.kind, |_| None);
-            let about = format!("account {} · {kind}", account.number);
+            let about = format!("{} · {kind}", words::account(account.number));
             let keys = account.keys.iter().enumerate().map(|(i, key)| {
                 key_row(i, key.label.as_deref().unwrap_or("Key"), key, theme, ladder)
             });
@@ -49,7 +49,7 @@ pub(super) fn account(
                 .child(who(&account.name, &about, theme))
                 .child(group(
                     "settings/keys",
-                    "Keys",
+                    words::KEYS,
                     Some(account.keys.len()),
                     theme,
                 ))
@@ -66,8 +66,8 @@ pub(super) fn account(
         }
         Loadable::Ready(None) | Loadable::Reloading(None, _) => design::empty_state(
             "settings/account/empty",
-            "No account",
-            "No host key is selected. Sign in with a key to create an account.",
+            words::NO_ACCOUNT,
+            words::NO_KEY,
             theme,
         )
         .p_0()
@@ -84,7 +84,7 @@ pub(super) fn account(
             .into_any_element()
         }
         Loadable::Idle | Loadable::Loading(_) => {
-            secondary("settings/account/loading", "Reading your account…", theme).into_any_element()
+            secondary("settings/account/loading", words::READING, theme).into_any_element()
         }
     }
 }
@@ -155,7 +155,7 @@ fn key_row(i: usize, label: &str, key: &Key, theme: &Theme, ladder: &Ladder) -> 
         .when(key.validator, |row| {
             row.child(design::badge(
                 format!("settings/key/{i}/validator"),
-                "Validator",
+                words::VALIDATOR,
                 ladder,
                 theme.success,
                 theme.success_soft,
@@ -174,8 +174,8 @@ fn create_account(
         cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_create_account(cx));
     let mut name = field(
         "settings/account/create/name",
-        "Name the new account",
-        "Account name",
+        words::CREATE_ACCOUNT.prompt,
+        words::ACCOUNT_NAME,
         form,
         theme,
     );
@@ -189,8 +189,8 @@ fn create_account(
         .child(name)
         .child(submit(
             "settings/account/create/submit",
-            "Create account",
-            "Creating…",
+            words::CREATE_ACCOUNT.verb,
+            words::CREATE_ACCOUNT.busy,
             form.busy,
             true,
             theme,
@@ -200,8 +200,8 @@ fn create_account(
         .gap_0()
         .child(design::setting_row(
             "settings/account/create/row",
-            "Create an account",
-            "Your key isn't linked to an account yet. An account gives you a name others see.",
+            words::CREATE_ACCOUNT_TITLE,
+            words::CREATE_ACCOUNT_WHY,
             control,
             ladder,
             theme,
@@ -209,7 +209,7 @@ fn create_account(
         .children(problem(
             "account/create",
             form,
-            "Enter an account name.",
+            words::CREATE_ACCOUNT.empty,
             theme,
         ))
         .into_any_element()
@@ -251,15 +251,15 @@ fn agents(
         .gap(design::space::SM)
         .child(field(
             "settings/agents/create/name",
-            "Name the new agent",
-            "Agent name",
+            words::CREATE_AGENT.prompt,
+            words::AGENT_NAME,
             &view.create_agent,
             theme,
         ))
         .child(submit(
             "settings/agents/create/submit",
-            "Create agent",
-            "Creating…",
+            words::CREATE_AGENT.verb,
+            words::CREATE_AGENT.busy,
             view.create_agent.busy,
             false,
             theme,
@@ -270,15 +270,15 @@ fn agents(
         .gap(design::space::SM)
         .child(field(
             "settings/agents/key/request",
-            "Paste an agent's key request",
-            "Agent key request",
+            words::ADD_KEY.prompt,
+            words::KEY_REQUEST,
             &view.agent_key,
             theme,
         ))
         .child(submit(
             "settings/agents/key/submit",
-            "Add key",
-            "Adding…",
+            words::ADD_KEY.verb,
+            words::ADD_KEY.busy,
             view.agent_key.busy,
             false,
             theme,
@@ -286,20 +286,13 @@ fn agents(
         ));
     column("settings/agents")
         .gap_0()
-        .child(
-            secondary(
-                "settings/agents/help",
-                "Agents act as accounts you manage. You answer for what they do.",
-                theme,
-            )
-            .pb(design::space::XS),
-        )
+        .child(secondary("settings/agents/help", words::AGENTS_HELP, theme).pb(design::space::XS))
         .children(rows)
         .children(problem("agents/standing", &view.agent_standing, "", theme))
-        .child(group("settings/agents/add", "Add", None, theme))
+        .child(group("settings/agents/add", words::ADD, None, theme))
         .child(design::setting_row(
             "settings/agents/create",
-            "Create an agent",
+            words::CREATE_AGENT_TITLE,
             "A new account you manage. Give it a key next.",
             create_control,
             ladder,
@@ -308,18 +301,23 @@ fn agents(
         .children(problem(
             "agents/create",
             &view.create_agent,
-            "Enter an agent name.",
+            words::CREATE_AGENT.empty,
             theme,
         ))
         .child(design::setting_row(
             "settings/agents/key",
-            "Add a key to an agent",
-            "Paste the key request the agent's device shows.",
+            words::ADD_KEY_TITLE,
+            words::ADD_KEY_WHY,
             key_control,
             ladder,
             theme,
         ))
-        .children(problem("agents/key", &view.agent_key, "", theme))
+        .children(problem(
+            "agents/key",
+            &view.agent_key,
+            words::ADD_KEY.empty,
+            theme,
+        ))
         .into_any_element()
 }
 
@@ -336,11 +334,11 @@ fn agent(
     let number = agent.number;
     let standing = agent.standing();
     let revoked = standing == Standing::Revoked;
-    let keys = design::plural(agent.keys as u64, "key", "keys");
-    let (label, foreground, background) = match standing {
-        Standing::Active => ("active", theme.success, theme.success_soft),
-        Standing::Suspended => ("suspended", theme.warning, theme.warning_soft),
-        Standing::Revoked => ("revoked", theme.muted, theme.surface_raised),
+    let label = words::standing(standing);
+    let (foreground, background) = match standing {
+        Standing::Active => (theme.success, theme.success_soft),
+        Standing::Suspended => (theme.warning, theme.warning_soft),
+        Standing::Revoked => (theme.muted, theme.surface_raised),
     };
     let renaming = view.rename_agent.get(&number);
     let editing = renaming.is_some() && !revoked;
@@ -350,8 +348,8 @@ fn agent(
                 .listener(move |v: &mut Settings, _: &(), _, cx| v.submit_rename_agent(number, cx));
             let input = field(
                 &format!("settings/agents/{number}/name"),
-                &format!("Rename {}", agent.name),
-                "New name",
+                &words::rename_field(&agent.name),
+                words::RENAME.prompt,
                 form,
                 theme,
             );
@@ -391,7 +389,7 @@ fn agent(
                 }),
         )
         .child(
-            design::mono(format!("account {number} · {keys}"))
+            design::mono(words::account_keys(number, agent.keys))
                 .id(format!("settings/agents/{number}/about"))
                 .text_size(design::text::CAPTION)
                 .text_color(theme.muted),
@@ -404,20 +402,18 @@ fn agent(
         .gap(design::space::LG)
         .py(design::space::MD)
         .child(
-            design::avatar(&agent.name, design::size::AVATAR, theme)
-                .bg(theme.agent_soft)
-                .text_color(theme.agent)
+            shared::agent_face(agent, design::size::AVATAR, theme)
                 .font_weight(FontWeight::SEMIBOLD),
         )
         .child(body)
         .when(!revoked, |row| {
-            row.child(actions(view, number, standing, renaming, cx, theme))
+            row.child(actions(view, agent, renaming, cx, theme))
         });
     let renamed = renaming.and_then(|form| {
         problem(
             &format!("agents/{number}/rename"),
             form,
-            "Enter the agent's new name.",
+            words::RENAME.empty,
             theme,
         )
     });
@@ -447,22 +443,7 @@ fn answers(
     let listing = answering.is_some_and(|answering| answering.listing);
     let busy = answering.is_some_and(|answering| answering.form.busy);
     let shown = Choice::shown(&agent.audience, listing);
-    let choices = design::segmented(
-        format!("settings/agents/{number}/answers"),
-        format!("Who {} answers", agent.name),
-        ladder,
-        theme,
-        Choice::ALL.iter().position(|choice| *choice == shown),
-        Choice::ALL.map(|choice| {
-            (
-                format!("settings/agents/{number}/answers/{}", choice.slug()).into(),
-                choice.label().into(),
-            )
-        }),
-        cx.processor(move |v: &mut Settings, index: usize, _, cx| {
-            v.pick_audience(number, Choice::ALL[index], cx)
-        }),
-    );
+    let choices = shared::audience_choices(agent, shown, cx, ladder, theme);
     let open_to_anyone = agent.audience == Audience::Anyone;
     let specific = shown == Choice::Specific;
     let picker = div()
@@ -472,7 +453,7 @@ fn answers(
         .gap(design::space::LG)
         .child(secondary(
             format!("settings/agents/{number}/answers/label"),
-            "Who it answers",
+            words::WHO_IT_ANSWERS,
             theme,
         ))
         .child(choices)
@@ -488,7 +469,7 @@ fn answers(
         problem(
             &format!("agents/{number}/answers"),
             &answering.form,
-            "Enter a name or an account number.",
+            words::ADD_PERSON.empty,
             theme,
         )
     });
@@ -504,7 +485,7 @@ fn answers(
             block.child(
                 secondary(
                     format!("settings/agents/{number}/answers/warning"),
-                    "Anyone on the network can tell this agent what to do.",
+                    words::ANYONE_WARNING,
                     theme,
                 )
                 .text_color(theme.warning),
@@ -529,11 +510,7 @@ fn people(
     let rows: Vec<Stateful<Div>> = listed
         .iter()
         .map(|&person| {
-            let name = agent
-                .names
-                .get(&person)
-                .cloned()
-                .unwrap_or_else(|| format!("#{person}"));
+            let name = agent.person_name(person);
             let remove = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
                 v.remove_audience_person(number, person, cx)
             });
@@ -550,15 +527,15 @@ fn people(
                         .gap(design::space::SM)
                         .child(div().child(name))
                         .child(
-                            design::mono(format!("account {person}"))
+                            design::mono(words::account(person))
                                 .text_size(design::text::CAPTION)
                                 .text_color(theme.muted),
                         ),
                 )
                 .child(submit(
                     &format!("settings/agents/{number}/answers/{person}/remove"),
-                    "Remove",
-                    "Working…",
+                    words::REMOVE,
+                    words::WORKING,
                     busy,
                     false,
                     theme,
@@ -569,7 +546,7 @@ fn people(
     let empty = listed.is_empty().then(|| {
         secondary(
             format!("settings/agents/{number}/answers/none"),
-            "Add people by name or account number.",
+            words::NOBODY_LISTED,
             theme,
         )
     });
@@ -584,8 +561,8 @@ fn people(
             });
             let input = field(
                 &format!("settings/agents/{number}/answers/name"),
-                &format!("Add someone {} answers", agent.name),
-                "Name or account number",
+                &words::person_field(&agent.name),
+                words::ADD_PERSON.prompt,
                 &answering.form,
                 theme,
             );
@@ -597,12 +574,20 @@ fn people(
                 .flex()
                 .gap(design::space::SM)
                 .child(input)
-                .child(submit(&add_id, "Add", "Adding…", busy, false, theme, add))
+                .child(submit(
+                    &add_id,
+                    words::ADD_PERSON.verb,
+                    words::ADD_PERSON.busy,
+                    busy,
+                    false,
+                    theme,
+                    add,
+                ))
         }
         None => div().flex().child(submit(
             &add_id,
             "Add someone",
-            "Adding…",
+            words::ADD_PERSON.busy,
             busy,
             false,
             theme,
@@ -624,28 +609,25 @@ fn people(
 /// by the host before the key signs them: one press here.
 fn actions(
     view: &Settings,
-    number: u64,
-    standing: Standing,
+    agent: &Agent,
     renaming: Option<&Form>,
     cx: &mut Context<Settings>,
     theme: &Theme,
 ) -> impl IntoElement {
-    let (toggle, toggle_label, toggle_op) = match standing {
-        Standing::Suspended => ("resume", "Resume", identity::Op::Resume { account: number }),
-        Standing::Active | Standing::Revoked => (
-            "suspend",
-            "Suspend",
-            identity::Op::Suspend { account: number },
-        ),
-    };
+    let number = agent.number;
+    let (toggle, toggle_label, toggle_op) = agent.standing_toggle();
     let toggled = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
         v.set_standing(toggle_op.clone(), cx)
     });
     let revoke = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
         v.set_standing(identity::Op::Revoke { account: number }, cx)
     });
-    let renamed = cx
-        .listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.submit_rename_agent(number, cx));
+    // Rename opens the field; Save, beside it, sends the name
+    let open = renaming.is_some();
+    let renamed = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| match open {
+        true => v.submit_rename_agent(number, cx),
+        false => v.begin_rename(number, cx),
+    });
     let cancel = cx
         .listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.cancel_rename_agent(number, cx));
     let busy = view.agent_standing.busy;
@@ -657,8 +639,12 @@ fn actions(
         .gap(design::space::SM)
         .child(submit(
             &format!("settings/agents/{number}/rename"),
-            if renaming.is_some() { "Save" } else { "Rename" },
-            "Renaming…",
+            if renaming.is_some() {
+                words::RENAME.verb
+            } else {
+                words::RENAME_AGENT
+            },
+            words::RENAME.busy,
             renaming.is_some_and(|form| form.busy),
             false,
             theme,
@@ -668,7 +654,7 @@ fn actions(
             row.child(
                 button(
                     format!("settings/agents/{number}/rename-cancel"),
-                    "Cancel",
+                    words::CANCEL,
                     theme,
                 )
                 .border_color(theme.background)
@@ -679,7 +665,7 @@ fn actions(
         .child(submit(
             &format!("settings/agents/{number}/{toggle}"),
             toggle_label,
-            "Working…",
+            words::WORKING,
             busy,
             false,
             theme,
@@ -688,8 +674,8 @@ fn actions(
         .child(
             submit(
                 &format!("settings/agents/{number}/revoke"),
-                "Revoke",
-                "Working…",
+                words::REVOKE,
+                words::WORKING,
                 busy,
                 false,
                 theme,

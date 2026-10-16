@@ -6,6 +6,8 @@ use view::methods::{HostSession, Invite, InviteCreate, Session, Submit};
 use view::testing::{StreamSender, TestAppContext};
 use view::{Theme, wire};
 
+mod phone;
+
 fn account(number: u64, name: &str, control: identity::Control) -> identity::Account {
     identity::Account {
         number,
@@ -41,6 +43,7 @@ fn scout() -> identity::Account {
         },
     )
 }
+
 /// From here on identity reads Scout (12) in `life`: its manager's view
 /// after a suspend, a resume or a revoke lands.
 fn scout_is(cx: &TestAppContext, life: identity::Life) {
@@ -76,6 +79,7 @@ fn scout_is(cx: &TestAppContext, life: identity::Life) {
         })
     });
 }
+
 fn respond(cx: &TestAppContext) {
     cx.host().handle::<Query<Identity>>(|q| {
         Ok(match q {
@@ -976,5 +980,3 @@ fn a_refused_choice_shows_in_its_agents_row() {
     );
     assert!(cx.has_text("That didn’t go through: account 7 does not manage account 12"));
 }
-
-mod phone;

@@ -56,6 +56,28 @@ impl Agent {
             Kind::User | Kind::System(_) => Standing::Active,
         }
     }
+
+    /// What its manager can do to its standing short of revoking it: a
+    /// suspended agent resumes, any other is suspended. The control's slug,
+    /// its word, and the op it sends.
+    pub fn standing_toggle(&self) -> (&'static str, &'static str, identity::Op) {
+        let account = self.number;
+        match self.standing() {
+            Standing::Suspended => ("resume", "Resume", identity::Op::Resume { account }),
+            Standing::Active | Standing::Revoked => {
+                ("suspend", "Suspend", identity::Op::Suspend { account })
+            }
+        }
+    }
+
+    /// A person this agent answers, by name, or `#number` while identity
+    /// names nobody by it.
+    pub fn person_name(&self, person: u64) -> String {
+        match self.names.get(&person) {
+            Some(name) => name.clone(),
+            None => format!("#{person}"),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]

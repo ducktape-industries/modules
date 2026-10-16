@@ -51,13 +51,13 @@ fn sweep() {
         cx.simulate_click("settings/strip/agents");
         cx.simulate_click("settings/agents/12");
         cx.simulate_click("settings/agents/12/rename/open");
-        cx.simulate_click("settings/agents/12/rename-cancel");
+        cx.simulate_click("settings/agents/12/rename/cancel");
         cx.simulate_click("settings/agents/12/answers/open");
         cx.simulate_click("settings/agents/12/answers/specific");
         cx.simulate_click("settings/agents/12/answers/done");
-        cx.simulate_dismiss("settings/agents/12/actions");
+        cx.simulate_dismiss("settings/agents/12/sheet");
         cx.simulate_click("settings/agents/create/open");
-        cx.simulate_click("settings/agents/create/submit-cancel");
+        cx.simulate_click("settings/agents/create/cancel");
         cx.simulate_click("settings/agents/key/open");
         cx.simulate_back();
         cx.simulate_click("settings/strip/invites");
@@ -101,8 +101,7 @@ fn a_person_reads_who_they_are_and_each_key() {
             "{pane}"
         );
     }
-    // the desktop's words are not the phone's
-    assert!(!cx.has_text("This device"));
+    // the phone says what the Expo app says, not the desktop's `User`
     assert!(!cx.has_text("account 7 · User"));
 }
 
@@ -185,6 +184,37 @@ fn an_unregistered_key_creates_its_account() {
 }
 
 #[test]
+fn a_refused_account_keeps_its_name_and_says_why() {
+    let mut cx = phone("unregistered");
+    cx.host()
+        .refuse::<Submit<Identity>>("invalid", "a name is not empty");
+    cx.simulate_input("settings/account/create/name", "Maya");
+    cx.simulate_click("settings/account/create/submit");
+    cx.run_until_parked();
+    assert!(cx.has_text("That didn’t go through: a name is not empty"));
+    let Some(wire::Node::Field { value, .. }) = cx.find("settings/account/create/name") else {
+        panic!("the name field: {:?}", cx.texts())
+    };
+    assert_eq!(value, "Maya");
+}
+
+/// A field that stopped says why to assistive tech too, not only in red
+/// under it (rule 18).
+#[test]
+fn a_stopped_field_tells_assistive_tech_why() {
+    let mut cx = phone("unregistered");
+    cx.simulate_click("settings/account/create/submit");
+    let Some(wire::Node::Field { options, .. }) = cx.find("settings/account/create/name") else {
+        panic!("the name field: {:?}", cx.texts())
+    };
+    assert!(options.invalid.is_some(), "{options:?}");
+    assert_eq!(
+        options.description.as_deref(),
+        Some("Enter an account name.")
+    );
+}
+
+#[test]
 fn a_stopped_agents_key_says_why_it_does_not_act() {
     let cx = phone("suspended");
     has_all(
@@ -228,7 +258,7 @@ fn an_agents_row_opens_its_actions_and_back_closes_them() {
     let mut cx = agents();
     cx.simulate_click("settings/agents/12");
     assert!(
-        matches!(cx.node("settings/agents/12/actions"), wire::Node::Sheet { label, .. }
+        matches!(cx.node("settings/agents/12/sheet"), wire::Node::Sheet { label, .. }
             if label.as_deref() == Some("Scout"))
     );
     has_all(
@@ -244,7 +274,7 @@ fn an_agents_row_opens_its_actions_and_back_closes_them() {
         ],
     );
     cx.simulate_back();
-    assert!(cx.find("settings/agents/12/actions").is_none());
+    assert!(cx.find("settings/agents/12/sheet").is_none());
     assert_eq!(cx.back_handler(), None);
 }
 
@@ -260,7 +290,7 @@ fn a_rename_that_lands_goes_back_to_the_agents_actions() {
     cx.host()
         .handle::<Submit<Identity>>(|_| Ok(view::testing::applied(Vec::new())));
     cx.simulate_input("settings/agents/12/name", "Scout II");
-    cx.simulate_click("settings/agents/12/rename");
+    cx.simulate_click("settings/agents/12/rename/submit");
     cx.run_until_parked();
     assert_eq!(
         sent(&cx),
@@ -271,6 +301,17 @@ fn a_rename_that_lands_goes_back_to_the_agents_actions() {
     );
     assert!(cx.find("settings/agents/12/name").is_none());
     assert!(cx.find("settings/agents/12/rename/open").is_some());
+}
+
+#[test]
+fn cancel_takes_a_rename_back_to_the_agents_actions() {
+    let mut cx = agents();
+    cx.simulate_click("settings/agents/12");
+    cx.simulate_click("settings/agents/12/rename/open");
+    cx.simulate_click("settings/agents/12/rename/cancel");
+    assert!(cx.find("settings/agents/12/name").is_none());
+    assert!(cx.find("settings/agents/12/rename/open").is_some());
+    assert!(sent(&cx).is_empty());
 }
 
 #[test]
@@ -331,8 +372,12 @@ fn a_suspended_agent_resumes_and_a_revoked_one_only_says_who_it_was() {
     scout_is(&cx, identity::Life::Suspended { keys: Vec::new() });
     identity_moves(&mut cx, 43);
     cx.simulate_click("settings/agents/12");
-    assert!(cx.find("settings/agents/12/resume").is_some());
     assert!(cx.find("settings/agents/12/suspend").is_none());
+    cx.host()
+        .handle::<Submit<Identity>>(|_| Ok(view::testing::applied(Vec::new())));
+    cx.simulate_click("settings/agents/12/resume");
+    cx.run_until_parked();
+    assert_eq!(sent(&cx), [identity::Op::Resume { account: 12 }]);
 
     scout_is(&cx, identity::Life::Revoked);
     identity_moves(&mut cx, 44);
@@ -370,6 +415,19 @@ fn whom_an_agent_answers_is_picked_in_its_sheet() {
     cx.simulate_click("settings/agents/12/answers/done");
     assert!(cx.find("settings/agents/12/answers/name").is_none());
     assert!(cx.has_text("Specific people"), "{:?}", cx.texts());
+}
+
+#[test]
+fn a_person_an_agent_answers_is_removed_in_one_press() {
+    let (mut cx, answers) = answering(identity::Audience::Accounts(vec![8, 9]));
+    on_phone(&mut cx);
+    cx.simulate_click("settings/agents/12");
+    cx.simulate_click("settings/agents/12/answers/open");
+    has_all(&cx, &["Bob", "account 8", "Eve", "account 9"]);
+    cx.simulate_click("settings/agents/12/answers/8/remove");
+    cx.run_until_parked();
+    assert_eq!(*answers.borrow(), identity::Audience::Accounts(vec![9]));
+    assert!(!cx.has_text("account 8"), "{:?}", cx.texts());
 }
 
 #[test]
@@ -448,13 +506,17 @@ fn an_added_key_closes_its_sheet() {
 /// Every phone field says what keyboard it wants (rule 7).
 #[test]
 fn the_phones_fields_carry_their_keyboard_hints() {
-    let mut cx = agents();
     let hints = |cx: &TestAppContext, key: &str| {
         let Some(wire::Node::Field { options, .. }) = cx.find(key) else {
             panic!("no field {key}");
         };
         options.text_input
     };
+    let account = phone("unregistered");
+    let name = hints(&account, "settings/account/create/name");
+    assert_eq!(name.autocapitalize, wire::Autocapitalize::Words);
+
+    let mut cx = agents();
     cx.simulate_click("settings/agents/key/open");
     let request = hints(&cx, "settings/agents/key/request");
     assert!(!request.autocorrect && !request.suggestions);
@@ -468,7 +530,7 @@ fn the_phones_fields_carry_their_keyboard_hints() {
     cx.simulate_click("settings/agents/12/rename/open");
     let rename = hints(&cx, "settings/agents/12/name");
     assert_eq!(rename.autocapitalize, wire::Autocapitalize::Words);
-    cx.simulate_click("settings/agents/12/rename-cancel");
+    cx.simulate_click("settings/agents/12/rename/cancel");
     cx.simulate_click("settings/agents/12/answers/open");
     cx.simulate_click("settings/agents/12/answers/specific");
     let person = hints(&cx, "settings/agents/12/answers/name");

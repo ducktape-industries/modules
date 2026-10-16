@@ -9,12 +9,13 @@
 //! The state is one struct (`state.rs`). Reads are typed asks of identity
 //! and valset (`queries.rs`), re-read on their live heads (`watch.rs`);
 //! presses land in `actions.rs`; `ui/` (the desktop) and `ui/phone/` (the
-//! phone) draw and never mutate.
+//! phone) draw and never mutate, both worded by `words.rs`.
 mod actions;
 mod queries;
 mod state;
 mod ui;
 mod watch;
+mod words;
 
 pub use state::Settings;
 
@@ -53,9 +54,10 @@ impl Render for Settings {
         // one wasm, two designs, the model shared (owner 2026-10-16: the
         // phone gets its own screens): a finger gets the Expo app's, a
         // pointer the desktop's
-        match window.touch() {
-            true => ui::phone::render(self, cx).into_any_element(),
-            false => ui::render(self, cx).into_any_element(),
+        if window.touch() {
+            ui::phone::render(self, cx).into_any_element()
+        } else {
+            ui::render(self, cx).into_any_element()
         }
     }
 }

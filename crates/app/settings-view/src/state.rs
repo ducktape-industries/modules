@@ -31,6 +31,25 @@ pub struct Settings {
     pub(crate) answering: BTreeMap<u64, Answering>,
 }
 
+impl Settings {
+    /// The panes there are: Agents only for an account that manages agents.
+    pub(crate) fn sections(&self) -> Vec<Section> {
+        let manages = matches!(self.account.ready(), Some(Some(Seat::Account(a))) if a.manages);
+        [Section::Account, Section::Agents, Section::Invites]
+            .into_iter()
+            .filter(|section| *section != Section::Agents || manages)
+            .collect()
+    }
+
+    /// The pane on screen: the picked one, or Account once it is not listed.
+    pub(crate) fn shown(&self) -> Section {
+        match self.sections().contains(&self.section) {
+            true => self.section,
+            false => Section::Account,
+        }
+    }
+}
+
 /// A sheet over the phone's Agents pane; each form the desktop draws inline
 /// is one. An agent's sheet is one sheet in three modes, by the agent's
 /// number (the Expo app's `AgentSheet`).
@@ -42,8 +61,22 @@ pub(crate) enum Sheet {
     Rename(u64),
     /// whom an agent answers
     Answers(u64),
+    /// a new agent's name
     CreateAgent,
+    /// an agent's key request, pasted
     AddKey,
+}
+
+impl Sheet {
+    /// The sheet once the op it sent landed: a rename goes back to the
+    /// agent's actions, an add closes, the rest stay (Expo `Agents.tsx`).
+    pub(crate) fn after_landing(self) -> Option<Sheet> {
+        match self {
+            Self::Rename(number) => Some(Self::Actions(number)),
+            Self::CreateAgent | Self::AddKey => None,
+            Self::Actions(_) | Self::Answers(_) => Some(self),
+        }
+    }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]

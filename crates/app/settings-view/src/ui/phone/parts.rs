@@ -1,26 +1,62 @@
 //! Expo `src/kit/Row.tsx`, `src/kit/Field.tsx` and `src/kit/States.tsx`:
-//! the kit's pieces both phone files draw that the SDK has no component
-//! for yet: a row's words, a labelled field, a quiet line, a sentence. They
-//! draw only what they are handed; none reads the state or writes.
-use super::*;
-use view::Svg;
+//! the kit's pieces both phone files draw. They draw only what they are
+//! handed; none reads the state or writes. The ones marked "SDK gap" are
+//! every view's, and come to the SDK in one PR; until then they live here
+//! as they are.
+use view::accesskit::Invalid;
+use view::design::Ladder;
+use view::prelude::*;
+use view::{Div, ElementId, FontWeight, Stateful, Svg};
 
+use crate::state::Form;
+use crate::words;
+
+// SDK gap: `Ladder::row_tall`, swap when feat/phone-kit lands
 /// A row with a caption under its title (Expo `src/kit/Row.tsx:44`).
-pub(super) const TALL: Pixels = px(design::height::touch::ROW_TALL as f32);
+pub(super) const ROW_TALL: Pixels = px(design::height::touch::ROW_TALL as f32);
+// SDK gap: the row's title over caption, swap when feat/phone-kit lands
 /// The room between a row's title and its caption (Expo `src/kit/Row.tsx:58`).
-const WORDS_GAP: Pixels = px(1.);
+const TITLE_GAP: Pixels = px(1.);
+// SDK gap: the labelled field, swap when feat/phone-kit lands
 /// A stopped field's text inset: its edge goes 2 thick in the danger tone,
 /// so the text moves one in to stay put (Expo `src/kit/Field.tsx:52`).
 const STOPPED_INSET: Pixels = px((design::spacing::LG - 1.) as f32);
 
+/// A column of a pane or a sheet, its children edge to edge.
+pub(super) fn column(id: impl Into<ElementId>) -> Stateful<Div> {
+    div().id(id).flex().flex_col().w_full()
+}
+
+/// A one-line field over `form` for a name: `label` names it, `prompt` is
+/// drawn in it while empty, Return sends `submit`. It takes no typing while
+/// the submit is in flight, and tells assistive tech what stopped it.
+pub(super) fn name_input(
+    id: impl Into<ElementId>,
+    form: &Form,
+    label: impl Into<String>,
+    prompt: &str,
+    problem: Option<&str>,
+    submit: impl Fn(&(), &mut Window, &mut App) + 'static,
+) -> Input {
+    Input::new(id, &form.text, label)
+        .placeholder(prompt)
+        .disabled(form.busy)
+        .autocapitalize(Autocapitalize::Words)
+        .when_some(problem, |input, problem| {
+            input.invalid(Invalid::True).description(problem)
+        })
+        .when(!form.busy, |input| input.on_submit(submit))
+}
+
+// SDK gap: the labelled field, swap when feat/phone-kit lands
 /// A field under its label, and under it what stopped it, in the danger
 /// tone, its edge too (the Expo kit's `Field`).
 pub(super) fn labelled(
     label: &str,
     field: impl IntoElement + Styled,
     problem: Option<String>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> Div {
     let field = match problem {
         Some(_) => field
@@ -53,16 +89,17 @@ pub(super) fn labelled(
 pub(super) fn problem_of(form: &Form, empty: &str) -> Option<String> {
     form.problem
         .as_ref()
-        .map(|problem| problem_text(problem, empty))
+        .map(|problem| words::problem_text(problem, empty))
 }
 
+// SDK gap: quiet at the ladder's sizes, swap when feat/phone-kit lands
 /// One muted line standing for a pane's content: a help line, a wait, a
 /// note (the Expo kit's `Quiet`, `src/kit/States.tsx:40`).
 pub(super) fn quiet(
     id: &str,
     text: impl Into<SharedString>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> Stateful<Div> {
     div()
         .id(id.to_owned())
@@ -81,15 +118,16 @@ pub(super) fn note(text: impl Into<SharedString>, tone: Hsla, ladder: &Ladder) -
         .child(text.into())
 }
 
+// SDK gap: the row's title over caption, swap when feat/phone-kit lands
 /// A row's words (the Expo kit's `Row`): the title on one line, in `tone`,
 /// the caption under it.
-pub(super) fn words(title: &str, tone: Hsla, caption: Div, ladder: &Ladder) -> Div {
+pub(super) fn title_and_caption(title: &str, tone: Hsla, caption: Div, ladder: &Ladder) -> Div {
     div()
         .flex_1()
         .min_w_0()
         .flex()
         .flex_col()
-        .gap(WORDS_GAP)
+        .gap(TITLE_GAP)
         .child(
             div()
                 .truncate()
@@ -100,8 +138,19 @@ pub(super) fn words(title: &str, tone: Hsla, caption: Div, ladder: &Ladder) -> D
         .child(caption)
 }
 
+// SDK gap: the row's title over caption, swap when feat/phone-kit lands
+/// The muted line under a row's title.
+pub(super) fn caption(text: impl Into<SharedString>, ladder: &Ladder, theme: &Theme) -> Div {
+    div()
+        .truncate()
+        .text_type(ladder.caption)
+        .text_color(theme.muted)
+        .child(text.into())
+}
+
+// SDK gap: mono at the ladder's sizes, swap when feat/phone-kit lands
 /// A caption in the data face: a key, an account number.
-pub(super) fn mono(text: impl Into<SharedString>, theme: &Theme, ladder: &Ladder) -> Div {
+pub(super) fn mono(text: impl Into<SharedString>, ladder: &Ladder, theme: &Theme) -> Div {
     div()
         .font_family(design::fonts::FAMILY_MONO)
         .text_type(ladder.caption)
@@ -109,7 +158,58 @@ pub(super) fn mono(text: impl Into<SharedString>, theme: &Theme, ladder: &Ladder
         .child(text.into())
 }
 
+// SDK gap: the sheet row's hint, swap when feat/phone-kit lands
+/// A sheet row's value at its right, never squeezed (the Expo kit's
+/// `SheetRow` hint, `src/kit/Sheet.tsx:168`).
+pub(super) fn hint(text: &str, ladder: &Ladder, theme: &Theme) -> Div {
+    div()
+        .flex_none()
+        .text_type(ladder.caption)
+        .text_color(theme.muted)
+        .child(text.to_owned())
+}
+
+// SDK gap: the row's chevron, swap when feat/phone-kit lands
+/// A row that opens something (the Expo kit's `Row` `chevron`).
+pub(super) fn chevron(ladder: &Ladder, theme: &Theme) -> Svg {
+    design::icon("chevron-right", ladder.icon_row).text_color(theme.faint)
+}
+
 /// A row's leading glyph, muted.
 pub(super) fn muted_icon(name: &str, ladder: &Ladder, theme: &Theme) -> Svg {
     design::icon(name, ladder.icon_row).text_color(theme.muted)
+}
+
+/// Who an account is, at the head of its screen or sheet: its face, then
+/// its name (a [`name_line`]) over one mono line.
+pub(super) fn named(
+    face: Div,
+    name: impl IntoElement,
+    about: String,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(design::space::LG)
+        .child(face)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(name)
+                .child(mono(about, ladder, theme)),
+        )
+}
+
+/// An account's name over its line in `named`: one line, medium, in `size`.
+pub(super) fn name_line(name: &str, size: design::Type) -> Div {
+    div()
+        .truncate()
+        .text_type(size)
+        .font_weight(FontWeight::MEDIUM)
+        .child(name.to_owned())
 }

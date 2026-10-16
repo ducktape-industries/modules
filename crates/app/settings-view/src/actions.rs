@@ -55,12 +55,9 @@ impl Settings {
 
     /// Rename from an agent's actions: its sheet turns to the field,
     /// holding the name.
-    pub(crate) fn start_rename_agent(&mut self, number: u64, cx: &mut Context<Self>) {
-        if !self.rename_agent.contains_key(&number) {
-            self.submit_rename_agent(number, cx);
-        }
+    pub(crate) fn open_rename(&mut self, number: u64, cx: &mut Context<Self>) {
         self.sheet = Some(Sheet::Rename(number));
-        cx.notify();
+        self.begin_rename(number, cx);
     }
 
     /// Who the session's key is, read afresh: the boot, a new session, a
@@ -125,21 +122,19 @@ impl Settings {
         .detach();
     }
 
-    /// Rename's first press turns the agent's name into a field holding
-    /// it; the next submits it.
+    /// A rename begins: the agent's name becomes a field holding it. A
+    /// rename already begun keeps what was typed.
+    pub(crate) fn begin_rename(&mut self, number: u64, cx: &mut Context<Self>) {
+        let name = self.agent_name(number).unwrap_or_default();
+        self.rename_agent.entry(number).or_insert_with(|| Form {
+            text: TextField::new(name),
+            ..Form::default()
+        });
+        cx.notify();
+    }
+
+    /// Sends the agent's new name, as its rename field holds it.
     pub(crate) fn submit_rename_agent(&mut self, number: u64, cx: &mut Context<Self>) {
-        if !self.rename_agent.contains_key(&number) {
-            let name = self.agent_name(number).unwrap_or_default();
-            self.rename_agent.insert(
-                number,
-                Form {
-                    text: TextField::new(name),
-                    ..Form::default()
-                },
-            );
-            cx.notify();
-            return;
-        }
         let form = self.rename_agent.entry(number).or_default();
         let name = form.text.text().trim().to_string();
         if name.is_empty() {
@@ -366,14 +361,8 @@ impl Settings {
             view.rename_agent.retain(|_, form| {
                 form.busy || form.problem.is_some() || !form.text.text().is_empty()
             });
-            // an add that landed closes its sheet, a rename goes back to the
-            // agent's actions, and the agent's sheet stays (Expo `Agents.tsx`)
             if landed {
-                view.sheet = match view.sheet {
-                    Some(Sheet::Rename(number)) => Some(Sheet::Actions(number)),
-                    Some(Sheet::CreateAgent | Sheet::AddKey) => None,
-                    other => other,
-                };
+                view.sheet = view.sheet.and_then(Sheet::after_landing);
             }
             view.refresh_account(cx);
             cx.notify();

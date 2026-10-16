@@ -6,29 +6,38 @@
 //! Reads the account's agents (`view.account`), the open sheet
 //! (`view.sheet`) and each form: create, add key, rename, standing, whom it
 //! answers. Writes the open sheet (`open_sheet`, `close_sheet`,
-//! `open_answers`, `start_rename_agent`, `cancel_rename_agent`) and each
-//! op through its submit (`submit_create_agent`, `submit_agent_key`,
+//! `open_answers`, `open_rename`, `cancel_rename_agent`) and each op
+//! through its submit (`submit_create_agent`, `submit_agent_key`,
 //! `submit_rename_agent`, `set_standing`, `pick_audience`,
 //! `submit_audience_person`, `remove_audience_person`).
-use super::parts::{TALL, labelled, mono, muted_icon, note, problem_of, quiet, words};
-use super::*;
-use crate::queries::Agent;
-use crate::state::Choice;
 use identity::{Audience, Standing};
-use view::Svg;
+use view::design::{Kind as ButtonKind, Ladder};
+use view::prelude::*;
+use view::{Div, FontWeight, Stateful};
 
-/// A sheet's inset (Expo `src/account/Agents.tsx:24`).
-const PAD: Pixels = px(20.);
+use super::parts::{
+    ROW_TALL, caption, chevron, column, hint, labelled, mono, muted_icon, name_input, name_line,
+    named, note, problem_of, quiet, title_and_caption,
+};
+use crate::Settings;
+use crate::queries::{Agent, Seat};
+use crate::state::{Choice, Form, Sheet};
+use crate::ui::shared::{agent_face, audience_choices};
+use crate::words;
+
+// SDK gap: the sheet's inset, swap when feat/phone-kit lands
+/// A sheet's content inset (Expo `src/account/Agents.tsx:24`).
+const SHEET_INSET: Pixels = px(20.);
 /// A revoked agent's face, faded (Expo `src/kit/Avatar.tsx:38`).
-const OFF: f32 = 0.5;
+const REVOKED_OPACITY: f32 = 0.5;
 
 /// The Agents pane: every agent this person manages, then the rows that
 /// open the create and add-key sheets.
 pub(super) fn pane(
     view: &Settings,
     cx: &mut Context<Settings>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> AnyElement {
     let Some(Some(Seat::Account(account))) = view.account.ready() else {
         // the strip lists Agents only for an account that manages them
@@ -37,15 +46,18 @@ pub(super) fn pane(
     let rows: Vec<_> = account
         .agents
         .iter()
-        .map(|agent| agent_row(agent, cx, theme, ladder))
+        .map(|agent| agent_row(agent, cx, ladder, theme))
         .collect();
+    let create =
+        cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.open_sheet(Sheet::CreateAgent, cx));
+    let add_key =
+        cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.open_sheet(Sheet::AddKey, cx));
     column("settings/agents")
-        .gap_0()
         .child(quiet(
             "settings/agents/help",
-            "Agents act as accounts you manage. You answer for what they do.",
-            theme,
+            words::AGENTS_HELP,
             ladder,
+            theme,
         ))
         .child(design::section_head(
             "settings/agents/list",
@@ -57,173 +69,150 @@ pub(super) fn pane(
         .children(rows)
         .child(design::section_head(
             "settings/agents/add",
-            "Add",
+            words::ADD,
             None,
             ladder,
             theme,
         ))
         .child(add_row(
-            Sheet::CreateAgent,
+            "settings/agents/create/open",
             "plus",
-            "Create an agent",
+            words::CREATE_AGENT_TITLE,
             "Name it; it holds no key yet.",
-            cx,
-            theme,
+            create,
             ladder,
+            theme,
         ))
         .child(add_row(
-            Sheet::AddKey,
+            "settings/agents/key/open",
             "key-round",
-            "Add a key to an agent",
-            "Paste the key request the agent's device shows.",
-            cx,
-            theme,
+            words::ADD_KEY_TITLE,
+            words::ADD_KEY_WHY,
+            add_key,
             ladder,
+            theme,
         ))
         .into_any_element()
 }
 
-/// A row that opens one of the two add sheets.
+/// A row that opens one of the two add sheets: its glyph and title, what
+/// the sheet is for under them.
 fn add_row(
-    sheet: Sheet,
+    id: &str,
     glyph: &str,
     title: &str,
     about: &str,
-    cx: &mut Context<Settings>,
-    theme: &Theme,
+    open: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> Stateful<Div> {
-    let id = match sheet {
-        Sheet::AddKey => "settings/agents/key/open",
-        _ => "settings/agents/create/open",
-    };
-    design::row(id, ladder, theme)
-        .min_h(TALL)
+    design::row(id.to_owned(), ladder, theme)
+        .min_h(ROW_TALL)
         .role(Role::Button)
         .focusable()
-        .on_click(
-            cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.open_sheet(sheet, cx)),
-        )
+        .on_click(open)
         .child(design::lead(muted_icon(glyph, ladder, theme)))
-        .child(words(
+        .child(title_and_caption(
             title,
             theme.foreground,
-            caption(about, theme, ladder),
+            caption(about, ladder, theme),
             ladder,
         ))
-        .child(chevron(theme, ladder))
+        .child(chevron(ladder, theme))
 }
 
 /// One agent's row; a press opens its sheet, a revoked one's too.
 fn agent_row(
     agent: &Agent,
     cx: &mut Context<Settings>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> Stateful<Div> {
     let number = agent.number;
     let revoked = agent.standing() == Standing::Revoked;
-    let keys = design::plural(agent.keys as u64, "key", "keys");
-    let about = match revoked {
-        true => format!("account {number} · {keys}"),
-        false => format!(
-            "account {number} · {keys} · answers {}",
-            answers(&agent.audience)
-        ),
+    let keys = words::account_keys(number, agent.keys);
+    // a revoked agent answers nobody: its line stops at its keys
+    let about = if revoked {
+        keys
+    } else {
+        format!("{keys} · answers {}", words::answers(&agent.audience))
+    };
+    let tone = if revoked {
+        theme.faint
+    } else {
+        theme.foreground
     };
     let open = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
         v.open_sheet(Sheet::Actions(number), cx)
     });
     design::row(format!("settings/agents/{number}"), ladder, theme)
-        .min_h(TALL)
+        .min_h(ROW_TALL)
         .role(Role::Button)
         .focusable()
         .on_click(open)
         .child(design::lead(agent_avatar(agent, ladder.avatar, theme)))
-        .child(words(
+        .child(title_and_caption(
             &agent.name,
-            if revoked {
-                theme.faint
-            } else {
-                theme.foreground
-            },
-            caption(about, theme, ladder),
+            tone,
+            caption(about, ladder, theme),
             ladder,
         ))
         .child(standing_badge(agent, ladder, theme))
-        .child(chevron(theme, ladder))
-}
-
-/// Whom an agent answers, as its row says it (Expo
-/// `src/account/words.ts:68`).
-fn answers(audience: &Audience) -> String {
-    match audience {
-        Audience::Manager => "only me".into(),
-        Audience::Anyone => "anyone".into(),
-        Audience::Accounts(people) => design::plural(people.len() as u64, "person", "people"),
-    }
-}
-
-fn standing_word(standing: Standing) -> &'static str {
-    match standing {
-        Standing::Active => "active",
-        Standing::Suspended => "suspended",
-        Standing::Revoked => "revoked",
-    }
+        .child(chevron(ladder, theme))
 }
 
 fn standing_badge(agent: &Agent, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
-    let (foreground, background) = match agent.standing() {
+    let standing = agent.standing();
+    let (foreground, background) = match standing {
         Standing::Active => (theme.success, theme.success_soft),
         Standing::Suspended => (theme.warning, theme.warning_soft),
         Standing::Revoked => (theme.danger, theme.danger_soft),
     };
     design::badge(
         format!("settings/agents/{}/standing", agent.number),
-        standing_word(agent.standing()),
+        words::standing(standing),
         ladder,
         foreground,
         background,
     )
 }
 
-/// An agent's initial in the agent tint, faded once revoked.
+/// An agent's face, faded once revoked.
 fn agent_avatar(agent: &Agent, face: design::Face, theme: &Theme) -> Div {
-    design::avatar(&agent.name, face, theme)
-        .bg(theme.agent_soft)
-        .text_color(theme.agent)
-        .when(agent.standing() == Standing::Revoked, |face| {
-            face.opacity(OFF)
-        })
+    agent_face(agent, face, theme).when(agent.standing() == Standing::Revoked, |face| {
+        face.opacity(REVOKED_OPACITY)
+    })
 }
 
-/// The sheet open over the screen, if one is; dismissing it closes it.
+/// The sheet open over the screen, if one is drawn: the open sheet, while
+/// what it is for is still there. Dismissing it closes it.
 pub(super) fn sheet(
     view: &Settings,
     cx: &mut Context<Settings>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> Option<AnyElement> {
     let open = view.sheet?;
     let close = cx.listener(|v: &mut Settings, _: &(), _, cx| v.close_sheet(cx));
     let (id, label, body) = match open {
         Sheet::Actions(number) | Sheet::Rename(number) | Sheet::Answers(number) => {
+            // an agent gone from the account takes its sheet with it
             let agent = view.agent(number)?;
             (
-                format!("settings/agents/{number}/actions"),
+                format!("settings/agents/{number}/sheet"),
                 agent.name.clone(),
-                agent_sheet(view, agent, open, cx, theme, ladder),
+                agent_sheet(view, agent, open, cx, ladder, theme),
             )
         }
         Sheet::CreateAgent => (
             "settings/agents/create/sheet".to_owned(),
-            "Create an agent".to_owned(),
-            create_agent(view, cx, theme, ladder),
+            words::CREATE_AGENT_TITLE.to_owned(),
+            create_agent(view, cx, ladder, theme),
         ),
         Sheet::AddKey => (
             "settings/agents/key/sheet".to_owned(),
-            "Add a key to an agent".to_owned(),
-            add_key(view, cx, theme, ladder),
+            words::ADD_KEY_TITLE.to_owned(),
+            add_key(view, cx, ladder, theme),
         ),
     };
     Some(
@@ -241,52 +230,34 @@ fn agent_sheet(
     agent: &Agent,
     open: Sheet,
     cx: &mut Context<Settings>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> AnyElement {
     let body = match (agent.standing(), open) {
         (Standing::Revoked, _) => None,
-        (_, Sheet::Rename(_)) => rename(view, agent, cx, theme, ladder),
-        (_, Sheet::Answers(_)) => Some(answering(view, agent, cx, theme, ladder)),
-        _ => Some(actions(view, agent, cx, theme, ladder)),
+        (_, Sheet::Rename(_)) => rename(view, agent, cx, ladder, theme),
+        (_, Sheet::Answers(_)) => Some(answers_form(view, agent, cx, ladder, theme)),
+        _ => Some(actions(view, agent, cx, ladder, theme)),
     };
+    let number = agent.number;
+    let about = format!(
+        "{} · {}",
+        words::account(number),
+        words::standing(agent.standing())
+    );
+    let head = design::sheet_head(format!("settings/agents/{number}/head"), theme).child(named(
+        agent_avatar(agent, ladder.avatar_sheet, theme),
+        name_line(&agent.name, ladder.body),
+        about,
+        ladder,
+        theme,
+    ));
     div()
         .flex()
         .flex_col()
-        .child(agent_head(agent, theme, ladder))
+        .child(head)
         .children(body)
         .into_any_element()
-}
-
-/// An agent's sheet head: its face, its name over its number and standing.
-fn agent_head(agent: &Agent, theme: &Theme, ladder: &Ladder) -> Stateful<Div> {
-    let number = agent.number;
-    design::sheet_head(format!("settings/agents/{number}/head"), theme).child(
-        div()
-            .flex()
-            .items_center()
-            .gap(design::space::LG)
-            .child(agent_avatar(agent, ladder.avatar_sheet, theme))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .child(
-                        div()
-                            .truncate()
-                            .text_type(ladder.body)
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(agent.name.clone()),
-                    )
-                    .child(mono(
-                        format!("account {number} · {}", standing_word(agent.standing())),
-                        theme,
-                        ladder,
-                    )),
-            ),
-    )
 }
 
 /// An agent's actions: Rename, whom it answers, Suspend or Resume, Revoke.
@@ -296,27 +267,26 @@ fn actions(
     view: &Settings,
     agent: &Agent,
     cx: &mut Context<Settings>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> AnyElement {
     let number = agent.number;
     let listing = view
         .answering
         .get(&number)
         .is_some_and(|answering| answering.listing);
-    let rename = cx
-        .listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.start_rename_agent(number, cx));
+    let rename =
+        cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.open_rename(number, cx));
     let answers =
         cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.open_answers(number, cx));
     let revoke = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
         v.set_standing(identity::Op::Revoke { account: number }, cx)
     });
-    column(format!("settings/agents/{number}/sheet"))
-        .gap_0()
+    column(format!("settings/agents/{number}/actions"))
         .child(design::sheet_row(
             format!("settings/agents/{number}/rename/open"),
             Some("pencil"),
-            "Rename",
+            words::RENAME_AGENT,
             false,
             ladder,
             theme,
@@ -326,7 +296,7 @@ fn actions(
             design::sheet_row(
                 format!("settings/agents/{number}/answers/open"),
                 Some("users"),
-                "Who it answers",
+                words::WHO_IT_ANSWERS,
                 false,
                 ladder,
                 theme,
@@ -334,57 +304,54 @@ fn actions(
             )
             .child(hint(
                 Choice::shown(&agent.audience, listing).label(),
-                theme,
                 ladder,
+                theme,
             )),
         )
-        .child(standing_row(view, agent, cx, theme, ladder))
+        .child(standing_row(view, agent, cx, ladder, theme))
         .child(
             design::sheet_row(
                 format!("settings/agents/{number}/revoke"),
                 Some("x"),
-                "Revoke",
+                words::REVOKE,
                 true,
                 ladder,
                 theme,
                 revoke,
             )
-            .child(hint("final", theme, ladder)),
+            .child(hint("final", ladder, theme)),
         )
         .children(view.agent_standing.problem.as_ref().map(|problem| {
-            div()
-                .px(PAD)
-                .child(note(problem_text(problem, ""), theme.danger, ladder))
+            div().px(SHEET_INSET).child(note(
+                words::problem_text(problem, ""),
+                theme.danger,
+                ladder,
+            ))
         }))
         .into_any_element()
 }
 
-/// Suspend an active agent, or Resume a suspended one; `Working…` while
+/// Suspend an active agent, or Resume a suspended one; Working… while
 /// either is in flight.
 fn standing_row(
     view: &Settings,
     agent: &Agent,
     cx: &mut Context<Settings>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> Stateful<Div> {
-    let account = agent.number;
-    let (slug, glyph, word, op) = match agent.standing() {
-        Standing::Suspended => ("resume", "play", "Resume", identity::Op::Resume { account }),
-        Standing::Active | Standing::Revoked => (
-            "suspend",
-            "clock",
-            "Suspend",
-            identity::Op::Suspend { account },
-        ),
+    let (slug, word, op) = agent.standing_toggle();
+    let glyph = match agent.standing() {
+        Standing::Suspended => "play",
+        Standing::Active | Standing::Revoked => "clock",
     };
     let press =
         cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.set_standing(op.clone(), cx));
     design::sheet_row(
-        format!("settings/agents/{account}/{slug}"),
+        format!("settings/agents/{}/{slug}", agent.number),
         Some(glyph),
         if view.agent_standing.busy {
-            "Working…"
+            words::WORKING
         } else {
             word
         },
@@ -401,75 +368,71 @@ fn rename(
     view: &Settings,
     agent: &Agent,
     cx: &mut Context<Settings>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> Option<AnyElement> {
     let number = agent.number;
     let form = view.rename_agent.get(&number)?;
-    let label = format!("Rename {}", agent.name);
-    let input = Input::new(
+    let label = words::rename_field(&agent.name);
+    let problem = problem_of(form, words::RENAME.empty);
+    let input = name_input(
         format!("settings/agents/{number}/name"),
-        &form.text,
+        form,
         label.clone(),
-    )
-    .placeholder("New name")
-    .disabled(form.busy)
-    .autocapitalize(Autocapitalize::Words)
-    .when(!form.busy, |input| {
-        input.on_submit(
-            cx.listener(move |v: &mut Settings, _: &(), _, cx| v.submit_rename_agent(number, cx)),
-        )
-    });
+        words::RENAME.prompt,
+        problem.as_deref(),
+        cx.listener(move |v: &mut Settings, _: &(), _, cx| v.submit_rename_agent(number, cx)),
+    );
     let save = cx
         .listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.submit_rename_agent(number, cx));
     let cancel = cx
         .listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.cancel_rename_agent(number, cx));
     let form = column(format!("settings/agents/{number}/rename/form"))
         .gap(design::space::LG)
-        .p(PAD)
+        .p(SHEET_INSET)
         .child(labelled(
             &label,
             design::field(input, ladder, theme),
-            problem_of(form, "Enter the agent's new name."),
-            theme,
+            problem,
             ladder,
+            theme,
         ))
         .child(verbs(
             &format!("settings/agents/{number}/rename"),
-            "Save",
-            form.busy.then_some("Renaming…"),
+            words::RENAME.verb,
+            form.busy.then_some(words::RENAME.busy),
             save,
             cancel,
-            theme,
             ladder,
+            theme,
         ));
     Some(form.into_any_element())
 }
 
 /// Whom an agent answers: the choice, and under Specific the people it
 /// lists with the field that adds one; Done goes back to its actions.
-fn answering(
+fn answers_form(
     view: &Settings,
     agent: &Agent,
     cx: &mut Context<Settings>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> AnyElement {
     let number = agent.number;
     let answering = view.answering.get(&number);
     let listing = answering.is_some_and(|answering| answering.listing);
     let busy = answering.is_some_and(|answering| answering.form.busy);
     let shown = Choice::shown(&agent.audience, listing);
-    let problem = answering
-        .and_then(|answering| problem_of(&answering.form, "Enter a name or an account number."));
+    let problem =
+        answering.and_then(|answering| problem_of(&answering.form, words::ADD_PERSON.empty));
     let people = match (shown, answering) {
         (Choice::Specific, Some(answering)) => Some(people(
             agent,
             &answering.form,
             problem.clone(),
             cx,
-            theme,
             ladder,
+            theme,
         )),
         _ => None,
     };
@@ -479,16 +442,18 @@ fn answering(
     let saving = if busy { " · Saving…" } else { "" };
     column(format!("settings/agents/{number}/answering"))
         .gap(design::space::LG)
-        .p(PAD)
+        // the Expo sheet's inset, a gutter under its last control
+        // (`src/account/Agents.tsx:348`)
+        .p(SHEET_INSET)
         .pb(design::space::BLOCK)
-        .child(note(format!("Who it answers{saving}"), theme.muted, ladder))
-        .child(audience_choices(agent, shown, cx, theme, ladder))
+        .child(note(
+            format!("{}{saving}", words::WHO_IT_ANSWERS),
+            theme.muted,
+            ladder,
+        ))
+        .child(audience_choices(agent, shown, cx, ladder, theme))
         .when(agent.audience == Audience::Anyone, |block| {
-            block.child(note(
-                "Anyone on the network can tell this agent what to do.",
-                theme.warning,
-                ladder,
-            ))
+            block.child(note(words::ANYONE_WARNING, theme.warning, ladder))
         })
         // under Specific the field says what stopped it
         .when(people.is_none(), |block| {
@@ -510,34 +475,6 @@ fn answering(
         .into_any_element()
 }
 
-/// The three answers an agent can take, `shown` picked: one press sends
-/// Only me or Anyone; Specific opens its people.
-fn audience_choices(
-    agent: &Agent,
-    shown: Choice,
-    cx: &mut Context<Settings>,
-    theme: &Theme,
-    ladder: &Ladder,
-) -> Stateful<Div> {
-    let number = agent.number;
-    design::segmented(
-        format!("settings/agents/{number}/answers"),
-        format!("Who {} answers", agent.name),
-        ladder,
-        theme,
-        Choice::ALL.iter().position(|choice| *choice == shown),
-        Choice::ALL.map(|choice| {
-            (
-                format!("settings/agents/{number}/answers/{}", choice.slug()).into(),
-                choice.label().into(),
-            )
-        }),
-        cx.processor(move |v: &mut Settings, index: usize, _, cx| {
-            v.pick_audience(number, Choice::ALL[index], cx)
-        }),
-    )
-}
-
 /// The people an agent answers under Specific: each with Remove, then the
 /// field that adds one by name or number, and Add.
 fn people(
@@ -545,23 +482,24 @@ fn people(
     form: &Form,
     problem: Option<String>,
     cx: &mut Context<Settings>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> Stateful<Div> {
     let number = agent.number;
     let listed: &[u64] = match &agent.audience {
         Audience::Accounts(numbers) => numbers,
         Audience::Manager | Audience::Anyone => &[],
     };
-    let label = format!("Add someone {} answers", agent.name);
+    let label = words::person_field(&agent.name);
     // a name or a number: nothing to correct, nothing to capitalise
-    let input = Input::new(
+    let input = name_input(
         format!("settings/agents/{number}/answers/name"),
-        &form.text,
+        form,
         label.clone(),
+        words::ADD_PERSON.prompt,
+        problem.as_deref(),
+        cx.listener(move |v: &mut Settings, _: &(), _, cx| v.submit_audience_person(number, cx)),
     )
-    .placeholder("Name or account number")
-    .disabled(form.busy)
     .autocorrect(false)
     .autocapitalize(Autocapitalize::None);
     let add = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
@@ -572,27 +510,27 @@ fn people(
         .children(
             listed
                 .iter()
-                .map(|&person| person_row(agent, person, form, cx, theme, ladder)),
+                .map(|&person| person_row(agent, person, form, cx, ladder, theme)),
         )
         .when(listed.is_empty(), |people| {
-            people.child(note(
-                "Add people by name or account number.",
-                theme.muted,
-                ladder,
-            ))
+            people.child(note(words::NOBODY_LISTED, theme.muted, ladder))
         })
         .child(labelled(
             &label,
             design::field(input, ladder, theme),
             problem,
-            theme,
             ladder,
+            theme,
         ))
         .child(
             div().flex().child(
                 design::button(
                     format!("settings/agents/{number}/answers/add"),
-                    if form.busy { "Adding…" } else { "Add" },
+                    if form.busy {
+                        words::ADD_PERSON.busy
+                    } else {
+                        words::ADD_PERSON.verb
+                    },
                     ladder,
                     theme,
                     add,
@@ -603,21 +541,16 @@ fn people(
         )
 }
 
-/// One person an agent answers: their name (or `#number`, unnamed) over
-/// their number, and Remove.
+/// One person an agent answers: their name over their number, and Remove.
 fn person_row(
     agent: &Agent,
     person: u64,
     form: &Form,
     cx: &mut Context<Settings>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> Stateful<Div> {
     let number = agent.number;
-    let name = match agent.names.get(&person) {
-        Some(name) => name.clone(),
-        None => format!("#{person}"),
-    };
     let remove = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
         v.remove_audience_person(number, person, cx)
     });
@@ -631,13 +564,17 @@ fn person_row(
                 .flex_1()
                 .flex()
                 .flex_col()
-                .child(div().text_type(ladder.body).child(name))
-                .child(mono(format!("account {person}"), theme, ladder)),
+                .child(
+                    div()
+                        .text_type(ladder.body)
+                        .child(agent.person_name(person)),
+                )
+                .child(mono(words::account(person), ladder, theme)),
         )
         .child(
             design::button(
                 format!("settings/agents/{number}/answers/{person}/remove"),
-                "Remove",
+                words::REMOVE,
                 ladder,
                 theme,
                 remove,
@@ -651,62 +588,64 @@ fn person_row(
 fn create_agent(
     view: &Settings,
     cx: &mut Context<Settings>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> AnyElement {
     let form = &view.create_agent;
-    let input = Input::new("settings/agents/create/name", &form.text, "Agent name")
-        .placeholder("Name the new agent")
-        .disabled(form.busy)
-        .autocapitalize(Autocapitalize::Words)
-        .when(!form.busy, |input| {
-            input
-                .on_submit(cx.listener(|v: &mut Settings, _: &(), _, cx| v.submit_create_agent(cx)))
-        });
+    let problem = problem_of(form, words::CREATE_AGENT.empty);
+    let input = name_input(
+        "settings/agents/create/name",
+        form,
+        words::AGENT_NAME,
+        words::CREATE_AGENT.prompt,
+        problem.as_deref(),
+        cx.listener(|v: &mut Settings, _: &(), _, cx| v.submit_create_agent(cx)),
+    );
     let create = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_create_agent(cx));
     let cancel = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.close_sheet(cx));
     add_sheet(
         "settings/agents/create",
-        "Create an agent",
+        words::CREATE_AGENT_TITLE,
         labelled(
-            "Agent name",
+            words::AGENT_NAME,
             design::field(input, ladder, theme),
-            problem_of(form, "Enter an agent name."),
-            theme,
+            problem,
             ladder,
+            theme,
         ),
         verbs(
-            "settings/agents/create/submit",
-            "Create agent",
-            form.busy.then_some("Creating…"),
+            "settings/agents/create",
+            words::CREATE_AGENT.verb,
+            form.busy.then_some(words::CREATE_AGENT.busy),
             create,
             cancel,
-            theme,
             ladder,
+            theme,
         ),
-        theme,
         ladder,
+        theme,
     )
 }
 
-/// The Add a key sheet: the pasted key request, Cancel, Add key. The
-/// request is many lines in the data face, and Return is a new line, so
-/// it is a `Textarea` styled as the SDK's `design::field` styles an
-/// `Input` (Expo `src/kit/Field.tsx:79`, `multiline`).
+/// The Add a key sheet: the pasted key request, Cancel, Add key.
 fn add_key(
     view: &Settings,
     cx: &mut Context<Settings>,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> AnyElement {
     let form = &view.agent_key;
-    // hex: no correction, no capitals, no suggestions
+    // SDK gap: the labelled field, swap when feat/phone-kit lands
+    // a key request is many lines in the data face, and Return is a new
+    // line: a `Textarea`, styled as `design::field` styles an `Input`
+    // (Expo `src/kit/Field.tsx:79`, `multiline`); hex: no correction, no
+    // capitals, no suggestions
     let request = Textarea::new(
         "settings/agents/key/request",
         &form.text,
-        "Agent key request",
+        words::KEY_REQUEST,
     )
-    .placeholder("Paste an agent's key request")
+    .placeholder(words::ADD_KEY.prompt)
     .read_only(form.busy)
     .autocorrect(false)
     .autocapitalize(Autocapitalize::None)
@@ -724,36 +663,37 @@ fn add_key(
     let cancel = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.close_sheet(cx));
     add_sheet(
         "settings/agents/key",
-        "Add a key to an agent",
+        words::ADD_KEY_TITLE,
         labelled(
-            "Agent key request",
+            words::KEY_REQUEST,
             request,
-            problem_of(form, ""),
-            theme,
+            problem_of(form, words::ADD_KEY.empty),
             ladder,
+            theme,
         ),
         verbs(
-            "settings/agents/key/submit",
-            "Add key",
-            form.busy.then_some("Adding…"),
+            "settings/agents/key",
+            words::ADD_KEY.verb,
+            form.busy.then_some(words::ADD_KEY.busy),
             add,
             cancel,
-            theme,
             ladder,
+            theme,
         ),
-        theme,
         ladder,
+        theme,
     )
 }
 
+// SDK gap: the form sheet's head and footer, swap when feat/phone-kit lands
 /// An add sheet: its title in the sheet's head, then its field and verbs.
 fn add_sheet(
     id: &str,
     title: &str,
     field: Div,
     verbs: Div,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> AnyElement {
     div()
         .flex()
@@ -769,60 +709,50 @@ fn add_sheet(
         .child(
             column(format!("{id}/form"))
                 .gap(design::space::LG)
-                .p(PAD)
+                .p(SHEET_INSET)
                 .child(field)
                 .child(verbs),
         )
         .into_any_element()
 }
 
-/// A sheet form's buttons: Cancel, then its verb taking the rest; the verb
-/// says `busy` and takes no press while its submit is in flight.
+// SDK gap: the form sheet's head and footer, swap when feat/phone-kit lands
+/// A sheet form's buttons, `{base}/cancel` then `{base}/submit` taking the
+/// rest; the verb says `busy` and takes no press while its submit is in
+/// flight.
 fn verbs(
-    id: &str,
+    base: &str,
     verb: &str,
     busy: Option<&str>,
     pressed: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    theme: &Theme,
     ladder: &Ladder,
+    theme: &Theme,
 ) -> Div {
     div()
         .flex()
         .gap(design::space::SM)
         .child(
-            design::button(format!("{id}-cancel"), "Cancel", ladder, theme, cancel)
-                .kind(ButtonKind::Quiet),
+            design::button(
+                format!("{base}/cancel"),
+                words::CANCEL,
+                ladder,
+                theme,
+                cancel,
+            )
+            .kind(ButtonKind::Quiet),
         )
         .child(
             div().flex_1().flex().flex_col().child(
-                design::button(id.to_owned(), busy.unwrap_or(verb), ladder, theme, pressed)
-                    .kind(ButtonKind::Primary)
-                    .enabled(busy.is_none()),
+                design::button(
+                    format!("{base}/submit"),
+                    busy.unwrap_or(verb),
+                    ladder,
+                    theme,
+                    pressed,
+                )
+                .kind(ButtonKind::Primary)
+                .enabled(busy.is_none()),
             ),
         )
-}
-
-/// The muted line under a row's title.
-fn caption(text: impl Into<SharedString>, theme: &Theme, ladder: &Ladder) -> Div {
-    div()
-        .truncate()
-        .text_type(ladder.caption)
-        .text_color(theme.muted)
-        .child(text.into())
-}
-
-/// A sheet row's value at its right, never squeezed (the Expo kit's
-/// `SheetRow` hint, `src/kit/Sheet.tsx:168`).
-fn hint(text: &str, theme: &Theme, ladder: &Ladder) -> Div {
-    div()
-        .flex_none()
-        .text_type(ladder.caption)
-        .text_color(theme.muted)
-        .child(text.to_owned())
-}
-
-/// A row that opens something (the Expo kit's `Row` `chevron`).
-fn chevron(theme: &Theme, ladder: &Ladder) -> Svg {
-    design::icon("chevron-right", ladder.icon_row).text_color(theme.faint)
 }
