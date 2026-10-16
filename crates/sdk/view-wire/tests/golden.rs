@@ -483,6 +483,8 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
         exchange::<HostBadge>(3, ()),
         exchange::<HostTitle>("general".into(), ()),
         exchange::<HostShow>(Place::Account, ()),
+        exchange::<HostShow>(Place::CameraSettings, ()),
+        exchange::<HostShow>(Place::MicrophoneSettings, ()),
         exchange::<CameraDevices>(
             (),
             vec![

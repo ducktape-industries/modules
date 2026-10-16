@@ -7,15 +7,6 @@
 //! `microphone.devices`), their types in [`crate::methods`].
 use serde::{Deserialize, Serialize};
 
-/// The system's page that allows this app the camera, and the one for the
-/// microphone, as a view names them to `link.open`: each host opens its
-/// own platform's (macOS's privacy pane for the device, the app's settings
-/// on iOS and Android), and only where a refused piece's
-/// [`MediaState::opens_settings`] says it does. The only links besides
-/// `duck://` and `https://` a host opens.
-pub const SETTINGS_CAMERA: &str = "system-settings:camera";
-pub const SETTINGS_MICROPHONE: &str = "system-settings:microphone";
-
 /// One thing the view asks of its microphone piece, applied once by the
 /// host when the node's `revision` moves.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,9 +72,13 @@ pub struct MediaState {
     /// host's threshold, with the host's hysteresis), else `false`. The
     /// level itself never crosses.
     pub speaking: bool,
-    /// On [`MediaStatus::Denied`]: whether the host opens the system's page
-    /// that allows the device (`link.open` of [`SETTINGS_CAMERA`] or
-    /// [`SETTINGS_MICROPHONE`]), where a view can send the person; `false`
-    /// elsewhere.
+    /// On [`MediaStatus::Denied`]: whether the host shows the system's page
+    /// that allows the device, where a view can send the person with
+    /// `host.show` of [`Place::CameraSettings`] or
+    /// [`Place::MicrophoneSettings`] (so the view declares `host`, not
+    /// `link`, for its button); `false` elsewhere.
+    ///
+    /// [`Place::CameraSettings`]: crate::methods::Place::CameraSettings
+    /// [`Place::MicrophoneSettings`]: crate::methods::Place::MicrophoneSettings
     pub opens_settings: bool,
 }

@@ -1117,6 +1117,16 @@
     "reply": null
   },
   {
+    "kind": "host.show",
+    "request": "CameraSettings",
+    "reply": null
+  },
+  {
+    "kind": "host.show",
+    "request": "MicrophoneSettings",
+    "reply": null
+  },
+  {
     "kind": "camera.devices",
     "request": null,
     "reply": [

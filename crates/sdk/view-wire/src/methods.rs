@@ -514,6 +514,14 @@ pub enum Place {
     /// Expo app's account sheet, mobile `app/you.tsx`), asked for from the
     /// reader's avatar on a view's first page.
     Account,
+    /// The system's page that allows this app the camera: macOS's privacy
+    /// pane for it, the app's own settings on iOS and Android. Asked for
+    /// where a refused camera piece's [`crate::MediaState::opens_settings`]
+    /// says the host shows it; refused `unknown_request` where it has none.
+    CameraSettings,
+    /// The system's page that allows this app the microphone, as
+    /// [`Place::CameraSettings`] is the camera's.
+    MicrophoneSettings,
 }
 /// `host.widget`: a command on the mounted tree. The one method on the TREE
 /// side of the codec rule — a [`WidgetCommand`] names typed element ids the
@@ -884,13 +892,9 @@ methods! {
     /// `link.open`: a `duck://` link, opened in the app, or an `https://`
     /// one, opened in the view that declares [`Capability::Web`] (as its
     /// `host.route`) when the app has one and a web view, else handed to
-    /// the system browser; or one of the two settings links
-    /// ([`crate::media::SETTINGS_CAMERA`], [`crate::media::SETTINGS_MICROPHONE`]),
-    /// opened as this platform's page that allows the device where a
-    /// refused piece's [`crate::MediaState::opens_settings`] says the host
-    /// does. Any other link is refused (`malformed_request`). Only a
-    /// person's press or key in the view opens one: a request without one
-    /// is refused `needs_gesture`.
+    /// the system browser. Any other scheme is refused
+    /// (`malformed_request`). Only a person's press or key in the view
+    /// opens one: a request without one is refused `needs_gesture`.
     LinkOpen, "link.open", String, ();
     /// `host.route`: a subscription, one item per `duck://` link opened into
     /// this view: the path after the view's own segment (`tx/<hash>` of
@@ -1258,7 +1262,7 @@ mod tests {
         let account = HostShow::encode_request(&Place::Account);
         assert_eq!(account, [0]);
         assert_eq!(HostShow::decode_request(&account), Ok(Place::Account));
-        for hostile in [&[1][..], &[u8::MAX], &[], &[0, 0]] {
+        for hostile in [&[3][..], &[u8::MAX], &[], &[0, 0]] {
             assert!(HostShow::decode_request(hostile).is_err(), "{hostile:?}");
         }
     }
