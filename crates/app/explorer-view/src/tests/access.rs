@@ -311,9 +311,10 @@ fn a_voter_proposes_a_grant_naming_the_account_as_it_is_typed() {
 #[test]
 fn a_refusal_shows_in_the_form_in_the_hosts_words() {
     let mut cx = maintainer();
-    let refusal = "account 3 may not change chat: no grant, and not the validators' vote";
+    // the host's own refusal: never sent (`design::failure`)
+    let refusal = "Unlock a key first.";
     cx.host()
-        .refuse::<Submit<Programs>>("unauthorized", refusal);
+        .refuse::<Submit<Programs>>(view::methods::refusal::SESSION_LOCKED, refusal);
     cx.simulate_click("explorer-remove-chat");
     cx.run_until_parked();
     cx.simulate_click("explorer-form-submit");

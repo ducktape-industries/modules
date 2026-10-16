@@ -923,7 +923,8 @@ fn a_problem_moves_to_the_field_it_is_about_and_a_refusal_marks_none() {
     );
     cx.simulate_input("explorer-form-height", "5000");
     click(&mut cx, "explorer-form-submit");
-    shows(&cx, "Not sent: no grant covers chat");
+    // the node's refusal, passed on by the host (`design::failure`)
+    shows(&cx, "That didn’t go through: no grant covers chat");
     assert_eq!(wrong(&cx, &fields), [], "the refusal is the whole form's");
 }
 
