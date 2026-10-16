@@ -1,10 +1,12 @@
 //! The program: every op and query handed to its function. An attribution may start a thread's
 //! loop, which awaits the model and each tool call. At its init harness registers with
-//! attribution, which then hands it every change about an account whose script calls harness.
+//! attribution, which then hands it every change about an account whose script calls harness;
+//! the egress role hands it each event of a model's streamed reply.
 use ::program::{Awaiting, Ctx, Error, ExecCtx, Program, QueryCtx};
 
 use crate::agents::{attributed, close, setup};
 use crate::models::{remove_model, set_model};
+use crate::streams::streamed;
 use crate::{Op, PROGRAM, Query, Reply, attributed_as, queries, tools};
 
 pub struct Harness;
@@ -42,6 +44,7 @@ impl Program for Harness {
             Query::Model { id } => Ok(Reply::Model(queries::model(ctx, id)?)),
             Query::Models { page } => Ok(Reply::Models(queries::models(ctx, &page)?)),
             Query::Withheld { thread } => Ok(Reply::Withheld(queries::withheld(ctx, thread)?)),
+            Query::Partial { thread } => Ok(Reply::Partial(queries::partial(ctx, thread)?)),
         }
     }
 }
@@ -58,6 +61,7 @@ impl Awaiting for Harness {
                 name,
             } => set_model(&ctx, id, wire, service, name),
             Op::RemoveModel { id } => remove_model(&ctx, id),
+            Op::Streamed { thread, event } => streamed(&ctx, thread, event),
         }
     }
 }

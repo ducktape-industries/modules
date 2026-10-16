@@ -1,12 +1,12 @@
 //! Every read the screens make: the roster (the accounts whose script calls harness, what
 //! harness resolves for each, their threads, and how many member nodes serve each model's
-//! service and relay), one agent in full, one thread's transcript, the model records, and the
-//! services the models form offers.
+//! service and relay), one agent in full, one thread's transcript with the reply its model is
+//! streaming back, the model records, and the services the models form offers.
 use std::collections::HashMap;
 
 use egress::{RELAY, ServiceRow};
 use harness::{
-    AgentSetup, Body, CallRow, Frame, ModelRow, ThreadRow, ToolInfo, Usage, WithheldFrame,
+    AgentSetup, Body, CallRow, Frame, ModelRow, Partial, ThreadRow, ToolInfo, Usage, WithheldFrame,
 };
 use identity::{Audience, Category, Kind, PageRequest};
 use view::prelude::*;
@@ -227,6 +227,7 @@ pub(crate) struct Transcript {
     pub setup: Option<AgentSetup>,
     /// member nodes that serve the agent's model's service, once it names one
     pub serving: Option<usize>,
+    pub partial: Option<Partial>,
 }
 
 impl Transcript {
@@ -252,6 +253,7 @@ pub(crate) async fn transcript(host: Host, id: u64) -> Result<Option<Transcript>
         .await?;
     let held = host.query(harness::ask::Held { thread: id }).await?;
     let withheld = host.query(harness::ask::Withheld { thread: id }).await?;
+    let partial = host.query(harness::ask::Partial { thread: id }).await?;
     let setup = setup(&host, thread.agent).await?;
     let service = setup
         .as_ref()
@@ -269,6 +271,7 @@ pub(crate) async fn transcript(host: Host, id: u64) -> Result<Option<Transcript>
         withheld,
         setup,
         serving,
+        partial,
     }))
 }
 

@@ -1,7 +1,8 @@
 //! One thread, read only: its state, the input held behind its loop, its context and usage,
 //! and the transcript, one row per frame, each tool call opened to show its input and how
-//! far it got. Its manager closes it from here.
-use harness::{Body, CallRow, CallState, Frame, Said, Stop};
+//! far it got, then the reply the model is streaming back as it grows. Its manager closes it
+//! from here.
+use harness::{Body, CallRow, CallState, Flow, Forming, Frame, Partial, Said, Stop};
 use view::design::Ladder;
 use view::design::{fonts, space, text};
 use view::prelude::*;
@@ -398,6 +399,122 @@ fn transcript(
                 .iter()
                 .map(|frame| frame_row(view, frame, shown, &agent, cx, theme, ladder)),
         )
+        .children(
+            shown
+                .partial
+                .as_ref()
+                .map(|partial| partial_row(partial, &agent, theme, ladder)),
+        )
+}
+
+fn flow_words(partial: &Partial) -> String {
+    let events = design::plural(partial.next_seq, "event", "events");
+    match &partial.flow {
+        Flow::Open => format!("is answering · {events} so far"),
+        Flow::Ended => format!("finished answering · {events}"),
+        Flow::Overflowed => "ran out of context as it answered".to_owned(),
+        Flow::Broken { reason } => format!("the reply broke: {reason}"),
+        Flow::Failed { text } => text.clone(),
+    }
+}
+
+fn partial_row(
+    partial: &Partial,
+    agent: &str,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement + use<> {
+    let forming = match partial.forming {
+        Forming::Kept { .. } => partial.said.len().checked_sub(1),
+        Forming::Nothing | Forming::Skipped { .. } => None,
+    };
+    let failed = matches!(
+        partial.flow,
+        Flow::Broken { .. } | Flow::Failed { .. } | Flow::Overflowed
+    );
+    let blocks = partial.said.iter().enumerate().map(|(index, said)| {
+        let key = format!("partial-{index}");
+        let still_forming = forming == Some(index);
+        partial_block(key, said, still_forming, theme, ladder)
+    });
+    div()
+        .id("thread-partial")
+        .flex()
+        .flex_col()
+        .gap(space::XS)
+        .p(space::SM)
+        .border_1()
+        .border_color(theme.border)
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_baseline()
+                .gap(space::SM)
+                .child(
+                    div()
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(agent.to_owned()),
+                )
+                .child(
+                    caption(flow_words(partial), theme)
+                        .when(failed, |words| words.text_color(theme.danger)),
+                ),
+        )
+        .children(blocks)
+}
+
+fn partial_block(
+    key: String,
+    said: &Said,
+    forming: bool,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
+    match said {
+        Said::Text(text) => div()
+            .id(SharedString::from(key))
+            .child(text.clone())
+            .into_any_element(),
+        Said::Thinking { text, .. } => div()
+            .id(SharedString::from(key))
+            .flex()
+            .flex_col()
+            .child(caption("Thinking", theme))
+            .child(div().text_color(theme.muted).child(text.clone()))
+            .into_any_element(),
+        Said::RedactedThinking(_) => caption("Thinking, redacted", theme).into_any_element(),
+        Said::ToolUse { name, input, .. } => {
+            let (state, foreground, background) = match forming {
+                true => ("Forming", theme.warning, theme.warning_soft),
+                false => ("Formed", theme.muted, theme.surface_raised),
+            };
+            div()
+                .id(SharedString::from(key.clone()))
+                .flex()
+                .flex_col()
+                .gap(space::XS)
+                .p(space::SM)
+                .border_1()
+                .border_color(theme.border)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(space::SM)
+                        .child(design::mono(name.clone()).font_weight(FontWeight::MEDIUM))
+                        .child(design::badge(
+                            SharedString::from(format!("{key}-state")),
+                            state,
+                            ladder,
+                            foreground,
+                            background,
+                        )),
+                )
+                .child(wrapped_mono(input, theme))
+                .into_any_element()
+        }
+    }
 }
 
 fn frame_row(

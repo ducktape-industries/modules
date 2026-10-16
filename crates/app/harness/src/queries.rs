@@ -1,13 +1,17 @@
 //! Every read: what harness resolves for an agent, a thread, an agent's threads newest first,
 //! a transcript in order, the input held while a thread's loop runs, a thread's tool calls, the
-//! tool catalog, an agent's thread for a place, the model records, and the frames left out of
-//! the model's view with their size.
+//! tool catalog, an agent's thread for a place, the model records, the frames left out of the
+//! model's view with their size, and the reply a thread's model call is streaming back.
 use ::program::{Error, QueryCtx, corrupt};
 use abi::role::identity::AccountNumber;
 use store::{PageRequest, PageResponse};
 
-use crate::state::{BY_AGENT, CALLS, FRAMES, HELD, MODELS, PLACES, THREADS, WITHHELD};
-use crate::{Body, CallRow, Frame, ModelRow, ThreadRow, WithheldFrame};
+use crate::state::{BY_AGENT, CALLS, FRAMES, HELD, MODELS, PARTIALS, PLACES, THREADS, WITHHELD};
+use crate::{Body, CallRow, Frame, ModelRow, Partial, ThreadRow, WithheldFrame};
+
+pub(crate) fn partial(ctx: &QueryCtx, thread: u64) -> Result<Option<Partial>, Error> {
+    PARTIALS.get(ctx, &thread)
+}
 
 pub(crate) fn model(ctx: &QueryCtx, id: String) -> Result<Option<ModelRow>, Error> {
     MODELS.get(ctx, &id)

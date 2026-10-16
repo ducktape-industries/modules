@@ -1,6 +1,7 @@
 //! The loop consensus runs for a thread: read the agent's configuration and its model's record,
 //! learn the model's context window, summarize the thread when its next answer would not fit,
-//! ask the model in its wire, run each tool call a block later, ask again.
+//! ask the model in its wire for a streamed reply, build the turn from the streamed events or
+//! the whole answer, run each tool call a block later, ask again.
 use ::program::{
     BlobId, Ctx, Error, ExecCtx, HashKind, ProgramId, QueryCtx, Range, all, unexpected_reply,
     wrong_state,
@@ -10,12 +11,12 @@ use serde_json::Value;
 
 use crate::agents::{Agent, configured, preamble, running, thread};
 use crate::models::learned;
-use crate::state::{CALLS, FRAMES, HELD, SEALED, THREADS, WITHHELD};
+use crate::state::{CALLS, FRAMES, HELD, PARTIALS, SEALED, THREADS, WITHHELD};
 use crate::tools::{self, Run, Seat};
 use crate::wire::{self, Answered, Header, Summarized, Summary};
 use crate::{
-    Asking, Body, CallRow, CallState, Configured, Context, Frame, ModelRow, PART, Role, Said,
-    Sealed, ThreadRow, Window, Wire,
+    Asking, Body, CallRow, CallState, Configured, Context, Frame, ModelRow, PART, Partial, Role,
+    Said, Sealed, ThreadRow, Window, Wire, streamed_as,
 };
 
 struct Asked {
@@ -78,7 +79,7 @@ fn give_up(ctx: &ExecCtx, thread: &mut ThreadRow, text: String) {
     thread.last_stop = None;
 }
 
-fn bound(ctx: &QueryCtx) -> Result<ProgramId, Error> {
+pub(crate) fn bound(ctx: &QueryCtx) -> Result<ProgramId, Error> {
     let Some(program) = ctx.env().roles.get(abi::role::EGRESS).cloned() else {
         return Err(wrong_state(
             "this network binds no program to the egress role",
@@ -98,10 +99,15 @@ fn serves(ctx: &QueryCtx, service: &str) -> Result<bool, Error> {
     }
 }
 
-async fn request(ctx: &Ctx, request: egress::Request, wait: Option<u64>) -> Result<Vec<u8>, Error> {
+async fn request(
+    ctx: &Ctx,
+    request: egress::Request,
+    delivery: egress::Delivery,
+    wait: Option<u64>,
+) -> Result<Vec<u8>, Error> {
     let op = egress::Op::Request {
         request,
-        delivery: egress::Delivery::Whole,
+        delivery,
         wait,
     };
     ctx.call_raw(bound(ctx)?, abi::encode(&op)).await
@@ -112,13 +118,14 @@ async fn call_model(
     asked: &Asked,
     head: http::Head,
     parts: Vec<BlobId>,
+    delivery: egress::Delivery,
 ) -> Result<http::Response, String> {
     let request_ = egress::Request::Http {
         service: asked.service.clone(),
         head,
         body: parts,
     };
-    let answer = request(ctx, request_, asked.wait).await;
+    let answer = request(ctx, request_, delivery, asked.wait).await;
     let bytes =
         answer.map_err(|error| format!("the model was not reached: {}", refusal(&error)))?;
     abi::decode(&bytes).map_err(|_| "the egress answer is not an HTTP response".to_owned())
@@ -448,6 +455,7 @@ fn plan_turn(ctx: &ExecCtx, thread: &mut ThreadRow, turn: Turn) -> Result<Option
     let parts = turn_parts(ctx, thread, &turn)?;
     let upto = thread.frames;
     thread.asking = Asking::Asked { upto };
+    PARTIALS.put(ctx, &thread.id, &Partial::new(turn.asked.wire));
     let summarized = thread.summary.is_some();
     Ok(Some(Step::Ask {
         asked: turn.asked,
@@ -530,7 +538,7 @@ fn crowded(thread: &ThreadRow, window: Option<u64>, max_tokens: u32) -> bool {
 
 async fn learn(ctx: &Ctx, id: u64, asked: Asked, model: ModelRow) -> Result<(), Error> {
     let head = wire::model_head(asked.wire, &model.name);
-    let answer = call_model(ctx, &asked, head, Vec::new()).await;
+    let answer = call_model(ctx, &asked, head, Vec::new(), egress::Delivery::Whole).await;
     let mut thread = thread(ctx, id)?;
     match answer.and_then(|response| wire::window(asked.wire, &response)) {
         Ok(Some(tokens)) => learned(ctx, &model, Window::Tokens(tokens))?,
@@ -550,7 +558,7 @@ async fn compact(
     parts: Vec<BlobId>,
 ) -> Result<(), Error> {
     let head = wire::summary_head(asked.wire);
-    let answer = call_model(ctx, &asked, head, parts).await;
+    let answer = call_model(ctx, &asked, head, parts, egress::Delivery::Whole).await;
     let mut thread = thread(ctx, id)?;
     match answer.map(|response| wire::summarized(asked.wire, &response)) {
         Ok(Summarized::Summary(summary)) => {
@@ -589,8 +597,13 @@ async fn ask(
     parts: Vec<BlobId>,
 ) -> Result<(), Error> {
     let head = wire::turn_head(asked.wire, summarized);
-    let answer = call_model(ctx, &asked, head, parts).await;
-    let answered = answer.map(|response| wire::answered(asked.wire, &response));
+    let delivery = egress::Delivery::Events {
+        deliver: streamed_as(id),
+    };
+    let answer = call_model(ctx, &asked, head, parts, delivery).await;
+    let partial = PARTIALS.get(ctx, &id)?;
+    PARTIALS.remove(ctx, &id);
+    let answered = answer.map(|response| read_answer(asked.wire, &response, partial));
     let calls = turned(ctx, id, upto, asked.config, answered)?;
     let runs = calls.into_iter().map(|call| run_call(ctx, id, call));
     for ran in all(runs).await {
@@ -600,6 +613,15 @@ async fn ask(
     settle(ctx, &mut thread)?;
     THREADS.put(ctx, &id, &thread);
     Ok(())
+}
+
+fn read_answer(wire: Wire, response: &http::Response, partial: Option<Partial>) -> Answered {
+    let stream_ended = response.status == 200 && response.body.is_empty();
+    let streamed = partial.filter(|partial| stream_ended && partial.next_seq > 0);
+    match streamed {
+        Some(partial) => wire::folded(partial),
+        None => wire::answered(wire, response),
+    }
 }
 
 fn turned(
@@ -628,6 +650,7 @@ fn turned(
 }
 
 fn stall(ctx: &ExecCtx, id: u64, error: &Error) {
+    PARTIALS.remove(ctx, &id);
     let Ok(Some(mut thread)) = THREADS.get(ctx, &id) else {
         return;
     };
@@ -754,7 +777,8 @@ fn mark(ctx: &ExecCtx, id: u64, call: &str, state: CallState) -> Result<(), Erro
 
 async fn run_call(ctx: &Ctx, id: u64, call: String) -> Result<(), Error> {
     let note = call.as_bytes().to_vec();
-    let relayed = request(ctx, egress::Request::Relay { note }, None).await;
+    let relay = egress::Request::Relay { note };
+    let relayed = request(ctx, relay, egress::Delivery::Whole, None).await;
     let (text, failed) = match relayed {
         Ok(_) => perform(ctx, id, &call).await?,
         Err(error) => (format!("the relay failed: {}", refusal(&error)), true),
