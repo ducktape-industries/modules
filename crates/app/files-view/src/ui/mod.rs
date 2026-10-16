@@ -4,13 +4,13 @@
 //! Square corners, rows split by one-pixel rules, paths and sizes in the
 //! data face, as the Explorer draws. The phone's screens are `phone/`:
 //! both trees read the model, `words` and the SDK, never each other.
-use view::design::{Ladder, space};
+use view::design::space;
 use view::prelude::*;
 use view::{Div, Stateful};
 
 use crate::state::{ROOT, Route};
 use crate::words;
-use crate::{Cx, Files};
+use crate::{Cx, Files, Kit};
 
 mod file;
 mod folder;
@@ -28,14 +28,6 @@ const LABEL_W: Pixels = px(110.);
 /// How wide a page's text runs at most.
 const PAGE_W: Pixels = px(880.);
 
-/// What every desktop piece draws with: the theme, and the pointer's
-/// ladder.
-#[derive(Clone, Copy)]
-struct Kit {
-    theme: Theme,
-    ladder: Ladder,
-}
-
 pub(crate) fn render(view: &Files, cx: Cx) -> AnyElement {
     let k = &Kit {
         theme: *cx.global::<Theme>(),
@@ -46,7 +38,7 @@ pub(crate) fn render(view: &Files, cx: Cx) -> AnyElement {
         Route::Folder(path) => folder::folder(view, &path, cx, k),
         Route::File(path) => file::file(view, &path, cx, k),
         Route::History => history::history(view, cx, k),
-        Route::Snapshot(seq) => history::snapshot(view, seq, cx, k),
+        Route::Snapshot(id) => history::snapshot(view, id, cx, k),
     };
     let form = form::sheet(view, cx, k);
     div()
@@ -83,6 +75,7 @@ fn bar(view: &Files, cx: Cx, k: &Kit) -> impl IntoElement {
         Route::Places | Route::Folder(_) | Route::File(_) => 0,
     };
     let routes: Vec<Route> = tabs.iter().map(|(_, _, route)| route.clone()).collect();
+    let count = routes.len();
     let items = tabs
         .into_iter()
         .enumerate()
@@ -109,6 +102,7 @@ fn bar(view: &Files, cx: Cx, k: &Kit) -> impl IntoElement {
     let pick = move |view: &mut Files, index: usize, _: &mut Window, cx: &mut Context<Files>| {
         view.open_from_places(routes[index].clone(), cx)
     };
+    let moved = pick.clone();
     div()
         .id("files-bar")
         .w_full()
@@ -119,9 +113,13 @@ fn bar(view: &Files, cx: Cx, k: &Kit) -> impl IntoElement {
         .border_b_1()
         .border_color(k.theme.border)
         .child(
-            design::composite("files-tabs", Role::TabList, "Pages")
+            // one Tab stop; ← → open the next tab's page, Enter or Space
+            // the tab's own from the top
+            design::composite("files-tabs", Role::TabList, words::TABS)
                 .orientation(design::Orientation::Horizontal)
-                .active(shown, 2)
+                .wrap()
+                .active(shown, count)
+                .on_move(cx.processor(moved))
                 .on_press(cx.processor(pick))
                 .build()
                 .h_full()
@@ -151,7 +149,7 @@ fn note(view: &Files, k: &Kit) -> Option<Stateful<Div>> {
 }
 
 /// The path over a folder or a file: every folder above it a crumb that
-/// opens it, the last one where the reader is.
+/// opens it (`files/crumb:<its path>`), the last one where the reader is.
 fn crumbs(path: &str, cx: Cx, k: &Kit) -> Stateful<Div> {
     let mut folders = vec![(ROOT.to_owned(), words::EVERYTHING.to_owned())];
     let mut at = String::new();
@@ -166,7 +164,7 @@ fn crumbs(path: &str, cx: Cx, k: &Kit) -> Stateful<Div> {
         .map(|(index, (folder, label))| {
             let here = index == last;
             let crumb = div()
-                .id(ElementId::Name(format!("files/crumb/{index}").into()))
+                .id(ElementId::Name(format!("files/crumb:{folder}").into()))
                 .min_h(k.ladder.hit)
                 .flex()
                 .items_center()
@@ -195,7 +193,7 @@ fn crumbs(path: &str, cx: Cx, k: &Kit) -> Stateful<Div> {
         .font_family(design::fonts::FAMILY_MONO)
         .text_size(design::text::SECONDARY)
         .role(Role::Navigation)
-        .aria_label("Path")
+        .aria_label(words::PATH)
         .children(with_slashes(crumbs, k))
 }
 
@@ -340,7 +338,7 @@ fn writes(view: &Files, cx: Cx, k: &Kit) -> Option<Div> {
         return None;
     }
     let buttons = offered.into_iter().map(|write| {
-        let id = format!("files/write/{}", write.slug());
+        let id = format!("files/begin/{}", write.slug());
         let label = words::verb(&write);
         let begin = cx
             .listener(move |view: &mut Files, _: &ClickEvent, _, cx| view.begin(write.clone(), cx));

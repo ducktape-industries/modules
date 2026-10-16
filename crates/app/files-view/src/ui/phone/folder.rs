@@ -3,17 +3,14 @@
 //! New design in the kit's look; nearest Expo screen
 //! `mobile/app/(tabs)/forge/[repo]/code/[...path].tsx` (a folder's rows).
 //! Reads the folder; writes the route and opens the page's writes.
-use files::{EntryInfo, Node};
+use files::EntryInfo;
+use view::{Div, Stateful};
 
 use super::*;
-use crate::state::name_of;
+use crate::state::{name_of, node_glyph};
 
 pub(super) fn folder(view: &Files, path: &str, cx: Cx, k: &Kit) -> AnyElement {
     let page = page("files-folder", name_of(path).to_owned(), view, cx, k).caption(path.to_owned());
-    let page = match actions_control(view, cx, k) {
-        Some(control) => page.trailing(control),
-        None => page,
-    };
     let body = match view.folder_at(path) {
         Some(folder) => {
             let writable = view.reader.writes(&folder.children());
@@ -30,11 +27,9 @@ pub(super) fn folder(view: &Files, path: &str, cx: Cx, k: &Kit) -> AnyElement {
 
 fn entries(entries: &[EntryInfo], writable: bool, cx: Cx, k: &Kit) -> AnyElement {
     if entries.is_empty() {
-        let detail = match writable {
-            true => words::EMPTY_WRITABLE,
-            false => words::EMPTY_READ_ONLY,
-        };
-        return empty("files-empty", words::EMPTY_FOLDER, detail, k);
+        let detail = words::empty_folder(writable);
+        return design::empty_state("files-empty", words::EMPTY_FOLDER, detail, &k.theme)
+            .into_any_element();
     }
     // ponytail: every entry is drawn; a uniform_list once folders hold
     // more than a screenful of hundreds
@@ -47,16 +42,13 @@ fn entries(entries: &[EntryInfo], writable: bool, cx: Cx, k: &Kit) -> AnyElement
 }
 
 fn entry_row(entry: &EntryInfo, cx: Cx, k: &Kit) -> Stateful<Div> {
-    let route = match entry.node {
-        Node::Dir { .. } => Route::Folder(entry.path.clone()),
-        Node::File { .. } | Node::Symlink { .. } => Route::File(entry.path.clone()),
-    };
+    let route = Route::of(entry);
     let open =
         cx.listener(move |view: &mut Files, _: &ClickEvent, _, cx| view.open(route.clone(), cx));
     let name = name_of(&entry.path).to_owned();
     opening_row(
         ElementId::Name(format!("files/entry/{name}").into()),
-        words::glyph(&entry.node),
+        node_glyph(&entry.node),
         name,
         words::entry_caption(&entry.node),
         k,

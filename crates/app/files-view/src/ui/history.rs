@@ -1,12 +1,13 @@
 //! The history: every snapshot newest first, each opening its page, then
 //! the pins that name some of them; and one snapshot's page, who made it
 //! and when, and what it changed against its parent. Reads the history,
-//! the authors' names and a snapshot's changes; writes the route.
-use files::{PinRow, SnapshotRow};
+//! the authors' names and the snapshot on screen; writes the route.
+use files::{BlobId, PinRow, SnapshotRow};
 use view::design::{date, grouped};
+use view::{Div, Stateful};
 
 use super::*;
-use crate::state::{Changed, History};
+use crate::state::{History, PIN_GLYPH, SNAPSHOT_GLYPH, Snapshot};
 
 pub(super) fn history(view: &Files, cx: Cx, k: &Kit) -> AnyElement {
     let history = match &view.history {
@@ -63,18 +64,15 @@ fn snapshots(view: &Files, history: &History, cx: Cx, k: &Kit) -> AnyElement {
 
 /// One snapshot: its message, who made it and when.
 pub(super) fn snapshot_row(view: &Files, snapshot: &SnapshotRow, cx: Cx, k: &Kit) -> Stateful<Div> {
-    let seq = snapshot.seq;
+    let id = snapshot.id;
     let open = cx.listener(move |view: &mut Files, _: &ClickEvent, _, cx| {
-        view.open(Route::Snapshot(seq), cx)
+        view.open(Route::Snapshot(id), cx)
     });
-    let aside = format!(
-        "{} · {}",
-        view.author(&snapshot.author),
-        date(snapshot.time)
-    );
+    let author = words::author(&snapshot.author, view.names.ready());
+    let aside = words::byline(author, snapshot.time);
     row(
-        format!("files/snapshot/{seq}"),
-        "git-commit-horizontal",
+        format!("files/snapshot/{}", snapshot.seq),
+        SNAPSHOT_GLYPH,
         words::message_or_none(&snapshot.message).to_owned(),
         aside,
         k,
@@ -97,109 +95,83 @@ fn pins(view: &Files, history: &History, cx: Cx, k: &Kit) -> AnyElement {
     div().flex().flex_col().children(rows).into_any_element()
 }
 
-/// One pin: its name, and the snapshot it names, which opens when the
-/// history lists it.
+/// One pin: its name, the snapshot it names and who pinned it; it opens
+/// that snapshot.
 fn pin_row(view: &Files, history: &History, pin: &PinRow, cx: Cx, k: &Kit) -> AnyElement {
-    let named = history.snapshots.iter().find(|row| row.id == pin.snapshot);
-    let aside = format!(
-        "{} · {}",
-        named.map_or_else(
-            || words::OLDER_SNAPSHOT.to_owned(),
-            |row| words::snapshot(row.seq)
-        ),
-        view.author(&pin.owner)
-    );
-    let id = format!("files/pin/{}", pin.name);
-    match named {
-        Some(row) => {
-            let seq = row.seq;
-            let open = cx.listener(move |view: &mut Files, _: &ClickEvent, _, cx| {
-                view.open(Route::Snapshot(seq), cx)
-            });
-            super::row(id, "pin", pin.name.clone(), aside, k, open).into_any_element()
-        }
-        None => row_look(id, "pin", pin.name.clone(), aside, k).into_any_element(),
-    }
+    let seq = history.named(pin).map(|named| named.seq);
+    let aside = words::pin_caption(seq, words::author(&pin.owner, view.names.ready()));
+    let snapshot = pin.snapshot;
+    let open = cx.listener(move |view: &mut Files, _: &ClickEvent, _, cx| {
+        view.open(Route::Snapshot(snapshot), cx)
+    });
+    row(
+        format!("files/pin/{}", pin.name),
+        PIN_GLYPH,
+        pin.name.clone(),
+        aside,
+        k,
+        open,
+    )
+    .into_any_element()
 }
 
 /// One snapshot's page.
-pub(super) fn snapshot(view: &Files, seq: u64, cx: Cx, k: &Kit) -> AnyElement {
+pub(super) fn snapshot(view: &Files, id: BlobId, cx: Cx, k: &Kit) -> AnyElement {
     let page = div().id("files-snapshot").flex().flex_col();
-    let Some(row) = view.snapshot(seq) else {
-        let waiting = match &view.history {
-            Loadable::Failed(refusal) => refused("files-history", refusal, cx, k),
-            Loadable::Ready(_) | Loadable::Reloading(..) => {
-                design::quiet(words::NOT_LISTED, &k.theme)
-                    .id("files-not-listed")
-                    .px_5()
-                    .py_4()
-                    .into_any_element()
-            }
-            Loadable::Idle | Loadable::Loading(_) => {
-                reading("files-snapshot-reading", words::READING_HISTORY, k)
-            }
+    let Some(snapshot) = view.snapshot_at(id) else {
+        let waiting = match view.snapshot.failed() {
+            Some(refusal) => refused("files-snapshot", refusal, cx, k),
+            None => reading("files-snapshot-reading", words::READING_SNAPSHOT, k),
         };
         return page.child(waiting).into_any_element();
+    };
+    let Some(row) = &snapshot.row else {
+        return page
+            .child(
+                design::quiet(words::NO_SUCH_SNAPSHOT, &k.theme)
+                    .id("files-no-snapshot")
+                    .px_5()
+                    .py_4(),
+            )
+            .into_any_element();
     };
     page.child(title(
         "files-snapshot-title",
         words::message_or_none(&row.message),
-        Some(words::snapshot(seq)),
+        Some(words::snapshot(row.seq)),
         k,
     ))
-    .child(line(words::AUTHOR, view.author(&row.author), k))
+    .child(line(
+        words::AUTHOR,
+        words::author(&row.author, view.names.ready()),
+        k,
+    ))
     .child(line(words::TIME, date(row.time), k))
     .child(line(words::BLOCK, data(grouped(row.height)), k))
     .child(line(words::SNAPSHOT, data(abi::hex(row.id.digest())), k))
     .child(heading("files/changes-head", words::CHANGES, None, k))
-    .child(changes(view, row, cx, k))
+    .child(changes(row, snapshot, k))
     .into_any_element()
 }
 
 /// What the snapshot changed, path by path.
-fn changes(view: &Files, row: &SnapshotRow, cx: Cx, k: &Kit) -> AnyElement {
-    if row.parent.is_none() {
-        return design::quiet(words::FIRST_SNAPSHOT, &k.theme)
-            .id("files-first")
-            .px_5()
-            .py_3()
-            .into_any_element();
-    }
-    let changed: Option<&Changed> = view
-        .changed
-        .ready()
-        .filter(|changed| changed.seq == row.seq);
-    let Some(changed) = changed else {
-        return match view.changed.failed() {
-            Some(refusal) => refused("files-changes", refusal, cx, k),
-            None => reading("files-changes-reading", words::READING_CHANGES, k),
-        };
+fn changes(row: &SnapshotRow, snapshot: &Snapshot, k: &Kit) -> AnyElement {
+    let said = match (row.parent, snapshot.changes.is_empty()) {
+        (None, _) => Some(("files-first", words::FIRST_SNAPSHOT)),
+        (Some(_), true) => Some(("files-unchanged", words::NOTHING_CHANGED)),
+        (Some(_), false) => None,
     };
-    if changed.entries.is_empty() {
-        return design::quiet(words::NOTHING_CHANGED, &k.theme)
-            .id("files-unchanged")
+    if let Some((id, sentence)) = said {
+        return design::quiet(sentence, &k.theme)
+            .id(id)
             .px_5()
             .py_3()
             .into_any_element();
     }
-    let lines = changed.entries.iter().map(|entry| {
-        div()
-            .min_h(ROW_H)
-            .flex()
-            .items_center()
-            .gap_3()
-            .px_5()
-            .border_b_1()
-            .border_color(k.theme.border)
-            .child(
-                div()
-                    .w(LABEL_W)
-                    .flex_none()
-                    .text_size(design::text::SECONDARY)
-                    .text_color(k.theme.muted)
-                    .child(words::diff_kind(entry.kind)),
-            )
-            .child(data(entry.path.clone()))
+    let lines = snapshot.changes.iter().map(|entry| {
+        line(words::diff_kind(entry.kind), data(entry.path.clone()), k).id(ElementId::Name(
+            format!("files/change:{}", entry.path).into(),
+        ))
     });
     div()
         .id("files-changes")

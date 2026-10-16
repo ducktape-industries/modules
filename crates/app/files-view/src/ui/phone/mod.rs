@@ -10,12 +10,11 @@
 //! route and the open sheet; writes Back. The desktop's pages (`ui/*.rs`)
 //! are the other design: the reads, routes, writes and words both draw
 //! from live outside `ui/`.
-use view::design::{Ladder, Nav, space};
+use view::design::Nav;
 use view::prelude::*;
-use view::{Div, FontWeight, Stateful};
 
 use crate::state::{Route, Sheet};
-use crate::{Cx, Files, words};
+use crate::{Cx, Files, Kit, words};
 
 mod file;
 mod folder;
@@ -25,14 +24,6 @@ mod places;
 mod sheets;
 mod snapshot;
 use parts::*;
-
-/// What every piece draws with: the theme, and the touch ladder (the Expo
-/// app's sizes, `design::TOUCH`).
-#[derive(Clone, Copy)]
-struct Kit {
-    theme: Theme,
-    ladder: Ladder,
-}
 
 pub(crate) fn render(view: &Files, cx: Cx) -> AnyElement {
     let k = &Kit {
@@ -44,11 +35,11 @@ pub(crate) fn render(view: &Files, cx: Cx) -> AnyElement {
         Route::Folder(path) => folder::folder(view, &path, cx, k),
         Route::File(path) => file::file(view, &path, cx, k),
         Route::History => history::history(view, cx, k),
-        Route::Snapshot(seq) => snapshot::snapshot(view, seq, cx, k),
+        Route::Snapshot(id) => snapshot::snapshot(view, id, cx, k),
     };
-    let sheet = match &view.sheet {
+    let sheet = match view.sheet_shown() {
         Some(Sheet::Actions) => sheets::actions(view, cx, k),
-        Some(Sheet::Write(form)) => Some(sheets::form(view, form, cx, k)),
+        Some(Sheet::Write(form)) => Some(sheets::form(form, cx, k)),
         None => None,
     };
     // Back undoes what is drawn: the sheet on screen, else the page over

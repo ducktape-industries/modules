@@ -20,7 +20,7 @@ pub(super) fn file(view: &Files, path: &str, cx: Cx, k: &Kit) -> AnyElement {
         };
         return page.child(waiting).into_any_element();
     };
-    let Some(entry) = &file.entry else {
+    let Some(entry) = file.file() else {
         return page
             .child(design::empty_state(
                 "files-gone",
@@ -32,7 +32,7 @@ pub(super) fn file(view: &Files, path: &str, cx: Cx, k: &Kit) -> AnyElement {
     };
     let under = format!(
         "{} · {}",
-        words::kind(Some(&entry.node), file.text().is_some()),
+        words::kind(&entry.node, file.text().is_some()),
         words::size(file.size())
     );
     page.child(title("files-file-title", name_of(path), Some(under), k))

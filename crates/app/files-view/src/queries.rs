@@ -5,7 +5,7 @@
 use files::{BlobId, PageRequest};
 use view::prelude::*;
 
-use crate::state::{Changed, Folder, HISTORY_PAGE, History, Names, Opened, PREVIEW, ROOT};
+use crate::state::{Folder, HISTORY_PAGE, History, Names, Opened, PREVIEW, ROOT, Snapshot};
 
 /// A folder's entries, every page of them, and who writes it.
 pub(crate) async fn folder(host: Host, path: String) -> Result<Folder, Error> {
@@ -111,23 +111,22 @@ pub(crate) async fn history(host: Host) -> Result<History, Error> {
     })
 }
 
-/// What the snapshot `id` changed against its `parent`; the first
+/// The snapshot `id`, and what it changed against its parent; the first
 /// snapshot's whole tree is new, which this does not list.
-pub(crate) async fn changed(
-    host: Host,
-    seq: u64,
-    id: BlobId,
-    parent: Option<BlobId>,
-) -> Result<Changed, Error> {
-    let entries = match parent {
+pub(crate) async fn snapshot(host: Host, id: BlobId) -> Result<Snapshot, Error> {
+    let row = host.query(files::ask::Snapshot { id }).await?;
+    let changes = match row.as_ref().and_then(|row| row.parent) {
         Some(from) => {
-            let to = id;
-            let prefix = String::new();
-            host.query(files::ask::Diff { from, to, prefix }).await?
+            host.query(files::ask::Diff {
+                from,
+                to: id,
+                prefix: String::new(),
+            })
+            .await?
         }
         None => Vec::new(),
     };
-    Ok(Changed { seq, entries })
+    Ok(Snapshot { id, row, changes })
 }
 
 /// The name identity gives `account`, if any.
@@ -139,15 +138,17 @@ pub(crate) async fn name(host: Host, account: u64) -> Result<Option<String>, Err
 }
 
 /// Every account's name.
+// ponytail: every account, on every identity change; ask only the
+// authors on screen (`Profile` each) once the network holds thousands.
 pub(crate) async fn names(host: Host) -> Result<Names, Error> {
     let accounts = host
         .query_all(|after| identity::ask::List {
             page: identity::PageRequest { after, limit: None },
         })
         .await?;
-    let list = accounts
+    let names = accounts
         .into_iter()
         .map(|account| (account.number, account.card.name))
         .collect();
-    Ok(Names { list })
+    Ok(Names(names))
 }

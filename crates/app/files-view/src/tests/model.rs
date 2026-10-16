@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 
 use files::{Change, Content, EntryInfo, Node, Ownership, PathOwnership, Writers};
 use view::TextField;
+use view::prelude::Loadable;
 
-use crate::state::{Folder, Name, Opened, Reader, child_of, name_of};
+use crate::state::{Folder, Opened, Reader, child_of, name_of};
 use crate::words;
 use crate::write::{Form, Write, built};
 
@@ -15,7 +16,7 @@ const ADA: u64 = 8;
 fn dev() -> Reader {
     Reader {
         account: Some(DEV),
-        name: Name::Named("dev".into()),
+        name: Loadable::Ready(Some("dev".into())),
     }
 }
 
@@ -35,6 +36,7 @@ fn folder(path: &str, writers: Option<Writers>) -> Folder {
 
 fn form(write: Write, name: &str, text: &str, message: &str) -> Form {
     Form {
+        id: 1,
         write,
         base: None,
         name: TextField::new(name),
@@ -123,7 +125,7 @@ fn a_reader_signed_out_writes_nothing() {
 fn a_reader_identity_names_no_way_writes_under_shared_only() {
     let unnamed = Reader {
         account: Some(DEV),
-        name: Name::Unnamed,
+        name: Loadable::Ready(None),
     };
     assert!(unnamed.writes(&Writers::Shared));
     assert!(!unnamed.writes(&Writers::Home("dev".into())));
@@ -218,6 +220,21 @@ fn a_rename_to_where_it_is_or_to_no_path_builds_nothing() {
         }
     );
     assert_eq!(message, "Move /shared/a to /home/dev/a");
+}
+
+#[test]
+fn a_folder_made_at_a_files_path_is_no_file_to_show_or_write() {
+    let mut now_a_folder = opened(b"", true);
+    now_a_folder.entry = Some(EntryInfo {
+        path: "/shared/a".into(),
+        node: Node::Dir {
+            entries: 0,
+            tree: abi::BlobId::Sha256([0; 32]),
+        },
+        meta: BTreeMap::new(),
+    });
+    assert!(now_a_folder.file().is_none());
+    assert!(!now_a_folder.editable());
 }
 
 #[test]

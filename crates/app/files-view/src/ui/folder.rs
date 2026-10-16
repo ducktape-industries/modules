@@ -1,10 +1,11 @@
 //! A folder: the path as crumbs, the writes the reader may make here, then
 //! its entries, each opening its folder or file. Reads the folder; writes
 //! the route and opens a write's form.
-use files::{EntryInfo, Node};
+use files::EntryInfo;
+use view::{Div, Stateful};
 
 use super::*;
-use crate::state::name_of;
+use crate::state::{name_of, node_glyph};
 
 pub(super) fn folder(view: &Files, path: &str, cx: Cx, k: &Kit) -> AnyElement {
     let page = div()
@@ -29,10 +30,7 @@ pub(super) fn folder(view: &Files, path: &str, cx: Cx, k: &Kit) -> AnyElement {
 
 fn entries(entries: &[EntryInfo], writable: bool, cx: Cx, k: &Kit) -> AnyElement {
     if entries.is_empty() {
-        let detail = match writable {
-            true => words::EMPTY_WRITABLE,
-            false => words::EMPTY_READ_ONLY,
-        };
+        let detail = words::empty_folder(writable);
         return design::empty_state("files-empty", words::EMPTY_FOLDER, detail, &k.theme)
             .into_any_element();
     }
@@ -51,16 +49,13 @@ fn entries(entries: &[EntryInfo], writable: bool, cx: Cx, k: &Kit) -> AnyElement
 }
 
 fn entry_row(entry: &EntryInfo, cx: Cx, k: &Kit) -> Stateful<Div> {
-    let route = match entry.node {
-        Node::Dir { .. } => Route::Folder(entry.path.clone()),
-        Node::File { .. } | Node::Symlink { .. } => Route::File(entry.path.clone()),
-    };
+    let route = Route::of(entry);
     let open =
         cx.listener(move |view: &mut Files, _: &ClickEvent, _, cx| view.open(route.clone(), cx));
     let name = name_of(&entry.path).to_owned();
     row(
         format!("files/entry/{name}"),
-        words::glyph(&entry.node),
+        node_glyph(&entry.node),
         name,
         words::entry_caption(&entry.node),
         k,

@@ -5,16 +5,13 @@
 //! file's view). Reads the file; writes the route and opens the page's
 //! writes.
 use files::Node;
+use view::design::space;
 
 use super::*;
 use crate::state::{Opened, name_of};
 
 pub(super) fn file(view: &Files, path: &str, cx: Cx, k: &Kit) -> AnyElement {
     let page = page("files-file", name_of(path).to_owned(), view, cx, k).caption(path.to_owned());
-    let page = match actions_control(view, cx, k) {
-        Some(control) => page.trailing(control),
-        None => page,
-    };
     let body = match view.file_at(path) {
         Some(file) => opened(file, k),
         None => match view.file.failed() {
@@ -27,8 +24,9 @@ pub(super) fn file(view: &Files, path: &str, cx: Cx, k: &Kit) -> AnyElement {
 }
 
 fn opened(file: &Opened, k: &Kit) -> AnyElement {
-    let Some(entry) = &file.entry else {
-        return empty("files-gone", name_of(&file.path).to_owned(), words::GONE, k);
+    let Some(entry) = file.file() else {
+        let name = name_of(&file.path).to_owned();
+        return design::empty_state("files-gone", name, words::GONE, &k.theme).into_any_element();
     };
     let text = file.text();
     let facts = div()
@@ -36,7 +34,7 @@ fn opened(file: &Opened, k: &Kit) -> AnyElement {
         .flex_col()
         .child(key_value(
             words::KIND,
-            words::kind(Some(&entry.node), text.is_some()),
+            words::kind(&entry.node, text.is_some()),
             k,
         ))
         .child(key_value(words::SIZE, words::size(file.size()), k));

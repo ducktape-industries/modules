@@ -1,81 +1,58 @@
 //! Places: where to start. The reader's home (or why there is none),
 //! `/shared`, the whole tree, then the newest snapshots. Reads the reader
 //! and the history; writes the route.
+use view::{Div, Stateful};
+
 use super::*;
-use crate::state::{Home, SHARED};
+use crate::state::{HOME_GLYPH, Home, Place};
 
 /// How many of the newest snapshots the page lists.
 const LATEST: usize = 5;
 
 pub(super) fn places(view: &Files, cx: Cx, k: &Kit) -> AnyElement {
+    let places = Place::ALL.map(|place| {
+        let (title, caption) = words::place(place);
+        place_row(
+            place.key(),
+            place.glyph(),
+            title,
+            place.path(),
+            caption,
+            cx,
+            k,
+        )
+    });
     div()
         .id("files-places")
         .flex()
         .flex_col()
         .child(heading("files/places-head", words::PLACES, None, k))
         .child(home(view, cx, k))
-        .child(place(
-            "shared",
-            "users",
-            words::SHARED,
-            SHARED,
-            words::SHARED_CAPTION,
-            cx,
-            k,
-        ))
-        .child(place(
-            "everything",
-            "hard-drive",
-            words::EVERYTHING,
-            ROOT,
-            words::EVERYTHING_CAPTION,
-            cx,
-            k,
-        ))
+        .children(places)
         .child(heading("files/latest-head", words::LATEST, None, k))
         .child(latest(view, cx, k))
         .into_any_element()
 }
 
-/// The reader's home, a place like the others once identity names it.
-fn home(view: &Files, cx: Cx, k: &Kit) -> AnyElement {
-    let why = match view.reader.home() {
-        Home::At(path) => {
-            let caption = path.clone();
-            return place("home", "house", words::HOME, &path, &caption, cx, k).into_any_element();
-        }
-        Home::SignedOut => words::SIGNED_OUT,
-        Home::Asking => words::FINDING_HOME,
-        Home::Unnamed => words::NO_NAME,
-        Home::Refused(why) => why,
-    };
-    div()
-        .id("files/place/home")
-        .h(ROW_H)
-        .flex()
-        .items_center()
-        .gap_3()
-        .px_5()
-        .border_b_1()
-        .border_color(k.theme.border)
-        .child(design::icon("house", k.ladder.icon_row).text_color(k.theme.faint))
-        .child(div().text_color(k.theme.muted).child(words::HOME))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_size(design::text::SECONDARY)
-                .text_color(k.theme.muted)
-                .child(why.to_owned()),
-        )
-        .into_any_element()
+/// The reader's home, a place like the others once identity names it,
+/// else a row that says why there is none.
+fn home(view: &Files, cx: Cx, k: &Kit) -> Stateful<Div> {
+    match view.reader.home() {
+        Home::At(path) => place_row("home", HOME_GLYPH, words::HOME, &path, &path, cx, k),
+        home => row_look(
+            "files/place/home".into(),
+            HOME_GLYPH,
+            words::HOME.into(),
+            words::no_home(&home).unwrap_or_default().to_owned(),
+            k,
+        ),
+    }
 }
 
-fn place(
+fn place_row(
     key: &str,
     glyph: &'static str,
-    label: &str,
+    title: &str,
     path: &str,
     caption: &str,
     cx: Cx,
@@ -87,7 +64,7 @@ fn place(
     row(
         format!("files/place/{key}"),
         glyph,
-        label.to_owned(),
+        title.to_owned(),
         caption.to_owned(),
         k,
         open,

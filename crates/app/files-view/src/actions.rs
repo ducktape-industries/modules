@@ -27,7 +27,8 @@ impl Files {
     /// Back: the sheet on screen, else the page under this one; at the
     /// places with nothing open, nothing.
     pub(crate) fn back(&mut self, cx: &mut Context<Self>) {
-        if self.sheet.take().is_some() {
+        if self.sheet_shown().is_some() {
+            self.sheet = None;
             cx.notify();
             return;
         }

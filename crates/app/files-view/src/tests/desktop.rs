@@ -1,5 +1,11 @@
-//! The desktop's pages over the seeded network: what each page shows, and
-//! each write committed through the real program, as dev.
+//! The desktop's pages over the seeded network: what each page shows, a
+//! refused read, and each write committed through the real program, as dev.
+use std::cell::Cell;
+use std::rc::Rc;
+
+use files::DiffKind;
+use view::methods::{Query as Ask, Submit};
+
 use super::*;
 use crate::words;
 
@@ -24,7 +30,7 @@ fn open_notes(cx: &mut TestAppContext) {
 
 /// Opens `write`'s form from the page on screen.
 fn begin(cx: &mut TestAppContext, write: &str) {
-    cx.simulate_click(&format!("files/write/{write}"));
+    cx.simulate_click(&format!("files/begin/{write}"));
     cx.run_until_parked();
 }
 
@@ -95,8 +101,7 @@ fn a_crumb_opens_the_folder_it_names() {
     cx.simulate_click("files/entry/docs");
     cx.run_until_parked();
     assert!(cx.has_text("plan.md"));
-    // Everything / home / dev / docs: the third crumb is dev's home
-    cx.simulate_click("files/crumb/2");
+    cx.simulate_click("files/crumb:/home/dev");
     cx.run_until_parked();
     assert!(cx.has_text("notes.txt"), "{:?}", cx.texts());
 }
@@ -125,7 +130,7 @@ fn a_snapshot_lists_what_it_changed() {
     cx.simulate_click("files/snapshot/2");
     cx.run_until_parked();
     assert!(cx.has_text("/shared/readme.txt"), "{:?}", cx.texts());
-    assert!(cx.has_text("added"));
+    assert!(cx.has_text(words::diff_kind(DiffKind::Added)));
     assert!(
         !cx.has_text("/home/dev/notes.txt"),
         "dev's notes did not change"
@@ -154,7 +159,7 @@ fn another_accounts_home_offers_no_writes() {
     cx.simulate_click("files/entry/ada");
     cx.run_until_parked();
     assert!(cx.has_text("diary.txt"));
-    assert!(cx.find("files/write/new-folder").is_none());
+    assert!(cx.find("files/begin/new-folder").is_none());
 }
 
 #[test]
@@ -212,7 +217,7 @@ fn a_rename_moves_the_page_to_the_new_path() {
     commit_form(&mut cx);
     assert!(cx.has_text(NOTES), "{:?}", cx.texts());
     assert!(cx.has_text("docs"), "the crumbs name its new folder");
-    cx.simulate_click("files/crumb/2");
+    cx.simulate_click("files/crumb:/home/dev");
     cx.run_until_parked();
     assert!(!cx.has_text("notes.txt"), "{:?}", cx.texts());
 }
@@ -265,6 +270,140 @@ fn a_commit_refused_as_stale_says_why_in_its_form() {
     );
     assert!(
         cx.find("files/write").is_some(),
-        "the form stays open to retry"
+        "the form stays open with the program's words for why"
     );
+}
+
+#[test]
+fn the_arrow_keys_on_the_tabs_open_the_history() {
+    let net = seeded();
+    let mut cx = desktop(&net);
+    cx.simulate_focus("files-tabs");
+    cx.simulate_key_down("files-tabs", "right");
+    cx.run_until_parked();
+    assert!(cx.has_text("v1"), "the pins show: {:?}", cx.texts());
+    cx.simulate_key_down("files-tabs", "left");
+    cx.run_until_parked();
+    assert!(cx.has_text(words::EVERYTHING));
+}
+
+#[test]
+fn a_pin_opens_the_snapshot_it_names() {
+    let net = seeded();
+    let mut cx = desktop(&net);
+    cx.simulate_click("files/tab/history");
+    cx.run_until_parked();
+    cx.simulate_click("files/pin/v1");
+    cx.run_until_parked();
+    assert!(cx.has_text("Start my notes"), "{:?}", cx.texts());
+    assert!(cx.has_text(words::FIRST_SNAPSHOT));
+}
+
+#[test]
+fn every_page_says_why_files_refused_its_read() {
+    let net = seeded();
+    let mut cx = desktop(&net);
+    cx.host()
+        .refuse::<Ask<files::Files>>("unavailable", "the node is away");
+    cx.simulate_click("files/tab/history");
+    cx.run_until_parked();
+    assert!(
+        cx.find("files-history-refused").is_some(),
+        "{:?}",
+        cx.texts()
+    );
+    cx.simulate_click("files/tab/places");
+    cx.run_until_parked();
+    cx.simulate_click("files/place/shared");
+    cx.run_until_parked();
+    assert!(
+        cx.find("files-folder-refused").is_some(),
+        "{:?}",
+        cx.texts()
+    );
+    assert!(cx.has_text("the node is away"));
+}
+
+#[test]
+fn a_refused_snapshot_is_asked_once_and_again_on_retry() {
+    let net = seeded();
+    let mut cx = desktop(&net);
+    let asked = Rc::new(Cell::new(0));
+    let counted = asked.clone();
+    let chain = net.clone();
+    cx.host()
+        .handle::<Ask<files::Files>>(move |query| match query {
+            files::Query::Snapshot { .. } => {
+                counted.set(counted.get() + 1);
+                Err(view::prelude::Error::new("unavailable", "the blob is gone"))
+            }
+            query => chain.query(files::PROGRAM, &query),
+        });
+    cx.simulate_click("files/tab/history");
+    cx.run_until_parked();
+    cx.simulate_click("files/snapshot/2");
+    cx.run_until_parked();
+    assert!(cx.has_text("the blob is gone"), "{:?}", cx.texts());
+    assert_eq!(asked.get(), 1, "a refusal is not asked again by drawing it");
+    cx.simulate_click("files-snapshot-retry");
+    cx.run_until_parked();
+    assert_eq!(asked.get(), 2);
+}
+
+#[test]
+fn a_refused_commit_says_why_in_its_form() {
+    let net = seeded();
+    let mut cx = desktop(&net);
+    cx.host()
+        .refuse::<Submit<files::Files>>("refused", "the ledger is full");
+    open_home(&mut cx);
+    begin(&mut cx, "new-folder");
+    cx.simulate_input("files/write/name", "drafts");
+    commit_form(&mut cx);
+    assert!(cx.find("files/write/refused").is_some(), "{:?}", cx.texts());
+    assert!(cx.has_text("the ledger is full"));
+}
+
+#[test]
+fn another_account_signing_in_closes_the_open_form() {
+    let net = seeded();
+    let mut cx = desktop(&net);
+    open_home(&mut cx);
+    begin(&mut cx, "new-folder");
+    let ada = net.person("ada");
+    cx.host().stream::<HostSession>().send(Session {
+        account: Some(ada),
+        ..net.session()
+    });
+    cx.run_until_parked();
+    assert!(cx.find("files/write").is_none(), "{:?}", cx.texts());
+}
+
+#[test]
+fn a_renamed_folder_stays_on_screen_at_its_new_path() {
+    let net = seeded();
+    let mut cx = desktop(&net);
+    open_home(&mut cx);
+    cx.simulate_click("files/entry/docs");
+    cx.run_until_parked();
+    begin(&mut cx, "rename");
+    cx.simulate_input("files/write/name", "/home/dev/papers");
+    commit_form(&mut cx);
+    assert!(cx.find("files/crumb:/home/dev").is_some());
+    assert!(cx.has_text("papers"), "{:?}", cx.texts());
+    assert!(cx.has_text("plan.md"));
+}
+
+#[test]
+fn a_removed_folder_returns_to_the_folder_it_was_in() {
+    let net = seeded();
+    let mut cx = desktop(&net);
+    open_home(&mut cx);
+    cx.simulate_click("files/entry/docs");
+    cx.run_until_parked();
+    begin(&mut cx, "remove");
+    assert!(cx.has_text(&words::removes("/home/dev/docs", true)));
+    commit_form(&mut cx);
+    assert!(cx.has_text("notes.txt"), "{:?}", cx.texts());
+    assert!(cx.find("files/entry/docs").is_none());
 }

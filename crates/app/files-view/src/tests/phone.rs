@@ -1,6 +1,7 @@
 //! The phone's screens over the seeded network: each screen's states, the
 //! sheets and Back, a write committed from a sheet, and the sweep at the
 //! three phone widths.
+use files::DiffKind;
 use view::testing::sweep;
 
 use super::*;
@@ -103,7 +104,7 @@ fn a_new_text_file_is_committed_from_its_sheet() {
     let mut cx = phone(&net);
     tap(&mut cx, "files/place/shared");
     tap(&mut cx, "files/actions");
-    tap(&mut cx, "files/write/new-file");
+    tap(&mut cx, "files/begin/new-file");
     cx.simulate_input("files/write/name", "hello.md");
     cx.simulate_input("files/write/text", "hi from a phone");
     tap(&mut cx, "files/write/submit");
@@ -119,10 +120,24 @@ fn a_file_removed_from_its_sheet_returns_to_its_folder() {
     tap(&mut cx, "files/place/home");
     tap(&mut cx, "files/entry/notes.txt");
     tap(&mut cx, "files/actions");
-    tap(&mut cx, "files/write/remove");
+    tap(&mut cx, "files/begin/remove");
     tap(&mut cx, "files/write/submit");
     assert!(cx.has_text("docs"), "{:?}", cx.texts());
     assert!(!cx.has_text("notes.txt"));
+}
+
+#[test]
+fn an_edit_from_its_sheet_shows_the_new_text() {
+    let net = seeded();
+    let mut cx = phone(&net);
+    tap(&mut cx, "files/place/home");
+    tap(&mut cx, "files/entry/notes.txt");
+    tap(&mut cx, "files/actions");
+    tap(&mut cx, "files/begin/edit");
+    cx.simulate_input("files/write/text", "written on a phone");
+    tap(&mut cx, "files/write/submit");
+    assert!(cx.has_text("written on a phone"), "{:?}", cx.texts());
+    assert!(cx.find("files/write").is_none());
 }
 
 #[test]
@@ -131,7 +146,7 @@ fn cancel_closes_a_form_with_nothing_committed() {
     let mut cx = phone(&net);
     tap(&mut cx, "files/place/home");
     tap(&mut cx, "files/actions");
-    tap(&mut cx, "files/write/new-folder");
+    tap(&mut cx, "files/begin/new-folder");
     cx.simulate_input("files/write/name", "never");
     tap(&mut cx, "files/write/cancel");
     assert!(cx.find("files/write").is_none());
@@ -148,7 +163,7 @@ fn the_history_opens_a_snapshot_with_what_it_changed() {
     tap(&mut cx, "files/snapshot/3");
     assert!(cx.has_text("Say more"));
     assert!(cx.has_text("/home/dev/notes.txt"), "{:?}", cx.texts());
-    assert!(cx.has_text("changed"));
+    assert!(cx.has_text(words::diff_kind(DiffKind::Modified)));
 }
 
 #[test]
@@ -168,9 +183,16 @@ fn every_screen_and_sheet_fits_a_phone() {
     let mut cx = phone(&net);
     sweep(&mut cx, |cx| {
         tap(cx, "files/place/home");
+        // the folder's writes, and a name its field refuses
+        tap(cx, "files/actions");
+        tap(cx, "files/begin/new-folder");
+        cx.simulate_input("files/write/name", "a/b");
+        tap(cx, "files/write/submit");
+        cx.simulate_back();
+        cx.run_until_parked();
         tap(cx, "files/entry/notes.txt");
         tap(cx, "files/actions");
-        tap(cx, "files/write/edit");
+        tap(cx, "files/begin/edit");
         cx.simulate_back();
         cx.run_until_parked();
         cx.simulate_back();

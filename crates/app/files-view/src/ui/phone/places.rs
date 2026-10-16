@@ -3,11 +3,25 @@
 //! kit's look; nearest Expo screen
 //! `mobile/app/(tabs)/forge/[repo]/code/[...path].tsx`. Reads the reader
 //! and the history; writes the route.
+use view::{Div, Stateful};
+
 use super::*;
-use crate::state::{Home, ROOT, SHARED};
+use crate::state::{HISTORY_GLYPH, HOME_GLYPH, Home, Place};
 
 pub(super) fn places(view: &Files, cx: Cx, k: &Kit) -> AnyElement {
     let history = history_caption(view);
+    let places = Place::ALL.map(|place| {
+        let (title, caption) = words::place(place);
+        place_row(
+            place.key(),
+            place.glyph(),
+            title,
+            place.path(),
+            caption,
+            cx,
+            k,
+        )
+    });
     page("files-places", words::TITLE, view, cx, k)
         .child(
             scroller("files-page")
@@ -18,24 +32,7 @@ pub(super) fn places(view: &Files, cx: Cx, k: &Kit) -> AnyElement {
                     &k.theme,
                 ))
                 .child(home(view, cx, k))
-                .child(place(
-                    "shared",
-                    "users",
-                    words::SHARED,
-                    SHARED,
-                    words::SHARED_CAPTION,
-                    cx,
-                    k,
-                ))
-                .child(place(
-                    "everything",
-                    "hard-drive",
-                    words::EVERYTHING,
-                    ROOT,
-                    words::EVERYTHING_CAPTION,
-                    cx,
-                    k,
-                ))
+                .children(places)
                 .child(design::section_head(
                     "files/history-head",
                     words::HISTORY,
@@ -44,7 +41,7 @@ pub(super) fn places(view: &Files, cx: Cx, k: &Kit) -> AnyElement {
                 ))
                 .child(opening_row(
                     "files/place/history",
-                    "clock",
+                    HISTORY_GLYPH,
                     words::HISTORY,
                     history,
                     k,
@@ -59,20 +56,19 @@ pub(super) fn places(view: &Files, cx: Cx, k: &Kit) -> AnyElement {
 /// The reader's home: a place like the others once identity names it,
 /// else a row that says why there is none.
 fn home(view: &Files, cx: Cx, k: &Kit) -> Stateful<Div> {
-    let why = match view.reader.home() {
-        Home::At(path) => {
-            let caption = path.clone();
-            return place("home", "house", words::HOME, &path, &caption, cx, k);
-        }
-        Home::SignedOut => words::SIGNED_OUT,
-        Home::Asking => words::FINDING_HOME,
-        Home::Unnamed => words::NO_NAME,
-        Home::Refused(why) => why,
-    };
-    still_row("files/place/home", "house", words::HOME, why.to_owned(), k)
+    match view.reader.home() {
+        Home::At(path) => place_row("home", HOME_GLYPH, words::HOME, &path, &path, cx, k),
+        home => still_row(
+            "files/place/home",
+            HOME_GLYPH,
+            words::HOME,
+            words::no_home(&home).unwrap_or_default().to_owned(),
+            k,
+        ),
+    }
 }
 
-fn place(
+fn place_row(
     key: &str,
     glyph: &'static str,
     title: &'static str,

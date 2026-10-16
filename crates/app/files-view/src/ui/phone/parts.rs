@@ -2,6 +2,9 @@
 //! the last write left, the Expo kit's `Row` (a lead glyph, a title over a
 //! caption, a chevron), `KeyValue`, `Quiet`, the states a read is in, and
 //! the kit pieces the SDK does not have yet. Each draws what it is handed.
+use view::design::space;
+use view::{Div, FontWeight, Stateful};
+
 use super::*;
 
 /// A key's column in a key/value row (Expo `src/kit/Facts.tsx:64`).
@@ -14,8 +17,9 @@ pub(super) const SHEET_INSET: Pixels = px(20.);
 /// The room between a row's title and its caption (Expo `Row.tsx:58`).
 const TITLE_GAP: Pixels = px(1.);
 
-/// A page: its title row (Back by where it sits), the line the last write
-/// left, then what the caller adds.
+/// A page: its title row (Back by where it sits, the page's writes behind
+/// one control when it offers any), the line the last write left, then
+/// what the caller adds.
 pub(super) fn page(
     id: &'static str,
     title: impl Into<SharedString>,
@@ -25,6 +29,10 @@ pub(super) fn page(
 ) -> design::Page {
     let nav = nav(view, cx);
     let page = design::page(id, title, nav, &k.ladder, &k.theme);
+    let page = match actions_control(view, cx, k) {
+        Some(control) => page.trailing(control),
+        None => page,
+    };
     match note(view, k) {
         Some(note) => page.child(note),
         None => page,
@@ -61,8 +69,8 @@ pub(super) fn scroller(id: &'static str) -> Stateful<Div> {
         .pb(space::BLOCK)
 }
 
-/// A row that opens a page (Expo `Row` with `chevron`): a glyph, its
-/// title over its caption, the chevron; the whole row the press.
+/// A row that opens a page (Expo `Row` with `chevron`): a still row with
+/// its glyph in the muted tone, the chevron; the whole row the press.
 pub(super) fn opening_row(
     id: impl Into<ElementId>,
     glyph: &'static str,
@@ -71,20 +79,14 @@ pub(super) fn opening_row(
     k: &Kit,
     press: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
-    let row = design::row(id, &k.ladder, &k.theme)
-        .min_h(k.ladder.row_tall)
-        .child(design::lead(
-            design::icon(glyph, k.ladder.icon_row).text_color(k.theme.muted),
-        ))
-        .child(title_and_caption(row_title(title, k)).child(row_caption(caption, k)))
-        .child(chevron(k));
+    let row = lined(id, glyph, k.theme.muted, title, caption, k).child(chevron(k));
     design::pressed(row, &k.ladder)
         .role(Role::Button)
         .focusable()
         .on_click(press)
 }
 
-/// A row that opens nothing: a glyph, its title over its caption.
+/// A row that opens nothing: a glyph, faint, its title over its caption.
 pub(super) fn still_row(
     id: impl Into<ElementId>,
     glyph: &'static str,
@@ -92,10 +94,22 @@ pub(super) fn still_row(
     caption: impl Into<SharedString>,
     k: &Kit,
 ) -> Stateful<Div> {
+    lined(id, glyph, k.theme.faint, title, caption, k)
+}
+
+/// A row's glyph in `tint`, then its title over its caption.
+fn lined(
+    id: impl Into<ElementId>,
+    glyph: &'static str,
+    tint: Hsla,
+    title: impl Into<SharedString>,
+    caption: impl Into<SharedString>,
+    k: &Kit,
+) -> Stateful<Div> {
     design::row(id, &k.ladder, &k.theme)
         .min_h(k.ladder.row_tall)
         .child(design::lead(
-            design::icon(glyph, k.ladder.icon_row).text_color(k.theme.faint),
+            design::icon(glyph, k.ladder.icon_row).text_color(tint),
         ))
         .child(title_and_caption(row_title(title, k)).child(row_caption(caption, k)))
 }
@@ -147,16 +161,6 @@ pub(super) fn quiet(id: &'static str, sentence: impl Into<SharedString>, k: &Kit
         .into_any_element()
 }
 
-/// Nothing here yet: what is missing, then what would fill it.
-pub(super) fn empty(
-    id: &'static str,
-    title: impl Into<SharedString>,
-    detail: impl Into<SharedString>,
-    k: &Kit,
-) -> AnyElement {
-    design::empty_state(id, title, detail, &k.theme).into_any_element()
-}
-
 /// A refused read, and Retry.
 pub(super) fn refused(name: &str, refusal: &Error, cx: Cx, k: &Kit) -> AnyElement {
     let retry = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.read_page(cx));
@@ -167,7 +171,7 @@ pub(super) fn refused(name: &str, refusal: &Error, cx: Cx, k: &Kit) -> AnyElemen
 
 /// The page's writes behind one control in its title row, when it has
 /// any (Expo `Header` right `Hit` with `MoreHorizontal`).
-pub(super) fn actions_control(view: &Files, cx: Cx, k: &Kit) -> Option<AnyElement> {
+fn actions_control(view: &Files, cx: Cx, k: &Kit) -> Option<AnyElement> {
     if view.offered().is_empty() {
         return None;
     }
@@ -239,6 +243,16 @@ pub(super) fn sheet_title(
     )
 }
 
+// SDK gap: design::field_label, swap when feat/phone-kit lands
+/// A field's label over it (Expo `Field label`): one caption line, muted.
+pub(super) fn field_label(label: &'static str, k: &Kit) -> Div {
+    div()
+        .mb(space::XS)
+        .text_type(k.ladder.caption)
+        .text_color(k.theme.muted)
+        .child(label)
+}
+
 // SDK gap: design::field with .label and .problem, swap when feat/phone-kit lands
 /// A field under its label (Expo `Field label`), the problem with its
 /// value under it and said to assistive tech.
@@ -256,13 +270,7 @@ pub(super) fn labelled(label: &'static str, input: Input, problem: Option<&str>,
     div()
         .flex()
         .flex_col()
-        .child(
-            div()
-                .mb(space::XS)
-                .text_type(k.ladder.caption)
-                .text_color(k.theme.muted)
-                .child(label),
-        )
+        .child(field_label(label, k))
         .child(design::field(input, &k.ladder, &k.theme).border_color(edge))
         .children(problem.map(|problem| {
             div()

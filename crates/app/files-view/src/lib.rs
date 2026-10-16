@@ -12,7 +12,8 @@
 //! on every commit `watch.rs` hears of; where the reader goes is
 //! `actions.rs`, what they write `write.rs`; every sentence is in
 //! `words.rs`. `ui/` draws the desktop's pages, `ui/phone/` the phone's
-//! screens: the root picks one, once, by the device.
+//! screens: the root picks one, once, by the device. Element ids: a
+//! container is `files-<name>`, a control or a row `files/<what>/<key>`.
 mod actions;
 mod load;
 mod queries;
@@ -22,12 +23,21 @@ mod watch;
 mod words;
 mod write;
 
-pub use state::{Files, Route};
+pub use state::Files;
 
+use view::design::Ladder;
 use view::prelude::*;
 
 /// What both designs draw in.
 pub(crate) type Cx<'a, 'b> = &'a mut Context<'b, Files>;
+
+/// What both designs draw with: the theme, and the ladder of sizes, the
+/// pointer's (`design::POINTER`) or the finger's (`design::TOUCH`).
+#[derive(Clone, Copy)]
+pub(crate) struct Kit {
+    pub(crate) theme: Theme,
+    pub(crate) ladder: Ladder,
+}
 
 impl View for Files {
     const NAME: &'static str = "Files";
@@ -43,6 +53,9 @@ impl View for Files {
         Capability::Op,
     ];
     const TARGETS: &'static [&'static str] = &[files::PROGRAM, identity::PROGRAM];
+    /// The history's rows, a message beside who made it and when, fit
+    /// here; a folder's crumbs wrap.
+    const MIN_WINDOW_WIDTH: u32 = 480;
 
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.watch(cx);
@@ -52,11 +65,6 @@ impl View for Files {
 
 impl Render for Files {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // a snapshot's page asks what it changed once the history names
-        // the snapshot, whichever lands first
-        if let Route::Snapshot(seq) = *self.page() {
-            self.read_changed(seq, cx);
-        }
         // two designs, picked once: under a finger the phone's screens
         // (`ui/phone`), under a pointer the desktop's pages
         if window.touch() {

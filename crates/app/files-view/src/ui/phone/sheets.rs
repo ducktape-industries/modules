@@ -6,12 +6,24 @@
 //! writes and the open form; writes the form's fields, `begin`, `submit`
 //! and `close_sheet`.
 use view::Autocapitalize;
+use view::Div;
+use view::design::space;
 
 use super::*;
-use crate::write::{Form, Write, built};
+use crate::write::{Form, Write};
 
-/// Where a sheet stops when it opens, and how far it may be pulled.
+/// Where the list of writes stops when it opens, and how far it may be
+/// pulled. Expo's `Sheet` sizes a short list to its content
+/// (`src/kit/Sheet.tsx:27`); a host sheet stops at fixed fractions, and
+/// half the body holds the four writes a page offers at most.
 const DETENTS: [f32; 2] = [0.5, 1.0];
+
+/// A form opens at the body's full height, so Commit shows under its
+/// fields without a pull.
+const FORM_DETENTS: [f32; 1] = [1.0];
+
+/// How tall the text field starts: about ten lines.
+const TEXT_H: Pixels = px(200.);
 
 /// The page's writes, each opening its form; none to offer, no sheet.
 pub(super) fn actions(view: &Files, cx: Cx, k: &Kit) -> Option<AnyElement> {
@@ -21,9 +33,9 @@ pub(super) fn actions(view: &Files, cx: Cx, k: &Kit) -> Option<AnyElement> {
     }
     let dismiss = cx.listener(|view: &mut Files, _: &(), _, cx| view.close_sheet(cx));
     let rows = offered.into_iter().map(|write| {
-        let id = format!("files/write/{}", write.slug());
+        let id = format!("files/begin/{}", write.slug());
         let danger = matches!(write, Write::Remove { .. });
-        let glyph = words::verb_glyph(&write);
+        let glyph = write.glyph();
         let label = words::verb(&write);
         let begin = cx
             .listener(move |view: &mut Files, _: &ClickEvent, _, cx| view.begin(write.clone(), cx));
@@ -39,18 +51,15 @@ pub(super) fn actions(view: &Files, cx: Cx, k: &Kit) -> Option<AnyElement> {
 }
 
 /// One write's form.
-pub(super) fn form(view: &Files, form: &Form, cx: Cx, k: &Kit) -> AnyElement {
+pub(super) fn form(form: &Form, cx: Cx, k: &Kit) -> AnyElement {
     let title = words::form_title(&form.write);
     let dismiss = cx.listener(|view: &mut Files, _: &(), _, cx| view.close_sheet(cx));
     let removes = match &form.write {
-        Write::Remove { path } => Some(
+        Write::Remove { path, folder } => Some(
             div()
                 .text_type(k.ladder.secondary)
                 .text_color(k.theme.muted)
-                .child(words::removes(
-                    path,
-                    matches!(view.page(), Route::Folder(_)),
-                )),
+                .child(words::removes(path, *folder)),
         ),
         _ => None,
     };
@@ -75,7 +84,7 @@ pub(super) fn form(view: &Files, form: &Form, cx: Cx, k: &Kit) -> AnyElement {
         .children(refused)
         .child(verbs(form, cx, k));
     design::sheet("files/write", title.clone(), &k.ladder, &k.theme)
-        .detents(DETENTS)
+        .detents(FORM_DETENTS)
         .on_dismiss(dismiss)
         .child(
             div()
@@ -90,21 +99,21 @@ pub(super) fn form(view: &Files, form: &Form, cx: Cx, k: &Kit) -> AnyElement {
         .into_any_element()
 }
 
-/// A new name, or a rename's new path.
+/// A new name, or a rename's new path. Return commits, unless the form
+/// takes text still to be typed below it.
 fn naming(form: &Form, cx: Cx, k: &Kit) -> Option<Div> {
     let naming = form.write.naming()?;
     let label = words::naming(naming);
-    let submit = cx.listener(|view: &mut Files, _: &(), _, cx| view.submit(cx));
     let input = Input::new("files/write/name", &form.name, label)
         .w_full()
         .autocapitalize(Autocapitalize::None)
-        .autocorrect(false)
-        .on_submit(submit);
+        .autocorrect(false);
+    let input = match form.write.takes_text() {
+        true => input,
+        false => input.on_submit(cx.listener(|view: &mut Files, _: &(), _, cx| view.submit(cx))),
+    };
     Some(labelled(label, input, form.problem.as_deref(), k))
 }
-
-/// How tall the text field starts: about ten lines.
-const TEXT_H: Pixels = px(200.);
 
 /// A new file's text, or an edit's: many lines, so Return is a new line
 /// and Commit is the only send.
@@ -128,13 +137,7 @@ fn text(form: &Form, k: &Kit) -> Option<Div> {
         div()
             .flex()
             .flex_col()
-            .child(
-                div()
-                    .mb(space::XS)
-                    .text_type(k.ladder.caption)
-                    .text_color(k.theme.muted)
-                    .child(words::TEXT),
-            )
+            .child(field_label(words::TEXT, k))
             .child(area),
     )
 }
@@ -142,10 +145,9 @@ fn text(form: &Form, k: &Kit) -> Option<Div> {
 /// The commit's message; its placeholder is what it says left empty.
 fn message(form: &Form, cx: Cx, k: &Kit) -> Div {
     let submit = cx.listener(|view: &mut Files, _: &(), _, cx| view.submit(cx));
-    let said = built(form).map_or_else(|_| words::MESSAGE.to_owned(), |(message, _)| message);
     let input = Input::new("files/write/message", &form.message, words::MESSAGE)
         .w_full()
-        .placeholder(said)
+        .placeholder(form.placeholder())
         .on_submit(submit);
     labelled(words::MESSAGE, input, None, k)
 }
@@ -154,10 +156,7 @@ fn message(form: &Form, cx: Cx, k: &Kit) -> Div {
 fn verbs(form: &Form, cx: Cx, k: &Kit) -> Div {
     let cancel = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.close_sheet(cx));
     let commit = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.submit(cx));
-    let verb = match form.sending {
-        true => words::COMMITTING,
-        false => words::COMMIT,
-    };
+    let verb = words::commit(form.sending);
     form_verbs(
         design::button(
             "files/write/cancel",

@@ -3,7 +3,9 @@
 //! only what changed; and who reads, the name their home is called by.
 use view::prelude::*;
 
-use crate::state::{Name, Route, Sheet};
+use files::BlobId;
+
+use crate::state::Route;
 use crate::{Files, queries};
 
 impl Files {
@@ -15,10 +17,7 @@ impl Files {
             Route::Places | Route::History => self.read_history(cx),
             Route::Folder(path) => self.read_folder(path, cx),
             Route::File(path) => self.read_file(path, cx),
-            Route::Snapshot(seq) => {
-                self.read_history(cx);
-                self.read_changed(seq, cx);
-            }
+            Route::Snapshot(id) => self.read_snapshot(id, cx),
         }
     }
 
@@ -47,22 +46,15 @@ impl Files {
         }
     }
 
-    /// What one snapshot changed, asked once per snapshot (a snapshot
-    /// never changes) and again after a refusal. It needs the snapshot's
-    /// row, which the history brings: the root asks on every draw, so a
-    /// page opened before the history landed asks when it does.
-    pub(crate) fn read_changed(&mut self, seq: u64, cx: &mut Context<Self>) {
-        let asked = self.changed_of == Some(seq) && self.changed.failed().is_none();
-        if asked {
-            return;
+    fn read_snapshot(&mut self, id: BlobId, cx: &mut Context<Self>) {
+        if self.snapshot_at(id).is_none() {
+            self.snapshot = Loadable::Idle;
         }
-        let Some(row) = self.snapshot(seq) else {
-            return;
-        };
-        let read = queries::changed(cx.host(), seq, row.id, row.parent);
-        self.changed_of = Some(seq);
-        self.changed = Loadable::Idle;
-        cx.load(self, read, |view| &mut view.changed);
+        let read = queries::snapshot(cx.host(), id);
+        cx.load(self, read, |view| &mut view.snapshot);
+        if self.names.is_idle() {
+            self.read_names(cx);
+        }
     }
 
     /// Every author's name: once, and again when identity changes.
@@ -78,25 +70,7 @@ impl Files {
             return;
         };
         let read = queries::name(cx.host(), account);
-        cx.land(read, move |view, name, cx| {
-            // a session moved on while this was asked
-            if view.reader.account != Some(account) {
-                return;
-            }
-            let name = match name {
-                Ok(Some(name)) => Name::Named(name),
-                Ok(None) => Name::Unnamed,
-                Err(refusal) => {
-                    cx.log_refused("the reader's name", &refusal);
-                    Name::Refused(refusal.message)
-                }
-            };
-            if name != view.reader.name {
-                view.reader.name = name;
-                cx.notify();
-            }
-        })
-        .detach();
+        cx.load(self, read, |view| &mut view.reader.name);
     }
 
     /// A session: another account reads, or the same one again.
@@ -105,11 +79,9 @@ impl Files {
             return;
         }
         self.reader.account = session.account;
-        self.reader.name = Name::Asking;
-        // another reader's half-filled write is not this one's
-        if matches!(self.sheet, Some(Sheet::Write(_))) {
-            self.sheet = None;
-        }
+        self.reader.name = Loadable::Idle;
+        // another reader's writes, offered or half filled, are not this one's
+        self.sheet = None;
         self.note = None;
         self.read_reader(cx);
         // what this reader may write in the page on screen

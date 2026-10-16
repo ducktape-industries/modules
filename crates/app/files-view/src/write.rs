@@ -30,7 +30,7 @@ pub(crate) enum Write {
     /// a file or folder moved to another path, its folder or its name
     Rename { path: String },
     /// a file or folder removed, a folder with all it holds
-    Remove { path: String },
+    Remove { path: String, folder: bool },
 }
 
 /// What a form's first field holds.
@@ -57,7 +57,7 @@ impl Write {
         matches!(self, Write::NewFile { .. } | Write::Edit { .. })
     }
 
-    /// What its controls are keyed by: `files/write/<slug>`.
+    /// What the control that begins it is keyed by: `files/begin/<slug>`.
     pub(crate) fn slug(&self) -> &'static str {
         match self {
             Write::NewFolder { .. } => "new-folder",
@@ -67,10 +67,24 @@ impl Write {
             Write::Remove { .. } => "remove",
         }
     }
+
+    /// The glyph (a Lucide name) its sheet row leads with.
+    pub(crate) fn glyph(&self) -> &'static str {
+        match self {
+            Write::NewFolder { .. } => "folder-plus",
+            Write::NewFile { .. } => "file-plus",
+            Write::Edit { .. } => "pencil",
+            Write::Rename { .. } => "folder-input",
+            Write::Remove { .. } => "trash",
+        }
+    }
 }
 
 /// A write being filled in, over the page it was opened from.
 pub(crate) struct Form {
+    /// which form this is: a commit's answer lands on its own form only,
+    /// never on one opened for the same write after it
+    pub(crate) id: u64,
     pub(crate) write: Write,
     /// the snapshot the page was read at: the commit's base
     pub(crate) base: Option<BlobId>,
@@ -89,9 +103,17 @@ pub(crate) struct Form {
     pub(crate) sending: bool,
 }
 
-/// A commit in flight: the write it came from, its change and message.
+impl Form {
+    /// What the message field says while it is empty: the message the
+    /// commit would carry.
+    pub(crate) fn placeholder(&self) -> String {
+        built(self).map_or_else(|_| words::MESSAGE.to_owned(), |(message, _)| message)
+    }
+}
+
+/// A commit in flight: the form it came from, its change and message.
 struct Sent {
-    write: Write,
+    form: u64,
     change: Change,
     message: String,
 }
@@ -119,14 +141,17 @@ impl Files {
                 let own = folder.ownership.as_ref();
                 if own.is_some_and(|own| self.reader.writes(&own.writers)) {
                     offered.push(Write::Rename { path: path.clone() });
-                    offered.push(Write::Remove { path: path.clone() });
+                    offered.push(Write::Remove {
+                        path: path.clone(),
+                        folder: true,
+                    });
                 }
             }
             Route::File(path) => {
                 let Some(file) = self.file_at(path) else {
                     return offered;
                 };
-                let (Some(entry), Some(own)) = (&file.entry, &file.ownership) else {
+                let (Some(entry), Some(own)) = (file.file(), &file.ownership) else {
                     return offered;
                 };
                 if !self.reader.writes(&own.writers) {
@@ -140,7 +165,10 @@ impl Files {
                     });
                 }
                 offered.push(Write::Rename { path: path.clone() });
-                offered.push(Write::Remove { path: path.clone() });
+                offered.push(Write::Remove {
+                    path: path.clone(),
+                    folder: false,
+                });
             }
             Route::Places | Route::History | Route::Snapshot(_) => {}
         }
@@ -171,7 +199,9 @@ impl Files {
             Write::Edit { .. } => text,
             _ => String::new(),
         };
+        self.forms += 1;
         self.sheet = Some(Sheet::Write(Form {
+            id: self.forms,
             write,
             base,
             name: TextField::new(name),
@@ -209,7 +239,7 @@ impl Files {
             changes: vec![change.clone()],
         };
         let sent = Sent {
-            write: form.write.clone(),
+            form: form.id,
             change,
             message,
         };
@@ -230,7 +260,7 @@ impl Files {
             Ok(Submitted::InDoubt { .. }) => Some(words::IN_DOUBT.into()),
         };
         let form = match &mut self.sheet {
-            Some(Sheet::Write(form)) if form.write == sent.write => Some(form),
+            Some(Sheet::Write(form)) if form.id == sent.form => Some(form),
             _ => None,
         };
         match (problem, form) {
@@ -302,7 +332,7 @@ pub(crate) fn built(form: &Form) -> Result<(String, Change), String> {
                 to,
             }
         }
-        Write::Remove { path } => Change::Remove { path: path.clone() },
+        Write::Remove { path, .. } => Change::Remove { path: path.clone() },
     };
     let typed = form.message.text().trim().to_owned();
     let message = match typed.is_empty() {

@@ -3,10 +3,12 @@
 //! removal takes away, why the last commit did not land, then Cancel and
 //! Commit. Reads the open form; writes its fields, the commit (`submit`)
 //! and Cancel (`close_sheet`).
+use view::Autocapitalize;
 use view::accesskit::Invalid;
+use view::design::space;
 
 use super::*;
-use crate::write::{Form, Write, built};
+use crate::write::{Form, Write};
 
 /// How tall the text field starts.
 const TEXT_H: Pixels = px(220.);
@@ -25,10 +27,11 @@ pub(super) fn sheet(view: &Files, cx: Cx, k: &Kit) -> Option<AnyElement> {
             .child(why.clone())
     });
     let removes = match &form.write {
-        Write::Remove { path } => Some(div().text_color(k.theme.muted).child(words::removes(
-            path,
-            matches!(view.page(), Route::Folder(_)),
-        ))),
+        Write::Remove { path, folder } => Some(
+            div()
+                .text_color(k.theme.muted)
+                .child(words::removes(path, *folder)),
+        ),
         _ => None,
     };
     Some(
@@ -68,16 +71,19 @@ fn labelled(label: &'static str, field: impl IntoElement, k: &Kit) -> Div {
 }
 
 /// A new name, or a rename's new path; a problem with it is the field's,
-/// said to assistive tech too.
+/// said to assistive tech too. Return commits, unless the form takes text
+/// still to be typed below it.
 fn naming(form: &Form, cx: Cx, k: &Kit) -> Option<Div> {
     let naming = form.write.naming()?;
     let label = words::naming(naming);
-    let submit = cx.listener(|view: &mut Files, _: &(), _, cx| view.submit(cx));
     let input = Input::new("files/write/name", &form.name, label)
         .w_full()
         .font_family(design::fonts::FAMILY_MONO)
-        .autocapitalize(Autocapitalize::None)
-        .on_submit(submit);
+        .autocapitalize(Autocapitalize::None);
+    let input = match form.write.takes_text() {
+        true => input,
+        false => input.on_submit(cx.listener(|view: &mut Files, _: &(), _, cx| view.submit(cx))),
+    };
     let input = match &form.problem {
         Some(problem) => input.invalid(Invalid::True).description(problem.clone()),
         None => input,
@@ -112,10 +118,9 @@ fn text(form: &Form, k: &Kit) -> Option<Div> {
 /// The commit's message; its placeholder is what it says left empty.
 fn message(form: &Form, cx: Cx, k: &Kit) -> Div {
     let submit = cx.listener(|view: &mut Files, _: &(), _, cx| view.submit(cx));
-    let said = built(form).map_or_else(|_| words::MESSAGE.to_owned(), |(message, _)| message);
     let input = Input::new("files/write/message", &form.message, words::MESSAGE)
         .w_full()
-        .placeholder(said)
+        .placeholder(form.placeholder())
         .on_submit(submit);
     labelled(words::MESSAGE, design::field(input, &k.ladder, &k.theme), k)
 }
@@ -124,10 +129,7 @@ fn message(form: &Form, cx: Cx, k: &Kit) -> Div {
 fn buttons(form: &Form, cx: Cx, k: &Kit) -> Div {
     let cancel = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.close_sheet(cx));
     let commit = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.submit(cx));
-    let verb = match form.sending {
-        true => words::COMMITTING,
-        false => words::COMMIT,
-    };
+    let verb = words::commit(form.sending);
     div()
         .flex()
         .justify_end()
