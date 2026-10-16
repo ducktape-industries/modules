@@ -59,11 +59,14 @@ pub trait View: Render + Serialize + DeserializeOwned + Default {
     /// alike. A view with the `op` or `program` capability names at least
     /// one, or it does not compile.
     const TARGETS: &'static [&'static str] = &[];
-    /// The narrowest content width, in logical px, at which every essential
-    /// element is visible and nothing is clipped. The app never lays the
-    /// view out narrower, and never sizes a window holding it narrower
-    /// unless the desk or screen itself is narrower. `export_view!` writes
-    /// it into the manifest:
+    /// The narrowest pointer window, in logical px, at which every
+    /// essential element is visible and nothing is clipped: on a desk the
+    /// app never lays the view out narrower, and never sizes a window
+    /// holding it narrower unless the desk or screen itself is narrower. It
+    /// is not a phone's width: a touch screen seats the view at the
+    /// screen's own width whatever this says, so lowering it "for phones"
+    /// only lets desktop windows shrink. `export_view!` writes it into the
+    /// manifest:
     ///
     /// ```
     /// # use serde::{Deserialize, Serialize};

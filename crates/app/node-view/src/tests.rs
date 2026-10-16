@@ -8,6 +8,7 @@ use view::methods::{
 use view::testing::{StreamSender, TestAppContext};
 
 mod network;
+mod phone;
 mod rows;
 mod screens;
 mod voting;

@@ -6,8 +6,7 @@ use view::design::Kind;
 use view::prelude::*;
 use view::{Div, Stateful};
 
-use crate::voting;
-use crate::{Nodes, ui};
+use crate::{Nodes, ui, voting, words};
 use view::design::Ladder;
 
 /// A press about to enact: what will happen, asked once.
@@ -38,15 +37,31 @@ pub(crate) fn confirm(
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(div().font_weight(view::FontWeight::MEDIUM).child(view.voting.words(motion)))
+                    .child(
+                        div()
+                            .font_weight(view::FontWeight::MEDIUM)
+                            .child(view.voting.words(motion)),
+                    )
                     .child(
                         div()
                             .text_size(design::text::SECONDARY)
-                            .child("Your vote reaches the quorum: this happens now, and a vote can't be taken back."),
+                            .child(words::ENACTS_NOW),
                     ),
             )
-            .child(design::button("nodes-confirm-yes", "Vote and enact", ladder,  theme, yes).kind(Kind::Primary))
-            .child(design::button("nodes-confirm-no", "Not now", ladder,  theme, no).kind(Kind::Outline)),
+            .child(
+                design::button(
+                    "nodes-confirm-yes",
+                    words::VOTE_AND_ENACT,
+                    ladder,
+                    theme,
+                    yes,
+                )
+                .kind(Kind::Primary),
+            )
+            .child(
+                design::button("nodes-confirm-no", words::NOT_NOW, ladder, theme, no)
+                    .kind(Kind::Outline),
+            ),
     )
 }
 
@@ -78,7 +93,7 @@ pub(crate) fn outcome(
             .child(design::icon_button(
                 "nodes-outcome-dismiss",
                 "✕",
-                "Dismiss",
+                words::DISMISS,
                 ladder,
                 theme,
                 dismiss,
@@ -107,14 +122,14 @@ pub(crate) fn sections(
             .child(scheduled(view, cx, theme, ladder))
             .child(quiet(
                 "nodes-change-elsewhere",
-                "Change a program in Explorer, Programs.",
+                words::CHANGE_ELSEWHERE,
                 theme,
             )),
     )
 }
 
-/// One line of a section: its words, a quiet caption, a press.
-fn line(id: impl Into<ElementId>, words: String, caption: String, theme: &Theme) -> Stateful<Div> {
+/// One line of a section: what it is, a quiet caption, a press.
+fn line(id: impl Into<ElementId>, title: String, caption: String, theme: &Theme) -> Stateful<Div> {
     div()
         .id(id)
         .flex()
@@ -128,7 +143,7 @@ fn line(id: impl Into<ElementId>, words: String, caption: String, theme: &Theme)
         .border_b_1()
         .border_color(theme.border)
         .text_size(design::text::SECONDARY)
-        .child(div().flex_1().min_w(px(200.)).child(words))
+        .child(div().flex_1().min_w(px(200.)).child(title))
         .child(div().text_color(theme.muted).child(caption))
 }
 
@@ -140,28 +155,18 @@ fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
         Loadable::Ready(motions) | Loadable::Reloading(motions, _)
             if motions.pending.is_empty() =>
         {
-            vec![quiet(
-                "nodes-motions-none",
-                "No motion waits for votes.",
-                theme,
-            )]
+            vec![quiet("nodes-motions-none", words::NO_MOTION, theme)]
         }
         Loadable::Ready(motions) | Loadable::Reloading(motions, _) => motions
             .pending
             .iter()
             .enumerate()
             .map(|(index, pending)| {
-                let cast = voting.voices.len() - voting.uncast(&pending.motion);
-                let caption = format!(
-                    "{} of {} · {}",
-                    pending.voters.len(),
-                    motions.needed,
-                    yours(cast, voting.voices.len())
-                );
-                let words = voting.words(&pending.motion);
+                let caption = words::pending_caption(voting, pending, motions.needed);
+                let title = voting.words(&pending.motion);
                 let row = line(
                     ElementId::Name(format!("nodes-motion-{index}").into()),
-                    words,
+                    title,
                     caption,
                     theme,
                 );
@@ -173,7 +178,7 @@ fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
                     });
                     design::button(
                         ElementId::Name(format!("nodes-motion-vote-{index}").into()),
-                        "Vote",
+                        words::VOTE,
                         ladder,
                         theme,
                         vote,
@@ -191,24 +196,15 @@ fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
         )],
         Loadable::Idle | Loadable::Loading(_) => vec![quiet(
             "nodes-motions-loading",
-            "Reading the motions…",
+            words::READING_MOTIONS,
             theme,
         )],
     };
     div()
         .flex()
         .flex_col()
-        .child(ui::section("nodes-motions", "Motions".into(), theme))
+        .child(ui::section("nodes-motions", words::MOTIONS.into(), theme))
         .children(lines)
-}
-
-/// Which of the reader's validators voted: "yours voted", "1 of 2 of yours".
-fn yours(cast: usize, voices: usize) -> String {
-    match (cast, voices) {
-        (0, 1) => "yours has not voted".into(),
-        (1, 1) => "yours voted".into(),
-        (cast, voices) => format!("{cast} of your {voices} voted"),
-    }
 }
 
 /// The programs role's changes still to land, each with who made it and, for
@@ -218,43 +214,19 @@ fn yours(cast: usize, voices: usize) -> String {
 fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -> Div {
     let voting = &view.voting;
     let status = view.status.ready();
-    let tip = status.map_or(0, |status| status.height);
-    let entries = voting.roster.ready().map_or(&[][..], Vec::as_slice);
+    let entries = voting.entries();
     let lines: Vec<AnyElement> = match &voting.scheduled {
         Loadable::Ready(schedule) | Loadable::Reloading(schedule, _) => {
-            let ahead: Vec<_> = schedule
-                .changes
-                .iter()
-                .filter(|change| change.height > tip)
-                .collect();
+            let ahead = view.scheduled_ahead().unwrap_or_default();
             if ahead.is_empty() {
-                vec![quiet(
-                    "nodes-scheduled-none",
-                    "No change is scheduled.",
-                    theme,
-                )]
+                vec![quiet("nodes-scheduled-none", words::NO_CHANGE, theme)]
             } else {
                 ahead
                     .into_iter()
                     .enumerate()
                     .map(|(index, change)| {
                         let motion = voting::cancel(change);
-                        let blocks = change.height - tip;
-                        let by = match change.by {
-                            Some(account) => voting::named(&schedule.names, account),
-                            None => "vote".into(),
-                        };
-                        let caption = match (change.by, status) {
-                            (_, None) => format!("by {by}"),
-                            (Some(_), Some(status)) => format!(
-                                "by {by} · validators can cancel for {} min",
-                                (blocks * status.block_time_ms).div_ceil(60_000)
-                            ),
-                            (None, Some(_)) => format!(
-                                "by {by} · in {}",
-                                design::plural(blocks, "block", "blocks")
-                            ),
-                        };
+                        let caption = words::scheduled_caption(change, schedule, status);
                         let row = line(
                             ElementId::Name(format!("nodes-scheduled-{index}").into()),
                             voting::scheduled_words(change.height, &change.change, entries),
@@ -267,7 +239,7 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladd
                         row.child(
                             design::button(
                                 ElementId::Name(format!("nodes-scheduled-cancel-{index}").into()),
-                                "Propose cancel",
+                                words::PROPOSE_CANCEL,
                                 ladder,
                                 theme,
                                 press,
@@ -287,7 +259,7 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladd
         )],
         Loadable::Idle | Loadable::Loading(_) => vec![quiet(
             "nodes-scheduled-loading",
-            "Reading the schedule…",
+            words::READING_SCHEDULE,
             theme,
         )],
     };
@@ -296,7 +268,7 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladd
         .flex_col()
         .child(ui::section(
             "nodes-scheduled",
-            "Scheduled changes".into(),
+            words::SCHEDULED.into(),
             theme,
         ))
         .children(lines)
