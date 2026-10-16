@@ -192,7 +192,7 @@ fn an_operation_shows_its_submission_then_a_refusal_reverts_it_with_the_reason()
     cx.simulate_click("forge-close-change");
     cx.run_until_parked();
     assert!(
-        cx.has_text("Refused: this key may not close that change"),
+        cx.has_text("That didn’t go through: this key may not close that change"),
         "{:?}",
         cx.texts()
     );
@@ -1015,7 +1015,7 @@ fn a_refused_review_keeps_every_draft() {
     cx.simulate_click("forge-submit-review");
     cx.run_until_parked();
     assert!(
-        cx.has_text("Refused: this operation exceeds its bound"),
+        cx.has_text("That didn’t go through: this operation exceeds its bound"),
         "{:?}",
         cx.texts()
     );

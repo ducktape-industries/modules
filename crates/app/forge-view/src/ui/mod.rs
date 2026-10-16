@@ -510,7 +510,7 @@ pub(crate) fn pending(forge: &Forge, scope: &str, theme: &Theme) -> AnyElement {
             Progress::Accepted => (theme.surface_raised, words::WAITING_FOR_BLOCK.to_owned()),
             Progress::Refused(answer) => (
                 theme.danger_soft,
-                format!("Refused: {}", words::refused(answer)),
+                design::failure(answer).unwrap_or_default(),
             ),
         };
         column = column.child(
@@ -564,7 +564,7 @@ pub(crate) fn refused(
 ) -> AnyElement {
     let query = query.clone();
     let retry = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.retry(query.clone(), cx));
-    view::design::refused(element_id, refusal.message.clone(), ladder, theme, retry)
+    view::design::refused(element_id, design::sentence(refusal), ladder, theme, retry)
         .m_2()
         .into_any_element()
 }

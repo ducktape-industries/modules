@@ -316,7 +316,7 @@ fn refused(
     theme: &Theme,
 ) -> Stateful<Div> {
     let retry = cx.listener(|view, _: &ClickEvent, _, cx| view.read(cx));
-    design::refused("members", refusal.message.clone(), ladder, theme, retry)
+    design::refused("members", design::sentence(refusal), ladder, theme, retry)
 }
 
 /// A press that opens `link` through the host.

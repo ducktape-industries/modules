@@ -745,7 +745,7 @@ fn activity(view: &Members, theme: &Theme, ladder: &Ladder) -> impl IntoElement 
             div()
                 .px(px(20.))
                 .pb(space::SM)
-                .child(design::quiet(refusal.message.clone(), theme))
+                .child(design::quiet(design::sentence(refusal), theme))
                 .into_any_element(),
         ],
         Loadable::Ready(recent) | Loadable::Reloading(recent, _) if recent.items.is_empty() => {

@@ -423,7 +423,7 @@ fn a_refused_create_says_why_under_the_name() {
     cx.simulate_input("chat-new-name", "general");
     cx.simulate_submit("chat-new-name");
     cx.run_until_parked();
-    assert!(cx.has_text("Couldn’t create this channel: the name is taken"));
+    assert!(cx.has_text("That didn’t go through: the name is taken"));
     assert!(cx.find("chat-new-page").is_some());
     // the field says so to assistive technology as well
     let wire::Node::Field { options, .. } = cx.node("chat-new-name") else {
@@ -432,7 +432,7 @@ fn a_refused_create_says_why_under_the_name() {
     assert!(options.invalid.is_some());
     assert_eq!(
         options.description.as_deref(),
-        Some("Couldn’t create this channel: the name is taken")
+        Some("That didn’t go through: the name is taken")
     );
 }
 

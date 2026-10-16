@@ -606,8 +606,8 @@ pub(crate) enum Progress {
     /// accepted by the node, waiting for the block that carries it
     Accepted,
     /// it did not land: the host's answer (refused, in doubt, or never
-    /// sent), which each design words (`ui::pending`, the phone's
-    /// `design::failure`)
+    /// sent), which both designs word as every view does
+    /// (`design::failure`)
     Refused(Answer),
 }
 

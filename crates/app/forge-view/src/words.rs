@@ -79,27 +79,13 @@ pub(crate) const COMPARING_ENDPOINTS: &str = "Comparing the endpoints…";
 pub(crate) const COMPARING: &str = "comparing…";
 
 /// What a write on its way says (Expo `src/write/words.ts` `PROGRESS`);
-/// one that did not land is the host's answer, which each design words.
+/// one that did not land is the host's answer, worded by
+/// `design::failure`.
 pub(crate) const SUBMITTING: &str = "Submitting…";
 pub(crate) const WAITING_FOR_BLOCK: &str = "Waiting for the next block…";
 /// A reply in a change's room, while it is on its way (Expo
 /// `write/optimistic.ts` `reply`).
 pub(crate) const REPLYING: &str = "Replying…";
-
-/// A write that did not land, as the desktop says it after "Refused:":
-/// the program's or the host's sentence, or, in doubt, that it may have
-/// gone through.
-pub(crate) fn refused(answer: &crate::state::Answer) -> String {
-    match answer {
-        Ok(view::methods::Submitted::InDoubt { .. }) => {
-            "No answer came back: it may have gone through.".into()
-        }
-        Ok(view::methods::Submitted::Refused { refusal, .. }) | Err(refusal) => {
-            refusal.message.clone()
-        }
-        Ok(view::methods::Submitted::Applied { .. }) => String::new(),
-    }
-}
 
 // ---------------------------------------------------------------- repositories
 

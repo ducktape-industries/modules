@@ -81,12 +81,13 @@ impl Render for Explorer {
         // the pane's width, as the host lays the frame out: the Overview
         // lays its panels out to it in the frame that shows them
         self.width = window.viewport_size().width.into();
+        self.touch = window.touch();
         // a program page asks what its code declares once the roster
         // names the code, whichever lands first
         self.read_manifest(cx);
         // two designs, picked once: under a finger the Expo app's screens
         // (`ui/phone`), under a pointer the desktop's pages
-        if window.touch() {
+        if self.touch {
             self.read_rows(cx);
             ui::phone::render(self, cx)
         } else {

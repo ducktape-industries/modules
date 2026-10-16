@@ -112,7 +112,7 @@ impl Forge {
             _ if depth == 0 => return,
             Stage::Loading => return rows.push(placeholder(&dir, depth, Slot::Loading)),
             Stage::Failed(refusal) => {
-                let failed = Slot::Failed(refusal.message.clone());
+                let failed = Slot::Failed(design::sentence(refusal));
                 return rows.push(placeholder(&dir, depth, failed));
             }
             Stage::Ready(_) => return,

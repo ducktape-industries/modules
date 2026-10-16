@@ -191,7 +191,7 @@ fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
             .collect(),
         Loadable::Failed(refusal) => vec![quiet(
             "nodes-motions-refused",
-            refusal.message.clone(),
+            design::sentence(refusal),
             theme,
         )],
         Loadable::Idle | Loadable::Loading(_) => vec![quiet(
@@ -254,7 +254,7 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladd
         }
         Loadable::Failed(refusal) => vec![quiet(
             "nodes-scheduled-refused",
-            refusal.message.clone(),
+            design::sentence(refusal),
             theme,
         )],
         Loadable::Idle | Loadable::Loading(_) => vec![quiet(

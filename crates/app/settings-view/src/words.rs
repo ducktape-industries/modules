@@ -89,8 +89,6 @@ pub(crate) const NOBODY_LISTED: &str = "Add people by name or account number.";
 pub(crate) const WORKING: &str = "Working…";
 /// A write of whom an agent answers, or (on the phone) any write, in flight.
 pub(crate) const SAVING: &str = "Saving…";
-/// A write whose answer was lost.
-pub(crate) const IN_DOUBT: &str = "No answer came back: it may have gone through.";
 /// The head over the ways to add an agent or a key.
 pub(crate) const ADD: &str = "Add";
 pub(crate) const CANCEL: &str = "Cancel";
@@ -169,7 +167,7 @@ pub(crate) fn problem_text(problem: &Problem, empty: &str) -> String {
         Problem::SeveralAccounts => {
             "More than one account has that name. Add it by its number.".into()
         }
-        Problem::Refused(message) => format!("That didn’t go through: {message}"),
+        Problem::Refused(said) => said.clone(),
     }
 }
 

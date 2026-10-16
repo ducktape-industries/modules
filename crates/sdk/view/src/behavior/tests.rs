@@ -184,6 +184,30 @@ fn a_resize_handle_carries_role_name_focus_and_keys_to_the_wire() {
     assert!(interactivity.on_key_down.is_some());
 }
 
+/// A sheet keeps every child, as gpui's `child` adds one: two go to the
+/// host in one column, neither dropped.
+#[test]
+fn a_sheet_draws_every_child_it_holds() {
+    let mut app = crate::App::for_driver();
+    let mut window = app.window();
+    let sheet = crate::sheet("picker", "Pick one")
+        .child("Pick one")
+        .child("options");
+    let node = crate::Lowering::new(&mut window, &mut app).lower(sheet);
+    let wire::Node::Sheet { child, .. } = node else {
+        panic!("a sheet")
+    };
+    let words: Vec<_> = child
+        .children()
+        .iter()
+        .map(|node| match node {
+            wire::Node::Text(text) => text.content.as_str(),
+            other => panic!("a line of text, not {other:?}"),
+        })
+        .collect();
+    assert_eq!(words, ["Pick one", "options"]);
+}
+
 /// The base keeps its path whether or not a modal is open over it: the
 /// host keys a list's scroll and a field's state by it, and a modal that
 /// moved the base started the list over and dropped the field.

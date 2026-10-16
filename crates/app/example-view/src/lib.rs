@@ -7,7 +7,6 @@
 //! at the view. A refusal is an `Error` in place of an answer.
 use identity::{Identity, Kind, PageRequest};
 use serde::{Deserialize, Serialize};
-use view::methods::Submitted;
 use view::prelude::*;
 
 // The state. The host saves it with serde before a redeploy and hands it to
@@ -21,8 +20,8 @@ pub struct Agents {
     // The reader's account. `None` until the session says, and for a key
     // that holds no account.
     me: Option<u64>,
-    // Why the program refused the last create, in its words.
-    refused: Option<String>,
+    // Why the last create did not land, in the words every view uses.
+    failed: Option<String>,
     // Never saved: a `Task` holds only while this instance runs. `Some`
     // while a create waits for its answer; dropping it cancels the wait.
     #[serde(skip)]
@@ -97,7 +96,7 @@ impl Agents {
         if name.is_empty() || self.creating.is_some() {
             return;
         }
-        self.refused = None;
+        self.failed = None;
         // A write to the program. It is sent here; the task only waits.
         let submit = cx
             .host()
@@ -105,21 +104,16 @@ impl Agents {
         // Hands the answer, the value or the refusal, to the closure.
         self.creating = Some(cx.land(submit, |view, answer, cx| {
             view.creating = None;
-            match answer {
+            // Why a write did not land, in the words every view uses:
+            // refused, not sent, or sent with no answer back.
+            match design::failure(&answer) {
                 // The node took it and predicts it applies: a read from
                 // now on sees the agent.
-                Ok(Submitted::Applied { .. }) => {
+                None => {
                     view.name.reset("");
                     view.reread(cx);
                 }
-                // The program refuses it (predicted, or the ask itself).
-                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
-                    view.refused = Some(refusal.message)
-                }
-                // Sent, and no answer came back: it may have gone through.
-                Ok(Submitted::InDoubt { .. }) => {
-                    view.refused = Some("No answer came back: it may have gone through.".into())
-                }
+                Some(said) => view.failed = Some(said),
             }
             cx.notify();
         }));
@@ -199,7 +193,7 @@ impl Render for Agents {
             // `agents-refused` and `agents-retry`.
             Loadable::Failed(refusal) => {
                 let retry = cx.listener(|view: &mut Agents, _: &ClickEvent, _, cx| view.reread(cx));
-                design::refused("agents", refusal.message.clone(), ladder, &theme, retry)
+                design::refused("agents", design::sentence(refusal), ladder, &theme, retry)
                     .into_any_element()
             }
             Loadable::Ready(agents) | Loadable::Reloading(agents, _) if agents.is_empty() => {
@@ -247,9 +241,9 @@ impl Render for Agents {
                     .child(name)
                     .child(create),
             )
-            // A refused create, under the field, in the program's words.
+            // Why the create did not land, under the field.
             .children(
-                self.refused
+                self.failed
                     .clone()
                     .map(|why| div().text_color(theme.danger).child(why)),
             )
@@ -341,7 +335,7 @@ mod tests {
         cx.simulate_submit("name");
         cx.run_until_parked();
         assert!(
-            cx.has_text("Only a user manages agents."),
+            cx.has_text("That didn’t go through: Only a user manages agents."),
             "{:?}",
             cx.texts()
         );

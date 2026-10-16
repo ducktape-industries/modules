@@ -195,7 +195,8 @@ pub enum Note {
     Copied(String),
     /// an op the node took, in words
     Sent(String),
-    /// a refusal, in the host's words
+    /// a read refused (`design::sentence`), or a write that did not land
+    /// (`design::failure`)
     Refused(String),
 }
 
@@ -204,7 +205,8 @@ pub struct Explorer {
     /// The view's one route model in both designs (Expo's `Stack`): the
     /// tab's list at the root, each page opened from it pushed over it, a
     /// block's steps replacing the top. The phone draws the top alone, Back
-    /// popping one; the desktop draws the top under its tab bar.
+    /// popping one; the desktop, with no Back, draws the top under its tab
+    /// bar and keeps no page between it and the root (`go`).
     pub(crate) pages: Pages<Route>,
     /// the search field, as typed
     pub(crate) search: TextField,
@@ -249,6 +251,10 @@ pub struct Explorer {
     /// the pane's width, read from the window each render
     #[serde(skip)]
     pub(crate) width: f32,
+    /// the device's pointer is a finger, read from the window each render:
+    /// the phone's pages stack under Back, the desktop's do not
+    #[serde(skip)]
+    pub(crate) touch: bool,
     /// the list the arrows are in, and the row they are on
     #[serde(skip)]
     pub(crate) cursor: Option<(&'static str, usize)>,
@@ -287,8 +293,8 @@ pub(crate) enum Sheet {
 /// read (`blob.manifest`).
 pub(crate) enum Declared<'a> {
     Reading,
-    /// the node refused the read, in its words
-    Refused(&'a str),
+    /// the node refused the read
+    Refused(&'a Error),
     /// no capability to list, and why
     Nothing(Unlisted),
     /// what its view asks of the host
@@ -332,7 +338,7 @@ impl Explorer {
     pub(crate) fn declared(&self, listed: bool) -> Declared<'_> {
         let blob = match &self.manifest {
             Loadable::Idle | Loadable::Loading(_) => return Declared::Reading,
-            Loadable::Failed(refusal) => return Declared::Refused(&refusal.message),
+            Loadable::Failed(refusal) => return Declared::Refused(refusal),
             Loadable::Ready(blob) | Loadable::Reloading(blob, _) => blob,
         };
         let manifest = match blob.as_ref().map(|blob| &blob.view) {

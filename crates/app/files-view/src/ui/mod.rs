@@ -326,7 +326,7 @@ fn reading(id: &'static str, sentence: &'static str, k: &Kit) -> AnyElement {
 /// A refused read, and Retry.
 fn refused(name: &str, refusal: &Error, cx: Cx, k: &Kit) -> AnyElement {
     let retry = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.read_page(cx));
-    design::refused(name, refusal.message.clone(), &k.ladder, &k.theme, retry)
+    design::refused(name, design::sentence(refusal), &k.ladder, &k.theme, retry)
         .m_5()
         .into_any_element()
 }

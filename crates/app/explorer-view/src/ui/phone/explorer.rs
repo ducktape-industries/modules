@@ -147,9 +147,18 @@ fn searching(view: &Explorer, cx: Cx, k: &Look) -> Stateful<Div> {
 /// `#3` or a name; no capitals, no corrections, Return searches. Its edge
 /// is the field's own hairline, which the host draws 2 wide in the ink
 /// while it is focused, as Expo's `Field` does (`Field.tsx:38-39`); it
-/// opens focused.
+/// opens focused, and Return ends the edit, as Expo's field blurs on
+/// submit: the keyboard goes to the root under it. A search that opened a
+/// page took the field away with the root.
 fn field(view: &Explorer, cx: Cx, k: &Look) -> impl IntoElement {
-    let submit = cx.listener(|view: &mut Explorer, _: &(), _, cx| view.search(cx));
+    let submit = cx.listener(|view: &mut Explorer, _: &(), window, cx| {
+        view.search(cx);
+        // SDK gap: the wire has no blur; the keyboard goes to the root's
+        // container instead of nowhere, the SDK builds a blur later
+        if view.searching {
+            window.focus("explorer-root");
+        }
+    });
     let input = Input::new("explorer-search", &view.search, words::SEARCH)
         .autocorrect(false)
         .autocapitalize(Autocapitalize::None)

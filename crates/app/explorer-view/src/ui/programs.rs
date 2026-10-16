@@ -15,7 +15,7 @@ use view::design::Ladder;
 pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let network = match &view.network {
         Loadable::Ready(network) | Loadable::Reloading(network, _) => network,
-        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme, ladder),
+        Loadable::Failed(refusal) => return failed(&design::sentence(refusal), cx, theme, ladder),
         Loadable::Idle | Loadable::Loading(_) => {
             return quiet("explorer-programs-loading", words::READING_ROLE, theme);
         }
@@ -237,7 +237,7 @@ pub(super) fn program(
 ) -> AnyElement {
     let network = match &view.network {
         Loadable::Ready(network) | Loadable::Reloading(network, _) => network,
-        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme, ladder),
+        Loadable::Failed(refusal) => return failed(&design::sentence(refusal), cx, theme, ladder),
         Loadable::Idle | Loadable::Loading(_) => {
             return quiet("explorer-program-loading", words::READING_ROLE, theme);
         }
@@ -437,7 +437,9 @@ fn capabilities(
                 theme,
             )];
         }
-        Declared::Refused(sentence) => return vec![failed(sentence, cx, theme, ladder)],
+        Declared::Refused(refusal) => {
+            return vec![failed(&design::sentence(refusal), cx, theme, ladder)];
+        }
         Declared::Nothing(why) => {
             let id = match why {
                 Unlisted::NoCode => "explorer-no-code",

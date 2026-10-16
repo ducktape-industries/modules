@@ -109,7 +109,7 @@ pub enum NoHome<'a> {
     SignedOut,
     Asking,
     Unnamed,
-    Refused(&'a str),
+    Refused(&'a Error),
 }
 
 impl Reader {
@@ -123,7 +123,7 @@ impl Reader {
                 Ok(format!("/home/{name}"))
             }
             Loadable::Ready(None) | Loadable::Reloading(None, _) => Err(NoHome::Unnamed),
-            Loadable::Failed(refusal) => Err(NoHome::Refused(&refusal.message)),
+            Loadable::Failed(refusal) => Err(NoHome::Refused(refusal)),
             Loadable::Idle | Loadable::Loading(_) => Err(NoHome::Asking),
         }
     }
@@ -301,7 +301,8 @@ impl Names {
 pub enum Note {
     /// the commit landed: its message
     Committed(String),
-    /// a write that did not land, in the host's or the program's words
+    /// a write that did not land, in every view's words
+    /// (`design::failure`)
     Refused(String),
 }
 

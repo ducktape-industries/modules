@@ -61,7 +61,7 @@ impl View for Forge {
         cx.follow::<HostSession>((), |forge, item, cx| match item {
             Ok(session) => forge.session_changed(session, cx),
             Err(refusal) => {
-                forge.notice = format!("Couldn’t read the session: {}", refusal.message);
+                forge.notice = format!("Couldn’t read the session: {}", design::sentence(&refusal));
                 cx.notify();
             }
         })
@@ -71,7 +71,7 @@ impl View for Forge {
         cx.follow::<HostRoute>((), |forge, route, cx| match route {
             Ok(route) => forge.open_route(&route, cx),
             Err(refusal) => {
-                forge.notice = format!("Couldn’t follow the link: {}", refusal.message);
+                forge.notice = format!("Couldn’t follow the link: {}", design::sentence(&refusal));
                 cx.notify();
             }
         })

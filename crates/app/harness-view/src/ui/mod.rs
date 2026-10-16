@@ -65,7 +65,7 @@ pub(crate) fn waiting<T>(
         Loadable::Failed(refusal) => {
             let retry = cx.listener(|view: &mut Agents, _: &ClickEvent, _, cx| view.refresh(cx));
             Some(
-                design::refused(name, refusal.message.clone(), ladder, theme, retry)
+                design::refused(name, design::sentence(refusal), ladder, theme, retry)
                     .into_any_element(),
             )
         }

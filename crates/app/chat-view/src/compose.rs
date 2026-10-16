@@ -4,14 +4,6 @@ use crate::composer::{Draft, Event, MentionChoice, Outcome, Send, Target, pendin
 use crate::names::mention_token;
 use crate::{Chat, Mode, words};
 use chat::MsgRow;
-use view::methods::Submitted;
-
-/// What a send came to: the message's own answer, or the answer that
-/// kept the direct message from opening first (the message never left).
-enum Sent {
-    Message(Submitted),
-    NotOpened(Submitted),
-}
 use view::prelude::*;
 
 impl Chat {
@@ -114,16 +106,21 @@ impl Chat {
             if let Some(row) = held.clone() {
                 let _ = this.update(cx, |chat, cx| chat.hold(&target, row, cx));
             }
-            let result = async {
-                let op = minted?;
+            // why the message did not land, in every view's words; none
+            // when it did
+            let failed = async {
+                let op = match minted {
+                    Ok(op) => op,
+                    Err(refusal) => return design::failure(&Err(refusal)),
+                };
                 if let Some(open) = open_dm {
-                    match host.ask::<Submit<::chat::Chat>>(open).await? {
-                        Submitted::Applied { .. } => {}
-                        // the DM did not open: the message was never sent
-                        not_applied => return Ok(Sent::NotOpened(not_applied)),
+                    let opened = host.ask::<Submit<::chat::Chat>>(open).await;
+                    // the DM did not open: the message was never sent
+                    if let Some(said) = design::failure(&opened) {
+                        return Some(format!("{} · {said}", words::OPENING_DM));
                     }
                 }
-                host.ask::<Submit<::chat::Chat>>(op).await.map(Sent::Message)
+                design::failure(&host.ask::<Submit<::chat::Chat>>(op).await)
             }
             .await;
             let _ = this.update(cx, |chat, cx| {
@@ -132,8 +129,8 @@ impl Chat {
                 // send still needs a draft to wait in
                 let draft = chat.drafts.entry(key).or_default();
                 draft.complete_send(&send);
-                match result {
-                    Ok(Sent::Message(Submitted::Applied { .. })) => {
+                match failed {
+                    None => {
                         draft.note.clear();
                         if let Target::Edit { seq, .. } = target
                             && chat
@@ -145,31 +142,10 @@ impl Chat {
                         }
                         chat.refresh(cx);
                     }
-                    Ok(
-                        Sent::Message(Submitted::Refused { refusal, .. })
-                        | Sent::NotOpened(Submitted::Refused { refusal, .. }),
-                    )
-                    | Err(refusal) => {
-                        draft.note = refusal.message;
-                        draft.failed(send);
-                        if let Some(row) = held {
-                            chat.unhold(&row.message_id);
-                        }
-                    }
-                    // until `Writes` settles it by the chain, a doubt holds
-                    // the draft like a refusal the person may resend
-                    Ok(Sent::Message(Submitted::InDoubt { .. })) => {
-                        draft.note = "No answer came back: it may have gone through.".into();
-                        draft.failed(send);
-                        if let Some(row) = held {
-                            chat.unhold(&row.message_id);
-                        }
-                    }
-                    Ok(Sent::NotOpened(Submitted::InDoubt { .. }))
-                    | Ok(Sent::NotOpened(Submitted::Applied { .. })) => {
-                        draft.note =
-                            "No answer came back opening the conversation: the message was not sent."
-                                .into();
+                    // a refusal, and a doubt alike, hold the draft for the
+                    // person to send again
+                    Some(said) => {
+                        draft.note = said;
                         draft.failed(send);
                         if let Some(row) = held {
                             chat.unhold(&row.message_id);

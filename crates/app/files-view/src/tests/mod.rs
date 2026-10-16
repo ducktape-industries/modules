@@ -19,6 +19,10 @@ pub(crate) const NOTES: &str = "hello\nfrom dev";
 /// Bytes that are not UTF-8.
 pub(crate) const NOT_TEXT: [u8; 4] = [0xff, 0xfe, 0x00, 0x01];
 
+/// When the seed's first block lands (unix ms), each next one a minute
+/// on: pinned, so a byline drawn to the second is the same on every run.
+pub(crate) const T0: u64 = 1_790_000_000_000;
+
 pub(crate) fn put(path: &str, bytes: &[u8]) -> Change {
     Change::Put {
         path: path.into(),
@@ -62,6 +66,7 @@ pub(crate) fn seeded() -> Network {
     net.seat::<files::Files>(files::PROGRAM);
     let dev = net.me();
     let ada = net.person("ada");
+    net.at(T0);
     let first = commit(
         &net,
         dev,
@@ -71,6 +76,7 @@ pub(crate) fn seeded() -> Network {
             put("/home/dev/docs/plan.md", b"# Plan"),
         ],
     );
+    net.at(T0 + 60_000);
     commit(
         &net,
         ada,
@@ -85,12 +91,14 @@ pub(crate) fn seeded() -> Network {
             },
         ],
     );
+    net.at(T0 + 120_000);
     commit(
         &net,
         dev,
         "Say more",
         vec![put("/home/dev/notes.txt", NOTES.as_bytes())],
     );
+    net.at(T0 + 180_000);
     let pin = Op::Pin {
         name: "v1".into(),
         snapshot: first,

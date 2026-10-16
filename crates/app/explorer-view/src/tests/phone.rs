@@ -223,10 +223,14 @@ fn a_search_that_finds_nothing_says_so_under_the_field() {
     let mut cx = on_phone();
     click(&mut cx, "explorer-search-open");
     cx.simulate_input("explorer-search", "nothing-here");
+    let focused = |cx: &TestAppContext| cx.focused().and_then(|node| node.key()).map(str::to_owned);
+    assert_eq!(focused(&cx).as_deref(), Some("explorer-search"));
     cx.simulate_submit("explorer-search");
     cx.run_until_parked();
     shows(&cx, "Nothing here is called “nothing-here”.");
     assert!(cx.find("explorer-search").is_some(), "the field stays open");
+    // Return ended the edit, as Expo's field blurs: the keyboard left it
+    assert_eq!(focused(&cx).as_deref(), Some("explorer-root"));
 }
 
 #[test]

@@ -125,7 +125,7 @@ fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
                 cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.retry_status(cx));
             return design::refused(
                 "nodes-status",
-                refusal.message.clone(),
+                design::sentence(refusal),
                 ladder,
                 theme,
                 retry,
@@ -227,7 +227,7 @@ fn body(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -
             .into_any_element(),
         Loadable::Failed(refusal) => {
             let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.read(cx));
-            design::refused("nodes", refusal.message.clone(), ladder, theme, retry)
+            design::refused("nodes", design::sentence(refusal), ladder, theme, retry)
                 .into_any_element()
         }
         Loadable::Ready(nodes) | Loadable::Reloading(nodes, _) if nodes.is_empty() => {
