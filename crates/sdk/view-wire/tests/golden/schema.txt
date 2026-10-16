@@ -1,7 +1,7 @@
 # methods: kind, target, request -> reply; borsh unless named
 blob.get None String -> Option<Vec<u8>>
 blob.manifest None String -> Option<Manifested>
-camera.devices None () -> Vec<Device>
+camera.devices None () -> Vec<CameraDevice>
 chain.block None BlockAsk -> Option<Block>
 chain.blocks None BlockPage -> BlockList
 chain.heads None () -> Head
@@ -43,7 +43,13 @@ store.set None (String, Option<Vec<u8>>) -> ()
 () = Primitive(0)
 (String, Option<Vec<u8>>) = Tuple { elements: ["String", "Option<Vec<u8>>"] }
 (String, Vec<u8>) = Tuple { elements: ["String", "Vec<u8>"] }
-AudioDevices = Struct { fields: NamedFields([("inputs", "Vec<Device>"), ("outputs", "Vec<Device>")]) }
+AudioDevice = Struct { fields: NamedFields([("id", "String"), ("name", "String"), ("default", "bool"), ("kind", "AudioKind")]) }
+AudioDevices = Struct { fields: NamedFields([("inputs", "Vec<AudioDevice>"), ("outputs", "Vec<AudioDevice>")]) }
+AudioKind = Enum { tag_width: 1, variants: [(0, "Speaker", "AudioKind__Speaker"), (1, "Receiver", "AudioKind__Receiver"), (2, "Headphones", "AudioKind__Headphones"), (3, "Other", "AudioKind__Other")] }
+AudioKind__Headphones = Struct { fields: Empty }
+AudioKind__Other = Struct { fields: Empty }
+AudioKind__Receiver = Struct { fields: Empty }
+AudioKind__Speaker = Struct { fields: Empty }
 Block = Struct { fields: NamedFields([("height", "u64"), ("id", "[u8; 32]"), ("parent", "[u8; 32]"), ("time", "u64"), ("epoch", "u64"), ("proposer", "Option<Vec<u8>>"), ("txs", "Vec<Tx>")]) }
 BlockAsk = Struct { fields: NamedFields([("by", "BlockRef"), ("most", "u32")]) }
 BlockList = Struct { fields: NamedFields([("blocks", "Vec<Block>"), ("listed_from", "Option<u64>")]) }
@@ -51,6 +57,7 @@ BlockPage = Struct { fields: NamedFields([("before", "Option<u64>"), ("limit", "
 BlockRef = Enum { tag_width: 1, variants: [(0, "Height", "BlockRef__Height"), (1, "Id", "BlockRef__Id")] }
 BlockRef__Height = Struct { fields: UnnamedFields(["u64"]) }
 BlockRef__Id = Struct { fields: UnnamedFields(["[u8; 32]"]) }
+CameraDevice = Struct { fields: NamedFields([("id", "String"), ("name", "String"), ("default", "bool"), ("facing", "Facing")]) }
 Capability = Enum { tag_width: 1, variants: [(0, "Chain", "Capability__Chain"), (1, "Program", "Capability__Program"), (2, "Op", "Capability__Op"), (3, "Invite", "Capability__Invite"), (4, "Link", "Capability__Link"), (5, "Blob", "Capability__Blob"), (6, "Host", "Capability__Host"), (7, "Clock", "Capability__Clock"), (8, "Clipboard", "Capability__Clipboard"), (9, "Notify", "Capability__Notify"), (10, "Store", "Capability__Store"), (11, "Web", "Capability__Web"), (12, "Live", "Capability__Live"), (13, "Camera", "Capability__Camera"), (14, "Microphone", "Capability__Microphone")] }
 Capability__Blob = Struct { fields: Empty }
 Capability__Camera = Struct { fields: Empty }
@@ -76,8 +83,11 @@ Delivery__Banner = Struct { fields: Empty }
 Delivery__Blocked = Struct { fields: Empty }
 Delivery__Logged = Struct { fields: Empty }
 Description = Struct { fields: NamedFields([("title", "String"), ("fields", "Vec<Field>")]) }
-Device = Struct { fields: NamedFields([("id", "String"), ("name", "String"), ("default", "bool")]) }
 Error = Struct { fields: NamedFields([("code", "String"), ("message", "String")]) }
+Facing = Enum { tag_width: 1, variants: [(0, "Front", "Facing__Front"), (1, "Back", "Facing__Back"), (2, "External", "Facing__External")] }
+Facing__Back = Struct { fields: Empty }
+Facing__External = Struct { fields: Empty }
+Facing__Front = Struct { fields: Empty }
 Field = Struct { fields: NamedFields([("label", "String"), ("value", "Value")]) }
 Float = Struct { fields: NamedFields([("width", "u32"), ("height", "u32"), ("min_width", "u32"), ("min_height", "u32"), ("on_top", "bool")]) }
 Head = Struct { fields: NamedFields([("height", "u64"), ("time", "u64"), ("id", "[u8; 32]")]) }
@@ -150,9 +160,10 @@ Value__List = Struct { fields: UnnamedFields(["Vec<Value>"]) }
 Value__Program = Struct { fields: UnnamedFields(["String"]) }
 Value__Text = Struct { fields: UnnamedFields(["String"]) }
 Value__Time = Struct { fields: UnnamedFields(["u64"]) }
+Vec<AudioDevice> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "AudioDevice" }
 Vec<Block> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Block" }
+Vec<CameraDevice> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "CameraDevice" }
 Vec<Capability> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Capability" }
-Vec<Device> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Device" }
 Vec<Error> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Error" }
 Vec<Field> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Field" }
 Vec<Peer> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Peer" }

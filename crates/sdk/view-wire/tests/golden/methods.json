@@ -1118,7 +1118,20 @@
       {
         "id": "0",
         "name": "FaceTime HD Camera",
-        "default": true
+        "default": true,
+        "facing": "Front"
+      },
+      {
+        "id": "1",
+        "name": "Back Camera",
+        "default": false,
+        "facing": "Back"
+      },
+      {
+        "id": "2",
+        "name": "USB Camera",
+        "default": false,
+        "facing": "External"
       }
     ]
   },
@@ -1130,14 +1143,34 @@
         {
           "id": "Built-in Microphone",
           "name": "Built-in Microphone",
-          "default": true
+          "default": true,
+          "kind": "Other"
+        },
+        {
+          "id": "AirPods",
+          "name": "AirPods",
+          "default": false,
+          "kind": "Headphones"
         }
       ],
       "outputs": [
         {
+          "id": "Speaker",
+          "name": "Speaker",
+          "default": true,
+          "kind": "Speaker"
+        },
+        {
+          "id": "Receiver",
+          "name": "iPhone",
+          "default": false,
+          "kind": "Receiver"
+        },
+        {
           "id": "Headphones",
           "name": "Headphones",
-          "default": false
+          "default": false,
+          "kind": "Headphones"
         }
       ]
     }

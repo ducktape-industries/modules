@@ -556,19 +556,65 @@ pub enum Delivery {
     Blocked,
 }
 
-/// One camera, microphone or speaker, as `camera.devices` and
-/// `microphone.devices` list them: `id` is what a piece's `device` (or a
-/// microphone piece's `output`) names it by, `name` what a picker shows,
-/// `default` whether the system picks it when a piece names none. An id
-/// is the host's, good while the device stays plugged in.
-#[derive(
-    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
-)]
+/// One camera, as `camera.devices` lists it: `id` is what a camera
+/// piece's `device` names it by, `name` what a picker shows, `default`
+/// whether the system picks it when a piece names none, `facing` which way
+/// it looks. An id is the host's, good while the camera stays plugged in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
-pub struct Device {
+pub struct CameraDevice {
     pub id: String,
     pub name: String,
     pub default: bool,
+    pub facing: Facing,
+}
+/// Which way a camera looks, as the system says.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum Facing {
+    /// At the person in front of the screen: a laptop's built-in camera, a
+    /// phone's selfie camera.
+    Front,
+    /// Away from the person: a phone's or tablet's main camera.
+    Back,
+    /// Not part of the machine: a USB or network camera, which looks
+    /// wherever it is put. Also a camera the system says nothing of.
+    External,
+}
+/// One microphone or speaker, as `microphone.devices` lists it: `id` is
+/// what a microphone piece's `device` (an input) or `output` (an output)
+/// names it by, `name` what a picker shows, `default` whether the system
+/// picks it when a piece names none, `kind` what it is. An id is the
+/// host's, good while the device stays plugged in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct AudioDevice {
+    pub id: String,
+    pub name: String,
+    pub default: bool,
+    pub kind: AudioKind,
+}
+/// What an audio device is, as the system says: where an output plays, or
+/// which set an input belongs to. A microphone piece's `monitor` howls
+/// through a `Speaker`, and not through `Headphones`.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum AudioKind {
+    /// A loudspeaker: the computer's own, a phone's at its foot, a set of
+    /// speakers plugged in. The microphone hears what it plays.
+    Speaker,
+    /// A phone's earpiece, held to the ear.
+    Receiver,
+    /// Headphones or a headset, wired or Bluetooth; for an input, the
+    /// headset's microphone.
+    Headphones,
+    /// Anything else, or a device the system says nothing of: a line in or
+    /// out, a built-in or USB microphone.
+    Other,
 }
 /// `microphone.devices`: the microphones (`inputs`) and the speakers
 /// (`outputs`) the host can open.
@@ -577,8 +623,8 @@ pub struct Device {
 )]
 #[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct AudioDevices {
-    pub inputs: Vec<Device>,
-    pub outputs: Vec<Device>,
+    pub inputs: Vec<AudioDevice>,
+    pub outputs: Vec<AudioDevice>,
 }
 
 // ---------- live: tracks through the connected node, off consensus ----------
@@ -909,7 +955,7 @@ methods! {
     /// `camera.devices`: the cameras the host can open, as listed now
     /// (ask again after a piece reports one `Gone`). Refused
     /// [`refusal::MEDIA_UNSUPPORTED`] by a host that captures nothing.
-    CameraDevices, "camera.devices", (), Vec<Device>;
+    CameraDevices, "camera.devices", (), Vec<CameraDevice>;
     /// `microphone.devices`: the microphones and speakers the host can
     /// open, as listed now. Refused [`refusal::MEDIA_UNSUPPORTED`] by a
     /// host that captures nothing.

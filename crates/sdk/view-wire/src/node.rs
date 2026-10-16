@@ -356,8 +356,9 @@ pub enum Node {
     /// it. `output` is the speaker (an output `microphone.devices` listed;
     /// `None`: the default) a recording plays on and the monitor loops to.
     /// `monitor` plays what the microphone hears straight back while set:
-    /// through speakers it feeds back, so a view sets it only on the
-    /// person's explicit choice and says to wear headphones. `commands`
+    /// through a speaker ([`crate::methods::AudioKind::Speaker`]) it howls,
+    /// so a view sets it only on the person's explicit choice, with
+    /// headphones on. `commands`
     /// apply in order, once, when `revision` moves (a [`Node::List`]'s
     /// pattern): [`crate::MicCommand::Record`] records, then plays back.
     /// `on_state` hears the microphone and the recording as

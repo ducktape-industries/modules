@@ -483,25 +483,64 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
         exchange::<HostTitle>("general".into(), ()),
         exchange::<CameraDevices>(
             (),
-            vec![Device {
-                id: "0".into(),
-                name: "FaceTime HD Camera".into(),
-                default: true,
-            }],
+            vec![
+                CameraDevice {
+                    id: "0".into(),
+                    name: "FaceTime HD Camera".into(),
+                    default: true,
+                    facing: Facing::Front,
+                },
+                CameraDevice {
+                    id: "1".into(),
+                    name: "Back Camera".into(),
+                    default: false,
+                    facing: Facing::Back,
+                },
+                CameraDevice {
+                    id: "2".into(),
+                    name: "USB Camera".into(),
+                    default: false,
+                    facing: Facing::External,
+                },
+            ],
         ),
         exchange::<MicrophoneDevices>(
             (),
             AudioDevices {
-                inputs: vec![Device {
-                    id: "Built-in Microphone".into(),
-                    name: "Built-in Microphone".into(),
-                    default: true,
-                }],
-                outputs: vec![Device {
-                    id: "Headphones".into(),
-                    name: "Headphones".into(),
-                    default: false,
-                }],
+                inputs: vec![
+                    AudioDevice {
+                        id: "Built-in Microphone".into(),
+                        name: "Built-in Microphone".into(),
+                        default: true,
+                        kind: AudioKind::Other,
+                    },
+                    AudioDevice {
+                        id: "AirPods".into(),
+                        name: "AirPods".into(),
+                        default: false,
+                        kind: AudioKind::Headphones,
+                    },
+                ],
+                outputs: vec![
+                    AudioDevice {
+                        id: "Speaker".into(),
+                        name: "Speaker".into(),
+                        default: true,
+                        kind: AudioKind::Speaker,
+                    },
+                    AudioDevice {
+                        id: "Receiver".into(),
+                        name: "iPhone".into(),
+                        default: false,
+                        kind: AudioKind::Receiver,
+                    },
+                    AudioDevice {
+                        id: "Headphones".into(),
+                        name: "Headphones".into(),
+                        default: false,
+                        kind: AudioKind::Headphones,
+                    },
+                ],
             },
         ),
         exchange::<MicrophoneChime>(Some("Headphones".into()), ()),
