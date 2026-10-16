@@ -1,14 +1,16 @@
-//! The create form: a new agent is three ops in order, identity's `CreateAgent`, identity's
-//! `SetScript` with a script that calls harness, then harness's `Hire`, and identity's `SetAudience` when it
-//! answers more than its manager. The app asks the person to confirm each identity op;
-//! `Hire` gets no card from the app, so this form asks once before it sends it. A step
-//! that is refused keeps the steps before it, so pressing on resumes where it stopped.
-//! Hiring again is the same form at its third step.
+//! The create form: a new agent is identity's `CreateAgent`, a `files` commit of its
+//! configuration file, identity's `SetScript` with a script that calls harness and names that
+//! file, then identity's `SetAudience` when it answers more than its manager. A step that is
+//! refused keeps the steps before it, so pressing on resumes where it stopped. Editing an agent
+//! is the same form at its commit: a new version of its file, and a new script when its path
+//! moves.
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use view::methods::Submitted;
 use view::prelude::*;
 
-use harness::AgentRow;
+use harness::{AgentSetup, BlobId, Config, Configured};
 use identity::{Audience, Identity, Script};
 
 use crate::{Agents, Screen, applied};
@@ -16,29 +18,25 @@ use crate::{Agents, Screen, applied};
 #[derive(Default, Serialize, Deserialize)]
 pub(crate) struct Draft {
     pub name: TextField,
-    pub system: TextField,
-    pub model: TextField,
+    pub path: TextField,
+    pub model: Option<String>,
     pub max_tokens: TextField,
-    pub service: Option<String>,
+    pub wait: TextField,
+    pub system: TextField,
     pub answers: Answers,
-    /// the account numbers `Answers::Accounts` names
     pub accounts: TextField,
-    /// the account `CreateAgent` made
     pub created: Option<u64>,
-    /// `SetScript` handed it to harness: its script calls harness
-    pub handed: bool,
-    pub hired: bool,
+    pub committed: bool,
+    pub scripted: bool,
     pub answered: bool,
-    /// it is hired already: the form hires it again
     pub again: bool,
-    /// the hire is shown for the person's yes
-    pub confirming: bool,
+    pub base: Option<[u8; 32]>,
+    pub script_path: Option<String>,
     pub problem: Option<String>,
     #[serde(skip)]
     pub sending: Option<Task<()>>,
 }
 
-/// Who the agent answers besides its manager.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum Answers {
     #[default]
@@ -47,40 +45,60 @@ pub(crate) enum Answers {
     Accounts,
 }
 
-/// What a hire sends, read off the form.
-pub(crate) struct Hire {
-    pub system: String,
-    pub model: String,
-    pub service: String,
-    pub max_tokens: u32,
+pub(crate) struct Form {
+    pub path: String,
+    pub config: Config,
     pub audience: Audience,
 }
 
-/// The op the form sends next.
 enum Next {
     Create(String),
-    Hand(u64),
-    Confirm,
+    Commit(u64),
+    Script(u64),
     Answer(u64, Audience),
     Done(u64),
 }
 
+pub(crate) fn proposed_path(name: &str) -> String {
+    let slug: String = name
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| match c.is_alphanumeric() || c == '-' || c == '_' {
+            true => c,
+            false => '-',
+        })
+        .collect();
+    format!("/shared/agents/{slug}.md")
+}
+
 impl Draft {
-    /// The form, or what is wrong with it, in the words shown under it.
-    pub fn checked(&self) -> Result<Hire, String> {
+    pub fn path(&self) -> String {
+        let typed = self.path.text().trim().to_owned();
+        match typed.is_empty() {
+            true => proposed_path(&self.name.text()),
+            false => typed,
+        }
+    }
+
+    pub fn checked(&self) -> Result<Form, String> {
         if self.name.text().trim().is_empty() {
             return Err("Name the agent.".into());
         }
-        let model = self.model.text().trim().to_owned();
-        if model.is_empty() {
-            return Err("Write the model id.".into());
-        }
+        let Some(model) = self.model.clone() else {
+            return Err("Pick the model it asks.".into());
+        };
         let max_tokens = match self.max_tokens.text().trim().parse::<u32>() {
             Ok(max) if max > 0 => max,
             _ => return Err("Max output tokens is a whole number, at least 1.".into()),
         };
-        let Some(service) = self.service.clone() else {
-            return Err("Pick the service that reaches the model.".into());
+        let wait = self.wait.text().trim().to_owned();
+        let wait = match wait.is_empty() {
+            true => None,
+            false => match wait.parse::<u64>() {
+                Ok(blocks) if blocks > 0 => Some(blocks),
+                _ => return Err("Wait is a whole number of blocks, at least 1, or empty.".into()),
+            },
         };
         let audience = match self.answers {
             Answers::Manager => Audience::Manager,
@@ -99,27 +117,47 @@ impl Draft {
                 }
             }
         };
-        Ok(Hire {
-            system: self.system.text(),
-            model,
-            service,
-            max_tokens,
+        Ok(Form {
+            path: self.path(),
+            config: Config {
+                model,
+                max_tokens,
+                wait,
+                system: self.system.text().trim().to_owned(),
+            },
             audience,
         })
     }
 
-    fn next(&self, audience: Audience) -> Next {
-        match (self.created, self.handed, self.hired) {
-            (None, _, _) => Next::Create(self.name.text().trim().to_owned()),
-            (Some(agent), false, _) => Next::Hand(agent),
-            (Some(_), true, false) => Next::Confirm,
-            (Some(agent), true, true)
-                if !self.again && !self.answered && audience != Audience::Manager =>
-            {
-                Next::Answer(agent, audience)
-            }
-            (Some(agent), true, true) => Next::Done(agent),
+    fn next(&self, form: &Form) -> Next {
+        let Some(agent) = self.created else {
+            return Next::Create(self.name.text().trim().to_owned());
+        };
+        if !self.committed {
+            return Next::Commit(agent);
         }
+        let moved = self.script_path.as_deref() != Some(form.path.as_str());
+        if moved && !self.scripted {
+            return Next::Script(agent);
+        }
+        let answers_more = !self.again && !self.answered && form.audience != Audience::Manager;
+        if answers_more {
+            return Next::Answer(agent, form.audience.clone());
+        }
+        Next::Done(agent)
+    }
+}
+
+fn base_of(configured: &Configured) -> Option<[u8; 32]> {
+    let snapshot = match configured {
+        Configured::Unreadable { .. } => None,
+        Configured::Malformed { snapshot, .. }
+        | Configured::UnknownModel { snapshot, .. }
+        | Configured::Ready { snapshot, .. } => Some(*snapshot),
+    };
+    match snapshot {
+        Some(BlobId::Sha256(digest)) => Some(digest),
+        Some(BlobId::Sha1(_)) | None => None,
     }
 }
 
@@ -129,60 +167,60 @@ impl Agents {
         self.go(Screen::Create, cx);
     }
 
-    /// Picks up an agent that stopped before its hire.
     pub(crate) fn resume(&mut self, agent: u64, name: &str, cx: &mut Context<Self>) {
         self.draft = Draft {
             name: TextField::new(name),
             created: Some(agent),
-            handed: true,
             ..Draft::default()
         };
         self.go(Screen::Create, cx);
     }
 
-    /// The form over what `row` was hired with: a hire again changes what the next
-    /// thread opens with.
-    pub(crate) fn edit(&mut self, row: &AgentRow, cx: &mut Context<Self>) {
+    pub(crate) fn edit(&mut self, setup: &AgentSetup, name: &str, cx: &mut Context<Self>) {
+        let config = setup.configured.config().map(|(_, config)| config.clone());
+        let field = |text: Option<String>| TextField::new(text.unwrap_or_default());
         self.draft = Draft {
-            name: TextField::new(row.name.clone()),
-            system: TextField::new(row.system.clone()),
-            model: TextField::new(row.model.clone()),
-            max_tokens: TextField::new(row.max_tokens.to_string()),
-            service: Some(row.service.clone()),
-            created: Some(row.agent),
-            handed: true,
+            name: TextField::new(name),
+            path: TextField::new(setup.path.clone()),
+            model: config.as_ref().map(|config| config.model.clone()),
+            max_tokens: field(config.as_ref().map(|config| config.max_tokens.to_string())),
+            wait: field(
+                config
+                    .as_ref()
+                    .and_then(|config| config.wait)
+                    .map(|wait| wait.to_string()),
+            ),
+            system: field(config.as_ref().map(|config| config.system.clone())),
+            created: Some(setup.agent),
             again: true,
+            base: base_of(&setup.configured),
+            script_path: Some(setup.path.clone()),
             ..Draft::default()
         };
         self.go(Screen::Create, cx);
     }
 
-    /// Sends what is missing, in order, up to the hire's confirmation.
     pub(crate) fn advance(&mut self, cx: &mut Context<Self>) {
         if self.draft.sending.is_some() {
             return;
         }
-        let hire = match self.draft.checked() {
-            Ok(hire) => hire,
+        let form = match self.draft.checked() {
+            Ok(form) => form,
             Err(problem) => {
                 self.draft.problem = Some(problem);
                 return cx.notify();
             }
         };
         self.draft.problem = None;
-        match self.draft.next(hire.audience) {
+        match self.draft.next(&form) {
             Next::Create(name) => self.send(identity::Op::CreateAgent { name }, cx),
-            Next::Hand(account) => {
-                // harness reads nothing from the config
+            Next::Commit(agent) => self.commit(agent, form, cx),
+            Next::Script(account) => {
                 let script = Some(Script {
                     calls: harness::PROGRAM.to_owned(),
-                    config: String::new(),
+                    config: form.path,
                 });
                 self.send(identity::Op::SetScript { account, script }, cx)
-            }
-            Next::Confirm => {
-                self.draft.confirming = true;
-                cx.notify();
             }
             Next::Answer(account, audience) => {
                 self.send(identity::Op::SetAudience { account, audience }, cx)
@@ -214,7 +252,7 @@ impl Agents {
                     Ok(())
                 }
                 identity::Op::SetScript { .. } => {
-                    view.draft.handed = true;
+                    view.draft.scripted = true;
                     Ok(())
                 }
                 _ => {
@@ -222,47 +260,39 @@ impl Agents {
                     Ok(())
                 }
             });
-            match landed {
-                Ok(()) => view.advance(cx),
-                Err(problem) => {
-                    view.draft.problem = Some(problem);
-                    cx.notify();
-                }
-            }
+            view.landed(landed, cx);
         }));
         cx.notify();
     }
 
-    /// The person's yes to the hire the form shows.
-    pub(crate) fn hire(&mut self, cx: &mut Context<Self>) {
-        let (Some(agent), Ok(hire)) = (self.draft.created, self.draft.checked()) else {
-            return;
+    fn commit(&mut self, agent: u64, form: Form, cx: &mut Context<Self>) {
+        let name = self.draft.name.text();
+        let op = files::Op::Commit {
+            base: self.draft.base.map(BlobId::Sha256),
+            message: format!("Configure agent {name} (account {agent})"),
+            changes: vec![files::Change::Put {
+                path: form.path,
+                exec: false,
+                meta: BTreeMap::new(),
+                content: files::Content::Inline(form.config.write().into_bytes()),
+            }],
         };
-        if self.draft.sending.is_some() {
-            return;
-        }
-        let op = harness::Op::Hire {
-            agent,
-            system: hire.system,
-            model: hire.model,
-            service: hire.service,
-            max_tokens: hire.max_tokens,
-        };
-        let submit = cx.host().ask::<Submit<harness::Harness>>(op);
+        let submit = cx.host().ask::<Submit<files::Files>>(op);
         self.draft.sending = Some(cx.land(submit, |view, answer, cx| {
             view.draft.sending = None;
-            view.draft.confirming = false;
-            match applied(answer) {
-                Ok(_) => {
-                    view.draft.hired = true;
-                    view.advance(cx);
-                }
-                Err(problem) => {
-                    view.draft.problem = Some(problem);
-                    cx.notify();
-                }
-            }
+            let landed = applied(answer).map(|_| view.draft.committed = true);
+            view.landed(landed, cx);
         }));
         cx.notify();
+    }
+
+    fn landed(&mut self, landed: Result<(), String>, cx: &mut Context<Self>) {
+        match landed {
+            Ok(()) => self.advance(cx),
+            Err(problem) => {
+                self.draft.problem = Some(problem);
+                cx.notify();
+            }
+        }
     }
 }

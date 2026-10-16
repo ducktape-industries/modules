@@ -1,19 +1,28 @@
-//! The `harness` program: agents that consensus runs. A manager hires an agent whose script
-//! calls harness; a mention or a direct message reaches it through `attribution`, and the model is
-//! called through the egress role. Every tool call runs in a later block, as the agent.
+//! The `harness` program: agents that consensus runs. An agent is a program account whose
+//! script calls harness; its script's `config` is the path of its configuration in `files`
+//! (`config.rs`), which harness reads at each model call. A mention or a direct message about
+//! the agent reaches harness through `attribution`; the model is a record harness keeps
+//! (`SetModel`), reached through the egress role in the wire it speaks (`wire/`), which streams
+//! a turn's reply back one event at a time (`Streamed`, folded into a [`Partial`]). Every tool
+//! call runs in a later block, as the agent.
 mod agents;
-mod anthropic;
+pub mod config;
+mod models;
 mod program;
 mod queries;
 mod state;
+mod streams;
 #[cfg(test)]
 mod tests;
 mod tools;
 mod turns;
+mod wire;
 
 pub use ::program::{BlobId, Principal};
-pub use abi::role::identity::AccountNumber;
+pub use abi::role::egress::Event;
+pub use abi::role::identity::{AccountNumber, Standing};
 pub use attribution::Change;
+pub use config::{Config, Malformed};
 pub use program::Harness;
 pub use store::{PageRequest, PageResponse};
 
@@ -24,32 +33,130 @@ pub const PART: &str = "part";
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {
-    Hire {
-        agent: AccountNumber,
-        system: String,
-        model: String,
-        service: String,
-        max_tokens: u32,
-    },
-    Dismiss {
-        agent: AccountNumber,
-    },
     Close {
         thread: u64,
     },
     Attributed(Box<Change>),
+    SetModel {
+        id: String,
+        wire: Wire,
+        service: String,
+        name: String,
+    },
+    RemoveModel {
+        id: String,
+    },
+    Streamed {
+        thread: u64,
+        event: Event,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Wire {
+    AnthropicMessages,
+}
+
+impl Wire {
+    pub const ALL: &'static [Wire] = &[Wire::AnthropicMessages];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Wire::AnthropicMessages => "Anthropic Messages",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Window {
+    Unasked,
+    Unreported,
+    Tokens(u64),
+}
+
+impl Window {
+    pub fn tokens(self) -> Option<u64> {
+        match self {
+            Window::Tokens(tokens) => Some(tokens),
+            Window::Unasked | Window::Unreported => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct AgentRow {
+pub struct ModelRow {
+    pub id: String,
+    pub owner: AccountNumber,
+    pub wire: Wire,
+    pub service: String,
+    pub name: String,
+    pub window: Window,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct AgentSetup {
     pub agent: AccountNumber,
     pub manager: AccountNumber,
-    pub name: String,
-    pub system: String,
-    pub model: String,
-    pub service: String,
-    pub max_tokens: u32,
-    pub hired: u64,
+    pub standing: Standing,
+    pub path: String,
+    pub configured: Configured,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Configured {
+    Unreadable {
+        reason: String,
+    },
+    Malformed {
+        snapshot: BlobId,
+        malformed: Malformed,
+    },
+    UnknownModel {
+        snapshot: BlobId,
+        config: Config,
+    },
+    Ready {
+        snapshot: BlobId,
+        config: Config,
+        model: ModelRow,
+    },
+}
+
+impl Configured {
+    pub fn problem(&self, path: &str) -> Option<String> {
+        match self {
+            Configured::Unreadable { reason } => Some(format!(
+                "the agent's configuration {path} could not be read: {reason}"
+            )),
+            Configured::Malformed { malformed, .. } => Some(format!(
+                "the agent's configuration {path} is malformed: {malformed}"
+            )),
+            Configured::UnknownModel { config, .. } => Some(format!(
+                "the agent's configuration {path} names model {}, which harness has no record of",
+                config.model
+            )),
+            Configured::Ready { .. } => None,
+        }
+    }
+
+    pub fn config(&self) -> Option<(BlobId, &Config)> {
+        match self {
+            Configured::UnknownModel { snapshot, config }
+            | Configured::Ready {
+                snapshot, config, ..
+            } => Some((*snapshot, config)),
+            Configured::Unreadable { .. } | Configured::Malformed { .. } => None,
+        }
+    }
+
+    pub fn model(&self) -> Option<&ModelRow> {
+        match self {
+            Configured::Ready { model, .. } => Some(model),
+            Configured::Unreadable { .. }
+            | Configured::Malformed { .. }
+            | Configured::UnknownModel { .. } => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -68,6 +175,7 @@ pub enum Body {
     },
     Turn {
         model: String,
+        config: BlobId,
         said: Vec<Said>,
         stop: Stop,
         usage: Usage,
@@ -87,6 +195,7 @@ pub enum Body {
         text: String,
     },
     Compaction {
+        wire: Wire,
         block: String,
     },
 }
@@ -117,10 +226,7 @@ impl Body {
                 .filter_map(Said::text)
                 .collect::<Vec<_>>()
                 .join("\n"),
-            Body::Compaction { block } => serde_json::from_str::<serde_json::Value>(block)
-                .ok()
-                .and_then(|value| value["content"].as_str().map(str::to_owned))
-                .unwrap_or_else(|| block.clone()),
+            Body::Compaction { wire, block } => wire::summary_words(*wire, block),
         }
     }
 }
@@ -168,6 +274,49 @@ pub struct Usage {
     pub cache_write: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Partial {
+    pub wire: Wire,
+    pub model: String,
+    pub said: Vec<Said>,
+    pub forming: Forming,
+    pub stop: Option<Stop>,
+    pub usage: Usage,
+    pub next_seq: u64,
+    pub flow: Flow,
+}
+
+impl Partial {
+    pub fn new(wire: Wire) -> Partial {
+        Partial {
+            wire,
+            model: String::new(),
+            said: Vec::new(),
+            forming: Forming::Nothing,
+            stop: None,
+            usage: Usage::default(),
+            next_seq: 0,
+            flow: Flow::Open,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Forming {
+    Nothing,
+    Kept { index: u64 },
+    Skipped { index: u64 },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Flow {
+    Open,
+    Ended,
+    Overflowed,
+    Broken { reason: String },
+    Failed { text: String },
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Asking {
     Idle,
@@ -184,10 +333,6 @@ pub struct ThreadRow {
     pub manager: AccountNumber,
     pub place: String,
     pub title: String,
-    pub system: String,
-    pub model: String,
-    pub service: String,
-    pub max_tokens: u32,
     pub opened: u64,
     pub closed: bool,
     pub frames: u64,
@@ -197,8 +342,8 @@ pub struct ThreadRow {
     pub asking: Asking,
     pub open_calls: u32,
     pub held: u64,
-    pub header: BlobId,
     pub sealed: u64,
+    pub base: u64,
     pub tail_from: u64,
     pub summary: Option<u64>,
     pub context: Context,
@@ -211,6 +356,7 @@ pub struct ThreadRow {
 pub struct Sealed {
     pub end: u64,
     pub role: Role,
+    pub wire: Wire,
     pub part: BlobId,
 }
 
@@ -262,12 +408,8 @@ pub struct ToolInfo {
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
 #[ask(Harness)]
 pub enum Query {
-    #[ask(Reply::Agent(Option<AgentRow>))]
-    #[reads(state::AGENTS)]
+    #[ask(Reply::Agent(Option<AgentSetup>))]
     Agent { agent: AccountNumber },
-    #[ask(Reply::Agents(PageResponse<AgentRow>))]
-    #[reads(state::AGENTS)]
-    Agents { page: PageRequest },
     #[ask(Reply::Thread(Option<ThreadRow>))]
     #[reads(state::THREADS)]
     Thread { thread: u64 },
@@ -291,56 +433,74 @@ pub enum Query {
     #[ask(Reply::Thread(Option<ThreadRow>))]
     #[reads(state::PLACES, state::THREADS)]
     ThreadAt { agent: AccountNumber, place: String },
-    #[ask(Reply::Window(Option<Option<u64>>))]
-    #[reads(state::WINDOWS)]
-    Window { model: String },
+    #[ask(Reply::Model(Option<ModelRow>))]
+    #[reads(state::MODELS)]
+    Model { id: String },
+    #[ask(Reply::Models(PageResponse<ModelRow>))]
+    #[reads(state::MODELS)]
+    Models { page: PageRequest },
     #[ask(Reply::Withheld(Vec<WithheldFrame>))]
     #[reads(state::WITHHELD, state::FRAMES)]
     Withheld { thread: u64 },
+    #[ask(Reply::Partial(Option<Partial>))]
+    #[reads(state::PARTIALS)]
+    Partial { thread: u64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Reply {
-    Agent(Option<AgentRow>),
-    Agents(PageResponse<AgentRow>),
+    Agent(Option<AgentSetup>),
     Thread(Option<ThreadRow>),
     Threads(PageResponse<ThreadRow>),
     Frames(PageResponse<Frame>),
     Held(Vec<Body>),
     Calls(PageResponse<CallRow>),
     Tools(Vec<ToolInfo>),
-    Window(Option<Option<u64>>),
+    Model(Option<ModelRow>),
+    Models(PageResponse<ModelRow>),
     Withheld(Vec<WithheldFrame>),
+    Partial(Option<Partial>),
 }
 
 pub fn attributed_as() -> Vec<u8> {
-    vec![3]
+    vec![1]
+}
+
+pub fn streamed_as(thread: u64) -> Vec<u8> {
+    let mut deliver = vec![4];
+    deliver.extend(thread.to_le_bytes());
+    deliver
 }
 
 pub fn describe(op: &Op) -> describe::Description {
     use describe::{Value, field};
     let (title, fields) = match op {
-        Op::Hire {
-            agent,
-            model,
-            service,
-            ..
-        } => (
-            "Hire an agent".to_owned(),
-            vec![
-                field("agent", Value::Account(*agent)),
-                field("model", Value::text(model)),
-                field("service", Value::text(service)),
-            ],
-        ),
-        Op::Dismiss { agent } => (
-            "Dismiss an agent".to_owned(),
-            vec![field("agent", Value::Account(*agent))],
-        ),
         Op::Close { thread } => (format!("Close thread {thread}"), Vec::new()),
         Op::Attributed(change) => (
             format!("Account {} is related to an object", change.recipient),
             vec![field("change", Value::count(change.seq))],
+        ),
+        Op::SetModel {
+            id,
+            wire,
+            service,
+            name,
+        } => (
+            format!("Set model · {id}"),
+            vec![
+                field("model", Value::text(id)),
+                field("wire", Value::text(wire.label())),
+                field("service", Value::text(service)),
+                field("vendor's name", Value::text(name)),
+            ],
+        ),
+        Op::RemoveModel { id } => (
+            format!("Remove model · {id}"),
+            vec![field("model", Value::text(id))],
+        ),
+        Op::Streamed { thread, event } => (
+            format!("Event {} of thread {thread}'s model reply", event.seq),
+            vec![field("data", Value::count(event.data.len() as u64))],
         ),
     };
     describe::Description { title, fields }
@@ -352,7 +512,7 @@ describe::export!(Op, describe);
 fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
-        ["Hire", "Dismiss", "Close", "Attributed"]
+        ["Close", "Attributed", "SetModel", "RemoveModel", "Streamed"]
     );
 }
 
@@ -361,8 +521,8 @@ fn query_variants_only_append() {
     assert_eq!(
         describe::variants::<Query>(),
         [
-            "Agent", "Agents", "Thread", "Threads", "Frames", "Held", "Calls", "Tools", "ThreadAt",
-            "Window", "Withheld"
+            "Agent", "Thread", "Threads", "Frames", "Held", "Calls", "Tools", "ThreadAt", "Model",
+            "Models", "Withheld", "Partial"
         ]
     );
 }
@@ -391,5 +551,18 @@ fn the_delivery_prefix_decodes_as_attributed() {
     assert_eq!(
         abi::decode::<Op>(&delivered).unwrap(),
         Op::Attributed(Box::new(change))
+    );
+}
+
+#[test]
+fn the_stream_prefix_decodes_as_streamed() {
+    let event = Event {
+        id: 3,
+        seq: 2,
+        data: b"data: {}".to_vec(),
+    };
+    assert_eq!(
+        abi::decode::<Op>(&event.payload(&streamed_as(9))).unwrap(),
+        Op::Streamed { thread: 9, event }
     );
 }
