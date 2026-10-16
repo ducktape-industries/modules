@@ -505,13 +505,13 @@ fn motion_row(
 }
 
 /// The changes scheduled past the tip, or why there are none to show:
-/// still being read, or none scheduled. A refused read says its refusal
-/// (kept from the desktop: Expo reads it as still being read).
+/// refused with Retry, still being read, or none scheduled. (Expo reads a
+/// refused schedule as still being read, forever: `index.tsx:197-198`.)
 fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Vec<AnyElement> {
     let voting = &view.voting;
     if let Some(refusal) = voting.scheduled.failed() {
-        let why = quiet("nodes-scheduled-refused", refusal.message.clone(), theme);
-        return vec![why.into_any_element()];
+        let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.read_programs(cx));
+        return vec![refused("nodes-scheduled", &refusal.message, theme, retry).into_any_element()];
     }
     let (Some(schedule), Some(ahead)) = (voting.scheduled.ready(), view.scheduled_ahead()) else {
         let reading = quiet("nodes-scheduled-loading", words::READING_SCHEDULE, theme);
