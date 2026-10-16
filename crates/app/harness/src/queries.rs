@@ -1,20 +1,20 @@
-//! Every read: the agents hired, a thread, an agent's threads newest first, a transcript in
-//! order, the input held while a thread's loop runs, a thread's tool calls, the tool catalog,
-//! an agent's thread for a place, a model's context window, and the frames left out of the
-//! model's view with their size.
+//! Every read: what harness resolves for an agent, a thread, an agent's threads newest first,
+//! a transcript in order, the input held while a thread's loop runs, a thread's tool calls, the
+//! tool catalog, an agent's thread for a place, the model records, and the frames left out of
+//! the model's view with their size.
 use ::program::{Error, QueryCtx, corrupt};
 use abi::role::identity::AccountNumber;
 use store::{PageRequest, PageResponse};
 
-use crate::state::{AGENTS, BY_AGENT, CALLS, FRAMES, HELD, PLACES, THREADS, WINDOWS, WITHHELD};
-use crate::{AgentRow, Body, CallRow, Frame, ThreadRow, WithheldFrame};
+use crate::state::{BY_AGENT, CALLS, FRAMES, HELD, MODELS, PLACES, THREADS, WITHHELD};
+use crate::{Body, CallRow, Frame, ModelRow, ThreadRow, WithheldFrame};
 
-pub(crate) fn agent(ctx: &QueryCtx, agent: AccountNumber) -> Result<Option<AgentRow>, Error> {
-    AGENTS.get(ctx, &agent)
+pub(crate) fn model(ctx: &QueryCtx, id: String) -> Result<Option<ModelRow>, Error> {
+    MODELS.get(ctx, &id)
 }
 
-pub(crate) fn agents(ctx: &QueryCtx, page: &PageRequest) -> Result<PageResponse<AgentRow>, Error> {
-    Ok(AGENTS.range(ctx, page)?.map(|(_, row)| row))
+pub(crate) fn models(ctx: &QueryCtx, page: &PageRequest) -> Result<PageResponse<ModelRow>, Error> {
+    Ok(MODELS.range(ctx, page)?.map(|(_, row)| row))
 }
 
 pub(crate) fn thread(ctx: &QueryCtx, id: u64) -> Result<Option<ThreadRow>, Error> {
@@ -63,10 +63,6 @@ pub(crate) fn thread_at(
         Some(id) => THREADS.get(ctx, &id),
         None => Ok(None),
     }
-}
-
-pub(crate) fn window(ctx: &QueryCtx, model: String) -> Result<Option<Option<u64>>, Error> {
-    WINDOWS.get(ctx, &model)
 }
 
 pub(crate) fn withheld(ctx: &QueryCtx, thread: u64) -> Result<Vec<WithheldFrame>, Error> {

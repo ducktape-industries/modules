@@ -1,6 +1,6 @@
 //! The `attribution` program: which accounts each program's objects relate to (a mention,
-//! an author, an owner, an assignee), every change to those relations, and the programs
-//! told of each change as it happens.
+//! an author, an owner, an assignee), every change to those relations, and the program each
+//! change is handed to: the one a scripted recipient's script calls, once it has registered.
 mod program;
 mod rules;
 mod state;
@@ -103,7 +103,7 @@ pub struct Relations {
 pub enum Op {
     Attribute(Update),
     AttributeBatch { updates: Vec<Update> },
-    Subscribe { deliver: Vec<u8> },
+    Register { deliver: Vec<u8> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
@@ -124,16 +124,16 @@ pub enum Query {
     #[ask(Reply::Changes(PageResponse<Change>))]
     #[reads(state::OF, state::CHANGES)]
     ChangesOf { source: Source, page: PageRequest },
-    #[ask(Reply::Subscribers(Vec<ProgramId>))]
-    #[reads(state::SUBSCRIBERS)]
-    Subscribers,
+    #[ask(Reply::Registered(Vec<ProgramId>))]
+    #[reads(state::REGISTERED)]
+    Registered,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Reply {
     Relations(Option<Relations>),
     Changes(PageResponse<Change>),
-    Subscribers(Vec<ProgramId>),
+    Registered(Vec<ProgramId>),
 }
 
 impl Change {
@@ -173,7 +173,11 @@ pub fn describe(op: &Op) -> describe::Description {
             format!("Attribute {} objects", updates.len()),
             updates.iter().map(object).collect(),
         ),
-        Op::Subscribe { .. } => ("Subscribe".to_owned(), Vec::new()),
+        Op::Register { .. } => (
+            "Register to be handed changes about the accounts whose script calls this program"
+                .to_owned(),
+            Vec::new(),
+        ),
     };
     describe::Description { title, fields }
 }
@@ -184,6 +188,6 @@ describe::export!(Op, describe);
 fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
-        ["Attribute", "AttributeBatch", "Subscribe"]
+        ["Attribute", "AttributeBatch", "Register"]
     );
 }

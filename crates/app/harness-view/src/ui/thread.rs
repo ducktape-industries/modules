@@ -8,8 +8,8 @@ use view::prelude::*;
 use view::{Div, FontWeight};
 
 use super::{
-    asking, back, caption, context_words, meter, no_node, panel, place_label, state_badge,
-    usage_words, waiting,
+    asking, back, caption, context_words, meter, no_node, panel, place_label, snapshot_words,
+    state_badge, usage_words, waiting,
 };
 use crate::read::{self, Roster, Transcript};
 use crate::{Agents, Arm, Screen, State, links, thread_state};
@@ -85,8 +85,15 @@ fn thread(
     let manages = view.me == Some(row.manager);
     let relaying = roster.map_or(1, |roster| roster.relaying);
     let state = match (shown.serving, relaying) {
-        (0, _) | (_, 0) => State::NoNode,
+        (None, _) => State::Unconfigured,
+        (Some(0), _) | (_, 0) => State::NoNode,
         _ => thread_state(row),
+    };
+    let model = shown.model();
+    let window = model.and_then(|model| model.window.tokens());
+    let asks = match model {
+        Some(model) => format!("asks {} ({})", model.id, model.name),
+        None => "asks no model until its configuration is fixed".to_owned(),
     };
     let place = place_label(row, roster);
     let opened = links::place_link(&view.chain, &row.place);
@@ -108,10 +115,8 @@ fn thread(
                 .child(design::heading("thread-place", place, 1, theme))
                 .child(caption(
                     format!(
-                        "thread {id} · opened at block {} · {} · max output {}",
+                        "thread {id} · opened at block {} · {asks}",
                         design::grouped(row.opened),
-                        row.model,
-                        design::grouped(row.max_tokens.into()),
                     ),
                     theme,
                 )),
@@ -187,11 +192,11 @@ fn thread(
                 .flex()
                 .items_center()
                 .gap(space::SM)
-                .children(meter(row.context, shown.window, theme))
+                .children(meter(row.context, window, theme))
                 .child(caption(
                     format!(
                         "Context {} · {}",
-                        context_words(row.context, shown.window),
+                        context_words(row.context, window),
                         design::plural(summaries as u64, "summary", "summaries")
                     ),
                     theme,
@@ -222,13 +227,21 @@ fn thread(
         .child(head)
         .children(closing(view, shown, cx, theme, ladder))
         .child(status)
-        .children(no_node(
-            "thread-no-node",
-            &row.service,
-            shown.serving,
-            relaying,
-            theme,
-        ))
+        .children(model.and_then(|model| {
+            no_node(
+                "thread-no-node",
+                &model.service,
+                shown.serving.unwrap_or_default(),
+                relaying,
+                theme,
+            )
+        }))
+        .children(shown.setup.as_ref().and_then(|setup| {
+            setup.configured.problem(&setup.path).map(|problem| {
+                panel("thread-problem", theme.danger_soft, theme)
+                    .child(div().font_weight(FontWeight::MEDIUM).child(problem))
+            })
+        }))
         .children(stuck(shown, theme))
         .children(held(shown, roster, theme))
         .child(transcript(view, shown, roster, cx, theme, ladder))
@@ -450,9 +463,14 @@ fn frame_row(
                 .into_any_element()
         }
         Body::Turn {
-            said, stop, usage, ..
+            said,
+            stop,
+            usage,
+            config,
+            ..
         } => {
-            let mut turn = row(agent.to_owned(), stop_words(*stop).into());
+            let what = format!("{} · {}", stop_words(*stop), snapshot_words(config));
+            let mut turn = row(agent.to_owned(), what);
             for (index, said) in said.iter().enumerate() {
                 let key = format!("thinking-{seq}-{index}");
                 turn = turn.child(said_row(view, key, said, shown, cx, theme, ladder));

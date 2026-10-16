@@ -17,6 +17,8 @@ view.workspace = true
 harness.workspace = true
 identity.workspace = true
 egress.workspace = true
+# an agent's configuration is a file in files: the form commits it
+files.workspace = true
 # `dm_peers`: a DM's place reads as the person it is with
 chat.workspace = true
 # mints the `duck://<chain>/<program>/<place>` link "Open in chat" opens
