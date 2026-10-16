@@ -464,7 +464,8 @@ fn sanitize_refuses_on_back_below_the_root() {
 }
 
 /// A sheet the host cannot present: detents it cannot rest at, or a sheet
-/// inside a sheet (one dialog layer).
+/// inside a sheet (one dialog layer). No detents is a sheet fitted to what
+/// it holds.
 #[test]
 fn sanitize_refuses_a_sheet_the_host_cannot_present() {
     let named = |name: &str, detents: &[f32], child: Node| Node::Sheet {
@@ -489,11 +490,11 @@ fn sanitize_refuses_a_sheet_the_host_cannot_present() {
         ..Frame::default()
     };
     assert!(sanitize(&mut frame(sheet(&[0.6, 1.0], leaf()))).is_ok());
+    assert!(sanitize(&mut frame(sheet(&[], leaf()))).is_ok());
     for (detents, reason) in [
-        (&[][..], "a sheet has one to eight detents"),
         (
             &[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9][..],
-            "a sheet has one to eight detents",
+            "a sheet has at most eight detents",
         ),
         (&[1.5][..], "a sheet detent is a fraction of the body"),
         (&[f32::NAN][..], "a sheet detent is a fraction of the body"),

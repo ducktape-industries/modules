@@ -35,6 +35,7 @@ pub use format::{ago, clock, date, day, grouped, initial, local, plural};
 pub use pages::{CAPSULE_CLEARANCE, Nav, Page, Pages, page};
 pub use words::{failure, sentence};
 
+use crate::element::Capitals;
 use crate::prelude::*;
 use crate::{AnyElement, Div, FontWeight, Hsla, Pixels, Stateful, StyleRefinement};
 pub use gpui::Orientation;
@@ -104,37 +105,58 @@ pub fn width_class(width: f32) -> WidthClass {
     }
 }
 
-/// A text role: its size, and the line height it is set on, if the role
-/// names one. Set on an element with [`TextType::text_type`]. A pointer's
-/// roles name none (the host's line height stands, as on the desktop
-/// today); a finger's are the Expo app's (`theme.ts` `type`).
+/// A text role: its size, and the line height it is set on and the space
+/// after each letter, where the role names them. Set on an element with
+/// [`TextType::text_type`]. A pointer's roles name neither (the host's line
+/// height and the font's own spacing stand, as on the desktop today); a
+/// finger's are the Expo app's (`theme.ts` `type`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Type {
     pub size: Pixels,
     pub line: Option<Pixels>,
+    /// Added after each letter (CSS `letter-spacing`, Expo's
+    /// `letterSpacing`); negative sets the letters tighter.
+    pub letter_spacing: Option<Pixels>,
 }
 
 impl Type {
     /// A role at `size` on the host's line height.
     pub const fn size(size: Pixels) -> Self {
-        Self { size, line: None }
+        Self {
+            size,
+            line: None,
+            letter_spacing: None,
+        }
     }
     /// A role at `size` on a `line` tall line.
     pub const fn lined(size: f64, line: f64) -> Self {
         Self {
             size: px(size as f32),
             line: Some(px(line as f32)),
+            letter_spacing: None,
+        }
+    }
+    /// This role with `letter_spacing` px after each letter.
+    pub const fn spaced(self, letter_spacing: f64) -> Self {
+        Self {
+            letter_spacing: Some(px(letter_spacing as f32)),
+            ..self
         }
     }
 }
 
 /// [`Type`] on any styled element: `div().text_type(ladder.body)`.
 pub trait TextType: Styled + Sized {
-    /// The role's size, and its line height where it names one.
+    /// The role's size, and its line height and letter spacing where it
+    /// names them.
     fn text_type(self, role: Type) -> Self {
         let element = self.text_size(role.size);
-        match role.line {
+        let element = match role.line {
             Some(line) => element.line_height(line),
+            None => element,
+        };
+        match role.letter_spacing {
+            Some(letter_spacing) => element.letter_spacing(letter_spacing),
             None => element,
         }
     }
@@ -220,8 +242,13 @@ pub struct Ladder {
     pub icon_row: Pixels,
     /// an icon leading a sheet row
     pub icon_sheet: Pixels,
-    /// a view's first page's title (Expo also tracks it -0.22,
-    /// `theme.ts:59`, which a [`Type`] does not carry)
+    /// a code to read out or compare (the join code, a key's
+    /// fingerprint). The role is a size, line and spacing; the caller adds
+    /// the data face and weight Expo sets beside it,
+    /// `.font_family(design::fonts::FAMILY_MONO).font_weight(FontWeight::MEDIUM)`
+    /// (`join/code.tsx:63`)
+    pub display: Type,
+    /// a view's first page's title
     pub big_title: Type,
     /// a detail head's name
     pub heading: Type,
@@ -239,7 +266,12 @@ pub struct Ladder {
     pub caption: Type,
     /// a badge, a count
     pub tiny: Type,
-    /// code, in the data face
+    /// a fact's key, a code box's label: drawn by [`eyebrow`], which adds
+    /// the data face, the muted colour and the capitals
+    pub eyebrow: Type,
+    /// code. The role is a size and line; the caller adds the data face
+    /// Expo sets beside it, `.font_family(design::fonts::FAMILY_MONO)`
+    /// (`forge/Lines.tsx:104`)
     pub code: Type,
 }
 
@@ -261,6 +293,8 @@ pub const POINTER: Ladder = Ladder {
     icon: px(::design::height::ICON as f32),
     icon_row: px(::design::height::ICON as f32),
     icon_sheet: px(::design::height::ICON as f32),
+    // the desktop sets nothing louder than its title
+    display: Type::size(text::TITLE),
     big_title: Type::size(text::TITLE),
     heading: Type::size(text::TITLE),
     title: Type::size(text::TITLE),
@@ -270,6 +304,9 @@ pub const POINTER: Ladder = Ladder {
     secondary: Type::size(text::SECONDARY),
     caption: Type::size(text::CAPTION),
     tiny: Type::size(text::CAPTION),
+    // the desktop's capitals over a group (chat's emoji picker) are a
+    // caption
+    eyebrow: Type::size(text::CAPTION),
     code: Type::size(text::MONO),
 };
 
@@ -293,7 +330,8 @@ pub const TOUCH: Ladder = {
         icon: px(h::ICON as f32),
         icon_row: px(h::ICON_ROW as f32),
         icon_sheet: px(h::ICON_SHEET as f32),
-        big_title: Type::lined(t::BIG_TITLE, t::BIG_TITLE_LINE),
+        display: Type::lined(t::DISPLAY, t::DISPLAY_LINE).spaced(t::DISPLAY_LETTER_SPACING),
+        big_title: Type::lined(t::BIG_TITLE, t::BIG_TITLE_LINE).spaced(t::BIG_TITLE_LETTER_SPACING),
         heading: Type::lined(t::HEADING, t::HEADING_LINE),
         title: Type::lined(t::TITLE, t::TITLE_LINE),
         body: Type::lined(t::BODY, t::BODY_LINE),
@@ -303,6 +341,7 @@ pub const TOUCH: Ladder = {
         secondary: Type::lined(t::SECONDARY, t::SECONDARY_LINE),
         caption: Type::lined(t::CAPTION, t::CAPTION_LINE),
         tiny: Type::lined(t::TINY, t::TINY_LINE),
+        eyebrow: Type::lined(t::EYEBROW, t::EYEBROW_LINE).spaced(t::EYEBROW_LETTER_SPACING),
         code: Type::lined(t::CODE, t::CODE_LINE),
     }
 };
@@ -319,8 +358,9 @@ pub const fn ladder(touch: bool) -> Ladder {
 /// hairline reach both sides; what it holds pads itself ([`sheet_head`],
 /// [`sheet_row`]). Under a pointer the panel pads its content by
 /// [`space::BLOCK`]. `design::sheet("actions", "Message actions", ladder,
-/// theme).detents([0.6, 1.0]).on_dismiss(..).child(..)`; the host draws the
-/// scrim and the handle and docks or centres it by the body's width class.
+/// theme).on_dismiss(..).child(..)`; the host draws the scrim and the
+/// handle, docks or centres it by the body's width class, and makes it as
+/// tall as what it holds unless `.detents(..)` gives it snap points.
 pub fn sheet(
     id: impl Into<ElementId>,
     label: impl Into<String>,
@@ -1151,6 +1191,20 @@ pub fn mono(text: impl Into<SharedString>) -> Div {
         .text_size(text::MONO)
         .whitespace_nowrap()
         .child(text.into())
+}
+
+/// A fact's key, a code box's label (the Expo kit's `<Text role="eyebrow"
+/// mono tone="muted">`): `words` at [`Ladder::eyebrow`], in the data face,
+/// muted, drawn in capitals. Pass the words as written: the host draws
+/// them in capitals (Expo's `textTransform: 'uppercase'`) and a screen
+/// reader hears them as written, not spelled out. Add
+/// `.font_weight(FontWeight::MEDIUM)` where Expo sets it (`Facts.tsx:28`).
+pub fn eyebrow(words: impl Into<SharedString>, ladder: &Ladder, theme: &Theme) -> Div {
+    div()
+        .text_type(ladder.eyebrow)
+        .font_family(fonts::FAMILY_MONO)
+        .text_color(theme.muted)
+        .child(Capitals(words.into()))
 }
 
 /// The focus ring: `color`, 2 px, just inside the edge, on a control the
@@ -2496,13 +2550,50 @@ mod tests {
         );
     }
 
+    /// An eyebrow crosses as the words were written, marked for the host to
+    /// draw in capitals: a screen reader hears the words a text holds, so
+    /// it reads the label, not letter after letter. The role's size and
+    /// spacing, the data face and the muted colour are on its box.
+    #[test]
+    fn an_eyebrow_is_drawn_in_capitals_and_named_as_written() {
+        let theme = Theme::light();
+        let (node, styles) = lower_styled(eyebrow("This phone's code", &TOUCH, &theme));
+        let [wire::Node::Text(words)] = node.children() else {
+            panic!("one text: {node:?}");
+        };
+        assert_eq!(words.content, "This phone's code");
+        assert_eq!(words.transform, Some(wire::TextTransform::Uppercase));
+        let text = &styles[node.style().expect("a styled box")].text;
+        assert_eq!(text.font_size, Some(TOUCH.eyebrow.size.into()));
+        assert_eq!(text.letter_spacing, TOUCH.eyebrow.letter_spacing);
+        assert_eq!(text.font_family.as_deref(), Some(fonts::FAMILY_MONO));
+        assert_eq!(text.color, Some(theme.muted));
+    }
+
     /// The finger's ladder is the Expo app's theme (`theme.ts` `type`,
     /// `size`), number for number.
     #[test]
     fn the_touch_ladder_is_the_expo_theme() {
-        let lined = |size: f32, line: f32| Type {
+        let role = |(size, line, letter_spacing): (f32, f32, Option<f32>)| Type {
             size: px(size),
             line: Some(px(line)),
+            letter_spacing: letter_spacing.map(px),
+        };
+        let roles = |l: Ladder| {
+            [
+                l.display,
+                l.big_title,
+                l.heading,
+                l.title,
+                l.body,
+                l.label,
+                l.small,
+                l.secondary,
+                l.caption,
+                l.tiny,
+                l.eyebrow,
+                l.code,
+            ]
         };
         let t = TOUCH;
         assert_eq!(
@@ -2521,31 +2612,22 @@ mod tests {
             [56., 48., 56., 44., 52., 44., 44., 22., 18., 20.].map(px)
         );
         assert_eq!(
+            roles(t),
             [
-                t.big_title,
-                t.heading,
-                t.title,
-                t.body,
-                t.label,
-                t.small,
-                t.secondary,
-                t.caption,
-                t.tiny,
-                t.code
-            ],
-            [
-                (22., 27.),
-                (20., 24.),
-                (17., 21.),
-                (15., 21.),
-                (15., 21.),
-                (14., 19.),
-                (13., 18.),
-                (12., 16.),
-                (11., 14.),
-                (12., 20.)
+                (36., 44., Some(1.44)),
+                (22., 27., Some(-0.22)),
+                (20., 24., None),
+                (17., 21., None),
+                (15., 21., None),
+                (15., 21., None),
+                (14., 19., None),
+                (13., 18., None),
+                (12., 16., None),
+                (11., 14., None),
+                (11., 14., Some(0.66)),
+                (12., 20., None)
             ]
-            .map(|(size, line)| lined(size, line))
+            .map(role)
         );
         let faces = [t.avatar_inline, t.avatar, t.avatar_sheet, t.avatar_detail];
         assert_eq!(
@@ -2556,11 +2638,12 @@ mod tests {
                 Some(FontWeight::MEDIUM)
             ))
         );
-        // a pointer's roles name no line height: the desktop's text stands
+        // a pointer's roles name no line height and no letter spacing: the
+        // desktop's text stands
         assert!(
-            [POINTER.title, POINTER.body, POINTER.label, POINTER.caption]
+            roles(POINTER)
                 .iter()
-                .all(|role| role.line.is_none())
+                .all(|role| role.line.is_none() && role.letter_spacing.is_none())
         );
     }
 

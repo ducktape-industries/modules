@@ -69,14 +69,27 @@ pub mod type_scale {
 
     /// The scale under a finger (`window.touch()`): the Expo app's text
     /// roles, each a size and its line height (`*_LINE`), since the reader
-    /// is further from a phone than from a desk. The body is 15. Each
-    /// number is mobile `src/design/theme.ts` `type` (`theme.ts:40-62`),
-    /// at the line named on it.
+    /// is further from a phone than from a desk, and for the three roles
+    /// Expo spaces out or tightens, the space after each letter
+    /// (`*_LETTER_SPACING`, in px). The body is 15. Each number is mobile
+    /// `src/design/theme.ts` `type` (`theme.ts:40-62`), at the line named
+    /// on it.
     pub mod touch {
+        /// a code to read out or compare: the join code, a key's
+        /// fingerprint (`theme.ts:61` `display`)
+        pub const DISPLAY: f64 = 36.;
+        /// [`DISPLAY`]'s line height
+        pub const DISPLAY_LINE: f64 = 44.;
+        /// [`DISPLAY`]'s letter spacing: 0.04 of its size apart
+        /// (`theme.ts:61` `letterSpacing`)
+        pub const DISPLAY_LETTER_SPACING: f64 = 1.44;
         /// a view's first page's title (`theme.ts:59` `bigTitle`)
         pub const BIG_TITLE: f64 = 22.;
         /// [`BIG_TITLE`]'s line height
         pub const BIG_TITLE_LINE: f64 = 27.;
+        /// [`BIG_TITLE`]'s letter spacing: 0.01 of its size tighter
+        /// (`theme.ts:59` `letterSpacing`)
+        pub const BIG_TITLE_LETTER_SPACING: f64 = -0.22;
         /// a detail head's name, a fact's value (`theme.ts:57` `heading`)
         pub const HEADING: f64 = 20.;
         /// [`HEADING`]'s line height
@@ -106,6 +119,14 @@ pub mod type_scale {
         pub const TINY: f64 = 11.;
         /// [`TINY`]'s line height
         pub const TINY_LINE: f64 = 14.;
+        /// a fact's key, a code box's label, in capitals (`theme.ts:51`
+        /// `eyebrow`)
+        pub const EYEBROW: f64 = 11.;
+        /// [`EYEBROW`]'s line height
+        pub const EYEBROW_LINE: f64 = 14.;
+        /// [`EYEBROW`]'s letter spacing: 0.06 of its size apart
+        /// (`theme.ts:51` `letterSpacing`)
+        pub const EYEBROW_LETTER_SPACING: f64 = 0.66;
         /// code, in the data face (`theme.ts:53` `code`)
         pub const CODE: f64 = 12.;
         /// [`CODE`]'s line height

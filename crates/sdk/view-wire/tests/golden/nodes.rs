@@ -354,6 +354,13 @@ fn first_nodes() -> Vec<Node> {
             on_state: Some(17),
         },
         text("plain"),
+        // drawn in capitals, named as written
+        Node::Text(TextNode {
+            id: Some(id("capitals")),
+            style: style(),
+            content: "Drawn in capitals".into(),
+            transform: Some(TextTransform::Uppercase),
+        }),
         Node::Image {
             id: Some(id("image")),
             hash: 42,

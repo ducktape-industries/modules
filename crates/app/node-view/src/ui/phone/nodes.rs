@@ -41,7 +41,13 @@ const EPOCH_BAR: Pixels = px(6.);
 /// The list page: its title row, the vote's outcome strip, and what
 /// scrolls under them.
 pub(super) fn render(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Page {
-    let page = design::page("nodes-page", title(view), Nav::Root, &LADDER, theme);
+    let page = design::page(
+        "nodes-page",
+        title(view),
+        Nav::root(view.reader.clone()),
+        &LADDER,
+        theme,
+    );
     let page = match pulse(view) {
         Some(pulse) => page.caption(pulse),
         None => page,
@@ -167,13 +173,9 @@ fn fact_cell(fact: Fact, index: usize, theme: &Theme) -> Stateful<Div> {
         .when(index.is_multiple_of(2), |cell| cell.border_r_1())
         .border_color(theme.border)
         .child(
-            div()
+            design::eyebrow(fact.label, &LADDER, theme)
                 .mb(space::XXS)
-                .font_family(design::fonts::FAMILY_MONO)
-                .text_type(LADDER.tiny)
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(theme.muted)
-                .child(fact.label.to_uppercase()),
+                .font_weight(FontWeight::MEDIUM),
         )
         .child(
             div()

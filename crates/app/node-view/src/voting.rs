@@ -91,6 +91,7 @@ impl Voting {
 
 impl Nodes {
     pub(crate) fn session_changed(&mut self, session: Session, cx: &mut Context<Self>) {
+        self.read_reader(session.account, cx);
         self.chain = Some(session.chain_id).filter(|chain| !chain.is_empty());
         let signer = abi::unhex(&session.signer).filter(|key| !key.is_empty());
         if signer != self.voting.signer {
@@ -100,6 +101,27 @@ impl Nodes {
             self.voting.signer = signer;
         }
         self.read_voices(cx);
+    }
+
+    /// The reader's name for the first page's avatar, as identity names
+    /// the session's account; read again only when the account changes, so
+    /// the avatar does not blank on every session update.
+    fn read_reader(&mut self, account: Option<u64>, cx: &mut Context<Self>) {
+        if account == self.reader_account {
+            return;
+        }
+        self.reader_account = account;
+        self.reader.clear();
+        self.reading_reader = account.map(|number| {
+            let ask = queries::name(cx.host(), number);
+            cx.land(ask, |view, answer, cx| {
+                match answer {
+                    Ok(name) => view.reader = name.unwrap_or_default(),
+                    Err(refusal) => cx.log_refused("the reader's name", &refusal),
+                }
+                cx.notify();
+            })
+        });
     }
 
     /// Whom the seated key votes for, then, while it votes, what the vote
