@@ -9,7 +9,6 @@
 //! account (`submit_create_account`) and a read again after a refusal
 //! (`read_account`). "Add a device" is the phone shell's row, not this
 //! view's (SPEC §7.4).
-use sha2::{Digest, Sha256};
 use view::design::{Kind as ButtonKind, Ladder, Nav, Orientation};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
@@ -17,7 +16,6 @@ use view::{Div, FontWeight, Stateful};
 use super::agents;
 use super::parts::{
     column, mono, muted_icon, name_input, name_line, named, note, problem_of, quiet,
-    title_and_caption,
 };
 use crate::Settings;
 use crate::queries::{Account, Key, Seat};
@@ -129,7 +127,6 @@ fn account_pane(
         }
         Loadable::Failed(refusal) => {
             let retry = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.read_account(cx));
-            // SDK gap: the refused read as a full-width Notice, swap when feat/phone-kit lands
             design::refused(
                 "settings/account",
                 refusal.message.clone(),
@@ -214,18 +211,6 @@ fn about(account: &Account) -> String {
     )
 }
 
-// SDK gap: `format::fingerprint`, swap when feat/phone-kit lands
-/// A key's fingerprint, to compare by eye with the device that shows it:
-/// the first four bytes of its SHA-256, `4354 C7BD` (the app's
-/// `noded-client` `join::fingerprint`).
-fn fingerprint(key: &[u8]) -> String {
-    let hex: String = Sha256::digest(key)[..4]
-        .iter()
-        .map(|byte| format!("{byte:02X}"))
-        .collect();
-    format!("{} {}", &hex[..4], &hex[4..])
-}
-
 /// Who the seated key is: its face, its name, one mono line under it.
 fn who(name: &str, about: String, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
     div()
@@ -257,18 +242,16 @@ fn key_row(
     let this = key.key == mine;
     let mut caption = design::short_hex(&abi::hex(&key.key));
     if this {
-        caption.push_str(&format!(" · fingerprint {}", fingerprint(&key.key)));
+        caption.push_str(&format!(" · fingerprint {}", design::fingerprint(&key.key)));
     }
     let glyph = if this { "smartphone" } else { "key-round" };
     design::row(format!("settings/key/{i}"), ladder, theme)
         .min_h(ladder.row_tall)
         .child(design::lead(muted_icon(glyph, ladder, theme)))
-        .child(title_and_caption(
-            label,
-            theme.foreground,
-            mono(caption, ladder, theme),
-            ladder,
-        ))
+        .child(
+            design::row_words(design::row_title(label.to_owned(), ladder, theme))
+                .child(mono(caption, ladder, theme)),
+        )
         .when(key.validator, |row| {
             row.child(design::badge(
                 format!("settings/key/{i}/validator"),
@@ -299,7 +282,6 @@ fn create_account(
     .on_submit(cx.listener(|v: &mut Settings, _: &(), _, cx| v.submit_create_account(cx)));
     let pressed =
         cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_create_account(cx));
-    // SDK gap: the busy button, swap when feat/phone-kit lands (its spinner needs a wire and host change)
     let create = design::button(
         "settings/account/create/submit",
         if form.busy {
@@ -312,7 +294,7 @@ fn create_account(
         pressed,
     )
     .kind(ButtonKind::Primary)
-    .enabled(!form.busy);
+    .busy(form.busy);
     column("settings/account/create")
         .gap(design::space::SM)
         .p(design::space::BLOCK)
@@ -329,13 +311,4 @@ fn create_account(
                 .when_some(problem, design::Field::problem),
         )
         .child(div().flex().child(create))
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn a_fingerprint_is_the_digests_first_four_bytes() {
-        // SHA-256 of nothing is e3b0c442…
-        assert_eq!(super::fingerprint(&[]), "E3B0 C442");
-    }
 }

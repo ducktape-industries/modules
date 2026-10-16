@@ -211,13 +211,16 @@ impl FakeHost {
 
     pub(crate) fn accept(&self, frame: &Frame, host: &crate::host::Host) {
         let mut state = self.0.borrow_mut();
-        // The app refuses a web piece from a view whose manifest leaves
-        // out `web` (and ends the view); a test fails on it instead.
-        if let Some(declared) = state.declared {
-            assert!(
-                declared.contains(&methods::Capability::Web)
-                    || !crate::wire::web::carries_web(frame),
-                "{}: a web piece needs the `web` capability, \
+        // The app refuses a web, camera or microphone piece from a view
+        // whose manifest leaves out its capability (and ends the view); a
+        // test fails on it instead.
+        if let Some(capability) = state
+            .declared
+            .and_then(|declared| frame.undeclared(declared))
+        {
+            let name = capability.as_str();
+            panic!(
+                "{}: a {name} piece needs the `{name}` capability, \
                  which this view's CAPABILITIES does not declare",
                 methods::refusal::UNDECLARED_CAPABILITY,
             );

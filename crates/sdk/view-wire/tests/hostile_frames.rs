@@ -22,6 +22,8 @@ mod hostile {
     const BIG_PICTURE: usize = 1 << 20;
     const LONG_URL: usize = 2048;
     const WEB_COMMANDS: usize = 16;
+    const LONG_DEVICE: usize = 256;
+    const MIC_COMMANDS: usize = 4;
 
     mod rng;
     use rng::*;

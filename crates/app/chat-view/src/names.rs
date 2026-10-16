@@ -40,6 +40,11 @@ pub fn mention_token(principal: &Principal) -> String {
     }
 }
 
+/// The account a [`mention_token`] names.
+pub fn mentioned(token: &str) -> Option<u64> {
+    token.strip_prefix("<@")?.strip_suffix('>')?.parse().ok()
+}
+
 /// Why `agent` would give `reader` no answer, by the rule harness answers
 /// by: an active agent's manager always gets one, anyone else as its
 /// `Ownership` in identity says. None when it answers them, for anyone not
@@ -89,6 +94,55 @@ pub fn answers(names: &Names, ownership: &Ownership) -> String {
 pub fn dm_peer_of(mine: u64, channel_id: &str) -> Option<u64> {
     let (a, b) = chat::dm_peers(channel_id)?;
     (mine == a).then_some(b).or((mine == b).then_some(a))
+}
+
+impl crate::Chat {
+    /// The open direct room's other person: their name, and whether they
+    /// are an agent. None for a channel, or before the roster is read.
+    pub(crate) fn dm_peer(&self) -> Option<(String, bool)> {
+        let room = self.room.as_ref()?;
+        let names = self.names.ready()?;
+        let peer = Principal::Account(dm_peer_of(self.my_account()?, &room.id)?);
+        Some((names.member(&peer), crate::message::agent(names, &peer)))
+    }
+
+    /// The name a person knows room `id` by: a direct room's other person,
+    /// else the channel's `#name`; a direct room the roster cannot name yet
+    /// keeps its own name, and a room not listed yet its short id.
+    pub(crate) fn room_name(&self, id: &str) -> String {
+        let peer = self
+            .my_account()
+            .and_then(|me| dm_peer_of(me, id))
+            .zip(self.names.ready())
+            .map(|(peer, names)| names.member(&Principal::Account(peer)));
+        let name = |name: &str| match chat::dm_peers(id) {
+            Some(_) => name.to_owned(),
+            None => format!("#{name}"),
+        };
+        peer.unwrap_or_else(|| match self.info(id) {
+            Some(info) => name(&info.channel.name),
+            None => name(&view::design::short_hex(id)),
+        })
+    }
+
+    /// What the top of the open room's history says: where it starts, by
+    /// the channel's name or the direct room's other person.
+    pub(crate) fn intro(&self) -> Option<String> {
+        let room = self.room.as_ref()?;
+        Some(match self.dm_peer() {
+            Some((peer, _)) => {
+                format!("This is the very beginning of your conversation with {peer}.")
+            }
+            None => {
+                let name = self
+                    .info(&room.id)
+                    .map_or(room.id.as_str(), |info| info.channel.name.as_str());
+                format!(
+                    "This is the very beginning of #{name}. Say hello, or pin what the room is for."
+                )
+            }
+        })
+    }
 }
 
 #[cfg(test)]

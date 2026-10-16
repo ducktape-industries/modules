@@ -125,3 +125,65 @@ fn an_unset_aria_field_sends_no_bytes() {
         assert_eq!(decode::<Aria>(&bytes).unwrap(), aria);
     }
 }
+
+/// A web, camera or microphone piece the view's manifest leaves out is
+/// found wherever a frame carries a node: deep in its tree, in a patch, in
+/// a tooltip's content; declared, it is not.
+#[test]
+fn an_undeclared_piece_is_found_in_the_tree_a_patch_and_a_tooltip() {
+    use crate::methods::Capability;
+    let web = Node::Web {
+        id: ElementIdWire::Name("page".into()),
+        url: "https://example.com/".into(),
+        style: StyleId(0),
+        revision: 0,
+        commands: Vec::new(),
+        on_state: None,
+    };
+    let microphone = Node::Microphone {
+        id: ElementIdWire::Name("mic".into()),
+        style: StyleId(0),
+        device: None,
+        output: None,
+        monitor: false,
+        revision: 0,
+        commands: Vec::new(),
+        on_state: None,
+    };
+    let camera = Node::Camera {
+        id: ElementIdWire::Name("camera".into()),
+        style: StyleId(0),
+        device: None,
+        mirror: false,
+        object_fit: ImageObjectFit::Contain,
+        on_state: None,
+    };
+    let in_tree = Frame {
+        root: Some(column(vec![text("a"), column(vec![web])])),
+        ..Frame::default()
+    };
+    let in_patch = Frame {
+        patches: vec![Patch::Insert {
+            path: Vec::new(),
+            index: 0,
+            node: microphone,
+        }],
+        ..Frame::default()
+    };
+    let in_tooltip = Frame {
+        tooltip_responses: vec![TooltipResponse {
+            request: 0,
+            character_index: None,
+            content: Some(Box::new(column(vec![camera]))),
+        }],
+        ..Frame::default()
+    };
+    for (frame, gate) in [
+        (in_tree, Capability::Web),
+        (in_patch, Capability::Microphone),
+        (in_tooltip, Capability::Camera),
+    ] {
+        assert_eq!(frame.undeclared(&[Capability::Host]), Some(gate));
+        assert_eq!(frame.undeclared(&[Capability::Host, gate]), None);
+    }
+}

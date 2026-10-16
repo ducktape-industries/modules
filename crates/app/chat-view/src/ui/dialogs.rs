@@ -2,6 +2,7 @@
 
 use view::prelude::*;
 
+use crate::words;
 use crate::{ChannelCreate, Chat};
 use view::design::Ladder;
 
@@ -59,7 +60,7 @@ pub fn channel_create(
                 .child(members_only(create, cx, theme, ladder))
                 .child(div().flex_1())
                 .child(
-                    design::button("chat-create-cancel", "Cancel", ladder, theme, cancel)
+                    design::button("chat-create-cancel", words::CANCEL, ladder, theme, cancel)
                         .enabled(!busy),
                 )
                 .child(
@@ -115,10 +116,16 @@ fn members_only(
         }
         cx.notify();
     });
-    design::button("chat-create-members", "Members only", ladder, theme, toggle)
-        .selected(create.members_only)
-        .enabled(!create.busy)
-        .into_any_element()
+    design::button(
+        "chat-create-members",
+        words::MEMBERS_ONLY,
+        ladder,
+        theme,
+        toggle,
+    )
+    .selected(create.members_only)
+    .enabled(!create.busy)
+    .into_any_element()
 }
 
 /// Why the dialog failed, and why it cannot create at all.

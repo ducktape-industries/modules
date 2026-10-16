@@ -11,7 +11,7 @@ use abi::hex;
 use abi::role::halo;
 use programs::{Change, Entry, Pending};
 use valset::{Motion, Op, Valset, Voted};
-use view::methods::{self, Submitted};
+use view::methods::Submitted;
 use view::prelude::*;
 
 use crate::Nodes;
@@ -220,17 +220,10 @@ impl Nodes {
     }
 }
 
-// SDK gap: a write's failure in words (Expo `src/write/words.ts`
-// `failure`), which every view that writes needs; the SDK builds it later
-/// What a vote came to, in the Expo app's words (mobile
-/// `src/network/nodes.ts` `votedWords`, `src/write/words.ts:79-84`
-/// `failure`): what a landed one did; else why it stopped, told apart by
-/// whether it was refused (by the program, or not confirmed on the
-/// host), may have gone through, or was never sent (no node reached, none
-/// connected, or something before the send refused: safe to send again).
-/// A node's outright refusal of the frame (its own code: a bad signature,
-/// a stale anchor) reads as "Not sent: …" until the SDK's failure words
-/// land; Expo calls it "That didn’t go through".
+/// What a vote came to: what a landed one did (mobile
+/// `src/network/nodes.ts` `votedWords`); else why it stopped, in the words
+/// every view says a write that did not land in ([`design::failure`], the
+/// Expo app's `src/write/words.ts:77-85`).
 pub(crate) fn said(answer: Result<Submitted, Error>) -> Result<String, String> {
     match answer {
         Ok(Submitted::Applied { output, .. }) => Ok(match abi::decode::<Voted>(&output) {
@@ -238,23 +231,7 @@ pub(crate) fn said(answer: Result<Submitted, Error>) -> Result<String, String> {
             Ok(Voted::Counted { votes, needed }) => format!("Vote counted: {votes} of {needed}"),
             Err(_) => "Voted".to_owned(),
         }),
-        Ok(Submitted::InDoubt { .. }) => Err(
-            "This may have gone through: no answer came back. What you see is read again from the node."
-                .into(),
-        ),
-        Ok(Submitted::Refused { refusal, .. }) => {
-            Err(format!("That didn’t go through: {}", refusal.message))
-        }
-        Err(refusal) => Err(match refusal.code.as_str() {
-            methods::refusal::CONSENT_REFUSED => {
-                format!("That didn’t go through: {}", refusal.message)
-            }
-            methods::refusal::RPC_CLIENT => {
-                "Not sent: the node can’t be reached. Check the connection, then try again.".into()
-            }
-            methods::refusal::NOT_CONNECTED => "Not sent: not connected to a node.".into(),
-            _ => format!("Not sent: {}", refusal.message),
-        }),
+        answer => Err(design::failure(&answer).expect("only a landed write has no failure")),
     }
 }
 
