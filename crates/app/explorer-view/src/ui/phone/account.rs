@@ -192,7 +192,7 @@ fn programs_used(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> Option<Div> {
     )
 }
 
-// SDK gap: Chips, swap when feat/phone-kit lands
+// SDK gap: Chips, the SDK builds it later
 /// One program it used, and how many transactions it sent there; the
 /// press reaches past the chip to `ladder.hit`.
 fn chip(program: String, count: u64, cx: Cx, k: &Kit) -> Div {

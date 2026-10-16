@@ -52,6 +52,7 @@ pub(super) fn sheet(view: &Explorer, cx: Cx, k: &Kit) -> Option<AnyElement> {
                     .overflow_y_scroll()
                     .flex()
                     .flex_col()
+                    // SDK gap: `sheet_title`, swap when feat/phone-kit lands
                     .child(
                         design::sheet_head("explorer-form-head", &k.theme).child(
                             design::heading("explorer-form-title", form.title(), 2, &k.theme)

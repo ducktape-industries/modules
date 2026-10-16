@@ -1,5 +1,7 @@
-//! The explorer's pages. Square corners, rows split by one-pixel rules,
-//! hashes and numbers in the data face.
+//! The explorer's pages under a pointer: the desktop tree, which the root
+//! picks when the device is not touch first (`lib.rs`; the phone's is
+//! `ui/phone/`). Square corners, rows split by one-pixel rules, hashes and
+//! numbers in the data face.
 use std::ops::Range;
 
 use view::prelude::*;

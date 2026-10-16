@@ -572,7 +572,8 @@ impl Explorer {
                 return;
             }
             // the Expo outbox's words (`write/words.ts` `failure`): the
-            // program refused it, or it never reached a node
+            // program refused it, or it never reached a node.
+            // SDK gap: `design::failure`, the SDK builds it later
             Ok(Submitted::Refused { refusal, .. }) => {
                 format!("That didn’t go through: {}", refusal.message)
             }

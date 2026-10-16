@@ -41,6 +41,7 @@ pub(super) fn root(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
     }
 }
 
+// SDK gap: the root header's network caption, the SDK builds it later
 /// The network the session is on, by its label (`<label>#<salt>`), and the
 /// reader (Expo's root caption, `testkit · Dev`).
 fn network_and_me(view: &Explorer) -> Option<String> {
@@ -64,6 +65,7 @@ fn titled(view: &Explorer, cx: Cx, k: &Kit) -> design::Page {
         window.focus("explorer-search");
         cx.notify();
     });
+    // SDK gap: `Nav::Root` (#406), swap when #406 lands
     let no_back = None::<fn(&ClickEvent, &mut Window, &mut App)>;
     let page = design::page("explorer-root", "Explorer", no_back, &k.ladder, &k.theme).trailing(
         design::icon_button(
@@ -127,7 +129,8 @@ fn searching(view: &Explorer, cx: Cx, k: &Kit) -> Stateful<Div> {
         .child(row)
 }
 
-// SDK gap: Field with a lead icon in the header's centre, swap when feat/phone-kit lands
+// SDK gap: Field `.lead` (its icon), swap when feat/phone-kit lands; the
+// header's centre slot that holds it, the SDK builds it later
 /// The search field (Expo `Field` with a magnifier lead): a height, a hash,
 /// `#3` or a name; no capitals, no corrections, Return searches.
 fn field(view: &Explorer, cx: Cx, k: &Kit) -> Div {

@@ -38,6 +38,9 @@ const ROW_TALL: Pixels = px(design::height::touch::ROW_TALL as f32);
 const KEY_W: Pixels = px(96.);
 /// A small button (Expo `src/design/theme.ts:76` `size.small`).
 const SMALL_BUTTON_H: Pixels = px(36.);
+/// The face of an account that does not act, at half strength (Expo
+/// `src/kit/Avatar.tsx:38`).
+const OFF_OPACITY: f32 = 0.5;
 /// A transaction's outcome mark, each way (Expo
 /// `src/network/explorer/parts.tsx:139`).
 const MARK: Pixels = px(8.);
@@ -50,6 +53,7 @@ pub(super) type Press = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
 // ---------- pages ----------
 
+// SDK gap: Page, the scroller with its foot clear, the SDK builds it later
 /// A page's scroller (Expo `pages.tsx` `Page`): what is under the title
 /// row and the notice, its foot `gap.block` clear.
 pub(super) fn scroller(id: &'static str) -> Stateful<Div> {
@@ -63,7 +67,7 @@ pub(super) fn scroller(id: &'static str) -> Stateful<Div> {
         .pb(space::BLOCK)
 }
 
-// SDK gap: design::page with Back on a pushed page, swap when feat/phone-kit lands
+// SDK gap: `Nav::back` on `design::page` (#406), swap when #406 lands
 /// A page over the root (Expo `Header back`): its title row with Back,
 /// and the notice under it.
 pub(super) fn over(
@@ -164,7 +168,7 @@ pub(super) fn note(view: &Explorer, cx: Cx, k: &Kit) -> Option<Stateful<Div>> {
     ))
 }
 
-// SDK gap: Notice with its action, swap when feat/phone-kit lands
+// SDK gap: Notice with its action, the SDK builds it later
 /// A strip above content (Expo `Notice`): its words in the tone on the
 /// tone's soft ground, `gap.md` over and under, the gutter in; one action
 /// at the right, its press reaching past it to `ladder.hit`.
@@ -240,7 +244,7 @@ pub(super) fn refused(sentence: &str, cx: Cx, k: &Kit) -> AnyElement {
     .into_any_element()
 }
 
-// SDK gap: Quiet at the ladder's sizes, swap when feat/phone-kit lands
+// SDK gap: Quiet at the ladder's sizes, the SDK builds it later
 /// One muted status line, the gutter in (Expo `Quiet`).
 pub(super) fn quiet(id: &'static str, text: impl Into<SharedString>, k: &Kit) -> AnyElement {
     design::quiet(text, &k.theme)
@@ -289,7 +293,7 @@ pub(super) fn empty(
 
 // ---------- sections and facts ----------
 
-// SDK gap: SectionHead with any right slot, swap when feat/phone-kit lands
+// SDK gap: SectionHead with any right slot (#406 `section_head`), swap when #406 lands
 /// A section's head (Expo `SectionHead`): its label in caption medium, and
 /// what sits beside it (a count, a sentence, a link).
 pub(super) fn section(
@@ -365,7 +369,7 @@ pub(super) struct Fact {
     pub(super) caption: Option<String>,
 }
 
-// SDK gap: Facts, swap when feat/phone-kit lands
+// SDK gap: Facts, the SDK builds it later
 /// Two columns of figures (Expo `Facts`): half the width each, hairlines
 /// between.
 pub(super) fn facts(id: &'static str, facts: Vec<Fact>, k: &Kit) -> Stateful<Div> {
@@ -414,7 +418,7 @@ fn figure(id: &str, index: usize, fact: Fact, k: &Kit) -> Stateful<Div> {
         }))
 }
 
-// SDK gap: KeyValue, swap when feat/phone-kit lands
+// SDK gap: KeyValue, the SDK builds it later
 /// A label and its value (Expo `KeyValue`): the label small and muted in
 /// its column, the value small, wrapping, level with it. Its key is
 /// `explorer-field-<label>`.
@@ -450,7 +454,7 @@ pub(super) fn key_value(label: &str, value: impl IntoElement, k: &Kit) -> Statef
         )
 }
 
-// SDK gap: mono text at the ladder's sizes, swap when feat/phone-kit lands
+// SDK gap: wrapping mono text at the ladder's sizes, the SDK builds it later
 /// Text in the data face that wraps where it must: a 64-digit hash.
 pub(super) fn data(text: impl Into<SharedString>) -> Div {
     div()
@@ -468,7 +472,7 @@ pub(super) fn time_and_age(time: u64, now: u64, k: &Kit) -> Div {
         .child(data(words::age(now, time)).text_color(k.theme.faint))
 }
 
-// SDK gap: Linked, swap when feat/phone-kit lands
+// SDK gap: Linked, the SDK builds it later
 /// A link inside a page (Expo `Linked`): small, foreground, underlined; its
 /// press reaches past its line to `ladder.hit`. A caller wanting the data
 /// face sets it on what this returns.
@@ -556,6 +560,7 @@ pub(super) fn chevron(k: &Kit) -> impl IntoElement {
     design::icon("chevron-right", k.ladder.icon_row).text_color(k.theme.faint)
 }
 
+// SDK gap: the Row's tail in the data face, the SDK builds it later
 /// What ends a row (Expo `Row tail`): a caption in the data face, muted.
 pub(super) fn tail(text: impl Into<SharedString>, k: &Kit) -> Div {
     mono(text)
@@ -627,10 +632,11 @@ pub(super) fn face(account: &identity::Account, size: Face, k: &Kit) -> Div {
             .text_color(k.theme.agent),
         identity::Kind::User => design::avatar(&account.card.name, size, &k.theme),
     };
-    avatar.when(off, |avatar| avatar.opacity(0.5))
+    // SDK gap: Avatar `off`, the SDK builds it later
+    avatar.when(off, |avatar| avatar.opacity(OFF_OPACITY))
 }
 
-// SDK gap: Avatar module, swap when feat/phone-kit lands
+// SDK gap: Avatar module, the SDK builds it later
 /// A program's face: square, a mono letter (Expo `Avatar module`).
 pub(super) fn module_face(name: &str, size: Face, k: &Kit) -> Div {
     design::avatar(name, size, &k.theme)

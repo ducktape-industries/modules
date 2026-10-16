@@ -473,7 +473,7 @@ pub(super) fn program_sheet(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> Opt
     )
 }
 
-// SDK gap: the sheet head with a face, swap when feat/phone-kit lands
+// SDK gap: the sheet head with a face, the SDK builds it later
 /// What a program's sheet is about: its square face, its name in the data
 /// face, program or view only, and hook.
 fn sheet_head(name: &str, listed: bool, hook: bool, k: &Kit) -> Stateful<Div> {
