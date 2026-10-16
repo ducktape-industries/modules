@@ -7,6 +7,7 @@
 //! steers them, and hears how their devices are ([`MediaState`]).
 use crate::element::wire_id;
 use crate::interactivity::EventListener;
+use crate::revised::Revised;
 use crate::{App, Element, ElementId, IntoElement, Lowering, Window, wire};
 use gpui::{ObjectFit, StyleRefinement, Styled};
 
@@ -88,15 +89,7 @@ impl Camera {
 /// [`record`](Self::record) or [`stop`](Self::stop), and notify. Each
 /// reaches the host once.
 #[derive(Clone, Default)]
-pub struct MicHandle(std::rc::Rc<std::cell::RefCell<MicQueue>>);
-
-#[derive(Default)]
-struct MicQueue {
-    /// Moves with every command: the host applies the commands of a
-    /// revision it has not seen.
-    revision: u64,
-    commands: Vec<wire::MicCommand>,
-}
+pub struct MicHandle(std::rc::Rc<std::cell::RefCell<Revised<wire::MicCommand>>>);
 
 impl MicHandle {
     pub fn new() -> Self {
@@ -104,9 +97,7 @@ impl MicHandle {
     }
 
     fn push(&self, command: wire::MicCommand) {
-        let mut queue = self.0.borrow_mut();
-        queue.revision = queue.revision.wrapping_add(1);
-        queue.commands.push(command);
+        self.0.borrow_mut().push(command);
     }
 
     /// Records `seconds`, then plays the recording on the piece's output.
@@ -221,10 +212,10 @@ impl Element for Microphone {
     }
 
     fn lower(self: Box<Self>, lowering: &mut Lowering<'_>) -> wire::Node {
-        let (revision, commands) = self.handle.map_or((0, Vec::new()), |handle| {
-            let mut queue = handle.0.borrow_mut();
-            (queue.revision, std::mem::take(&mut queue.commands))
-        });
+        let (revision, commands) = self
+            .handle
+            .map(|handle| handle.0.borrow_mut().take())
+            .unwrap_or_default();
         wire::Node::Microphone {
             id: wire_id(self.id),
             style: lowering.style(&self.style),
@@ -396,6 +387,50 @@ mod tests {
         assert!(commands.is_empty(), "the recording went with its frame");
         cx.update(&view, |view, _, _| {
             assert_eq!(view.heard, [MediaStatus::Denied]);
+        });
+    }
+
+    /// Places a microphone and keeps what it hears.
+    #[derive(Default, serde::Deserialize, serde::Serialize)]
+    struct Meter {
+        heard: Vec<(MediaStatus, Playback, bool)>,
+    }
+
+    impl View for Meter {
+        const NAME: &'static str = "Meter";
+        const CAPABILITIES: &'static [Capability] = &[Capability::Microphone];
+        fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+            Self::default()
+        }
+    }
+
+    impl Render for Meter {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            microphone("mic").on_state(cx.listener(|view, state: &MediaState, _, cx| {
+                view.heard
+                    .push((state.status.clone(), state.playback.clone(), state.speaking));
+                cx.notify();
+            }))
+        }
+    }
+
+    /// A microphone's state route carries its device, its recording and
+    /// whether the person speaks to the view's listener.
+    #[test]
+    fn a_microphone_hears_its_device_and_its_recording() {
+        let mut cx = TestAppContext::new();
+        let view = cx.open::<Meter>();
+        cx.simulate_media_state(
+            "mic",
+            MediaState {
+                status: MediaStatus::Live,
+                playback: Playback::Recording,
+                speaking: true,
+                ..Default::default()
+            },
+        );
+        cx.update(&view, |view, _, _| {
+            assert_eq!(view.heard, [(MediaStatus::Live, Playback::Recording, true)]);
         });
     }
 
