@@ -341,6 +341,30 @@ fn a_transaction_shows_its_block_anchor_signer_and_operation() {
     assert!(cx.has_text("2 transactions recorded"), "{:?}", cx.texts());
 }
 
+/// The desktop has no Back: however many pages the reader goes through, it
+/// keeps only the one shown over its list (the phone stacks them for
+/// Back).
+#[test]
+fn the_desktop_keeps_only_the_page_shown_over_its_list() {
+    let mut cx = TestAppContext::new();
+    node(&mut cx, Rc::new(RefCell::new(12)));
+    let explorer = cx.open::<Explorer>();
+    cx.run_until_parked();
+    let pages = |_: &TestAppContext| {
+        explorer.read(|view| {
+            let pages = &view.pages;
+            (pages.depth(), pages.first().clone(), pages.top().clone())
+        })
+    };
+    cx.simulate_click("explorer-tx-11-0");
+    cx.run_until_parked();
+    cx.simulate_click("explorer-from");
+    cx.run_until_parked();
+    assert!(cx.has_text("2 transactions recorded"), "{:?}", cx.texts());
+    // one page over the root, not the transaction under the account
+    assert_eq!(pages(&cx), (1, Route::Overview, Route::Account(3)));
+}
+
 #[test]
 fn a_rejected_transaction_says_so_and_why() {
     let (mut cx, _) = ready();

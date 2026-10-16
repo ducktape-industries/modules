@@ -14,11 +14,16 @@ enum Found {
 
 impl Explorer {
     /// Opens `route`: a tab's own list becomes the root, any other page
-    /// goes over the page it was opened from (Expo's `router.push`).
+    /// goes over the page it was opened from (Expo's `router.push`). The
+    /// desktop has no Back to walk the pages under the top: it keeps only
+    /// the page shown over the root, so its stack never grows.
     pub(crate) fn go(&mut self, route: Route, cx: &mut Context<Self>) {
         if route.listed() {
             self.pages = Pages::root(route);
         } else {
+            if !self.touch {
+                self.pages = Pages::root(self.pages.first().clone());
+            }
             self.pages.push(route);
         }
         self.arrive(cx);
@@ -172,7 +177,7 @@ impl Explorer {
                     view.go(route, cx);
                 }
                 Ok(None) => view.note = Some(Note::NoSuchHash { listed_from, link }),
-                Err(refusal) => view.note = Some(Note::Refused(refusal.message)),
+                Err(refusal) => view.note = Some(Note::Refused(design::sentence(&refusal))),
             }
             cx.notify();
         })
@@ -227,7 +232,7 @@ impl Explorer {
         cx.land(ask, move |view, copied, cx| {
             view.note = Some(match copied {
                 Ok(()) => Note::Copied(what.to_owned()),
-                Err(refusal) => Note::Refused(refusal.message),
+                Err(refusal) => Note::Refused(design::sentence(&refusal)),
             });
             cx.notify();
         })

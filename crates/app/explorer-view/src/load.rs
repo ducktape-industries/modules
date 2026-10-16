@@ -187,7 +187,7 @@ impl Explorer {
                         view.pull(cx);
                     }
                 }
-                Err(refusal) => view.chain.failed = Some(refusal.message),
+                Err(refusal) => view.chain.failed = Some(design::sentence(&refusal)),
             }
             cx.notify();
         })

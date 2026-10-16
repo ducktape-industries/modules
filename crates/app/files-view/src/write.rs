@@ -251,14 +251,10 @@ impl Files {
 
     /// A commit landed: its form closes, the line says so, and the page
     /// follows what moved; else its form (or, closed, the line) says why
-    /// not, in the program's words. Another form opened meanwhile is not
-    /// this one's to close or to word.
+    /// not, in every view's words (`design::failure`). Another form opened
+    /// meanwhile is not this one's to close or to word.
     fn landed(&mut self, sent: Sent, answer: Result<Submitted, Error>, cx: &mut Context<Self>) {
-        let problem = match answer {
-            Ok(Submitted::Applied { .. }) => None,
-            Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => Some(refusal.message),
-            Ok(Submitted::InDoubt { .. }) => Some(words::IN_DOUBT.into()),
-        };
+        let problem = design::failure(&answer);
         let form = match &mut self.sheet {
             Some(Sheet::Write(form)) if form.id == sent.form => Some(form),
             _ => None,

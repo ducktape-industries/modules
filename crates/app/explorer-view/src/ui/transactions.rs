@@ -12,7 +12,7 @@ pub(super) fn transactions(
 ) -> AnyElement {
     let frames = match &view.frames {
         Loadable::Ready(frames) | Loadable::Reloading(frames, _) => frames,
-        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme, ladder),
+        Loadable::Failed(refusal) => return failed(&design::sentence(refusal), cx, theme, ladder),
         Loadable::Idle | Loadable::Loading(_) => {
             return quiet("explorer-txs-loading", "Reading transactions…", theme);
         }
@@ -85,7 +85,7 @@ pub(super) fn tx(
                 theme,
             )
             .into_any_element(),
-            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme, ladder),
+            Loadable::Failed(refusal) => failed(&design::sentence(refusal), cx, theme, ladder),
             Loadable::Idle
             | Loadable::Loading(_)
             | Loadable::Ready(Some(_))

@@ -168,7 +168,7 @@ fn invites(
                 Loadable::Ready(()) | Loadable::Reloading((), _) => {
                     ("Copied".to_owned(), theme.success)
                 }
-                Loadable::Failed(refusal) => (refusal.message.clone(), theme.danger),
+                Loadable::Failed(refusal) => (design::sentence(refusal), theme.danger),
                 Loadable::Idle | Loadable::Loading(_) => (String::new(), theme.muted),
             };
             column("settings/invite/minted")
@@ -202,7 +202,7 @@ fn invites(
                 .child(secondary("settings/invite/copied", copied, theme).text_color(tone))
                 .into_any_element()
         }
-        Loadable::Failed(refusal) => refusal_line("invite", &refusal.message, theme)
+        Loadable::Failed(refusal) => refusal_line("invite", &design::sentence(refusal), theme)
             .mt(design::space::MD)
             .into_any_element(),
         Loadable::Loading(_) => secondary("settings/invite/loading", "Minting invite…", theme)

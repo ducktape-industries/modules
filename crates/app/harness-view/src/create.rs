@@ -8,7 +8,6 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use view::methods::Submitted;
 use view::prelude::*;
 
 use harness::{AgentSetup, BlobId, Config, Configured};
@@ -243,15 +242,7 @@ impl Agents {
         let submit = cx.host().ask::<Submit<Identity>>(op.clone());
         self.draft.sending = Some(cx.land(submit, move |view, answer, cx| {
             view.draft.sending = None;
-            let in_doubt = matches!(answer, Ok(Submitted::InDoubt { .. }));
-            let landed = match applied(answer) {
-                Err(_) if in_doubt && matches!(op, identity::Op::CreateAgent { .. }) => Err(
-                    "No answer came back: the account may have been made. Look for it before you create another."
-                        .to_owned(),
-                ),
-                landed => landed,
-            };
-            let landed = landed.and_then(|output| match op {
+            let landed = applied(answer).and_then(|output| match op {
                 identity::Op::CreateAgent { .. } => {
                     let number = view::methods::decode::<u64>(&output)
                         .map_err(|error| format!("No account number came back: {error}"))?;

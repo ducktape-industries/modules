@@ -129,7 +129,7 @@ fn account_pane(
             let retry = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.read_account(cx));
             design::refused(
                 "settings/account",
-                refusal.message.clone(),
+                design::sentence(refusal),
                 ladder,
                 theme,
                 retry,

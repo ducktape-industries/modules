@@ -282,7 +282,7 @@ fn no_room(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) 
             "chat-no-room-failed",
             "message-square",
             "Couldn’t read the channels",
-            refusal.message.clone(),
+            design::sentence(refusal),
             ladder,
             theme,
         )
@@ -337,7 +337,9 @@ fn search_results(
         Loadable::Idle | Loadable::Loading(_) => {
             vec![quiet("Searching…", theme).into_any_element()]
         }
-        Loadable::Failed(refusal) => vec![quiet(refusal.message.clone(), theme).into_any_element()],
+        Loadable::Failed(refusal) => {
+            vec![quiet(design::sentence(refusal), theme).into_any_element()]
+        }
         Loadable::Ready(hits) | Loadable::Reloading(hits, _) if hits.rows.is_empty() => vec![
             empty_state(
                 "chat-search-empty",

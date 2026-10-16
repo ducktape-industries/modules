@@ -361,7 +361,7 @@ fn a_refused_commit_says_why_in_its_form() {
     cx.simulate_input("files/write/name", "drafts");
     commit_form(&mut cx);
     assert!(cx.find("files/write/refused").is_some(), "{:?}", cx.texts());
-    assert!(cx.has_text("the ledger is full"));
+    assert!(cx.has_text("That didn’t go through: the ledger is full"));
 }
 
 #[test]
