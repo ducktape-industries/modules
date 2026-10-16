@@ -28,7 +28,7 @@
 //! };
 //! program::live::grant(ctx, "lobby", None, open);
 //! ```
-pub use abi::live::{Grant, TABLE, key};
+pub use abi::live::{Grant, MAX_NAMESPACE, MAX_TRACK_NAME, TABLE, key};
 
 use crate::{AccountNumber, ExecCtx};
 
