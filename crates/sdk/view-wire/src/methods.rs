@@ -858,11 +858,12 @@ methods! {
     /// `link.open`: the one way out: a `duck://` link, opened in the
     /// app, or an `https://` one, opened in the view that declares
     /// [`Capability::Web`] (as its `host.route`) when the app has one and a
-    /// web view, else handed to the system browser. Any other scheme is
-    /// refused (`malformed_request`), but for the system's camera and
-    /// microphone settings ([`crate::media::SETTINGS_CAMERA`],
-    /// [`crate::media::SETTINGS_MICROPHONE`]) where a refused piece's
-    /// [`crate::MediaState::settings`] says the host opens them.
+    /// web view, else handed to the system browser; or one of the two
+    /// settings links ([`crate::media::SETTINGS_CAMERA`],
+    /// [`crate::media::SETTINGS_MICROPHONE`]), opened as this platform's
+    /// page that allows the device where a refused piece's
+    /// [`crate::MediaState::opens_settings`] says the host does. Any other
+    /// link is refused (`malformed_request`).
     LinkOpen, "link.open", String, ();
     /// `host.route`: a subscription, one item per `duck://` link opened into
     /// this view: the path after the view's own segment (`tx/<hash>` of

@@ -2549,7 +2549,7 @@
           "playback": "Recording",
           "detail": "the driver stopped",
           "speaking": true,
-          "settings": true
+          "opens_settings": true
         }
       }
     }

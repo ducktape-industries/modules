@@ -371,7 +371,7 @@ pub fn every_event() -> Vec<Event> {
                 playback: Playback::Recording,
                 detail: "the driver stopped".into(),
                 speaking: true,
-                settings: true,
+                opens_settings: true,
             },
         },
     ]

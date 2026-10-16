@@ -742,7 +742,7 @@ MediaState struct
   playback: TypeName("Playback")
   detail: Str
   speaking: Bool
-  settings: Bool
+  opens_settings: Bool
 MediaStatus enum
   0 Starting: Unit
   1 Live: Unit
