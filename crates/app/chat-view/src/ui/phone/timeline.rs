@@ -139,6 +139,13 @@ fn rows(
         }),
     )
     .with_sizing_behavior(ListSizingBehavior::Auto)
+    // the list's own inset: a room's `gap.sm` at both ends (mobile
+    // `app/(tabs)/chat/[channel]/index.tsx:235`), a thread's `gap.lg` under
+    // its last reply (`thread/[root].tsx:90`)
+    .map(|list| match pane {
+        Pane::Timeline => list.py(design::space::SM),
+        Pane::Thread => list.pb(design::space::LG),
+    })
     .flex_1()
     .min_h(px(0.))
     .w_full()
