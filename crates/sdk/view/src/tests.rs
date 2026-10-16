@@ -712,6 +712,7 @@ fn chained_spawns_finish_in_one_tick() {
     probe.read(|view| assert_eq!(view.received.len(), 40));
 }
 
+mod adaptive;
 mod lifecycle;
 mod phone;
 mod pictures;

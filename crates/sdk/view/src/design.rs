@@ -11,8 +11,12 @@
 //! a Compact layout is made of, and the sheet ([`sheet`]).
 pub use ::design::*;
 
+mod adaptive;
 mod format;
 mod pages;
+pub use adaptive::{
+    ACTIONS, Ask, Confirm, Popup, ask, confirm, opens_actions, popup, send, tap_or_hold,
+};
 pub(crate) use format::set_utc_offset;
 pub use format::{ago, clock, date, day, grouped, initial, local, plural};
 pub use pages::{CAPSULE_CLEARANCE, Page, Pages, page};

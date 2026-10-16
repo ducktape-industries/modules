@@ -609,6 +609,31 @@ impl TestAppContext {
         self.press(pressed);
         self.run(events);
     }
+    /// A finger holds the button `name` (a long press): its click runs with
+    /// a touch event whose `long_press` is set (`design::tap_or_hold`).
+    pub fn simulate_long_press(&mut self, name: &str) {
+        let Some(chain) = button(self.root(), name) else {
+            panic!("no button {name:?} in {:?}", self.texts());
+        };
+        let held = gpui::ClickEvent::Touch(gpui::TouchClickEvent {
+            position: gpui::Point::default(),
+            tap_count: 1,
+            long_press: true,
+        });
+        let events = along(
+            &chain,
+            click_stops_at(&chain),
+            |_| None,
+            |i| i.on_click,
+            |handler, _| Event::Click {
+                handler,
+                event: (&held).into(),
+            },
+        );
+        let pressed = focus::pressed(&chain);
+        self.press(pressed);
+        self.run(events);
+    }
     /// A press of a mouse button other than the primary on `key`.
     pub fn simulate_aux_click(&mut self, key: &str) {
         let chain = self.chain(key);
