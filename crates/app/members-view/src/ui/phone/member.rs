@@ -21,7 +21,7 @@ use crate::{
 };
 
 /// A small button is this tall (`theme.ts:76`, `size.small`).
-// SDK gap: the kit's small outline `Button`; the SDK builds it later
+// SDK gap: the kit's small outline `Button` (`Button::small()`), swap when feat/phone-kit lands
 const SMALL: Pixels = px(36.);
 
 /// The member's page: Back, the name over `account N`, Explorer; then the
@@ -96,6 +96,7 @@ fn missing(
 ) -> AnyElement {
     let body = match &view.rows {
         Loadable::Failed(refusal) => refused(refusal, cx, ladder, theme),
+        // SDK gap: the kit's `EmptyState` (centred, with its icon), swap when feat/phone-kit lands
         Loadable::Ready(_) | Loadable::Reloading(..) => design::empty_state(
             "members-no-account",
             words::no_account(number),
@@ -437,7 +438,7 @@ fn signed_row(
 
 /// The kit's small outline button (36 tall, 12 in, secondary medium),
 /// opening `link` through the host; its press reaches 44 up and down.
-// SDK gap: the kit's small outline `Button`; the SDK builds it later
+// SDK gap: the kit's small outline `Button` (`Button::small()`), swap when feat/phone-kit lands
 fn small_button(
     id: &'static str,
     label: &'static str,

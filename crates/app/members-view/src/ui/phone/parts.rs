@@ -109,7 +109,8 @@ pub(super) fn quiet(
 }
 
 /// A refused roster read (`crate::refused`) in the phone's padding.
-// SDK gap: the kit's `Notice` strip for a refusal; the SDK builds it later
+// SDK gap: the kit's `Notice` strip for a refusal (`design::refused` under
+// a finger), swap when feat/phone-kit lands
 pub(super) fn refused(
     refusal: &Error,
     cx: &mut Context<Members>,

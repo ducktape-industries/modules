@@ -240,6 +240,8 @@ fn list(view: &Members, cx: &mut Context<Members>, ladder: &Ladder, theme: &Them
         Roster::Reading => return quiet("members-loading", words::READING_ROSTER, ladder, theme),
         Roster::Refused(refusal) => return refused(refusal, cx, ladder, theme),
         Roster::Empty { id, title, detail } => {
+            // SDK gap: the kit's `EmptyState` (centred, with its icon),
+            // swap when feat/phone-kit lands
             return design::empty_state(id, title, detail, theme).into_any_element();
         }
     };
