@@ -18,6 +18,7 @@ host.log None String -> ()
 host.placement None () -> Placement
 host.route None () -> String
 host.session None () -> Session
+host.show None Place -> ()
 host.title None String -> ()
 host.unfloat None () -> ()
 host.visible None () -> bool
@@ -129,6 +130,8 @@ Outcome = Enum { tag_width: 1, variants: [(0, "Applied", "Outcome__Applied"), (1
 Outcome__Applied = Struct { fields: NamedFields([("output", "Vec<u8>")]) }
 Outcome__Rejected = Struct { fields: UnnamedFields(["Error"]) }
 Peer = Struct { fields: NamedFields([("key", "Vec<u8>"), ("signed", "Option<u64>")]) }
+Place = Enum { tag_width: 1, variants: [(0, "Account", "Place__Account")] }
+Place__Account = Struct { fields: Empty }
 Placement = Struct { fields: NamedFields([("floating", "bool"), ("on_top", "bool")]) }
 ProgramOp = Struct { fields: Empty }
 ProgramQuery = Struct { fields: Empty }
@@ -1306,6 +1309,7 @@ TextNode struct
   id: Option(TypeName("WireRepr"))
   style: U32
   content: Str
+  transform: Option(TypeName("TextTransform"))
 TextPosition struct
   node: TypeName("NodeId")
   characterIndex: U64
@@ -1329,6 +1333,8 @@ TextSelection struct
 TextToken struct
   range: TypeName("TextRange")
   id: Str
+TextTransform enum
+  0 Uppercase: Unit
 Toggled enum
   0 false: Unit
   1 true: Unit

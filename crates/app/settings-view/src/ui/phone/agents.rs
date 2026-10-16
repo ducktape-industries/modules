@@ -226,8 +226,7 @@ pub(super) fn sheet(
         // whom it answers can outgrow the screen: a taller sheet, and the
         // body scrolls (Expo `src/account/Agents.tsx:432-433`)
         Sheet::Answers(_) => sheet.detents(ANSWERS_DETENTS),
-        // SDK gap: a sheet sized to its content, swap when lane WH's wire and
-        // host change lands (kit.md §3)
+        // as tall as what it holds, as Expo's sheets without snaps
         Sheet::Actions(_) | Sheet::Rename(_) | Sheet::CreateAgent | Sheet::AddKey => sheet,
     };
     Some(sheet.child(body).into_any_element())

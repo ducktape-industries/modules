@@ -1112,6 +1112,11 @@
     "reply": null
   },
   {
+    "kind": "host.show",
+    "request": "Account",
+    "reply": null
+  },
+  {
     "kind": "camera.devices",
     "request": null,
     "reply": [

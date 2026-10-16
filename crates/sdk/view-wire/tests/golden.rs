@@ -32,8 +32,8 @@ use view_wire::{
     KeyClaim, ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live,
     MediaState, MediaStatus, MicCommand, Node, Patch, Playback, Request, RichTextHighlightStyle,
     RichTextHover, RichTextRuns, Style, StyleId, SvgSource, SvgTransformation, TextChange,
-    TextNode, TextRange, TextToken, Tooltip, TooltipResponse, WebCommand, WebState, WidgetCommand,
-    click, interactivity, keyboard, mouse,
+    TextNode, TextRange, TextToken, TextTransform, Tooltip, TooltipResponse, WebCommand, WebState,
+    WidgetCommand, click, interactivity, keyboard, mouse,
 };
 
 const MESSAGE: &str =
@@ -91,6 +91,7 @@ fn text(content: &str) -> Node {
         id: Some(id(content)),
         style: style(),
         content: content.into(),
+        transform: None,
     })
 }
 
@@ -481,6 +482,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
         ),
         exchange::<HostBadge>(3, ()),
         exchange::<HostTitle>("general".into(), ()),
+        exchange::<HostShow>(Place::Account, ()),
         exchange::<CameraDevices>(
             (),
             vec![

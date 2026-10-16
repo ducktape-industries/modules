@@ -137,6 +137,9 @@ pub(super) fn gen_text(rng: &mut Rng) -> Node {
             PLAIN
         },
         content: gen_string(rng),
+        transform: rng
+            .next_bool()
+            .then_some(view_wire::TextTransform::Uppercase),
     })
 }
 

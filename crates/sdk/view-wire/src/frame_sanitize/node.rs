@@ -231,13 +231,13 @@ fn sanitize_fields(
 }
 
 /// A sheet opens at its first detent and is dragged up through the rest:
-/// at least one, each a fraction of the body in `0..=1` above zero (a
-/// sheet at zero height is none), strictly ascending, no more than a host
-/// keeps snap points for.
+/// each a fraction of the body in `0..=1` above zero (a sheet at zero
+/// height is none), strictly ascending, no more than a host keeps snap
+/// points for. None is a sheet as tall as what it holds.
 fn sheet_detents(detents: &[f32]) -> Result<(), &'static str> {
     const MOST: usize = 8;
-    if detents.is_empty() || detents.len() > MOST {
-        return Err("a sheet has one to eight detents");
+    if detents.len() > MOST {
+        return Err("a sheet has at most eight detents");
     }
     if detents
         .iter()

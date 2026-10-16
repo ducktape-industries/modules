@@ -61,6 +61,7 @@ pub struct Units {
     svg_source: Vec<SvgSource>,
     text_align: Vec<gpui::TextAlign>,
     text_input_action: Vec<view_wire::TextInputAction>,
+    text_transform: Vec<view_wire::TextTransform>,
     toggled: Vec<accesskit::Toggled>,
     touch_phase: Vec<interactivity::TouchPhase>,
     uniform_list_horizontal_sizing: Vec<UniformListHorizontalSizing>,

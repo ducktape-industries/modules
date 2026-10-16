@@ -73,6 +73,17 @@ pub struct Nodes {
     /// the asks in flight: the clock asks again only once one lands
     #[serde(skip)]
     pub(crate) asking: Asking,
+    /// the reader's account name, as identity names it, for the first
+    /// page's avatar; empty while it is read, and where the session has
+    /// no account or identity profiles none
+    #[serde(skip)]
+    pub(crate) reader: String,
+    /// the session's account `reader` is read for
+    #[serde(skip)]
+    pub(crate) reader_account: Option<u64>,
+    /// the read of `reader`: a newer session's replaces and cancels it
+    #[serde(skip)]
+    pub(crate) reading_reader: Option<Task<()>>,
     /// the vote, read again on every open
     #[serde(skip)]
     pub(crate) voting: Voting,

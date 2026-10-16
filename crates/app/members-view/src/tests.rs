@@ -4,12 +4,14 @@ use abi::Scheme;
 use valset::Valset;
 use view::methods::Query;
 use view::methods::{
-    Block, BlockList, BlockPage, ChainBlock, ChainBlocks, ChainTx, Change, ProgramDescribe,
-    Session, Tx,
+    Block, BlockList, BlockPage, ChainBlock, ChainBlocks, ChainTx, Change, Located,
+    ProgramDescribe, Session, Tx, TxAsk, TxRef,
 };
 use view::testing::TestAppContext;
 use view::wire::{ContainerNode, Node};
 use view::{Hsla, StyleRefinement, Styled, Theme};
+
+mod phone;
 
 #[test]
 fn the_root_tracks_the_shared_theme() {
@@ -92,6 +94,8 @@ fn tx(signer: &[u8]) -> Tx {
     Tx {
         signer: signer.to_vec(),
         target: "chat".into(),
+        size: 2,
+        payload: Some(b"hi".to_vec()),
         ..Tx::default()
     }
 }
@@ -117,6 +121,21 @@ fn account_of(signer: &[u8]) -> Option<u64> {
 /// program indexes them.
 fn chain(cx: &mut TestAppContext, blocks: Vec<Block>) {
     let tip = blocks.last().cloned();
+    let txs = blocks.clone();
+    cx.host().handle::<ChainTx>(move |ask: TxAsk| {
+        let TxRef::At { height, position } = ask.tx else {
+            panic!("a frame's transaction is read by its place")
+        };
+        let block = txs.iter().find(|block| block.height == height);
+        Ok(block.and_then(|block| {
+            Some(Located {
+                height,
+                position,
+                time: block.time,
+                tx: block.txs.get(position as usize)?.clone(),
+            })
+        }))
+    });
     cx.host().handle::<ChainBlocks>(move |page: BlockPage| {
         assert_eq!((page.before, page.limit), (None, 1), "only the tip is read");
         Ok(BlockList {
@@ -446,7 +465,7 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_choice() {
     view.read(|view| {
         assert_eq!(view.filter.text(), "sc");
         assert_eq!(view.only, Some(Group::Agents));
-        assert_eq!(view.selected, Some(9));
+        assert_eq!(view.selected(), Some(9));
     });
     assert_eq!(restored.host().requests::<Query<Identity>>().len(), 1);
     // the activity is read again for the restored choice
