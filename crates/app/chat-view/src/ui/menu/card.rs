@@ -1,6 +1,7 @@
 //! An agent author's card, opened from its avatar: what it is, whom it
 //! answers, and the ways to its work in this room and to its profile. The
-//! card reads identity only; what runs the agent is the runner's to show.
+//! card reads identity only; what the agent did is the program its script
+//! calls to show.
 use view::prelude::*;
 
 use super::{Item, Press};

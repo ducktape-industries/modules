@@ -421,20 +421,26 @@ impl Chat {
         links::channel_link(&self.session.chain_id, &self.room_id(), Some(seq))
     }
 
-    /// Where the program that runs the agent `author` shows its work in
-    /// this room ([`links::work_record`]). None for an author no runner
-    /// runs, or before the session names a chain.
+    /// Where the program the agent `author`'s script calls shows its work
+    /// in this room ([`links::work_record`]). None for an author that is no
+    /// agent with a script, or before the session names a chain.
     pub(crate) fn work_record(&self, author: &Principal) -> Option<String> {
         let names = self.names.ready()?;
-        let Some(chat::Kind::Managed {
-            runner: Some(runner),
+        let Some(chat::Kind::Program {
+            category: chat::Category::Agent,
+            script: Some(script),
             ..
         }) = names.kind(author)
         else {
             return None;
         };
         let agent = author.account()?;
-        links::work_record(&self.session.chain_id, runner, agent, &self.room_id())
+        links::work_record(
+            &self.session.chain_id,
+            &script.calls,
+            agent,
+            &self.room_id(),
+        )
     }
 
     pub(crate) fn open_link(&mut self, link: String, cx: &mut Context<Self>) {

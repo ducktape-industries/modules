@@ -20,13 +20,13 @@ pub fn program_link(chain: &str, channel: &str) -> Option<String> {
     ducklink::mint(chain, program, &path)
 }
 
-/// `duck://<chain>/<runner>/<agent>/chat/<channel>`: where the program
-/// that runs an agent shows its work in a room, by the place it keeps it
+/// `duck://<chain>/<calls>/<agent>/chat/<channel>`: where the program an
+/// agent's script calls shows its work in a room, by the place it keeps it
 /// under (`chat/<channel>`), the channel percent-encoded like any segment.
 /// None without a chain.
-pub fn work_record(chain: &str, runner: &str, agent: u64, channel: &str) -> Option<String> {
+pub fn work_record(chain: &str, calls: &str, agent: u64, channel: &str) -> Option<String> {
     let agent = agent.to_string();
-    ducklink::mint(chain, runner, &[&agent, ::chat::PROGRAM, channel])
+    ducklink::mint(chain, calls, &[&agent, ::chat::PROGRAM, channel])
 }
 
 /// `duck://explorer/block/<height>`: the host's short link to a view on

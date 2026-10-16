@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use chat::view::Names;
-use chat::{Kind, Principal};
+use chat::{Category, Kind, Principal, Standing};
 use identity::Audience;
 
 /// Autocomplete candidates: every user and program account that acts
@@ -41,16 +41,22 @@ pub fn mention_token(principal: &Principal) -> String {
 }
 
 /// Why `agent` would give `reader` no answer, by the rule harness answers
-/// by: its manager always gets one, anyone else by its audience. None when
-/// it answers them, for anyone not an agent, and while its audience is
-/// unread.
+/// by: an active agent's manager always gets one, anyone else by its
+/// audience. None when it answers them, for anyone not an active agent,
+/// and while its audience is unread.
 pub fn unanswered(
     names: &Names,
     audiences: &BTreeMap<u64, Audience>,
     agent: &Principal,
     reader: u64,
 ) -> Option<&'static str> {
-    let Some(Kind::Managed { manager, .. }) = names.kind(agent) else {
+    let Some(Kind::Program {
+        manager,
+        category: Category::Agent,
+        standing: Standing::Active,
+        ..
+    }) = names.kind(agent)
+    else {
         return None;
     };
     if *manager == reader {
@@ -141,16 +147,17 @@ mod tests {
         assert!(!crate::message::agent(&names, &account(3)));
     }
 
-    /// An agent answers its manager always, and anyone else as its
-    /// audience says; nothing is said of a person, a program, or an agent
-    /// whose audience is unread.
+    /// An active agent answers its manager always, and anyone else as its
+    /// audience says; nothing is said of a person, a program, an agent
+    /// that does not act, or one whose audience is unread.
     #[test]
     fn who_an_agent_leaves_unanswered() {
         let names = Names::from_roster([
-            profile(1, "ada", Kind::Person),
+            profile(1, "ada", Kind::User),
             profile(2, "scout", agent(1, Standing::Active)),
-            profile(3, "forge", Kind::Program("forge".into())),
-            profile(4, "bo", Kind::Person),
+            profile(3, "forge", Kind::System("forge".into())),
+            profile(4, "bo", Kind::User),
+            profile(5, "idle", agent(1, Standing::Suspended)),
         ]);
         let scout = Principal::Account(2);
         let heard = |audience: Audience, reader| {
@@ -167,7 +174,7 @@ mod tests {
         assert_eq!(heard(Audience::Anyone, 9), None);
         let none = BTreeMap::new();
         assert_eq!(unanswered(&names, &none, &scout, 4), None, "unread");
-        for other in [1, 3] {
+        for other in [1, 3, 5] {
             let audiences = BTreeMap::from([(other, Audience::Manager)]);
             assert_eq!(
                 unanswered(&names, &audiences, &Principal::Account(other), 4),

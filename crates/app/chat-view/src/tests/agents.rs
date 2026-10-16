@@ -4,11 +4,14 @@
 use super::*;
 use identity::Audience;
 
-/// An agent ada (10) manages, run by `runner`.
-fn agent(number: u64, name: &str, runner: Option<&str>) -> chat::Profile {
+/// An agent ada (10) manages, its script calling `calls`.
+fn agent(number: u64, name: &str, calls: Option<&str>) -> chat::Profile {
     chat::Profile {
-        kind: chat::Kind::Managed {
-            runner: runner.map(Into::into),
+        kind: chat::Kind::Program {
+            script: calls.map(|calls| abi::role::identity::Script {
+                calls: calls.into(),
+                config: String::new(),
+            }),
             manager: 10,
             category: chat::Category::Agent,
             standing: chat::Standing::Active,
@@ -19,7 +22,7 @@ fn agent(number: u64, name: &str, runner: Option<&str>) -> chat::Profile {
 
 /// eddy (7) reads `general`, where he, scout, atlas and sage wrote. ada
 /// manages the three agents: scout answers her only, atlas her and bo,
-/// sage anyone; harness runs scout and atlas, nothing runs sage.
+/// sage anyone; scout's and atlas's scripts call harness, sage has none.
 fn agents() -> (TestAppContext, Entity<Chat>) {
     let mut cx = TestAppContext::new();
     configure(&mut cx);
@@ -135,8 +138,8 @@ fn a_dm_header_says_when_the_agent_will_not_reply() {
 }
 
 /// An agent's message offers "View work record", which opens the room's
-/// place in the program that runs the agent; a person's message and an
-/// agent's that nothing runs do not offer it.
+/// place in the program the agent's script calls; a person's message and an
+/// agent's with no script do not offer it.
 #[test]
 fn an_agents_message_opens_its_work_record() {
     let (mut cx, view) = agents();
@@ -164,7 +167,7 @@ fn an_agents_message_opens_its_work_record() {
 
 /// An agent's face opens its card: its name, what it is and who manages
 /// it, whom it answers, its work record here and its profile, the link
-/// the face opened before. An agent nothing runs has no work record.
+/// the face opened before. An agent with no script has no work record.
 #[test]
 fn an_agents_face_opens_its_card() {
     let (mut cx, view) = agents();
