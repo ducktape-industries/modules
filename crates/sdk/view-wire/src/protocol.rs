@@ -117,6 +117,16 @@ pub enum Event {
     Theme {
         dark: bool,
     },
+    /// The device's primary pointer is a finger (a phone), or not: a device
+    /// fact like the theme, said from what the device is, never from the
+    /// last input. Delivered ahead of the first tick, on change, and to a
+    /// replacement before its first tree, so the view reads it as
+    /// `Window::touch()` and its first frame is at the right ladder
+    /// (`design::ladder`). Under touch a view shows what hover would have
+    /// revealed and treats a long press as the context gesture.
+    Pointer {
+        touch: bool,
+    },
     /// The view's viewport: the body its root is laid out in, in logical
     /// pixels, as the host knows it before the frame is drawn. Delivered
     /// ahead of the first tick, on every change ahead of the draw that
@@ -228,6 +238,14 @@ pub enum Event {
         handler: u32,
         data: Option<ActionData>,
     },
+    /// The person asked to go back (the phone's gesture or its bar), to the
+    /// root's `on_back` ([`Interactivity::on_back`]) in the last frame the
+    /// host landed. A view that popped its page in the meantime hears one
+    /// it has no use for, and ignores it: the next landed frame has no
+    /// `on_back`, and the next press leaves the program.
+    Back {
+        handler: u32,
+    },
     /// Where a [`Node::Web`]'s page is now (its address, title, whether it
     /// loads, whether it can go back or forward), to the node's
     /// `on_state`: sent when the page first reports, and whenever any of it
@@ -308,4 +326,159 @@ pub struct InputOptions {
     pub invalid: Option<Invalid>,
     pub required: bool,
     pub read_only: bool,
+    /// What a software keyboard is told about the field.
+    pub text_input: TextInput,
+}
+
+/// gpui's `TextInputConfiguration`, field for field but `secure`: what a
+/// software keyboard shows and does for the field. `secure` is not here:
+/// it is the field's masked flag ([`crate::Node::Field`]'s `secure`), which
+/// the host passes to [`TextInput::configuration`]. The defaults are
+/// gpui's: no assistance, no particular key. A desktop engine ignores what
+/// its OS has no use for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextInput {
+    /// The platform may correct what is typed.
+    pub autocorrect: bool,
+    pub autocapitalize: Autocapitalize,
+    /// The keyboard may offer words and spellcheck.
+    pub suggestions: bool,
+    /// The label of the keyboard's confirm key; pressing it is still input.
+    pub input_action: TextInputAction,
+    pub virtual_keyboard: VirtualKeyboard,
+}
+
+/// gpui's `Autocapitalize`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Autocapitalize {
+    #[default]
+    None,
+    Words,
+    Sentences,
+    Characters,
+}
+
+/// gpui's `TextInputAction`: HTML's `enterkeyhint` values.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextInputAction {
+    #[default]
+    Unspecified,
+    Enter,
+    Done,
+    Go,
+    Next,
+    Previous,
+    Search,
+    Send,
+}
+
+/// gpui's `VirtualKeyboard`: the keyboard a software keyboard opens as,
+/// HTML's `inputmode` values (iOS `keyboardType`, Android `inputType`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VirtualKeyboard {
+    #[default]
+    Text,
+    Numeric,
+    Decimal,
+    Tel,
+    Email,
+    Url,
+    Search,
+}
+
+impl From<gpui::Autocapitalize> for Autocapitalize {
+    fn from(value: gpui::Autocapitalize) -> Self {
+        match value {
+            gpui::Autocapitalize::None => Self::None,
+            gpui::Autocapitalize::Words => Self::Words,
+            gpui::Autocapitalize::Sentences => Self::Sentences,
+            gpui::Autocapitalize::Characters => Self::Characters,
+        }
+    }
+}
+
+impl From<Autocapitalize> for gpui::Autocapitalize {
+    fn from(value: Autocapitalize) -> Self {
+        match value {
+            Autocapitalize::None => Self::None,
+            Autocapitalize::Words => Self::Words,
+            Autocapitalize::Sentences => Self::Sentences,
+            Autocapitalize::Characters => Self::Characters,
+        }
+    }
+}
+
+impl From<gpui::TextInputAction> for TextInputAction {
+    fn from(value: gpui::TextInputAction) -> Self {
+        match value {
+            gpui::TextInputAction::Unspecified => Self::Unspecified,
+            gpui::TextInputAction::Enter => Self::Enter,
+            gpui::TextInputAction::Done => Self::Done,
+            gpui::TextInputAction::Go => Self::Go,
+            gpui::TextInputAction::Next => Self::Next,
+            gpui::TextInputAction::Previous => Self::Previous,
+            gpui::TextInputAction::Search => Self::Search,
+            gpui::TextInputAction::Send => Self::Send,
+        }
+    }
+}
+
+impl From<TextInputAction> for gpui::TextInputAction {
+    fn from(value: TextInputAction) -> Self {
+        match value {
+            TextInputAction::Unspecified => Self::Unspecified,
+            TextInputAction::Enter => Self::Enter,
+            TextInputAction::Done => Self::Done,
+            TextInputAction::Go => Self::Go,
+            TextInputAction::Next => Self::Next,
+            TextInputAction::Previous => Self::Previous,
+            TextInputAction::Search => Self::Search,
+            TextInputAction::Send => Self::Send,
+        }
+    }
+}
+
+impl From<gpui::VirtualKeyboard> for VirtualKeyboard {
+    fn from(value: gpui::VirtualKeyboard) -> Self {
+        match value {
+            gpui::VirtualKeyboard::Text => Self::Text,
+            gpui::VirtualKeyboard::Numeric => Self::Numeric,
+            gpui::VirtualKeyboard::Decimal => Self::Decimal,
+            gpui::VirtualKeyboard::Tel => Self::Tel,
+            gpui::VirtualKeyboard::Email => Self::Email,
+            gpui::VirtualKeyboard::Url => Self::Url,
+            gpui::VirtualKeyboard::Search => Self::Search,
+        }
+    }
+}
+
+impl From<VirtualKeyboard> for gpui::VirtualKeyboard {
+    fn from(value: VirtualKeyboard) -> Self {
+        match value {
+            VirtualKeyboard::Text => Self::Text,
+            VirtualKeyboard::Numeric => Self::Numeric,
+            VirtualKeyboard::Decimal => Self::Decimal,
+            VirtualKeyboard::Tel => Self::Tel,
+            VirtualKeyboard::Email => Self::Email,
+            VirtualKeyboard::Url => Self::Url,
+            VirtualKeyboard::Search => Self::Search,
+        }
+    }
+}
+
+impl TextInput {
+    /// The same field's configuration in gpui's type, for a host engine.
+    /// `secure` is the field's masked flag ([`crate::Node::Field`]'s
+    /// `secure`): a secret field hides what is typed from third-party
+    /// keyboards and suggestion services.
+    pub fn configuration(self, secure: bool) -> gpui::TextInputConfiguration {
+        gpui::TextInputConfiguration {
+            autocorrect: self.autocorrect,
+            autocapitalize: self.autocapitalize.into(),
+            suggestions: self.suggestions,
+            input_action: self.input_action.into(),
+            virtual_keyboard: self.virtual_keyboard.into(),
+            secure,
+        }
+    }
 }

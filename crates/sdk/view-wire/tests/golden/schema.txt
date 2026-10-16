@@ -22,9 +22,13 @@ host.visible None () -> bool
 host.widget None TypeName("WidgetCommand") -> Unit tree
 invite.create None CreateInvite -> Invite
 link.open None String -> ()
+live.publish None LivePublish -> Publishing
+live.send None LiveSend -> ()
+live.subscribe None LiveSubscribe -> LiveItem
+live.tracks None String -> Watching
 notify.post None Notification -> Delivery
 notify.seen None String -> ()
-op.submit Some("P") ProgramOp -> Vec<u8>
+op.submit Some("P") ProgramOp -> Submitted
 program.changes Some("P") () -> Option<Change>
 program.describe None (String, Vec<u8>) -> Option<Description>
 program.query Some("P") ProgramQuery -> ProgramReply
@@ -43,7 +47,7 @@ BlockPage = Struct { fields: NamedFields([("before", "Option<u64>"), ("limit", "
 BlockRef = Enum { tag_width: 1, variants: [(0, "Height", "BlockRef__Height"), (1, "Id", "BlockRef__Id")] }
 BlockRef__Height = Struct { fields: UnnamedFields(["u64"]) }
 BlockRef__Id = Struct { fields: UnnamedFields(["[u8; 32]"]) }
-Capability = Enum { tag_width: 1, variants: [(0, "Chain", "Capability__Chain"), (1, "Program", "Capability__Program"), (2, "Op", "Capability__Op"), (3, "Invite", "Capability__Invite"), (4, "Link", "Capability__Link"), (5, "Blob", "Capability__Blob"), (6, "Host", "Capability__Host"), (7, "Clock", "Capability__Clock"), (8, "Clipboard", "Capability__Clipboard"), (9, "Notify", "Capability__Notify"), (10, "Store", "Capability__Store"), (11, "Web", "Capability__Web")] }
+Capability = Enum { tag_width: 1, variants: [(0, "Chain", "Capability__Chain"), (1, "Program", "Capability__Program"), (2, "Op", "Capability__Op"), (3, "Invite", "Capability__Invite"), (4, "Link", "Capability__Link"), (5, "Blob", "Capability__Blob"), (6, "Host", "Capability__Host"), (7, "Clock", "Capability__Clock"), (8, "Clipboard", "Capability__Clipboard"), (9, "Notify", "Capability__Notify"), (10, "Store", "Capability__Store"), (11, "Web", "Capability__Web"), (12, "Live", "Capability__Live")] }
 Capability__Blob = Struct { fields: Empty }
 Capability__Chain = Struct { fields: Empty }
 Capability__Clipboard = Struct { fields: Empty }
@@ -51,6 +55,7 @@ Capability__Clock = Struct { fields: Empty }
 Capability__Host = Struct { fields: Empty }
 Capability__Invite = Struct { fields: Empty }
 Capability__Link = Struct { fields: Empty }
+Capability__Live = Struct { fields: Empty }
 Capability__Notify = Struct { fields: Empty }
 Capability__Op = Struct { fields: Empty }
 Capability__Program = Struct { fields: Empty }
@@ -69,6 +74,22 @@ Error = Struct { fields: NamedFields([("code", "String"), ("message", "String")]
 Field = Struct { fields: NamedFields([("label", "String"), ("value", "Value")]) }
 Head = Struct { fields: NamedFields([("height", "u64"), ("time", "u64"), ("id", "[u8; 32]")]) }
 Invite = Struct { fields: NamedFields([("invite", "String"), ("notes", "Vec<Error>")]) }
+LiveAnnounce = Struct { fields: NamedFields([("name", "String"), ("by", "u64"), ("mode", "LiveMode"), ("up", "bool")]) }
+LiveItem = Enum { tag_width: 1, variants: [(0, "Waiting", "LiveItem__Waiting"), (1, "Opened", "LiveItem__Opened"), (2, "Object", "LiveItem__Object"), (3, "GroupEnd", "LiveItem__GroupEnd")] }
+LiveItem__GroupEnd = Struct { fields: NamedFields([("group", "u64"), ("complete", "bool")]) }
+LiveItem__Object = Struct { fields: NamedFields([("group", "u64"), ("object", "u32"), ("body", "Vec<u8>")]) }
+LiveItem__Opened = Struct { fields: NamedFields([("by", "u64"), ("mode", "LiveMode"), ("latest", "Option<u64>")]) }
+LiveItem__Waiting = Struct { fields: Empty }
+LiveMode = Enum { tag_width: 1, variants: [(0, "Stream", "LiveMode__Stream"), (1, "Datagram", "LiveMode__Datagram")] }
+LiveMode__Datagram = Struct { fields: Empty }
+LiveMode__Stream = Struct { fields: Empty }
+LivePublish = Struct { fields: NamedFields([("track", "LiveTrack"), ("mode", "LiveMode"), ("priority", "u8")]) }
+LiveSend = Struct { fields: NamedFields([("track", "LiveTrack"), ("group", "u64"), ("object", "u32"), ("body", "Vec<u8>"), ("end", "bool")]) }
+LiveStart = Enum { tag_width: 1, variants: [(0, "Latest", "LiveStart__Latest"), (1, "Next", "LiveStart__Next")] }
+LiveStart__Latest = Struct { fields: Empty }
+LiveStart__Next = Struct { fields: Empty }
+LiveSubscribe = Struct { fields: NamedFields([("track", "LiveTrack"), ("from", "LiveStart")]) }
+LiveTrack = Struct { fields: NamedFields([("room", "String"), ("name", "String")]) }
 Located = Struct { fields: NamedFields([("height", "u64"), ("position", "u32"), ("time", "u64"), ("tx", "Tx")]) }
 Manifest = Struct { fields: NamedFields([("wire_id", "String"), ("name", "String"), ("description", "String"), ("capabilities", "Vec<Capability>"), ("min_width", "u32"), ("targets", "Vec<String>"), ("icon", "String")]) }
 Manifested = Struct { fields: NamedFields([("size", "u64"), ("view", "Option<CarriedView>")]) }
@@ -92,9 +113,17 @@ Peer = Struct { fields: NamedFields([("key", "Vec<u8>"), ("signed", "Option<u64>
 ProgramOp = Struct { fields: Empty }
 ProgramQuery = Struct { fields: Empty }
 ProgramReply = Struct { fields: Empty }
+Publishing = Enum { tag_width: 1, variants: [(0, "Waiting", "Publishing__Waiting"), (1, "Subscribers", "Publishing__Subscribers"), (2, "Cut", "Publishing__Cut")] }
+Publishing__Cut = Struct { fields: NamedFields([("group", "u64")]) }
+Publishing__Subscribers = Struct { fields: UnnamedFields(["u32"]) }
+Publishing__Waiting = Struct { fields: Empty }
 Receipt = Struct { fields: NamedFields([("program", "String"), ("outcome", "Outcome"), ("events", "Vec<Vec<u8>>"), ("nested", "Vec<Receipt>")]) }
 Session = Struct { fields: NamedFields([("connected", "bool"), ("chain_id", "String"), ("signer", "String"), ("account", "Option<u64>"), ("endpoint", "String")]) }
 String = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u8" }
+Submitted = Enum { tag_width: 1, variants: [(0, "Applied", "Submitted__Applied"), (1, "Refused", "Submitted__Refused"), (2, "InDoubt", "Submitted__InDoubt")] }
+Submitted__Applied = Struct { fields: NamedFields([("frame", "[u8; 32]"), ("until", "u64"), ("output", "Vec<u8>")]) }
+Submitted__InDoubt = Struct { fields: NamedFields([("frame", "[u8; 32]"), ("until", "u64")]) }
+Submitted__Refused = Struct { fields: NamedFields([("frame", "[u8; 32]"), ("until", "u64"), ("refusal", "Error")]) }
 Tip = Struct { fields: NamedFields([("height", "u64"), ("id", "[u8; 32]")]) }
 Tx = Struct { fields: NamedFields([("hash", "[u8; 32]"), ("signer", "Vec<u8>"), ("anchor", "Tip"), ("target", "String"), ("size", "u32"), ("payload", "Option<Vec<u8>>"), ("receipt", "Option<Receipt>")]) }
 TxAsk = Struct { fields: NamedFields([("tx", "TxRef"), ("most", "u32")]) }
@@ -122,6 +151,9 @@ Vec<Tx> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "T
 Vec<Value> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Value" }
 Vec<Vec<u8>> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Vec<u8>" }
 Vec<u8> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u8" }
+Watching = Enum { tag_width: 1, variants: [(0, "Waiting", "Watching__Waiting"), (1, "Announce", "Watching__Announce")] }
+Watching__Announce = Struct { fields: UnnamedFields(["LiveAnnounce"]) }
+Watching__Waiting = Struct { fields: Empty }
 [u8; 32] = Sequence { length_width: 0, length_range: 32..=32, elements: "u8" }
 bool = Primitive(1)
 i64 = Primitive(8)
@@ -220,6 +252,11 @@ AriaCurrent enum
   4 location: Unit
   5 date: Unit
   6 time: Unit
+Autocapitalize enum
+  0 None: Unit
+  1 Words: Unit
+  2 Sentences: Unit
+  3 Characters: Unit
 Bounds struct
   origin: TypeName("Point")
   size: TypeName("Size")
@@ -436,60 +473,64 @@ Event enum
     change: TypeName("TextChange")
   19 Theme struct
     dark: Bool
-  20 Viewport struct
+  20 Pointer struct
+    touch: Bool
+  21 Viewport struct
     width: F32
     height: F32
-  21 Offset struct
+  22 Offset struct
     minutes: I32
-  22 Select struct
+  23 Select struct
     handler: U32
     index: U32
-  23 RichTextHover struct
+  24 RichTextHover struct
     handler: U32
     event: TypeName("RichTextHover")
-  24 Bounds struct
+  25 Bounds struct
     handler: U32
     x: F32
     y: F32
     width: F32
     height: F32
-  25 Drag struct
+  26 Drag struct
     handler: U32
     dx: F64
     dy: F64
-  26 ScrollOffset struct
+  27 ScrollOffset struct
     handler: U32
     x: F32
     y: F32
     relative_x: F32
     relative_y: F32
-  27 UniformListRange struct
+  28 UniformListRange struct
     path: Seq(TypeName("WireRepr"))
     route: U32
     start: U32
     end: U32
     item_height: F32
-  28 UniformListState struct
+  29 UniformListState struct
     path: Seq(TypeName("WireRepr"))
     route: U32
     top_index: U32
     scrollable: Bool
     scrolled_to_end: Option(Bool)
-  29 ListRequest struct
+  30 ListRequest struct
     handler: U32
     request: TypeName("ListRequest")
-  30 ListScroll struct
+  31 ListScroll struct
     handler: U32
     event: TypeName("ListScroll")
-  31 Response struct
+  32 Response struct
     id: U64
     result: TypeName("Result")
     done: Bool
-  32 Resync: Unit
-  33 A11yAction struct
+  33 Resync: Unit
+  34 A11yAction struct
     handler: U32
     data: Option(TypeName("ActionData"))
-  34 Web struct
+  35 Back struct
+    handler: U32
+  36 Web struct
     handler: U32
     state: TypeName("WebState")
 FontFallbacks NewTypeStruct(Seq(Str))
@@ -550,6 +591,7 @@ InputOptions struct
   invalid: Option(TypeName("Invalid"))
   required: Bool
   read_only: Bool
+  text_input: TypeName("TextInput")
 Interactivity struct
   role: Option(TypeName("Role"))
   aria: TypeName("Aria")
@@ -594,6 +636,7 @@ Interactivity struct
   on_hover: Option(U32)
   on_file_drop_exit: Option(U32)
   tooltip: Option(TypeName("Tooltip"))
+  on_back: Option(U32)
 Invalid enum
   0 true: Unit
   1 grammar: Unit
@@ -877,10 +920,17 @@ Node enum
     style: U32
     on_dismiss: Option(U32)
     children: Seq(TypeName("Node"))
-  14 Canvas struct
+  14 Sheet struct
+    id: TypeName("WireRepr")
+    label: Option(Str)
+    style: U32
+    detents: Seq(F32)
+    on_dismiss: Option(U32)
+    child: TypeName("Node")
+  15 Canvas struct
     style: U32
     commands: Seq(TypeName("CanvasCommand"))
-  15 Web struct
+  16 Web struct
     id: TypeName("WireRepr")
     url: Str
     style: U32
@@ -1172,6 +1222,21 @@ TextChange struct
   cursor: TypeName("TextRange")
   preedit: Option(TypeName("TextRange"))
   tokens: Seq(TypeName("TextToken"))
+TextInput struct
+  autocorrect: Bool
+  autocapitalize: TypeName("Autocapitalize")
+  suggestions: Bool
+  input_action: TypeName("TextInputAction")
+  virtual_keyboard: TypeName("VirtualKeyboard")
+TextInputAction enum
+  0 Unspecified: Unit
+  1 Enter: Unit
+  2 Done: Unit
+  3 Go: Unit
+  4 Next: Unit
+  5 Previous: Unit
+  6 Search: Unit
+  7 Send: Unit
 TextNode struct
   id: Option(TypeName("WireRepr"))
   style: U32
@@ -1236,6 +1301,14 @@ UniformListScrollStrategy enum
 UniformListSizing enum
   0 Infer: Unit
   1 Auto: Unit
+VirtualKeyboard enum
+  0 Text: Unit
+  1 Numeric: Unit
+  2 Decimal: Unit
+  3 Tel: Unit
+  4 Email: Unit
+  5 Url: Unit
+  6 Search: Unit
 WebCommand enum
   0 Load: NewType(Str)
   1 Back: Unit
@@ -1496,6 +1569,7 @@ TextStyleRefinement struct
   text_overflow: Option(TypeName("TextOverflow"))
   text_align: Option(TypeName("TextAlign"))
   line_clamp: Option(U64)
+  letter_spacing: Option(TypeName("Pixels"))
 Visibility enum
   0 Visible: Unit
   1 Hidden: Unit

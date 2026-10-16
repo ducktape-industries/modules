@@ -7,6 +7,7 @@ use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
 use crate::{Group, Members, Row};
+use view::design::Ladder;
 
 /// The list pane's width until it is dragged.
 const LIST: f32 = 400.;
@@ -20,8 +21,9 @@ const DETAIL_MIN: Pixels = px(440.);
 const KEY_COLUMN: Pixels = px(180.);
 const MARK: Pixels = px(6.);
 
-pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElement {
+pub(crate) fn render(view: &Members, touch: bool, cx: &mut Context<Members>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
+    let ladder = &design::ladder(touch);
     // too narrow for the detail beside the list: the list takes the pane
     // and the chosen account floats over it
     let list = list_width(view);
@@ -34,7 +36,7 @@ pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElem
         .bg(theme.background)
         .text_color(theme.foreground)
         .text_size(text::BODY)
-        .child(list_pane(view, docked.then_some(list), cx, &theme));
+        .child(list_pane(view, docked.then_some(list), cx, &theme, ladder));
     match (docked, view.selected_row().is_some()) {
         (true, _) => screen
             .child(design::divider(
@@ -47,10 +49,10 @@ pub(crate) fn render(view: &Members, cx: &mut Context<Members>) -> impl IntoElem
                     view.list = Some(list_width(view));
                 },
             ))
-            .child(detail_pane(view, false, cx, &theme).flex_1()),
+            .child(detail_pane(view, false, cx, &theme, ladder).flex_1()),
         (false, true) => screen.child(design::over(
             "members-detail-over",
-            detail_pane(view, true, cx, &theme),
+            detail_pane(view, true, cx, &theme, ladder),
             &theme,
         )),
         (false, false) => screen,
@@ -72,6 +74,7 @@ fn detail_pane(
     over: bool,
     cx: &mut Context<Members>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Stateful<Div> {
     div()
         .id("members-detail")
@@ -79,7 +82,7 @@ fn detail_pane(
         .overflow_y_scroll()
         .flex()
         .flex_col()
-        .child(detail(view, over, cx, theme))
+        .child(detail(view, over, cx, theme, ladder))
 }
 
 fn list_pane(
@@ -87,6 +90,7 @@ fn list_pane(
     width: Option<f32>,
     cx: &mut Context<Members>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> impl IntoElement {
     let count = match view.rows.ready() {
         Some(rows) => design::plural(rows.len() as u64, "account", "accounts"),
@@ -138,7 +142,7 @@ fn list_pane(
                 )
                 .child(chips(view, cx, theme)),
         )
-        .child(rows(view, cx, theme))
+        .child(rows(view, cx, theme, ladder))
 }
 
 /// All, People, Agents, Programs, each with how many the network holds.
@@ -193,7 +197,7 @@ fn chips(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> impl IntoE
 }
 
 /// The four states of the roster: loading, refused, empty, ready.
-fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> AnyElement {
+fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let all = match &view.rows {
         Loadable::Idle | Loadable::Loading(_) => {
             return pad(design::quiet("Reading the roster…", theme))
@@ -205,6 +209,7 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> AnyElement 
             return pad(design::refused(
                 "members",
                 refusal.message.clone(),
+                ladder,
                 theme,
                 retry,
             ))
@@ -305,7 +310,7 @@ fn member_row(
     let name_of = |manager| name(all, manager);
     let kind = match &row.kind {
         // a program named for its program says so once
-        identity::Kind::Program(program) if *program == row.name => "Program".into(),
+        identity::Kind::System(program) if *program == row.name => "Program".into(),
         kind => identity::view::kind(kind, name_of),
     };
     let me = view.me == Some(number);
@@ -390,7 +395,13 @@ fn pad(inner: impl IntoElement) -> Div {
     div().px(space::BLOCK).py(space::SM).child(inner)
 }
 
-fn detail(view: &Members, over: bool, cx: &mut Context<Members>, theme: &Theme) -> AnyElement {
+fn detail(
+    view: &Members,
+    over: bool,
+    cx: &mut Context<Members>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let (Some(rows), Some(row)) = (view.rows.ready(), view.selected_row()) else {
         return div()
             .id("members-none")
@@ -402,17 +413,17 @@ fn detail(view: &Members, over: bool, cx: &mut Context<Members>, theme: &Theme) 
     let mut detail = div()
         .flex()
         .flex_col()
-        .child(head(view, row, rows, over, cx, theme))
+        .child(head(view, row, rows, over, cx, theme, ladder))
         .child(devices(row, theme));
     let managed: Vec<&Row> = rows
         .iter()
         .filter(|other| other.manager() == Some(row.number))
         .collect();
     if !managed.is_empty() {
-        detail = detail.child(manages(&managed, cx, theme));
+        detail = detail.child(manages(&managed, cx, theme, ladder));
     }
     if !row.devices.is_empty() {
-        detail = detail.child(activity(view, theme));
+        detail = detail.child(activity(view, theme, ladder));
     }
     if row.group() == Group::Agents {
         detail = detail.child(
@@ -439,20 +450,21 @@ fn head(
     over: bool,
     cx: &mut Context<Members>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> impl IntoElement {
     let text = |text: String| div().child(text).into_any_element();
     // each part keeps its words (and the manager its link) on one line;
     // a narrow pane wraps between parts
     let mut caption: Vec<Vec<AnyElement>> = vec![vec![text(format!("account {}", row.number))]];
     match &row.kind {
-        identity::Kind::Person => caption.push(vec![text("Person".into())]),
-        identity::Kind::Program(program) if *program == row.name => {
+        identity::Kind::User => caption.push(vec![text("User".into())]),
+        identity::Kind::System(program) if *program == row.name => {
             caption.push(vec![text("Program".into())])
         }
-        identity::Kind::Program(_) => caption.push(vec![text(
+        identity::Kind::System(_) => caption.push(vec![text(
             row.kind.badge(|_| String::new()).unwrap_or_default(),
         )]),
-        identity::Kind::Managed {
+        identity::Kind::Program {
             manager, standing, ..
         } => {
             // the badge with the manager's name left out, and the name as
@@ -472,7 +484,8 @@ fn head(
                 .into_any_element();
             caption.push(vec![text(what.trim_end().to_owned()), link]);
             caption.push(vec![
-                standing_badge("members-standing", &row.kind, *standing, theme).into_any_element(),
+                standing_badge("members-standing", &row.kind, *standing, theme, ladder)
+                    .into_any_element(),
             ]);
         }
     }
@@ -491,6 +504,7 @@ fn head(
             design::badge(
                 "members-validator",
                 standing.clone(),
+                ladder,
                 foreground,
                 background,
             )
@@ -510,7 +524,7 @@ fn head(
     let number = row.number;
     let explorer = format!("duck://explorer/account/{number}");
     let dm = match (view.me, &row.kind) {
-        (Some(me), identity::Kind::Person | identity::Kind::Managed { .. }) if me != number => {
+        (Some(me), identity::Kind::User | identity::Kind::Program { .. }) if me != number => {
             ducklink::mint(
                 &view.chain,
                 chat::PROGRAM,
@@ -597,6 +611,7 @@ fn head(
                     buttons.child(design::button(
                         "members-detail-close",
                         "Close",
+                        ladder,
                         theme,
                         close,
                     ))
@@ -610,13 +625,20 @@ fn standing_badge(
     kind: &identity::Kind,
     standing: identity::Standing,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Stateful<Div> {
     let (foreground, background) = match standing {
         identity::Standing::Active => (theme.success, theme.success_soft),
         identity::Standing::Suspended => (theme.warning, theme.warning_soft),
         identity::Standing::Revoked => (theme.danger, theme.danger_soft),
     };
-    design::badge(id, kind.note().unwrap_or("active"), foreground, background)
+    design::badge(
+        id,
+        kind.note().unwrap_or("active"),
+        ladder,
+        foreground,
+        background,
+    )
 }
 
 /// A 1px-edged button that opens `link` through the host.
@@ -747,11 +769,16 @@ fn devices(row: &Row, theme: &Theme) -> impl IntoElement {
 }
 
 /// The agents a person manages; pressing one chooses it here.
-fn manages(managed: &[&Row], cx: &mut Context<Members>, theme: &Theme) -> impl IntoElement {
+fn manages(
+    managed: &[&Row],
+    cx: &mut Context<Members>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let body = managed
         .iter()
         .filter_map(|agent| {
-            let identity::Kind::Managed {
+            let identity::Kind::Program {
                 category: identity::Category::Agent,
                 standing,
                 ..
@@ -798,6 +825,7 @@ fn manages(managed: &[&Row], cx: &mut Context<Members>, theme: &Theme) -> impl I
                     &agent.kind,
                     standing,
                     &theme,
+                    ladder,
                 )));
             Some(row.into_any_element())
         })
@@ -811,7 +839,7 @@ fn manages(managed: &[&Row], cx: &mut Context<Members>, theme: &Theme) -> impl I
     )
 }
 
-fn activity(view: &Members, theme: &Theme) -> impl IntoElement {
+fn activity(view: &Members, theme: &Theme, ladder: &Ladder) -> impl IntoElement {
     let body = match &view.activity {
         Loadable::Idle | Loadable::Loading(_) => vec![
             div()
@@ -866,6 +894,7 @@ fn activity(view: &Members, theme: &Theme) -> impl IntoElement {
                             format!("members-tx-{index}"),
                             format!("block {place} · {}", signed.position),
                             format!("duck://explorer/tx/{}/{}", signed.height, signed.position),
+                            ladder,
                             theme,
                         )
                         .aria_label(format!("Open {label} in Explorer")),

@@ -13,21 +13,26 @@
 //! is being answered is refused as unknown rather than as a cycle), and
 //! receipts (a submission is its output or its refusal; what ran nested is
 //! read off the hosts, and a rejected run's events go with its writes,
-//! where the kernel's receipt would keep them).
+//! where the kernel's receipt would keep them; the receipt the scheduler
+//! keeps for a scheduled run carries its program and outcome alone).
+//!
+//! A block ends when [`MockChain::at`] moves past it: the chain then runs the
+//! entries the scheduler role holds due at that height, as the kernel's
+//! `crates/kernel/host/src/scheduling.rs` does.
 
 use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::rc::Rc;
 
 use abi::role::identity::{Kind, Profile, Query, Reply, Standing};
-use abi::role::{self, awaits};
+use abi::role::{self, awaits, scheduler};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::awaiting::{self, Answer, Awaiting, Step, Suspended};
 use crate::{
-    AccountNumber, Called, Cause, Env, Error, ExecCtx, FrameId, MessageId, MockHost, Origin,
-    Outcome, Principal, Program, ProgramId, QueryCtx, Resumed, Roles, Ticket, code, identity_role,
-    unauthorized, unexpected_reply,
+    AccountNumber, Called, Cause, EntryId, Env, Error, ExecCtx, FrameId, MessageId, MockHost,
+    Origin, Outcome, Principal, Program, ProgramId, QueryCtx, Resumed, Roles, Ticket, code,
+    identity_role, unauthorized, unexpected_reply,
 };
 
 /// How deep messages nest in one frame: a submission runs at depth 0 and
@@ -127,7 +132,7 @@ struct Parked {
 ///
 /// ```ignore
 /// let chain = MockChain::default();
-/// chain.hold(b"ada-key", 1); // a person, unless a profile says otherwise
+/// chain.hold(b"ada-key", 1); // a user, unless a profile says otherwise
 /// chain.register("forge", 900);
 /// assert_eq!(chain.roster().keys[b"ada-key".as_slice()], 1);
 /// ```
@@ -146,11 +151,11 @@ impl Roster {
             Query::OfProgram(program) => self
                 .profiles
                 .values()
-                .find(|profile| profile.kind == Kind::Program(program.clone()))
+                .find(|profile| profile.kind == Kind::System(program.clone()))
                 .map(|profile| profile.number),
             Query::Runs { program, account } => {
                 let runs = self.profiles.get(account).is_some_and(|profile| {
-                    matches!(&profile.kind, Kind::Managed { runner: Some(runner), .. } if runner == program)
+                    matches!(&profile.kind, Kind::Program { script: Some(script), .. } if &script.calls == program)
                 });
                 if !runs {
                     return Err(unauthorized(format!(
@@ -165,7 +170,7 @@ impl Roster {
         };
         if let Some(number) = number
             && let Some(profile) = self.profiles.get(&number)
-            && let Kind::Managed { standing, .. } = profile.kind
+            && let Kind::Program { standing, .. } = profile.kind
             && standing != Standing::Active
         {
             // identity's own words (`of_key`), revoked or suspended
@@ -324,7 +329,7 @@ impl MockChain {
     }
 
     /// Seats `key` in `account`, as identity would; an account no profile
-    /// names yet is a person. The roster answers only while no program is
+    /// names yet is a user's. The roster answers only while no program is
     /// seated at the identity role: then identity's own ops seat keys.
     pub fn hold(&self, key: impl Into<Vec<u8>>, account: AccountNumber) {
         let mut roster = self.roster_mut();
@@ -332,12 +337,12 @@ impl MockChain {
         roster.profiles.entry(account).or_insert_with(|| Profile {
             number: account,
             name: format!("account {account}"),
-            kind: Kind::Person,
+            kind: Kind::User,
         });
     }
 
-    /// Adds or replaces an account's profile: a program's account, an agent
-    /// and its standing (the roster's, like [`hold`](MockChain::hold)).
+    /// Adds or replaces an account's profile: a system account, a program
+    /// account and its standing (the roster's, like [`hold`](MockChain::hold)).
     pub fn profile(&self, profile: Profile) {
         self.roster_mut().profiles.insert(profile.number, profile);
     }
@@ -345,7 +350,73 @@ impl MockChain {
     /// Moves the chain to `height` and `time`: the block every later
     /// submission, init and query runs in (height 1, time 0 at first).
     pub fn at(&self, height: u64, time: u64) {
+        let (from, then) = self.clock.get();
+        for ended in from..height {
+            self.clock.set((ended, then));
+            self.run_scheduled();
+        }
         self.clock.set((height, time));
+    }
+
+    fn run_scheduled(&self) {
+        let Ok(scheduler) = self.role(role::SCHEDULER) else {
+            return;
+        };
+        let (height, _) = self.clock.get();
+        let mut after = None;
+        loop {
+            let due = scheduler::Query::Due {
+                height,
+                after,
+                limit: None,
+            };
+            let Ok(scheduler::Reply::Due { entries, next }) = self.query(&scheduler, &due) else {
+                return;
+            };
+            for listed in entries {
+                self.run_listed(&scheduler, listed.id);
+            }
+            let Some(next) = next else {
+                return;
+            };
+            after = Some(next);
+        }
+    }
+
+    fn run_listed(&self, scheduler: &ProgramId, id: EntryId) {
+        let asked = scheduler::Query::Entry { id };
+        let Ok(scheduler::Reply::Entry(Some(entry))) = self.query(scheduler, &asked) else {
+            return;
+        };
+        let ran_already = entry.receipt.is_some();
+        if ran_already {
+            return;
+        }
+        let outcome = match self.run_entry(&entry) {
+            Ok(output) => abi::Outcome::Applied { output },
+            Err(refusal) => abi::Outcome::Rejected(crate::kernel::refusal_from(refusal)),
+        };
+        let receipt = abi::Receipt {
+            program: entry.target,
+            outcome,
+            events: Vec::new(),
+            nested: Vec::new(),
+        };
+        let ran = abi::encode(&scheduler::Op::Ran { entry: id, receipt });
+        let env = self.env(scheduler.clone());
+        let _ = self.run_frame(env, Call::Execute(&ran), Waiter::Nobody, 0);
+    }
+
+    fn run_entry(&self, entry: &scheduler::Entry) -> Result<Vec<u8>, Error> {
+        let sender = self.account(Query::OfProgram(entry.scheduler.clone()))?;
+        let env = Env {
+            origin: Origin::Program(entry.scheduler.clone()),
+            sender,
+            cause: Cause::Scheduled { entry: entry.id },
+            ..self.env(entry.target.clone())
+        };
+        self.run_frame(env, Call::Execute(&entry.payload), Waiter::Nobody, 0)
+            .outcome
     }
 
     /// `program`'s env for a direct call by the chain itself at this height
@@ -378,7 +449,7 @@ impl MockChain {
         self.profile(Profile {
             number,
             name: program.into(),
-            kind: Kind::Program(program.into()),
+            kind: Kind::System(program.into()),
         });
     }
 

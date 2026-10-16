@@ -23,7 +23,7 @@ fn chain() -> MockChain {
         chain.profile(Profile {
             number,
             name: name.into(),
-            kind: Kind::Person,
+            kind: Kind::User,
         });
     }
     chain

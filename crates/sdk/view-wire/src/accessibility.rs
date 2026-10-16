@@ -255,7 +255,8 @@ fn rules(step: &Step<'_>, duplicate: bool, claimed: &mut bool) -> Rules {
     });
     let pictured = matches!(node, Node::Image { .. } | Node::Svg { .. });
     rules.check(
-        ((interactive || pictured) && role.is_some()) || matches!(node, Node::Overlay { .. }),
+        ((interactive || pictured) && role.is_some())
+            || matches!(node, Node::Overlay { .. } | Node::Sheet { .. }),
         Unnamed,
         || name().is_none(),
     );
@@ -414,9 +415,10 @@ fn name_of(node: &Node) -> Option<String> {
     }
     let own = match node {
         Node::Container(_) => None,
-        Node::Image { label, .. } | Node::Svg { label, .. } | Node::Overlay { label, .. } => {
-            label.as_deref().and_then(trimmed)
-        }
+        Node::Image { label, .. }
+        | Node::Svg { label, .. }
+        | Node::Overlay { label, .. }
+        | Node::Sheet { label, .. } => label.as_deref().and_then(trimmed),
         Node::Field { options, .. } => trimmed(&options.label),
         _ => None,
     };

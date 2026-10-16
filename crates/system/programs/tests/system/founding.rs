@@ -28,14 +28,16 @@ fn founding_seats_the_validators_and_every_program_answers() {
                 abi::role::PROGRAMS,
                 abi::role::VALIDATORS,
                 abi::role::IDENTITY,
-                abi::role::BLOBS
+                abi::role::BLOBS,
+                abi::role::HALO
             ]
             .map(|role| roles.get(role).map(String::as_str)),
             [
                 Some(programs::PROGRAM),
                 Some(valset::PROGRAM),
                 Some(identity::PROGRAM),
-                Some(blobs::PROGRAM)
+                Some(blobs::PROGRAM),
+                Some(halo::PROGRAM)
             ]
         );
         assert_eq!(
@@ -73,7 +75,7 @@ fn founding_seats_the_validators_and_every_program_answers() {
             .iter()
             .map(|account| account.kind())
             .collect();
-        let program = |program: &str| identity::Kind::Program(program.into());
+        let program = |program: &str| identity::Kind::System(program.into());
         assert_eq!(
             programs,
             [
@@ -83,6 +85,8 @@ fn founding_seats_the_validators_and_every_program_answers() {
                 program(blobs::PROGRAM),
                 program("probe"),
                 program(awaits::PROGRAM),
+                program(halo::PROGRAM),
+                program(scheduler::PROGRAM),
             ]
         );
     });

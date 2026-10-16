@@ -1,6 +1,7 @@
 //! What a press does: the message menus, the writes (reactions, deletes,
 //! the channel's details, new channels), copying and links.
 use chat::{MsgRow, Op, PostPolicy, Principal};
+use view::methods::Submitted;
 use view::prelude::*;
 
 use crate::composer::Target;
@@ -120,6 +121,9 @@ impl Chat {
             // edits, and Enter saves; left in the room's composer, the
             // typing was a new message and Enter sent it
             Some(key) => crate::composer::focus(window, &key),
+            None if mode == Mode::Profile => {
+                window.focus(crate::ui::menu::card::focus_key(self, pane, seq))
+            }
             None => window.focus(crate::ui::menu::focus_key(pane, mode)),
         }
     }
@@ -139,7 +143,16 @@ impl Chat {
         cx: &mut Context<Self>,
     ) {
         match control {
-            Control::Profile(account) => self.open_link(account.to_string(), cx),
+            // an agent's face opens its card; a person's, their profile
+            Control::Profile(account) => {
+                let agent = self.names.ready().is_some_and(|names| {
+                    crate::message::agent(names, &Principal::Account(account))
+                });
+                match agent {
+                    true => self.open_menu(pane, seq, rev, Mode::Profile, window, cx),
+                    false => self.open_link(account.to_string(), cx),
+                }
+            }
             Control::Height(link) => cx.host().open_link(&link),
             Control::ProgramOpen(link) => self.open_link(link, cx),
             Control::Reaction { emoji, add } => self.react(seq, emoji, add, cx),
@@ -217,6 +230,12 @@ impl Chat {
             messages: messages.clone(),
         });
         messages
+    }
+
+    /// Who wrote the message at `seq`.
+    pub(crate) fn author(&self, pane: Pane, seq: u64) -> Option<Principal> {
+        let row = self.shown(pane).find(|row| row.seq == seq)?;
+        Some(row.author.clone())
     }
 
     /// Whether the reader wrote the message at `seq`: only its author
@@ -402,6 +421,28 @@ impl Chat {
         links::channel_link(&self.session.chain_id, &self.room_id(), Some(seq))
     }
 
+    /// Where the program the agent `author`'s script calls shows its work
+    /// in this room ([`links::work_record`]). None for an author that is no
+    /// agent with a script, or before the session names a chain.
+    pub(crate) fn work_record(&self, author: &Principal) -> Option<String> {
+        let names = self.names.ready()?;
+        let Some(chat::Kind::Program {
+            category: chat::Category::Agent,
+            script: Some(script),
+            ..
+        }) = names.kind(author)
+        else {
+            return None;
+        };
+        let agent = author.account()?;
+        links::work_record(
+            &self.session.chain_id,
+            &script.calls,
+            agent,
+            &self.room_id(),
+        )
+    }
+
     pub(crate) fn open_link(&mut self, link: String, cx: &mut Context<Self>) {
         self.create = None;
         match links::pressed_link(link, &self.session.chain_id) {
@@ -419,9 +460,12 @@ impl Chat {
         cx.land(submit, |chat, result, cx| {
             cx.notify();
             match result {
-                Ok(_) => chat.refresh(cx),
-                Err(refusal) => {
+                Ok(Submitted::Applied { .. }) => chat.refresh(cx),
+                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
                     chat.notice = format!("That didn’t go through: {}", refusal.message)
+                }
+                Ok(Submitted::InDoubt { .. }) => {
+                    chat.notice = "No answer came back: it may have gone through.".into()
                 }
             }
         })
@@ -446,23 +490,28 @@ impl Chat {
         let created = async move {
             let channel_id = host.ask::<HostId>("channel".into()).await?;
             let op = new_channel(channel_id.clone(), name, members_only);
-            host.ask::<Submit<::chat::Chat>>(op).await?;
-            Ok::<_, Error>(channel_id)
+            let submitted = host.ask::<Submit<::chat::Chat>>(op).await?;
+            Ok::<_, Error>((channel_id, submitted))
         };
         cx.land(created, |chat, result, cx| {
             cx.notify();
-            match result {
-                Ok(id) => {
+            let problem = match result {
+                Ok((id, Submitted::Applied { .. })) => {
                     chat.create = None;
                     chat.reread_channels(cx);
                     chat.choose(id, cx);
+                    return;
                 }
-                Err(refusal) => {
-                    if let Some(create) = &mut chat.create {
-                        create.busy = false;
-                        create.error = format!("Couldn’t create this channel: {}", refusal.message);
-                    }
+                Ok((_, Submitted::Refused { refusal, .. })) | Err(refusal) => {
+                    format!("Couldn’t create this channel: {}", refusal.message)
                 }
+                Ok((_, Submitted::InDoubt { .. })) => {
+                    "No answer came back: it may have gone through.".into()
+                }
+            };
+            if let Some(create) = &mut chat.create {
+                create.busy = false;
+                create.error = problem;
             }
         })
         .detach();

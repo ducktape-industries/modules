@@ -1,10 +1,12 @@
-//! egress on a `MockChain` beside identity, valset, the awaits role and a program that calls it:
-//! registering and assigning a service, serving, the election's turns, answers that resolve the
-//! call, refusals and expiry.
+//! egress on a `MockChain` beside identity, valset, the awaits and scheduler roles and a program
+//! that calls it: registering and assigning a service, serving, the election's turns, answers that
+//! resolve the call, refusals, the expiry each request schedules for itself, and a request that
+//! hears its reply as events.
 use ::program::{
-    Awaiting, Blob, Ctx, Error, HashKind, MockChain, Origin, Program, QueryCtx, Reply as Wanted,
-    Scheme, blob_id, code,
+    Awaiting, Blob, Ctx, Error, HashKind, MockChain, MockHost, Origin, Program, QueryCtx,
+    Reply as Wanted, Roles, Scheme, blob_id, code,
 };
+use abi::role::scheduler::{self, Entry};
 use borsh::{BorshDeserialize, BorshSerialize};
 use store::Item;
 use valset::{Genesis, Member, Valset};
@@ -22,13 +24,30 @@ const MESSAGES: &str = "https://api.anthropic.com/v1/messages";
 
 #[derive(Debug, BorshSerialize, BorshDeserialize)]
 enum Ask {
-    Call(Request),
+    Call(Request, Option<u64>),
     Emit(Request),
+    /// A call that hears its reply as events, each as `Heard`.
+    Stream(Request, Option<u64>),
+    Heard(Event),
 }
+
+/// `Ask::Heard`'s tag, read off its encoding: the prefix the asker hears an event under.
+fn heard_tag() -> u8 {
+    let event = Event {
+        id: 0,
+        seq: 0,
+        data: Vec::new(),
+    };
+    abi::encode(&Ask::Heard(event))[0]
+}
+
+/// An event the asker refuses, so its frame is refused.
+const REFUSED_EVENT: &[u8] = b"refuse me";
 
 type Answers = Vec<Result<Vec<u8>, Error>>;
 
 const ANSWERS: Item<Answers> = Item::new("answers");
+const HEARD: Item<Vec<Event>> = Item::new("heard");
 
 struct Asker;
 
@@ -36,25 +55,56 @@ impl Program for Asker {
     const NAME: &'static str = ASKER;
     type Op = Ask;
     type Query = ();
-    type Reply = Answers;
+    type Reply = (Answers, Vec<Event>);
 
-    fn query(ctx: &QueryCtx, (): ()) -> Result<Answers, Error> {
-        Ok(ANSWERS.get(ctx)?.unwrap_or_default())
+    fn query(ctx: &QueryCtx, (): ()) -> Result<(Answers, Vec<Event>), Error> {
+        let answers = ANSWERS.get(ctx)?.unwrap_or_default();
+        Ok((answers, HEARD.get(ctx)?.unwrap_or_default()))
     }
 }
 
 impl Awaiting for Asker {
     async fn execute(ctx: Ctx, ask: Ask) -> Result<(), Error> {
+        let egress = ctx.env().role(abi::role::EGRESS)?.clone();
+        let whole = Delivery::Whole;
         let request = match ask {
-            Ask::Call(request) => request,
+            Ask::Call(request, wait) => Op::Request {
+                request,
+                delivery: whole,
+                wait,
+            },
+            Ask::Stream(request, wait) => Op::Request {
+                request,
+                delivery: Delivery::Events {
+                    deliver: vec![heard_tag()],
+                },
+                wait,
+            },
+            Ask::Heard(event) => {
+                if ctx.env().sending_program()? != egress {
+                    return Err(::program::unauthorized(
+                        "an event comes from the egress role",
+                    ));
+                }
+                if event.data == REFUSED_EVENT {
+                    return Err(::program::invalid("the asker refuses this event"));
+                }
+                let mut heard = HEARD.get(&ctx)?.unwrap_or_default();
+                heard.push(event);
+                HEARD.put(&ctx, &heard);
+                return Ok(());
+            }
             Ask::Emit(request) => {
-                ctx.emit(PROGRAM, &Op::Request(request), Wanted::None);
+                let request = Op::Request {
+                    request,
+                    delivery: whole,
+                    wait: None,
+                };
+                ctx.emit(egress, &request, Wanted::None);
                 return Ok(());
             }
         };
-        let answer = ctx
-            .call_raw(PROGRAM, abi::encode(&Op::Request(request)))
-            .await;
+        let answer = ctx.call_raw(egress, abi::encode(&request)).await;
         let refused = answer.as_deref() == Ok(b"refuse me".as_slice());
         if refused {
             return Err(::program::invalid("the asker refuses this answer"));
@@ -67,11 +117,16 @@ impl Awaiting for Asker {
 }
 
 fn chain() -> MockChain {
-    let mut chain = MockChain::default();
+    chain_with(MockHost::roles())
+}
+
+fn chain_with(roles: Roles) -> MockChain {
+    let mut chain = MockChain::founded(roles);
     chain.seat::<identity::Identity>(identity::PROGRAM);
     chain.seat::<Valset>("valset");
     chain.seat::<awaits::Awaits>(awaits::PROGRAM);
-    chain.seat::<Egress>(PROGRAM);
+    chain.seat::<::scheduler::Scheduler>(::scheduler::PROGRAM);
+    chain.seat_awaiting::<Egress>(PROGRAM);
     chain.seat_awaiting::<Asker>(ASKER);
     let members = [ADA, BO].map(|key| Member {
         key: key.to_vec(),
@@ -123,13 +178,32 @@ fn http_request(service: &str, target: &str, body: Vec<BlobId>) -> Request {
 }
 
 fn ask(chain: &MockChain, request: Request) {
+    ask_waiting(chain, request, None);
+}
+
+fn ask_waiting(chain: &MockChain, request: Request, wait: Option<u64>) {
     chain
         .submit(
             Origin::Signed(STRANGER.to_vec()),
             ASKER,
-            &Ask::Call(request),
+            &Ask::Call(request, wait),
         )
         .unwrap();
+}
+
+fn entry(chain: &MockChain, id: scheduler::EntryId) -> Option<Entry> {
+    let asked = scheduler::Query::Entry { id };
+    let scheduler::Reply::Entry(entry) = chain.query(::scheduler::PROGRAM, &asked).unwrap() else {
+        panic!()
+    };
+    entry
+}
+
+fn request_row(chain: &MockChain, id: u64) -> Option<RequestRow> {
+    let Reply::Request(row) = chain.query(PROGRAM, &Query::Request { id }).unwrap() else {
+        panic!()
+    };
+    row
 }
 
 fn assigned(chain: &MockChain, key: [u8; 32]) -> Vec<RequestRow> {
@@ -145,7 +219,27 @@ fn answer(chain: &MockChain, key: [u8; 32], id: u64, answer: Answer) -> Result<V
 }
 
 fn answers(chain: &MockChain) -> Answers {
-    chain.query(ASKER, &()).unwrap()
+    chain
+        .query::<_, (Answers, Vec<Event>)>(ASKER, &())
+        .unwrap()
+        .0
+}
+
+fn heard(chain: &MockChain) -> Vec<Event> {
+    chain
+        .query::<_, (Answers, Vec<Event>)>(ASKER, &())
+        .unwrap()
+        .1
+}
+
+fn stream(chain: &MockChain, request: Request, wait: Option<u64>) {
+    chain
+        .submit(
+            Origin::Signed(STRANGER.to_vec()),
+            ASKER,
+            &Ask::Stream(request, wait),
+        )
+        .unwrap();
 }
 
 fn serving(chain: &MockChain, service: &str) -> Vec<Vec<u8>> {
@@ -172,8 +266,8 @@ fn the_election_takes_turns_and_only_the_elected_node_answers() {
     assert_eq!((ada, bo), (vec![1, 3, 4], vec![2]));
     let row = &assigned(&chain, BO)[0];
     assert_eq!(
-        (row.requester.as_str(), &row.request, row.deadline),
-        (ASKER, &relay(b"ping"), 1 + EXPIRY_BLOCKS)
+        (row.requester.as_str(), &row.request, row.made),
+        (ASKER, &relay(b"ping"), 1)
     );
 
     let same_block = answer(&chain, BO, 2, Answer::Output(Vec::new())).unwrap_err();
@@ -284,7 +378,11 @@ fn only_a_member_node_serves_and_only_a_program_calling_requests() {
     let [unserved] = answers(&chain).try_into().unwrap();
     assert_eq!(unserved.unwrap_err().code, code::NOT_FOUND);
     serve(&chain, ADA, &[RELAY]).unwrap();
-    let direct = Op::Request(relay(b""));
+    let direct = Op::Request {
+        request: relay(b""),
+        delivery: Delivery::Whole,
+        wait: None,
+    };
     let signed = submit(&chain, &ADA, &direct).unwrap_err();
     assert_eq!(signed.code, code::UNAUTHORIZED);
     let emitted = chain
@@ -305,38 +403,118 @@ fn only_a_member_node_serves_and_only_a_program_calling_requests() {
 }
 
 #[test]
-fn an_unanswered_request_expires_after_its_window_and_answers_the_call() {
+fn a_request_schedules_its_own_expiry_and_an_answer_cancels_it() {
+    let chain = chain();
+    serve(&chain, ADA, &[RELAY]).unwrap();
+    ask(&chain, relay(b""));
+    let row = request_row(&chain, 1).expect("the request is open");
+    let expiry = entry(&chain, row.expiry).expect("the request scheduled its expiry");
+    assert_eq!(
+        (
+            expiry.scheduler.as_str(),
+            expiry.target.as_str(),
+            expiry.height
+        ),
+        (PROGRAM, PROGRAM, 1 + DEFAULT_WAIT)
+    );
+    assert_eq!(expiry.payload, abi::encode(&Op::Expire { id: 1 }));
+    chain.at(2, 0);
+    answer(&chain, ADA, 1, Answer::Output(b"pong".to_vec())).unwrap();
+    assert_eq!(entry(&chain, row.expiry), None);
+    let [pong] = answers(&chain).try_into().unwrap();
+    assert_eq!(pong.unwrap(), b"pong");
+    chain.at(2 + DEFAULT_WAIT, 0);
+    assert_eq!(answers(&chain).len(), 1);
+}
+
+#[test]
+fn an_unanswered_request_expires_by_its_own_run_and_a_late_answer_is_refused() {
+    let chain = chain();
+    serve(&chain, ADA, &[RELAY]).unwrap();
+    ask_waiting(&chain, relay(b""), Some(3));
+    let row = request_row(&chain, 1).expect("the request is open");
+    assert_eq!(entry(&chain, row.expiry).unwrap().height, 4);
+    chain.at(4, 0);
+    assert!(answers(&chain).is_empty());
+    assert!(request_row(&chain, 1).is_some());
+    chain.at(5, 0);
+    let [expired] = answers(&chain).try_into().unwrap();
+    let expired = expired.unwrap_err();
+    assert_eq!(
+        (expired.code.as_str(), expired.message.as_str()),
+        (code::WRONG_STATE, "request 1 expired after 3 blocks")
+    );
+    assert_eq!(request_row(&chain, 1), None);
+    assert!(assigned(&chain, ADA).is_empty());
+    let ran = entry(&chain, row.expiry)
+        .unwrap()
+        .receipt
+        .expect("the expiry ran");
+    assert!(matches!(ran.outcome, abi::Outcome::Applied { .. }));
+    let late = answer(&chain, ADA, 1, Answer::Output(Vec::new())).unwrap_err();
+    assert_eq!(late.code, code::NOT_FOUND);
+    assert_eq!(chain.frames(), 0);
+}
+
+#[test]
+fn an_expire_not_from_the_requests_own_scheduled_run_is_refused() {
     let chain = chain();
     serve(&chain, ADA, &[RELAY]).unwrap();
     ask(&chain, relay(b""));
     let expire = Op::Expire { id: 1 };
-    let early = submit(&chain, &STRANGER, &expire).unwrap_err();
-    assert_eq!(early.code, code::WRONG_STATE);
-    let overdue = |chain: &MockChain| {
-        let Reply::Requests(due) = chain.query(PROGRAM, &Query::Overdue).unwrap() else {
-            panic!()
+    let signed = submit(&chain, &STRANGER, &expire).unwrap_err();
+    assert_eq!(signed.code, code::UNAUTHORIZED);
+    let sent = chain
+        .submit(Origin::Program(ASKER.into()), PROGRAM, &expire)
+        .unwrap_err();
+    assert_eq!(sent.code, code::UNAUTHORIZED);
+    let scheduled_by = |program: &str| {
+        let schedule = scheduler::Op::Schedule {
+            height: 2,
+            target: PROGRAM.into(),
+            payload: abi::encode(&expire),
         };
-        due
+        let id = chain
+            .submit(
+                Origin::Program(program.into()),
+                ::scheduler::PROGRAM,
+                &schedule,
+            )
+            .unwrap();
+        abi::decode::<scheduler::EntryId>(&id).unwrap()
     };
-    chain.at(1 + EXPIRY_BLOCKS, 0);
-    assert!(overdue(&chain).is_empty());
-    chain.at(2 + EXPIRY_BLOCKS, 0);
-    let late = answer(&chain, ADA, 1, Answer::Output(Vec::new())).unwrap_err();
-    assert_eq!(late.code, code::WRONG_STATE);
-    assert_eq!(overdue(&chain).len(), 1);
-    submit(&chain, &STRANGER, &expire).unwrap();
-    let [expired] = answers(&chain).try_into().unwrap();
-    let expired = expired.unwrap_err();
-    assert_eq!(expired.code, code::WRONG_STATE);
-    assert!(
-        expired
-            .message
-            .ends_with(&format!("expired at height {}", 2 + EXPIRY_BLOCKS))
-    );
-    let Reply::Request(gone) = chain.query(PROGRAM, &Query::Request { id: 1 }).unwrap() else {
-        panic!()
-    };
-    assert_eq!(gone, None);
+    let by_asker = scheduled_by(ASKER);
+    let other_entry = scheduled_by(PROGRAM);
+    chain.at(3, 0);
+    for id in [by_asker, other_entry] {
+        let ran = entry(&chain, id).unwrap().receipt.expect("the run ran");
+        let abi::Outcome::Rejected(refusal) = ran.outcome else {
+            panic!("entry {id} expired the request");
+        };
+        assert_eq!(refusal.reason, code::UNAUTHORIZED);
+    }
+    assert!(request_row(&chain, 1).is_some());
+    assert!(answers(&chain).is_empty());
+}
+
+#[test]
+fn a_request_waits_at_least_one_block_and_needs_the_scheduler_role() {
+    let chain = chain();
+    serve(&chain, ADA, &[RELAY]).unwrap();
+    ask_waiting(&chain, relay(b""), Some(0));
+    let unscheduled: Roles = MockHost::roles()
+        .iter()
+        .filter(|(role, _)| *role != abi::role::SCHEDULER)
+        .collect();
+    let bare = chain_with(unscheduled);
+    serve(&bare, ADA, &[RELAY]).unwrap();
+    ask(&bare, relay(b""));
+    let [no_wait] = answers(&chain).try_into().unwrap();
+    assert_eq!(no_wait.unwrap_err().code, code::INVALID_INPUT);
+    let [unbound] = answers(&bare).try_into().unwrap();
+    assert_eq!(unbound.unwrap_err().code, code::UNSUPPORTED);
+    assert!(assigned(&chain, ADA).is_empty());
+    assert!(assigned(&bare, ADA).is_empty());
 }
 
 #[test]
@@ -362,7 +540,7 @@ fn a_request_names_parts_already_on_the_network() {
         .submit(
             Origin::Signed(STRANGER.to_vec()),
             ASKER,
-            &Ask::Call(with_part(part)),
+            &Ask::Call(with_part(part), None),
         )
         .unwrap();
     let [missing] = answers(&chain).try_into().unwrap();
@@ -378,7 +556,7 @@ fn a_request_names_parts_already_on_the_network() {
         .submit(
             Origin::Signed(STRANGER.to_vec()),
             ASKER,
-            &Ask::Call(with_part(part)),
+            &Ask::Call(with_part(part), None),
         )
         .unwrap();
     assert_eq!(assigned(&chain, ADA)[0].request.parts(), [part]);
@@ -432,4 +610,225 @@ fn a_head_names_a_url_or_a_path_and_leaves_framing_and_identity_to_the_node() {
         assert!(head(vec![(name, "x")], "/").check_path().is_err(), "{name}");
     }
     assert!(head(vec![("X-Upper", "x")], MESSAGES).check_url().is_err());
+}
+
+#[test]
+fn an_events_request_hears_each_event_and_its_call_answers_the_streams_end() {
+    let chain = chain();
+    serve(&chain, ADA, &[HTTP]).unwrap();
+    stream(&chain, http_request(HTTP, MESSAGES, Vec::new()), Some(5));
+    let row = request_row(&chain, 1).expect("the request is open");
+    assert_eq!(
+        row.delivery,
+        Delivery::Events {
+            deliver: vec![heard_tag()]
+        }
+    );
+    let event = |seq: u64, data: &[u8]| Event {
+        id: 1,
+        seq,
+        data: data.to_vec(),
+    };
+    let same_block = submit(&chain, &ADA, &Op::Event(event(0, b"a"))).unwrap_err();
+    assert_eq!(same_block.code, code::WRONG_STATE);
+    chain.at(3, 0);
+    let other = submit(&chain, &BO, &Op::Event(event(0, b"a"))).unwrap_err();
+    assert_eq!(other.code, code::UNAUTHORIZED);
+    submit(&chain, &ADA, &Op::Event(event(0, b"data: one"))).unwrap();
+    // the expiry moved its wait past this block: from 6 to 8
+    let moved = request_row(&chain, 1).unwrap();
+    assert_eq!(entry(&chain, row.expiry), None);
+    assert_eq!(entry(&chain, moved.expiry).unwrap().height, 3 + 5);
+    chain.at(7, 0);
+    submit(&chain, &ADA, &Op::Event(event(1, b"data: two"))).unwrap();
+    assert_eq!(
+        heard(&chain),
+        [event(0, b"data: one"), event(1, b"data: two")]
+    );
+    assert!(answers(&chain).is_empty());
+    let end = StreamEnd::Complete {
+        status: 200,
+        headers: vec![("content-type".into(), "text/event-stream".into())],
+    };
+    let ended = Op::EndStream {
+        id: 1,
+        events: 2,
+        end: end.clone(),
+    };
+    submit(&chain, &ADA, &ended).unwrap();
+    let [answered] = answers(&chain).try_into().unwrap();
+    let answered: http::Response = abi::decode(&answered.unwrap()).unwrap();
+    let StreamEnd::Complete { status, headers } = end else {
+        unreachable!()
+    };
+    assert_eq!(
+        answered,
+        http::Response {
+            status,
+            headers,
+            body: Vec::new()
+        }
+    );
+    let last = request_row(&chain, 1);
+    assert_eq!(last, None);
+    assert!(assigned(&chain, ADA).is_empty());
+}
+
+#[test]
+fn a_cut_stream_fails_its_call_and_a_whole_request_takes_no_event_or_end() {
+    let chain = chain();
+    serve(&chain, ADA, &[HTTP, RELAY]).unwrap();
+    ask(&chain, relay(b""));
+    stream(&chain, http_request(HTTP, MESSAGES, Vec::new()), None);
+    chain.at(2, 0);
+    let cut = StreamEnd::Cut {
+        reason: "stream_broken".into(),
+    };
+    let to_whole = [
+        Op::Event(Event {
+            id: 1,
+            seq: 0,
+            data: Vec::new(),
+        }),
+        Op::EndStream {
+            id: 1,
+            events: 0,
+            end: cut.clone(),
+        },
+    ];
+    for op in to_whole {
+        assert_eq!(
+            submit(&chain, &ADA, &op).unwrap_err().code,
+            code::WRONG_STATE
+        );
+    }
+    let broken = Op::EndStream {
+        id: 2,
+        events: 0,
+        end: cut,
+    };
+    submit(&chain, &ADA, &broken).unwrap();
+    let [failed] = answers(&chain).try_into().unwrap();
+    let failed = failed.unwrap_err();
+    assert_eq!(
+        (failed.code.as_str(), failed.message.as_str()),
+        (
+            code::WRONG_STATE,
+            "the http service failed: the stream broke off, the node sent 0 events: stream_broken"
+        )
+    );
+    assert_eq!(request_row(&chain, 2), None);
+    assert!(request_row(&chain, 1).is_some());
+}
+
+/// An `Http` call answers one type: an events request whose reply came whole (a 429 before any
+/// stream) and one whose stream completed both decode as `http::Response`.
+#[test]
+fn an_http_call_answers_a_response_whether_its_reply_came_whole_or_as_events() {
+    let chain = chain();
+    serve(&chain, ADA, &[HTTP]).unwrap();
+    for _ in 0..2 {
+        stream(&chain, http_request(HTTP, MESSAGES, Vec::new()), None);
+    }
+    chain.at(2, 0);
+    let limited = http::Response {
+        status: 429,
+        headers: vec![("content-type".into(), "application/json".into())],
+        body: b"{\"type\":\"error\"}".to_vec(),
+    };
+    answer(&chain, ADA, 1, Answer::Output(abi::encode(&limited))).unwrap();
+    let headers = vec![("content-type".to_owned(), "text/event-stream".to_owned())];
+    let completed = Op::EndStream {
+        id: 2,
+        events: 0,
+        end: StreamEnd::Complete {
+            status: 200,
+            headers: headers.clone(),
+        },
+    };
+    submit(&chain, &ADA, &completed).unwrap();
+    let decoded: Vec<http::Response> = answers(&chain)
+        .into_iter()
+        .map(|answer| abi::decode(&answer.unwrap()).unwrap())
+        .collect();
+    let streamed = http::Response {
+        status: 200,
+        headers,
+        body: Vec::new(),
+    };
+    assert_eq!(decoded, [limited, streamed]);
+}
+
+/// An event the requester refuses refuses its frame: the expiry stays where it was, nothing is
+/// heard, and the next event is taken. A repeated `seq` and one back at 0 pass through.
+#[test]
+fn a_refused_event_moves_nothing_and_the_next_one_is_heard() {
+    let chain = chain();
+    serve(&chain, ADA, &[HTTP]).unwrap();
+    stream(&chain, http_request(HTTP, MESSAGES, Vec::new()), Some(5));
+    let before = request_row(&chain, 1).unwrap().expiry;
+    chain.at(2, 0);
+    let event = |seq: u64, data: &[u8]| Event {
+        id: 1,
+        seq,
+        data: data.to_vec(),
+    };
+    let refused = submit(&chain, &ADA, &Op::Event(event(0, REFUSED_EVENT))).unwrap_err();
+    assert_eq!(
+        (refused.code.as_str(), refused.message.as_str()),
+        (code::INVALID_INPUT, "the asker refuses this event")
+    );
+    assert_eq!(request_row(&chain, 1).unwrap().expiry, before);
+    assert_eq!(entry(&chain, before).unwrap().height, 1 + 5);
+    assert!(heard(&chain).is_empty());
+    // the next event, a repeat, its successor, then the node calling again from 0
+    let sent = [
+        (3, 0, b"one"),
+        (4, 0, b"one"),
+        (5, 1, b"two"),
+        (6, 0, b"new"),
+    ];
+    for (height, seq, data) in sent {
+        chain.at(height, 0);
+        submit(&chain, &ADA, &Op::Event(event(seq, data))).unwrap();
+    }
+    let seqs: Vec<u64> = heard(&chain).iter().map(|event| event.seq).collect();
+    assert_eq!(seqs, [0, 0, 1, 0]);
+}
+
+/// A relay is answered whole: asking it as events is refused.
+#[test]
+fn a_relay_asked_as_events_is_refused() {
+    let chain = chain();
+    serve(&chain, ADA, &[RELAY]).unwrap();
+    stream(&chain, relay(b""), None);
+    let [refused] = answers(&chain).try_into().unwrap();
+    let refused = refused.unwrap_err();
+    assert_eq!(
+        (refused.code.as_str(), refused.message.as_str()),
+        (
+            code::INVALID_INPUT,
+            "a relay is answered whole: ask it with Delivery::Whole"
+        )
+    );
+    assert_eq!(request_row(&chain, 1), None);
+}
+
+/// Only the egress role's program hands the asker an event.
+#[test]
+fn an_event_from_another_program_is_refused() {
+    let chain = chain();
+    let forged = Ask::Heard(Event {
+        id: 1,
+        seq: 0,
+        data: Vec::new(),
+    });
+    let refused = chain
+        .submit(Origin::Program("valset".into()), ASKER, &forged)
+        .unwrap_err();
+    assert_eq!(
+        (refused.code.as_str(), refused.message.as_str()),
+        (code::UNAUTHORIZED, "an event comes from the egress role")
+    );
+    assert!(heard(&chain).is_empty());
 }

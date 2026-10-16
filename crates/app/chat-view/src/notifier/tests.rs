@@ -92,7 +92,7 @@ impl World {
                         .map(|(number, name)| chat::Profile {
                             number,
                             name: name.into(),
-                            kind: chat::Kind::Person,
+                            kind: chat::Kind::User,
                         })
                         .into(),
                 )),

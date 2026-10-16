@@ -207,6 +207,7 @@ refinement!(() TextStyleRefinement {
     text_overflow,
     text_align,
     line_clamp,
+    letter_spacing,
 });
 refinement!((T) EdgesRefinement<T> { top, right, bottom, left });
 refinement!((T) SizeRefinement<T> { width, height });

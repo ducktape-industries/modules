@@ -15,6 +15,10 @@ pub struct Chat {
     pub(crate) session: Session,
     #[serde(skip)]
     pub(crate) names: Loadable<Names>,
+    /// whom each agent of the roster answers besides its manager, by
+    /// number, as identity keeps it
+    #[serde(skip)]
+    pub(crate) audiences: Loadable<BTreeMap<u64, identity::Audience>>,
     pub(crate) channels: Loadable<Vec<ChannelInfo>>,
     pub(crate) room: Option<Room>,
     pub(crate) drafts: BTreeMap<String, Draft>,
@@ -248,6 +252,8 @@ pub enum Mode {
     Reactions,
     Editing,
     Delete,
+    /// an agent author's card, opened from its avatar
+    Profile,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

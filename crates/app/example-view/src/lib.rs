@@ -7,6 +7,7 @@
 //! at the view. A refusal is an `Error` in place of an answer.
 use identity::{Identity, Kind, PageRequest};
 use serde::{Deserialize, Serialize};
+use view::methods::Submitted;
 use view::prelude::*;
 
 // The state. The host saves it with serde before a redeploy and hands it to
@@ -105,12 +106,20 @@ impl Agents {
         self.creating = Some(cx.land(submit, |view, answer, cx| {
             view.creating = None;
             match answer {
-                // The program took it: a read from now on sees the agent.
-                Ok(_) => {
+                // The node took it and predicts it applies: a read from
+                // now on sees the agent.
+                Ok(Submitted::Applied { .. }) => {
                     view.name.reset("");
                     view.reread(cx);
                 }
-                Err(refusal) => view.refused = Some(refusal.message),
+                // The program refuses it (predicted, or the ask itself).
+                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
+                    view.refused = Some(refusal.message)
+                }
+                // Sent, and no answer came back: it may have gone through.
+                Ok(Submitted::InDoubt { .. }) => {
+                    view.refused = Some("No answer came back: it may have gone through.".into())
+                }
             }
             cx.notify();
         }));
@@ -143,9 +152,11 @@ async fn managed(host: Host, by: Option<u64>) -> Result<Vec<Agent>, Error> {
 // Draws the state as a tree of elements. The host lays it out and paints
 // it. Runs on the tick after a `cx.notify()`, never by itself.
 impl Render for Agents {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The host's colors, light or dark.
         let theme = *cx.global::<Theme>();
+        // The device's pointer: a finger takes the touch ladder.
+        let ladder = &design::ladder(window.touch());
         let creating = self.creating.is_some();
         // A text field over `name`: its id, the field, then the name a
         // screen reader says. The host owns the text; each change lands in
@@ -188,7 +199,8 @@ impl Render for Agents {
             // `agents-refused` and `agents-retry`.
             Loadable::Failed(refusal) => {
                 let retry = cx.listener(|view: &mut Agents, _: &ClickEvent, _, cx| view.reread(cx));
-                design::refused("agents", refusal.message.clone(), &theme, retry).into_any_element()
+                design::refused("agents", refusal.message.clone(), ladder, &theme, retry)
+                    .into_any_element()
             }
             Loadable::Ready(agents) | Loadable::Reloading(agents, _) if agents.is_empty() => {
                 design::empty_state("no-agents", "No agents yet", "Name one above.", &theme)
@@ -258,8 +270,8 @@ mod tests {
                 bio: None,
                 updated_at: 1,
             },
-            control: identity::Control::Managed {
-                runner: None,
+            control: identity::Control::Program {
+                script: None,
                 manager: 7,
                 category: identity::Category::Agent,
                 life: identity::Life::Active { keys: Vec::new() },
@@ -298,7 +310,8 @@ mod tests {
     fn a_typed_name_is_submitted_and_a_change_reads_again() {
         let mut cx = seated();
         assert!(cx.has_text("Scout"), "{:?}", cx.texts());
-        cx.host().handle::<Submit<Identity>>(|_| Ok(Vec::new()));
+        cx.host()
+            .handle::<Submit<Identity>>(|_| Ok(view::testing::applied(Vec::new())));
         cx.simulate_input("name", "Rover");
         cx.simulate_click("create");
         cx.run_until_parked();
@@ -316,12 +329,12 @@ mod tests {
     fn a_refusal_is_shown_where_it_happened() {
         let mut cx = seated();
         cx.host()
-            .refuse::<Submit<Identity>>("unauthorized", "Only a person manages agents.");
+            .refuse::<Submit<Identity>>("unauthorized", "Only a user manages agents.");
         cx.simulate_input("name", "Rover");
         cx.simulate_submit("name");
         cx.run_until_parked();
         assert!(
-            cx.has_text("Only a person manages agents."),
+            cx.has_text("Only a user manages agents."),
             "{:?}",
             cx.texts()
         );

@@ -1,7 +1,7 @@
 //! The `identity` program: accounts, and who acts as each. Everything that
-//! acts is an account: a person (the keys they hold), an agent (the keys its
-//! manager, a person, adds) and a program (the account the kernel registers
-//! as it admits the program). The types, rules and [`Identity`] program are
+//! acts is an account: a user (the keys they hold), a program account (the
+//! keys its manager, a user, adds, and the script that runs its actions) and
+//! a system account (the one the kernel registers as it admits a program). The types, rules and [`Identity`] program are
 //! always built; a view links them with `program` off (`view.rs` is what a
 //! view shows of an account). The `program` feature adds its wasm exports.
 //!
@@ -16,7 +16,7 @@ mod tests;
 pub mod view;
 
 pub use ::program::AccountNumber;
-pub use abi::role::identity::{Category, Kind, Profile, Standing};
+pub use abi::role::identity::{Category, Kind, Profile, Script, Standing};
 pub use program::Identity;
 
 use ::program::{BlobId, ProgramId, Scheme};
@@ -53,26 +53,26 @@ pub struct Card {
     pub updated_at: u64,
 }
 
-/// Who acts as an account, and with which keys. A program's account has no
-/// keys to hold; a revoked agent has none left ([`Life`]).
+/// Who acts as an account, and with which keys. A system account has no
+/// keys to hold; a revoked program account has none left ([`Life`]).
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Control {
-    /// A person: their own keys, which they add and remove.
-    Person { keys: Vec<Key> },
-    /// An agent: its `manager`, a person, adds its keys, declares its
-    /// `category`, suspends, resumes and revokes it.
-    Managed {
+    /// A user: their own keys, which they add and remove.
+    User { keys: Vec<Key> },
+    /// A program account: its `manager`, a user, adds its keys, declares
+    /// its `category`, sets its `script`, suspends, resumes and revokes it.
+    Program {
         manager: AccountNumber,
         category: Category,
         life: Life,
-        runner: Option<ProgramId>,
+        script: Option<Script>,
     },
-    /// A program's account: the program alone acts as it.
-    Program { program: ProgramId },
+    /// A program's own account: the program alone acts as it.
+    System { program: ProgramId },
 }
 
-/// Whether an agent acts. Suspended keeps its keys, so resuming issues
-/// none again; revoked is final and keeps none.
+/// Whether a program account acts. Suspended keeps its keys, so resuming
+/// issues none again; revoked is final and keeps none.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Life {
     Active { keys: Vec<Key> },
@@ -89,20 +89,20 @@ pub enum Audience {
 }
 
 impl Account {
-    /// The keys that act as this account: none for a program's or a
-    /// revoked agent.
+    /// The keys that act as this account: none for a system account or a
+    /// revoked program account.
     pub fn keys(&self) -> &[Key] {
         match &self.control {
-            Control::Person { keys } => keys,
-            Control::Managed {
+            Control::User { keys } => keys,
+            Control::Program {
                 life: Life::Active { keys } | Life::Suspended { keys },
                 ..
             } => keys,
-            Control::Managed {
+            Control::Program {
                 life: Life::Revoked,
                 ..
             }
-            | Control::Program { .. } => &[],
+            | Control::System { .. } => &[],
         }
     }
 
@@ -113,13 +113,13 @@ impl Account {
     /// What this account is, as the identity role says it.
     pub fn kind(&self) -> Kind {
         match &self.control {
-            Control::Person { .. } => Kind::Person,
-            Control::Managed {
+            Control::User { .. } => Kind::User,
+            Control::Program {
                 manager,
                 category,
                 life,
-                runner,
-            } => Kind::Managed {
+                script,
+            } => Kind::Program {
                 manager: *manager,
                 category: *category,
                 standing: match life {
@@ -127,9 +127,9 @@ impl Account {
                     Life::Suspended { .. } => Standing::Suspended,
                     Life::Revoked => Standing::Revoked,
                 },
-                runner: runner.clone(),
+                script: script.clone(),
             },
-            Control::Program { program } => Kind::Program(program.clone()),
+            Control::System { program } => Kind::System(program.clone()),
         }
     }
 
@@ -144,9 +144,9 @@ impl Account {
 }
 
 /// A key's consent to a new key joining an account: `proof` is `key`'s
-/// signature over the [`Admission`]. For a person, `key` is one already on
-/// the account and the new key signs the frame; for an agent, `key` is the
-/// new key itself and the manager signs the frame.
+/// signature over the [`Admission`]. For a user, `key` is one already on
+/// the account and the new key signs the frame; for a program account,
+/// `key` is the new key itself and the manager signs the frame.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Consent {
     pub key: Vec<u8>,
@@ -178,12 +178,13 @@ pub enum Op {
     RegisterProgram {
         program: ProgramId,
     },
-    /// A person's account, holding the signing key.
+    /// A user's account, holding the signing key.
     Create {
         name: String,
         scheme: Scheme,
     },
-    /// An agent the signer's account manages; it holds no key yet.
+    /// A program account of the agent category that the signer's account
+    /// manages; it holds no key and no script yet.
     CreateAgent {
         name: String,
     },
@@ -205,14 +206,16 @@ pub enum Op {
         avatar: Option<BlobId>,
         bio: Option<String>,
     },
-    /// An agent stops acting; its keys stay for `Resume`. Its manager's.
+    /// A program account stops acting; its keys stay for `Resume`. Its
+    /// manager's.
     Suspend {
         account: AccountNumber,
     },
     Resume {
         account: AccountNumber,
     },
-    /// An agent stops for good: its keys are dropped. Its manager's.
+    /// A program account stops for good: its keys are dropped. Its
+    /// manager's.
     Revoke {
         account: AccountNumber,
     },
@@ -220,9 +223,9 @@ pub enum Op {
         account: AccountNumber,
         audience: Audience,
     },
-    SetRunner {
+    SetScript {
         account: AccountNumber,
-        runner: Option<ProgramId>,
+        script: Option<Script>,
     },
 }
 
@@ -384,20 +387,19 @@ pub fn describe(op: &Op) -> describe::Description {
             "Set who it answers".into(),
             vec![account(number), field("answers", answers(audience))],
         ),
-        Op::SetRunner {
+        Op::SetScript {
             account: number,
-            runner,
+            script,
         } => (
-            "Set the program that runs it".into(),
-            vec![
-                account(number),
-                field(
-                    "runner",
-                    runner
-                        .clone()
-                        .map_or_else(|| Value::text("—"), Value::Program),
-                ),
-            ],
+            "Set script".into(),
+            match script {
+                Some(script) => vec![
+                    account(number),
+                    field("calls", Value::Program(script.calls.clone())),
+                    field("config", Value::text(&script.config)),
+                ],
+                None => vec![account(number), field("script", Value::text("—"))],
+            },
         ),
     };
     describe::Description { title, fields }
@@ -423,7 +425,7 @@ fn op_variants_only_append() {
             "Resume",
             "Revoke",
             "SetAudience",
-            "SetRunner",
+            "SetScript",
         ]
     );
 }

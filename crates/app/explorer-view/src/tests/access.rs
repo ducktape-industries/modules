@@ -94,12 +94,13 @@ fn reader_on(
             _ => valset::Reply::Validators(vec![VALIDATOR.to_vec()]),
         })
     });
-    cx.host().handle::<Submit<Programs>>(|_| Ok(Vec::new()));
+    cx.host()
+        .handle::<Submit<Programs>>(|_| Ok(view::testing::applied(Vec::new())));
     cx.host().handle::<Submit<Valset>>(|_| {
-        Ok(abi::encode(&Voted::Counted {
+        Ok(view::testing::applied(abi::encode(&Voted::Counted {
             votes: 1,
             needed: 2,
-        }))
+        })))
     });
     let session = cx.host().stream::<HostSession>();
     cx.open::<Explorer>();
@@ -177,7 +178,10 @@ fn a_reader_with_voices_and_no_grant_proposes_the_same_change_to_the_vote() {
     let op = abi::encode(&upgrade(12 + 600));
     assert_eq!(
         cx.host().requests::<Submit<Valset>>(),
-        [valset::Op::Vote(Motion::Programs { op })]
+        [valset::Op::Vote(Motion::Role {
+            role: abi::role::PROGRAMS.into(),
+            op,
+        })]
     );
     assert!(cx.host().requests::<Submit<Programs>>().is_empty());
     assert!(cx.has_text("Vote counted, 1 of 2: Schedule · chat."));
@@ -264,7 +268,10 @@ fn a_hook_is_upgraded_by_its_maintainer_and_removed_only_by_vote() {
     }));
     assert_eq!(
         cx.host().requests::<Submit<Valset>>(),
-        [valset::Op::Vote(Motion::Programs { op })]
+        [valset::Op::Vote(Motion::Role {
+            role: abi::role::PROGRAMS.into(),
+            op,
+        })]
     );
     assert!(cx.host().requests::<Submit<Programs>>().is_empty());
 }
@@ -293,7 +300,10 @@ fn a_voter_proposes_a_grant_naming_the_account_as_it_is_typed() {
     }));
     assert_eq!(
         cx.host().requests::<Submit<Valset>>(),
-        [valset::Op::Vote(Motion::Programs { op })]
+        [valset::Op::Vote(Motion::Role {
+            role: abi::role::PROGRAMS.into(),
+            op,
+        })]
     );
 }
 
@@ -360,7 +370,10 @@ fn a_scheduled_change_says_who_made_it_and_its_maintainer_cancels_it() {
     });
     assert_eq!(
         cx.host().requests::<Submit<Valset>>(),
-        [valset::Op::Vote(Motion::Programs { op })]
+        [valset::Op::Vote(Motion::Role {
+            role: abi::role::PROGRAMS.into(),
+            op,
+        })]
     );
 }
 

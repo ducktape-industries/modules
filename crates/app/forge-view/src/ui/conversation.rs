@@ -9,12 +9,18 @@ use crate::ui::components::{
 };
 use crate::ui::scroller;
 use forge::ChangeState;
+use view::design::Ladder;
 
 /// A review's body and comments start under its author's name, past the
 /// avatar and the gap beside it.
 const UNDER_NAME: Pixels = px(design::height::AVATAR as f32 + design::spacing::SM as f32);
 
-pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+pub(crate) fn render(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let Some((change, _, _, reviews)) = forge.change() else {
         return div().into_any_element();
     };
@@ -46,16 +52,23 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         _ => false,
     };
     for review in reviews.items.iter().filter(|review| !placed(review)) {
-        column = column.child(review_card(forge, review, theme));
+        column = column.child(review_card(forge, review, theme, ladder));
     }
-    column = column.child(messages(forge, theme));
-    column.child(composer(forge, cx, theme)).into_any_element()
+    column = column.child(messages(forge, theme, ladder));
+    column
+        .child(composer(forge, cx, theme, ladder))
+        .into_any_element()
 }
 
 /// One review as a timeline event: who, what they concluded (the verdict
 /// is the verb), the block it landed in, then what it says and the line
 /// comments it carried, quoted.
-fn review_card(forge: &Forge, review: &forge::Review, theme: &Theme) -> AnyElement {
+fn review_card(
+    forge: &Forge,
+    review: &forge::Review,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let author = forge.principal_name(&review.author);
     let outdated = forge.outdated(&review.draft.commit_oid);
     let mut head = timeline_head(
@@ -69,6 +82,7 @@ fn review_card(forge: &Forge, review: &forge::Review, theme: &Theme) -> AnyEleme
         head = head.child(badge(
             id(format!("forge-review-outdated-{}", review.id)),
             "outdated",
+            ladder,
             theme.warning,
             theme.warning_soft,
         ));
@@ -156,6 +170,7 @@ fn forge_line(
     row: &chat::MsgRow,
     opened: bool,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Option<AnyElement> {
     let (change, _, _, reviews) = forge.change()?;
     if let Some(review) = reviews
@@ -163,7 +178,7 @@ fn forge_line(
         .iter()
         .find(|r| r.message_id == row.message_id)
     {
-        return Some(review_card(forge, review, theme));
+        return Some(review_card(forge, review, theme, ladder));
     }
     let key = row.message_id.clone();
     if opened {
@@ -219,7 +234,7 @@ fn is_forge(forge: &Forge, row: &chat::MsgRow) -> bool {
 }
 
 /// The hidden chat channel of this change, in chat's row shape.
-fn messages(forge: &Forge, theme: &Theme) -> AnyElement {
+fn messages(forge: &Forge, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let Some((change, _, _, _)) = forge.change() else {
         return div().into_any_element();
     };
@@ -261,7 +276,7 @@ fn messages(forge: &Forge, theme: &Theme) -> AnyElement {
             for message in rows {
                 if is_forge(forge, message) {
                     if let Some(line) =
-                        forge_line(forge, message, opened == Some(message.seq), theme)
+                        forge_line(forge, message, opened == Some(message.seq), theme, ladder)
                     {
                         column = column.child(line);
                     }
@@ -289,7 +304,7 @@ fn messages(forge: &Forge, theme: &Theme) -> AnyElement {
     }
 }
 
-fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let send = cx.listener(|forge, _: &ClickEvent, window, cx| forge.post_reply(window, cx));
     div()
         .id(id("forge-composer"))
@@ -312,7 +327,7 @@ fn composer(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement
                 .placeholder("Reply in this change"),
         )
         .child(
-            button(id("forge-reply-send"), "Send", theme, send)
+            button(id("forge-reply-send"), "Send", ladder, theme, send)
                 .kind(design::Kind::Outline)
                 .enabled(forge.may_write() && !forge.reply.is_blank()),
         )

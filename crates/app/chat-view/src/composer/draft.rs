@@ -24,6 +24,9 @@ pub fn focus(window: &mut Window, key: &str) {
 pub struct MentionChoice {
     pub token: String,
     pub label: String,
+    /// a word beside the label, said before the pick: why an agent would
+    /// not answer the writer
+    pub hint: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -465,6 +468,7 @@ mod tests {
         vec![MentionChoice {
             token: "<@7>".into(),
             label: "Ada".into(),
+            hint: None,
         }]
     }
 

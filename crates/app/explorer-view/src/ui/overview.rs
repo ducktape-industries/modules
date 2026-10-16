@@ -1,5 +1,6 @@
 //! The Overview tab: the head, the latest blocks and transactions.
 use super::*;
+use view::design::Ladder;
 
 /// A stat keeps this much of the row; the four fold two by two below it.
 const STAT_MIN_W: Pixels = px(200.);
@@ -17,7 +18,7 @@ fn side_by_side(view: &Explorer) -> bool {
     view.width - gutter >= f32::from(PANEL_MIN_W + TXS_MIN_W)
 }
 
-pub(super) fn overview(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
+pub(super) fn overview(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let side = side_by_side(view);
     // side by side, the panels fill the page's height and the rule between
     // them runs to its foot; narrower, each takes the page's width and its
@@ -28,7 +29,7 @@ pub(super) fn overview(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         .when(side, |row| row.flex_wrap().flex_1())
         .when(!side, |column| column.flex_col())
         .child(latest_blocks(view, side, cx, theme))
-        .child(latest_txs(view, side, cx, theme));
+        .child(latest_txs(view, side, cx, theme, ladder));
     div()
         .id("explorer-overview")
         .flex()
@@ -176,7 +177,13 @@ fn latest_blocks(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl Int
         .child(blocks.build(cx))
 }
 
-fn latest_txs(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoElement {
+fn latest_txs(
+    view: &Explorer,
+    side: bool,
+    cx: Cx,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let all = link(
         "explorer-all-txs".into(),
         "All transactions →".into(),
@@ -191,7 +198,7 @@ fn latest_txs(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoEl
         Loadable::Ready(frames) | Loadable::Reloading(frames, _) => {
             latest(view, &frames.list, list, cx, theme)
         }
-        Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
+        Loadable::Failed(refusal) => failed(&refusal.message, cx, theme, ladder),
         Loadable::Idle | Loadable::Loading(_) => {
             quiet("explorer-txs-loading", "Reading transactions…", theme)
         }

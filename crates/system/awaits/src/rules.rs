@@ -1,30 +1,25 @@
 //! The rules: a ticket opens when the kernel parks a frame on a call, and closes when the called
-//! program resolves it, when it expires, or when its frame finishes.
+//! program resolves it or when its frame finishes.
 
-use abi::role::awaits::{Answer, Call, EXPIRY_BLOCKS, FrameId, Ticket, TicketRow, expired};
+use abi::role::awaits::{Answer, Call, FrameId, Ticket, TicketRow};
 use program::kernel::error_from;
-use program::{
-    Error, ExecCtx, ProgramId, QueryCtx, Range, code, not_found, unauthorized, wrong_state,
-};
+use program::{Error, ExecCtx, ProgramId, QueryCtx, Range, unauthorized, wrong_state};
 use store::{Map, Set};
 
 const TICKETS: Map<Ticket, TicketRow> = Map::new("t/");
 const BY_FRAME: Set<(FrameId, Ticket)> = Set::new("f/");
 const OWED: Set<(ProgramId, Ticket)> = Set::new("o/");
-const DUE: Set<(u64, Ticket)> = Set::new("d/");
 
 fn open(ctx: &ExecCtx, row: &TicketRow) {
     TICKETS.put(ctx, &row.ticket, row);
     BY_FRAME.insert(ctx, &(row.frame, row.ticket));
     OWED.insert(ctx, &(row.target.clone(), row.ticket));
-    DUE.insert(ctx, &(row.deadline, row.ticket));
 }
 
 fn shut(ctx: &ExecCtx, row: &TicketRow) {
     TICKETS.remove(ctx, &row.ticket);
     BY_FRAME.remove(ctx, &(row.frame, row.ticket));
     OWED.remove(ctx, &(row.target.clone(), row.ticket));
-    DUE.remove(ctx, &(row.deadline, row.ticket));
 }
 
 fn hand(ctx: &ExecCtx, row: TicketRow, answer: Answer) -> Result<(), Error> {
@@ -47,7 +42,6 @@ pub(crate) fn park(
             caller: program.clone(),
             target: call.target,
             opened,
-            deadline: opened + EXPIRY_BLOCKS,
         };
         open(ctx, &row);
     }
@@ -72,19 +66,6 @@ pub(crate) fn resolve(ctx: &ExecCtx, ticket: Ticket, answer: Answer) -> Result<(
         )));
     }
     hand(ctx, row, answer)
-}
-
-pub(crate) fn expire(ctx: &ExecCtx, ticket: Ticket) -> Result<(), Error> {
-    let Some(row) = TICKETS.get(ctx, &ticket)? else {
-        return Err(not_found(format!("call {ticket} is not open")));
-    };
-    let height = ctx.env().height;
-    let due = height >= row.deadline;
-    if !due {
-        let when = format!("call {ticket} expires at height {}", row.deadline);
-        return Err(Error::new(code::NOT_YET, when));
-    }
-    hand(ctx, row, Err(expired(ticket, height)))
 }
 
 pub(crate) fn close(ctx: &ExecCtx, frame: FrameId) -> Result<(), Error> {
@@ -126,24 +107,5 @@ pub(crate) fn owed(
     }
     range.limit = Some(u64::from(limit));
     let tickets = OWED.scan(ctx, range)?.into_iter().map(|(_, ticket)| ticket);
-    rows(ctx, tickets)
-}
-
-pub(crate) fn overdue(
-    ctx: &QueryCtx,
-    height: u64,
-    after: Option<Ticket>,
-    limit: u32,
-) -> Result<Vec<TicketRow>, Error> {
-    let mut range = Range::new(DUE.key(&()), Some(DUE.key(&(height + 1))));
-    if let Some(after) = after
-        .map(|ticket| TICKETS.get(ctx, &ticket))
-        .transpose()?
-        .flatten()
-    {
-        range = range.after(DUE.key(&(after.deadline, after.ticket)));
-    }
-    range.limit = Some(u64::from(limit));
-    let tickets = DUE.scan(ctx, range)?.into_iter().map(|(_, ticket)| ticket);
     rows(ctx, tickets)
 }

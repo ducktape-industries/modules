@@ -232,6 +232,9 @@ const TREE: &[Trace] = &[
     trace::<view_wire::Anchor>,
     trace::<view_wire::AnchoredFitMode>,
     trace::<view_wire::AnchoredPositionMode>,
+    trace::<view_wire::Autocapitalize>,
+    trace::<view_wire::VirtualKeyboard>,
+    trace::<view_wire::TextInputAction>,
     trace::<view_wire::CanvasCommand>,
     trace::<view_wire::CanvasLineCap>,
     trace::<view_wire::CanvasLineJoin>,
@@ -469,6 +472,10 @@ pub(super) fn shapes() -> (BTreeMap<&'static str, Shape>, Definitions) {
         borsh::<HostScreen>(d),
         borsh::<ChainHeads>(d),
         borsh::<ProgramDescribe>(d),
+        borsh::<LivePublishTrack>(d),
+        borsh::<LiveSendObject>(d),
+        borsh::<LiveSubscribeTrack>(d),
+        borsh::<LiveTracks>(d),
     ]
     .into();
     let kinds: BTreeSet<&str> = shapes.keys().copied().collect();

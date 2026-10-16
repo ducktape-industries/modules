@@ -1,17 +1,19 @@
 //! What each op checks and writes: an account registering a service and assigning the nodes
 //! that may serve it, a member node serving, a program's call and the chain electing its node,
-//! the node answering it, and an overdue call expiring.
+//! the node answering it (whole, or as events and then the stream's end), and the request's own
+//! scheduled run expiring it.
 use ::program::kernel::error_from;
 use ::program::{
-    BlobId, Cause, Error, ExecCtx, QueryCtx, invalid, not_found, unauthorized, unexpected_reply,
-    wrong_state,
+    BlobId, Cause, Ctx, Error, ExecCtx, Origin, QueryCtx, code, invalid, not_found, unauthorized,
+    unexpected_reply, wrong_state,
 };
-use abi::role::{awaits, validators};
+use abi::role::validators;
 use store::{PageRequest, PageResponse};
 
-use crate::state::{ASSIGNED, COUNT, DEADLINES, NODES, REQUESTS, SERVICES, SERVING, Stored, TURNS};
+use crate::state::{ASSIGNED, COUNT, NODES, REQUESTS, SERVICES, SERVING, Stored, TURNS};
 use crate::{
-    Answer, EXPIRY_BLOCKS, HTTP, NodeRow, RELAY, RESERVED, Request, RequestRow, ServiceRow,
+    Answer, DEFAULT_WAIT, Delivery, Event, HTTP, NodeRow, Op, PROGRAM, RELAY, RESERVED, Request,
+    RequestRow, ServiceRow, StreamEnd, http,
 };
 
 fn members(ctx: &QueryCtx) -> Result<Vec<Vec<u8>>, Error> {
@@ -187,7 +189,23 @@ fn elect(ctx: &ExecCtx, service: &str) -> Result<Vec<u8>, Error> {
     Ok(eligible[(turn % eligible.len() as u64) as usize].clone())
 }
 
-pub(crate) fn request(ctx: &ExecCtx, request: Request) -> Result<(), Error> {
+fn expiry_height(made: u64, wait: u64) -> Result<u64, Error> {
+    if wait == 0 {
+        return Err(invalid("a request waits at least one block"));
+    }
+    made.checked_add(wait).ok_or_else(|| {
+        invalid(format!(
+            "a wait of {wait} blocks from height {made} passes the last height"
+        ))
+    })
+}
+
+pub(crate) async fn request(
+    ctx: &Ctx,
+    request: Request,
+    delivery: Delivery,
+    wait: Option<u64>,
+) -> Result<(), Error> {
     let requester = ctx.env().sending_program()?;
     let called = matches!(ctx.env().cause, Cause::Call { .. });
     if !called {
@@ -195,23 +213,43 @@ pub(crate) fn request(ctx: &ExecCtx, request: Request) -> Result<(), Error> {
             "a request is a call: the program awaits egress with ctx.call",
         ));
     }
-    check(ctx, &request)?;
-    let node = elect(ctx, request.service())?;
-    let ticket = ctx.defer()?;
-    let id = COUNT.get(ctx)?.unwrap_or(0) + 1;
+    let unscheduled = ctx.env().roles.get(abi::role::SCHEDULER).is_none();
+    if unscheduled {
+        return Err(Error::new(
+            code::UNSUPPORTED,
+            "egress expires a request through the scheduler role, and this network binds no \
+             scheduler",
+        ));
+    }
     let made = ctx.env().height;
+    let wait = wait.unwrap_or(DEFAULT_WAIT);
+    let expires = expiry_height(made, wait)?;
+    check(ctx, &request)?;
+    let streams_a_relay = matches!(
+        (&request, &delivery),
+        (Request::Relay { .. }, Delivery::Events { .. })
+    );
+    if streams_a_relay {
+        return Err(invalid(
+            "a relay is answered whole: ask it with Delivery::Whole",
+        ));
+    }
+    let node = elect(ctx, request.service())?;
+    let id = COUNT.get(ctx)?.unwrap_or(0) + 1;
+    COUNT.put(ctx, &id);
+    let expiry = ctx.schedule(expires, PROGRAM, &Op::Expire { id }).await?;
+    let ticket = ctx.defer()?;
     let row = RequestRow {
         id,
         requester,
         request,
+        delivery,
         node,
         made,
-        deadline: made + EXPIRY_BLOCKS,
+        expiry,
     };
-    COUNT.put(ctx, &id);
     ASSIGNED.insert(ctx, &(row.node.clone(), id));
-    DEADLINES.insert(ctx, &(row.deadline, id));
-    REQUESTS.put(ctx, &id, &Stored { row, ticket });
+    REQUESTS.put(ctx, &id, &Stored { row, ticket, wait });
     Ok(())
 }
 
@@ -225,12 +263,13 @@ fn close(ctx: &ExecCtx, stored: Stored, answer: Result<Vec<u8>, Error>) -> Resul
     let row = stored.row;
     REQUESTS.remove(ctx, &row.id);
     ASSIGNED.remove(ctx, &(row.node.clone(), row.id));
-    DEADLINES.remove(ctx, &(row.deadline, row.id));
     ctx.resolve(stored.ticket, answer)?;
     Ok(())
 }
 
-pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error> {
+/// Request `id`, open, from the node it was elected to, in a later block than the one that
+/// made it: what each of the node's frames for it must be.
+fn from_its_node(ctx: &Ctx, id: u64) -> Result<Stored, Error> {
     let key = ctx.env().signer()?;
     let stored = open(ctx, id)?;
     if stored.row.node != key {
@@ -244,12 +283,23 @@ pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error
             "request {id} is answered in a later block than the one that made it"
         )));
     }
-    if ctx.env().height > stored.row.deadline {
-        return Err(wrong_state(format!(
-            "request {id} expired at height {}",
-            stored.row.deadline
-        )));
+    Ok(stored)
+}
+
+/// The prefix an events request's requester hears each event under; a whole request has none.
+fn streamed(stored: &Stored) -> Result<&[u8], Error> {
+    match &stored.row.delivery {
+        Delivery::Events { deliver } => Ok(deliver),
+        Delivery::Whole => Err(wrong_state(format!(
+            "request {} asked for its answer whole",
+            stored.row.id
+        ))),
     }
+}
+
+pub(crate) async fn answer(ctx: &Ctx, id: u64, answer: Answer) -> Result<(), Error> {
+    let stored = from_its_node(ctx, id)?;
+    ctx.cancel(stored.row.expiry).await?;
     let answered = match answer {
         Answer::Output(output) => Ok(output),
         Answer::Failed(reason) => Err(failed(stored.row.request.service(), &reason)),
@@ -257,20 +307,87 @@ pub(crate) fn answer(ctx: &ExecCtx, id: u64, answer: Answer) -> Result<(), Error
     close(ctx, stored, answered)
 }
 
+/// One event of an events request, handed to its requester as `deliver` followed by the
+/// encoded event, its own op; a refusal there refuses this frame, which moves nothing, and the
+/// node goes on to the next. The request's expiry moves `wait` blocks past this block.
+///
+/// `seq` is passed through as the node sent it, never checked: it counts from 0 per call the
+/// node makes, so a repeated `seq` is a repeat (a frame sent again beside the one already
+/// relayed) and a `seq` back at 0 is the node calling the service again after a restart, which
+/// voids what came before. Only the requester can act on either; a check here would hide them
+/// (a strict next-`seq` wedges the stream after one refused event, a rising one splices a
+/// restarted call onto the old one's prefix).
+pub(crate) async fn event(ctx: &Ctx, event: Event) -> Result<(), Error> {
+    let mut stored = from_its_node(ctx, event.id)?;
+    let deliver = streamed(&stored)?.to_vec();
+    let expires = expiry_height(ctx.env().height, stored.wait)?;
+    ctx.cancel(stored.row.expiry).await?;
+    stored.row.expiry = ctx
+        .schedule(expires, PROGRAM, &Op::Expire { id: event.id })
+        .await?;
+    ctx.emit_raw(
+        stored.row.requester.clone(),
+        event.payload(&deliver),
+        ::program::Reply::None,
+    );
+    REQUESTS.put(ctx, &event.id, &stored);
+    Ok(())
+}
+
+/// An events request's stream ended: its call answers `Complete` as the encoded
+/// `http::Response` with the stream's status and headers and an empty body (the events were the
+/// body), so an `Http` request's call answers one type whether its reply came whole or as
+/// events; a cut answers the service's failure.
+pub(crate) async fn end_stream(
+    ctx: &Ctx,
+    id: u64,
+    events: u64,
+    end: StreamEnd,
+) -> Result<(), Error> {
+    let stored = from_its_node(ctx, id)?;
+    streamed(&stored)?;
+    ctx.cancel(stored.row.expiry).await?;
+    let ended = match &end {
+        StreamEnd::Complete { status, headers } => Ok(abi::encode(&http::Response {
+            status: *status,
+            headers: headers.clone(),
+            body: Vec::new(),
+        })),
+        StreamEnd::Cut { reason } => Err(failed(
+            stored.row.request.service(),
+            &format!("the stream broke off, the node sent {events} events: {reason}"),
+        )),
+    };
+    close(ctx, stored, ended)
+}
+
 fn failed(service: &str, reason: &str) -> Error {
     wrong_state(format!("the {service} service failed: {reason}"))
 }
 
 pub(crate) fn expire(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
+    let env = ctx.env();
+    let Cause::Scheduled { entry } = env.cause else {
+        return Err(unauthorized(
+            "a request expires only by its own scheduled run",
+        ));
+    };
+    let from_itself = env.origin == Origin::Program(env.program.clone());
+    if !from_itself {
+        return Err(unauthorized(
+            "a request expires only by the run egress scheduled",
+        ));
+    }
     let stored = open(ctx, id)?;
-    if ctx.env().height <= stored.row.deadline {
-        return Err(wrong_state(format!(
-            "request {id} is open until height {}",
-            stored.row.deadline
+    let its_expiry = stored.row.expiry == entry;
+    if !its_expiry {
+        return Err(unauthorized(format!(
+            "entry {entry} is not request {id}'s expiry"
         )));
     }
-    let expired = awaits::expired(stored.ticket, ctx.env().height);
-    close(ctx, stored, Err(error_from(expired)))
+    let waited = env.height.saturating_sub(stored.row.made);
+    let expired = wrong_state(format!("request {id} expired after {waited} blocks"));
+    close(ctx, stored, Err(expired))
 }
 
 pub(crate) fn assigned(ctx: &QueryCtx, key: &Vec<u8>) -> Result<Vec<RequestRow>, Error> {
@@ -283,16 +400,6 @@ pub(crate) fn assigned(ctx: &QueryCtx, key: &Vec<u8>) -> Result<Vec<RequestRow>,
 
 pub(crate) fn request_row(ctx: &QueryCtx, id: u64) -> Result<Option<RequestRow>, Error> {
     Ok(REQUESTS.get(ctx, &id)?.map(|stored| stored.row))
-}
-
-pub(crate) fn overdue(ctx: &QueryCtx) -> Result<Vec<RequestRow>, Error> {
-    let height = ctx.env().height;
-    DEADLINES
-        .all(ctx)?
-        .into_iter()
-        .take_while(|(deadline, _)| *deadline < height)
-        .map(|(_, id)| Ok(open(ctx, id)?.row))
-        .collect()
 }
 
 pub(crate) fn node(ctx: &QueryCtx, key: &Vec<u8>) -> Result<Option<NodeRow>, Error> {

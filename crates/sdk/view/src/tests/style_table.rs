@@ -197,3 +197,36 @@ fn a_tooltip_names_its_styles_in_the_table_of_the_frame_it_crosses_in() {
     assert_eq!(width(&cx, &tip(&cx)), Some(px(9.).into()));
     assert_eq!(width(&cx, cx.root()), Some(px(7.).into()));
 }
+
+/// Two texts, one spaced out and one tightened.
+#[derive(Default, Serialize, Deserialize)]
+struct Tracked;
+impl View for Tracked {
+    const NAME: &'static str = "Tracked";
+    fn new(_: &mut Window, _: &mut Context<Self>) -> Self {
+        Self
+    }
+}
+impl Render for Tracked {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .child(
+                div()
+                    .id("eyebrow")
+                    .letter_spacing(px(0.66))
+                    .child("EYEBROW"),
+            )
+            .child(div().id("title").letter_spacing(px(-0.22)).child("Rooms"))
+    }
+}
+
+/// gpui's letter spacing is a text style field like the rest: the host's
+/// table holds what the view set, its sign kept.
+#[test]
+fn a_texts_letter_spacing_reaches_the_host() {
+    let mut cx = TestAppContext::new();
+    cx.open::<Tracked>();
+    let spacing = |key| cx.style(key).text.letter_spacing;
+    assert_eq!(spacing("eyebrow"), Some(px(0.66)));
+    assert_eq!(spacing("title"), Some(px(-0.22)));
+}

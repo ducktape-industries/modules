@@ -1,23 +1,28 @@
-//! The agents harness runs: a manager hires one it handed to harness, a mention or a direct
-//! message it answers opens or continues its thread for that place, and its manager
-//! dismisses it or closes a thread.
+//! The agents harness runs: program accounts of the agent category whose script calls harness.
+//! An agent's setup is what identity says of it, its configuration file in `files` read at the
+//! head, and the model record that file names. A mention or a direct message it answers opens
+//! or continues its thread for that place, and its manager closes a thread.
 use ::program::{
-    BlobId, Ctx, Error, ExecCtx, HashKind, Principal, QueryCtx, invalid, not_found, unauthorized,
-    unexpected_reply, wrong_state,
+    BlobId, Ctx, Error, ExecCtx, Principal, QueryCtx, not_found, unauthorized, unexpected_reply,
 };
-use abi::role::identity::{AccountNumber, Kind, Profile, Standing};
+use abi::role::identity::{AccountNumber, Category, Kind, Profile, Standing};
 use attribution::{Actor, Change, Kind as Changed, Reason, Source};
 
-use crate::state::{AGENTS, BY_AGENT, COUNT, LAST, PLACES, THREADS, newest_first};
+use crate::state::{BY_AGENT, COUNT, LAST, MODELS, PLACES, THREADS, newest_first};
 use crate::turns::{converse, say};
-use crate::{
-    AgentRow, Asking, Body, Context, PART, PROGRAM, ThreadRow, anthropic, attributed_as, tools,
-};
+use crate::{AgentSetup, Asking, Body, Config, Configured, Context, PROGRAM, ThreadRow};
+
+pub(crate) struct Agent {
+    pub number: AccountNumber,
+    pub name: String,
+    pub manager: AccountNumber,
+    pub path: String,
+}
 
 fn acting(ctx: &ExecCtx) -> Result<AccountNumber, Error> {
     match ctx.sender()? {
         Principal::Account(number) => Ok(number),
-        Principal::Root => Err(unauthorized("an agent is hired by its manager's account")),
+        Principal::Root => Err(unauthorized("a thread is closed by its agent's manager")),
     }
 }
 
@@ -30,16 +35,105 @@ fn profile(ctx: &QueryCtx, number: AccountNumber) -> Result<Option<Profile>, Err
     }
 }
 
-fn runs_here(profile: &Profile) -> Option<AccountNumber> {
-    match &profile.kind {
-        Kind::Managed {
-            manager,
-            standing: Standing::Active,
-            runner: Some(runner),
-            ..
-        } if runner == PROGRAM => Some(*manager),
-        _ => None,
+fn harnessed(profile: &Profile) -> Option<(Agent, Standing)> {
+    let Kind::Program {
+        manager,
+        category: Category::Agent,
+        standing,
+        script: Some(script),
+    } = &profile.kind
+    else {
+        return None;
+    };
+    let calls_harness = script.calls == PROGRAM;
+    let agent = Agent {
+        number: profile.number,
+        name: profile.name.clone(),
+        manager: *manager,
+        path: script.config.clone(),
+    };
+    calls_harness.then_some((agent, *standing))
+}
+
+fn runs_here(profile: &Profile) -> Option<Agent> {
+    let (agent, standing) = harnessed(profile)?;
+    let active = standing == Standing::Active;
+    active.then_some(agent)
+}
+
+pub(crate) fn running(ctx: &QueryCtx, number: AccountNumber) -> Result<Option<Agent>, Error> {
+    Ok(profile(ctx, number)?.as_ref().and_then(runs_here))
+}
+
+fn read(ctx: &QueryCtx, path: &str) -> Result<(BlobId, Vec<u8>), Error> {
+    let mut at = None;
+    let mut bytes = Vec::new();
+    loop {
+        let asked = files::Query::Read {
+            path: path.to_owned(),
+            at,
+            offset: bytes.len() as u64,
+            len: u64::MAX,
+        };
+        let contents = match ctx.query(files::PROGRAM, &asked)? {
+            files::Reply::Contents(contents) => contents,
+            other => return Err(unexpected_reply(files::PROGRAM, "Read", &other)),
+        };
+        let stalled = contents.bytes.is_empty() && !contents.eof;
+        bytes.extend(contents.bytes);
+        if contents.eof {
+            return Ok((contents.snapshot, bytes));
+        }
+        if stalled {
+            return Err(::program::corrupt(
+                "file",
+                path.as_bytes(),
+                "files answered no bytes before the end of the file",
+            ));
+        }
+        at = Some(contents.snapshot);
     }
+}
+
+pub(crate) fn configured(ctx: &QueryCtx, path: &str) -> Result<Configured, Error> {
+    let (snapshot, bytes) = match read(ctx, path) {
+        Ok(read) => read,
+        Err(error) => {
+            let reason = format!("{}: {}", error.code, error.message);
+            return Ok(Configured::Unreadable { reason });
+        }
+    };
+    let config = match Config::parse(&bytes) {
+        Ok(config) => config,
+        Err(malformed) => {
+            return Ok(Configured::Malformed {
+                snapshot,
+                malformed,
+            });
+        }
+    };
+    Ok(match MODELS.get(ctx, &config.model)? {
+        Some(model) => Configured::Ready {
+            snapshot,
+            config,
+            model,
+        },
+        None => Configured::UnknownModel { snapshot, config },
+    })
+}
+
+pub(crate) fn setup(ctx: &QueryCtx, number: AccountNumber) -> Result<Option<AgentSetup>, Error> {
+    let Some((agent, standing)) = profile(ctx, number)?.as_ref().and_then(harnessed) else {
+        return Ok(None);
+    };
+    let configured = configured(ctx, &agent.path)?;
+    Ok(Some(AgentSetup {
+        agent: agent.number,
+        manager: agent.manager,
+        standing,
+        path: agent.path,
+        configured,
+    }))
 }
 
 fn audience(ctx: &QueryCtx, agent: AccountNumber) -> Result<identity::Audience, Error> {
@@ -51,10 +145,10 @@ fn audience(ctx: &QueryCtx, agent: AccountNumber) -> Result<identity::Audience, 
     }
 }
 
-fn answers(ctx: &QueryCtx, agent: &AgentRow, actor: AccountNumber) -> Result<bool, Error> {
+fn answers(ctx: &QueryCtx, agent: &Agent, actor: AccountNumber) -> Result<bool, Error> {
     let by_manager = actor == agent.manager;
     Ok(by_manager
-        || match audience(ctx, agent.agent)? {
+        || match audience(ctx, agent.number)? {
             identity::Audience::Manager => false,
             identity::Audience::Accounts(numbers) => numbers.contains(&actor),
             identity::Audience::Anyone => true,
@@ -65,85 +159,6 @@ pub(crate) fn thread(ctx: &QueryCtx, id: u64) -> Result<ThreadRow, Error> {
     THREADS
         .get(ctx, &id)?
         .ok_or_else(|| not_found(format!("no thread {id}")))
-}
-
-fn checked(model: &str, service: &str, max_tokens: u32) -> Result<(), Error> {
-    let model_named = !model.is_empty()
-        && model
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"-._@:".contains(&byte));
-    if !model_named {
-        return Err(invalid(
-            "a model is a model id: letters, digits, -, ., _, @ and :",
-        ));
-    }
-    let reserved = abi::role::egress::RESERVED.contains(&service);
-    if service.is_empty() || reserved {
-        return Err(invalid(
-            "the model is reached through a registered egress service, not http or relay",
-        ));
-    }
-    if max_tokens == 0 {
-        return Err(invalid("max_tokens is at least 1"));
-    }
-    Ok(())
-}
-
-pub(crate) fn hire(
-    ctx: &ExecCtx,
-    agent: AccountNumber,
-    system: String,
-    model: String,
-    service: String,
-    max_tokens: u32,
-) -> Result<(), Error> {
-    let manager = acting(ctx)?;
-    checked(&model, &service, max_tokens)?;
-    let profile = profile(ctx, agent)?.ok_or_else(|| not_found(format!("no account {agent}")))?;
-    let Kind::Managed {
-        manager: managing, ..
-    } = &profile.kind
-    else {
-        return Err(wrong_state(format!("account {agent} is no one's agent")));
-    };
-    if *managing != manager {
-        return Err(unauthorized(format!(
-            "account {manager} does not manage account {agent}"
-        )));
-    }
-    if runs_here(&profile).is_none() {
-        return Err(wrong_state(format!(
-            "account {agent} is not an active agent handed to {PROGRAM}: its manager sets identity's SetRunner first"
-        )));
-    }
-    let row = AgentRow {
-        agent,
-        manager,
-        name: profile.name,
-        system,
-        model,
-        service,
-        max_tokens,
-        hired: ctx.env().height,
-    };
-    AGENTS.put(ctx, &agent, &row);
-    let subscribe = attribution::Op::Subscribe {
-        deliver: attributed_as(),
-    };
-    ctx.emit(attribution::PROGRAM, &subscribe, ::program::Reply::None);
-    Ok(())
-}
-
-pub(crate) fn dismiss(ctx: &ExecCtx, agent: AccountNumber) -> Result<(), Error> {
-    let row = AGENTS
-        .get(ctx, &agent)?
-        .ok_or_else(|| not_found(format!("account {agent} is not hired here")))?;
-    if acting(ctx)? != row.manager {
-        return Err(unauthorized(format!("agent {agent} is its manager's")));
-    }
-    AGENTS.remove(ctx, &agent);
-    LAST.remove(ctx, &agent);
-    Ok(())
 }
 
 pub(crate) fn close(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
@@ -158,7 +173,7 @@ pub(crate) fn close(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
     Ok(())
 }
 
-fn preamble(agent: &AgentRow, title: &str) -> String {
+pub(crate) fn preamble(agent: &Agent, title: &str) -> String {
     format!(
         "You are {name}, an agent on a ducktape network: account {number}, managed by account \
          {manager}. People reach you by mentioning you or by writing to you directly in chat; \
@@ -168,39 +183,25 @@ fn preamble(agent: &AgentRow, title: &str) -> String {
          network allows you only what it allows that account. Every tool call runs in a later \
          block, and its result comes back before you are asked again.",
         name = agent.name,
-        number = agent.agent,
+        number = agent.number,
         manager = agent.manager,
     )
 }
 
-fn opened(
-    ctx: &ExecCtx,
-    agent: &AgentRow,
-    place: String,
-    title: String,
-) -> Result<ThreadRow, Error> {
-    if let Some(id) = PLACES.get(ctx, &(agent.agent, place.clone()))? {
+fn opened(ctx: &ExecCtx, agent: &Agent, place: String, title: String) -> Result<ThreadRow, Error> {
+    if let Some(id) = PLACES.get(ctx, &(agent.number, place.clone()))? {
         let existing = thread(ctx, id)?;
         if !existing.closed {
             return Ok(existing);
         }
     }
     let id = COUNT.get(ctx)?.unwrap_or(0) + 1;
-    let mut system = preamble(agent, &title);
-    if !agent.system.is_empty() {
-        system.push_str("\n\n");
-        system.push_str(&agent.system);
-    }
-    let mut row = ThreadRow {
+    let row = ThreadRow {
         id,
-        agent: agent.agent,
+        agent: agent.number,
         manager: agent.manager,
         place: place.clone(),
         title,
-        system,
-        model: agent.model.clone(),
-        service: agent.service.clone(),
-        max_tokens: agent.max_tokens,
         opened: ctx.env().height,
         closed: false,
         frames: 0,
@@ -210,18 +211,18 @@ fn opened(
         asking: Asking::Idle,
         open_calls: 0,
         held: 0,
-        header: BlobId::Sha256([0; 32]),
         sealed: 0,
+        base: 1,
         tail_from: 1,
         summary: None,
         context: Context::Measured(0),
         compact_before: None,
+        last_height: 0,
+        last_time: 0,
     };
-    let header = anthropic::header(&row, tools::definitions());
-    row.header = ctx.blob_put(HashKind::Sha256, PART, header.into_bytes())?;
     COUNT.put(ctx, &id);
-    BY_AGENT.insert(ctx, &(agent.agent, newest_first(id)));
-    PLACES.put(ctx, &(agent.agent, place), &id);
+    BY_AGENT.insert(ctx, &(agent.number, newest_first(id)));
+    PLACES.put(ctx, &(agent.number, place), &id);
     Ok(row)
 }
 
@@ -310,28 +311,28 @@ pub(crate) async fn attributed(ctx: Ctx, change: Change) -> Result<(), Error> {
 
 fn heard(ctx: &ExecCtx, change: Change) -> Result<Option<u64>, Error> {
     ctx.env().sent_by(attribution::PROGRAM)?;
-    let Some(agent) = AGENTS.get(ctx, &change.recipient)? else {
-        return Ok(None);
-    };
     let added = change.kind == Changed::Added;
     let Actor::Account(actor) = change.actor else {
         return Ok(None);
     };
-    let by_another = actor != agent.agent;
+    let by_another = actor != change.recipient;
     let told_already =
-        LAST.get(ctx, &agent.agent)? == Some((change.source.clone(), change.revision));
+        LAST.get(ctx, &change.recipient)? == Some((change.source.clone(), change.revision));
     let heeded = added && designates(&change.reason) && by_another && !told_already;
     if !heeded {
         return Ok(None);
     }
-    let still_runs = profile(ctx, agent.agent)?
-        .as_ref()
-        .and_then(runs_here)
-        .is_some();
-    if !still_runs || !answers(ctx, &agent, actor)? {
+    let Some(agent) = running(ctx, change.recipient)? else {
+        return Ok(None);
+    };
+    if !answers(ctx, &agent, actor)? {
         return Ok(None);
     }
-    LAST.put(ctx, &agent.agent, &(change.source.clone(), change.revision));
+    LAST.put(
+        ctx,
+        &agent.number,
+        &(change.source.clone(), change.revision),
+    );
     let Designation { place, title, text } = designation(ctx, &change, actor)?;
     let mut thread = opened(ctx, &agent, place, title)?;
     let author = Principal::Account(actor);

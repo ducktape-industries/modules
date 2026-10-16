@@ -3,7 +3,9 @@
 //! logs the env it ran in on its host, so a test reads who ran, sent by
 //! whom, caused by what.
 
-use abi::role::identity::{Category, Kind, Profile, Query as Asked, Reply as Answer, Standing};
+use abi::role::identity::{
+    Category, Kind, Profile, Query as Asked, Reply as Answer, Script, Standing,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use super::*;
@@ -21,7 +23,7 @@ enum Step {
     Recurse(u32),
     /// Records what `target` holds under `key`, as `peek:<key>`.
     Peek(String, String),
-    Person(AccountNumber),
+    Named(AccountNumber),
     Blob,
     Stat(BlobId),
     Event,
@@ -72,7 +74,7 @@ impl Program for Bot {
                     let seen: Option<Vec<u8>> = ctx.query(target, &key)?;
                     ctx.set(format!("peek:{key}"), seen.unwrap_or_default());
                 }
-                Step::Person(number) => ctx.require_person_or_agent(number)?,
+                Step::Named(number) => ctx.require_user_or_program_account(number)?,
                 Step::Blob => {
                     ctx.blob_put(HashKind::Sha256, "text", b"body".to_vec())?;
                 }
@@ -453,8 +455,8 @@ fn a_submission_acts_as_the_account_its_key_holds_or_as_no_one() {
     chain.profile(Profile {
         number: 5,
         name: "agent".into(),
-        kind: Kind::Managed {
-            runner: None,
+        kind: Kind::Program {
+            script: None,
             manager: 1,
             category: Category::Agent,
             standing: Standing::Suspended,
@@ -490,14 +492,17 @@ fn a_submission_acts_as_the_account_its_key_holds_or_as_no_one() {
 #[test]
 fn a_message_acts_as_an_agent_only_through_the_program_that_runs_it() {
     let chain = chain();
-    let agent = |number, runner: Option<&str>, standing| Profile {
+    let agent = |number, calls: Option<&str>, standing| Profile {
         number,
         name: "agent".into(),
-        kind: Kind::Managed {
+        kind: Kind::Program {
             manager: 1,
             category: Category::Agent,
             standing,
-            runner: runner.map(Into::into),
+            script: calls.map(|calls| Script {
+                calls: calls.into(),
+                config: String::new(),
+            }),
         },
     };
     chain.profile(agent(8, Some("a"), Standing::Active));
@@ -534,25 +539,23 @@ fn the_roster_answers_programs_as_the_identity_role_does() {
     chain.profile(Profile {
         number: 6,
         name: "idle".into(),
-        kind: Kind::Managed {
-            runner: None,
+        kind: Kind::Program {
+            script: None,
             manager: 1,
             category: Category::Agent,
             standing: Standing::Revoked,
         },
     });
-    chain.submit(ada(), "a", &vec![Step::Person(1)]).unwrap();
-    let refused = chain
-        .submit(ada(), "a", &vec![Step::Person(6)])
-        .unwrap_err();
+    chain.submit(ada(), "a", &vec![Step::Named(1)]).unwrap();
+    let refused = chain.submit(ada(), "a", &vec![Step::Named(6)]).unwrap_err();
     assert_eq!(refused.code, code::WRONG_STATE);
     let refused = chain
-        .submit(ada(), "a", &vec![Step::Person(100)])
+        .submit(ada(), "a", &vec![Step::Named(100)])
         .unwrap_err();
     assert_eq!(
         refused.code,
         code::INVALID_INPUT,
-        "a program's account is no person"
+        "a system account is not named"
     );
     // the chain reads a program's account off its profile
     assert_eq!(

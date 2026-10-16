@@ -17,7 +17,7 @@ fn an_identity_head_re_reads_the_accounts() {
     let chess = account(
         8,
         "chess",
-        identity::Control::Program {
+        identity::Control::System {
             program: "chess".into(),
         },
     );
@@ -212,6 +212,7 @@ fn a_change_reached_by_the_head_is_running_not_scheduled() {
                 (abi::role::BLOBS, "blobs"),
                 (abi::role::AWAITS, "awaits"),
                 (abi::role::EGRESS, "egress"),
+                (abi::role::HALO, "halo"),
             ])),
             other => panic!("unexpected query: {other:?}"),
         })

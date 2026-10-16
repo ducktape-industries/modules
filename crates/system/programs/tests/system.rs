@@ -1,11 +1,11 @@
 use abi::reason;
-use abi::{BlobId, HostOp, Message, Origin, Outcome, Scan, Scheme};
+use abi::{BlobId, HostOp, Message, Origin, Outcome, Receipt, Scan, Scheme};
 use borsh::{BorshDeserialize, BorshSerialize};
 use commonware_cryptography::{Signer as _, ed25519};
 use commonware_runtime::{Runner as _, deterministic};
 use host::{
-    Applied, Block, BlockId, Founding, FoundingView, Genesis, Host, Layer, Limits, PARKED, Receipt,
-    Roles, Submission, Tip,
+    Applied, Block, BlockId, Founding, FoundingView, Genesis, Host, Layer, Limits, PARKED, Roles,
+    Submission, Tip,
 };
 use identity::AccountNumber;
 use keyscheme::testkit;
@@ -172,6 +172,8 @@ impl Net {
             (abi::role::IDENTITY, identity::PROGRAM),
             (abi::role::BLOBS, blobs::PROGRAM),
             (abi::role::AWAITS, awaits::PROGRAM),
+            (abi::role::HALO, halo::PROGRAM),
+            (abi::role::SCHEDULER, scheduler::PROGRAM),
         ]);
         let egress_founded = apps.iter().any(|app| app.program == egress::PROGRAM);
         if egress_founded {
@@ -190,7 +192,14 @@ impl Net {
             ]
             .into_iter()
             .chain(apps)
-            .chain([founding(awaits::PROGRAM, &program("awaits"))])
+            .chain([
+                founding(awaits::PROGRAM, &program("awaits")),
+                Founding {
+                    params: abi::encode(&halo::Genesis { lanes: Vec::new() }),
+                    ..founding(halo::PROGRAM, &program("halo"))
+                },
+                founding(scheduler::PROGRAM, &program("scheduler")),
+            ])
             .collect(),
             views: vec![FoundingView {
                 name: "lens".into(),
@@ -357,9 +366,21 @@ impl Net {
         enacting
     }
 
+    /// `op` passed by the validators' vote: the programs' run of it, applied or refused.
+    /// The vote stands either way, and the motion is gone.
     async fn govern(&mut self, op: &programs::Op) -> Receipt {
-        let op = abi::encode(op);
-        self.pass(valset::Motion::Programs { op }).await
+        let motion = valset::Motion::Role {
+            role: abi::role::PROGRAMS.into(),
+            op: abi::encode(op),
+        };
+        let enacting = self.pass(motion).await;
+        let voted: valset::Voted = abi::decode(output_of(&enacting)).unwrap();
+        assert_eq!(voted, valset::Voted::Enacted);
+        enacting
+            .nested
+            .into_iter()
+            .find(|receipt| receipt.program == programs::PROGRAM)
+            .expect("the vote ran its op on the programs")
     }
 
     /// A query the program refuses.
@@ -446,5 +467,7 @@ mod harness_tests;
 mod identity_tests;
 #[path = "system/programs.rs"]
 mod program_programs_tests;
+#[path = "system/scheduler.rs"]
+mod scheduler_tests;
 #[path = "system/valset.rs"]
 mod valset_tests;

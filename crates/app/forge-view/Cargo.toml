@@ -33,7 +33,7 @@ serde_json.workspace = true
 
 [dev-dependencies]
 # `examples/live.rs`: the view in the real app over the fake node
-view = { workspace = true, features = ["live"] }
+view = { workspace = true, features = ["rig"] }
 # the example's seeded history, under the bounds a founding gives forge
 gitcore.workspace = true
 founding = { path = "../../sdk/founding" }

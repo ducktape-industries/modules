@@ -157,6 +157,7 @@ impl<V: View> Driver<V> {
                 self.route(handler, &event.into_gpui())
             }
             wire::Event::Hover { handler, hovered } => self.route(handler, &hovered),
+            wire::Event::Back { handler } => self.route(handler, &crate::BackEvent),
             wire::Event::FileDropExit { handler } => {
                 self.route(handler, &gpui::FileDropEvent::Exited)
             }
@@ -231,6 +232,12 @@ impl<V: View> Driver<V> {
                 self.app
                     .set_global(if dark { Theme::dark() } else { Theme::light() });
                 self.app.notify();
+                None
+            }
+            wire::Event::Pointer { touch } => {
+                if self.app.inner.touch.replace(touch) != touch {
+                    self.app.notify();
+                }
                 None
             }
             wire::Event::Viewport { width, height } => {

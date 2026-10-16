@@ -14,15 +14,54 @@
   {
     "kind": "op.submit",
     "request": "op",
-    "reply": [
-      114,
-      101,
-      99,
-      101,
-      105,
-      112,
-      116
-    ]
+    "reply": {
+      "Applied": {
+        "frame": [
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7,
+          7
+        ],
+        "until": 1300,
+        "output": [
+          114,
+          101,
+          99,
+          101,
+          105,
+          112,
+          116
+        ]
+      }
+    }
   },
   {
     "kind": "chain.status",
@@ -967,7 +1006,8 @@
             "Clipboard",
             "Notify",
             "Store",
-            "Web"
+            "Web",
+            "Live"
           ],
           "min_width": 480,
           "targets": [
@@ -1398,5 +1438,161 @@
       ]
     ],
     "reply": null
+  },
+  {
+    "kind": "live.publish",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "presence/3"
+      },
+      "mode": "Datagram",
+      "priority": 128
+    },
+    "reply": "Waiting"
+  },
+  {
+    "kind": "live.publish",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "presence/3"
+      },
+      "mode": "Datagram",
+      "priority": 128
+    },
+    "reply": {
+      "Subscribers": 2
+    }
+  },
+  {
+    "kind": "live.publish",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "doc"
+      },
+      "mode": "Stream",
+      "priority": 128
+    },
+    "reply": {
+      "Cut": {
+        "group": 4
+      }
+    }
+  },
+  {
+    "kind": "live.send",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "doc"
+      },
+      "group": 4,
+      "object": 0,
+      "body": [
+        1,
+        2
+      ],
+      "end": true
+    },
+    "reply": null
+  },
+  {
+    "kind": "live.subscribe",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "doc"
+      },
+      "from": "Latest"
+    },
+    "reply": "Waiting"
+  },
+  {
+    "kind": "live.subscribe",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "doc"
+      },
+      "from": "Latest"
+    },
+    "reply": {
+      "Opened": {
+        "by": 3,
+        "mode": "Stream",
+        "latest": 4
+      }
+    }
+  },
+  {
+    "kind": "live.subscribe",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "presence/3"
+      },
+      "from": "Next"
+    },
+    "reply": {
+      "Opened": {
+        "by": 3,
+        "mode": "Datagram",
+        "latest": null
+      }
+    }
+  },
+  {
+    "kind": "live.subscribe",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "doc"
+      },
+      "from": "Latest"
+    },
+    "reply": {
+      "Object": {
+        "group": 4,
+        "object": 1,
+        "body": [
+          7
+        ]
+      }
+    }
+  },
+  {
+    "kind": "live.subscribe",
+    "request": {
+      "track": {
+        "room": "lobby",
+        "name": "doc"
+      },
+      "from": "Latest"
+    },
+    "reply": {
+      "GroupEnd": {
+        "group": 4,
+        "complete": false
+      }
+    }
+  },
+  {
+    "kind": "live.tracks",
+    "request": "lobby",
+    "reply": "Waiting"
+  },
+  {
+    "kind": "live.tracks",
+    "request": "lobby",
+    "reply": {
+      "Announce": {
+        "name": "presence/3",
+        "by": 3,
+        "mode": "Datagram",
+        "up": true
+      }
+    }
   }
 ]

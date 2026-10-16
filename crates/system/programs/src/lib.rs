@@ -101,7 +101,7 @@ pub fn covers(grants: &[Grant], roles: &Roles, account: AccountNumber, program: 
 
 /// Why the vote may not make `grant`, `None` when it may: a program id in
 /// its one spelling and bound to no role, given to an account identity
-/// profiles (`profile`) that is no program's. The rule and valset's first
+/// profiles (`profile`) that is no system account. The rule and valset's first
 /// vote both ask it, so a bad grant is refused before it is voted on.
 pub fn grant_refused(grant: &Grant, roles: &Roles, profile: Option<&Profile>) -> Option<String> {
     if let Scope::Program(id) = &grant.scope {
@@ -117,10 +117,10 @@ pub fn grant_refused(grant: &Grant, roles: &Roles, profile: Option<&Profile>) ->
     let account = grant.account;
     match profile.map(|profile| &profile.kind) {
         None => Some(format!("there is no account {account}")),
-        Some(Kind::Program(program)) => Some(format!(
-            "account {account} is program {program}'s: a grant goes to a person or an agent"
+        Some(Kind::System(program)) => Some(format!(
+            "account {account} is program {program}'s own: a grant goes to a user or a program account"
         )),
-        Some(Kind::Person | Kind::Managed { .. }) => None,
+        Some(Kind::User | Kind::Program { .. }) => None,
     }
 }
 

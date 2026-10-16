@@ -1,7 +1,7 @@
 //! The `valset` program: who validates and who resides on a network. A key enrolls as a
 //! resident, by invite or through an open door; the validators' vote changes the rest. A
-//! validator votes with its node key, or through the person who manages the agent its node
-//! key sits on: any of that person's devices votes for it.
+//! validator votes with its node key, or through the user who manages the program account its
+//! node key sits on: any of that user's devices votes for it.
 //! Types, rules and [`Valset`] always build; the `program` feature adds the wasm exports.
 mod program;
 mod rules;
@@ -138,19 +138,46 @@ pub fn describe(op: &Op) -> describe::Description {
                 Motion::Remove { key: removed } => ("remove".into(), key(removed)),
                 Motion::Door { open: true } => ("open the door".into(), vec![]),
                 Motion::Door { open: false } => ("close the door".into(), vec![]),
-                // in the programs role's own words, which the app's confirm shows
-                Motion::Programs { op } => match abi::decode(op) {
-                    Ok(op) => {
-                        let described = programs::describe(&op);
-                        (described.title, described.fields)
-                    }
-                    Err(_) => ("programs".into(), vec![field("op", Value::bytes(op))]),
-                },
+                // in the words of the program this repo binds to the role, which the app's
+                // confirm shows; another role's op as its bytes
+                Motion::Role { role, op } => described_op(role, op),
+                Motion::Bind {
+                    role,
+                    program: Some(program),
+                } => (
+                    format!("bind {role} to {program}"),
+                    vec![
+                        field("role", Value::text(role)),
+                        field("program", Value::text(program)),
+                    ],
+                ),
+                Motion::Bind {
+                    role,
+                    program: None,
+                } => (
+                    format!("unbind {role}"),
+                    vec![field("role", Value::text(role))],
+                ),
             };
             (format!("Vote · {verb}"), fields)
         }
     };
     describe::Description { title, fields }
+}
+
+/// A `Role` motion's op in the words of the program this repo binds to the role (programs,
+/// halo); another role's op, or one that does not decode, as its bytes.
+fn described_op(role: &str, op: &[u8]) -> (String, Vec<describe::Field>) {
+    use describe::{Value, field};
+    let described = match role {
+        abi::role::PROGRAMS => abi::decode(op).ok().map(|op| programs::describe(&op)),
+        abi::role::HALO => abi::decode(op).ok().map(|op| halo::describe(&op)),
+        _ => None,
+    };
+    match described {
+        Some(described) => (described.title, described.fields),
+        None => (role.to_owned(), vec![field("op", Value::bytes(op))]),
+    }
 }
 
 describe::export!(Op, describe);

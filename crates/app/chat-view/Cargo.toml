@@ -29,4 +29,4 @@ abi.workspace = true
 
 [dev-dependencies]
 # `examples/live.rs` and the chain-backed tests: the fake node
-view = { workspace = true, features = ["live"] }
+view = { workspace = true, features = ["rig"] }

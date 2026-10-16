@@ -101,6 +101,7 @@ fn full_style() -> gpui::StyleRefinement {
     style.text.text_overflow = Some(gpui::TextOverflow::TruncateMiddle("...".into()));
     style.text.text_align = Some(gpui::TextAlign::Center);
     style.text.line_clamp = Some(3);
+    style.text.letter_spacing = Some(gpui::px(-0.5));
     style
 }
 
@@ -200,6 +201,7 @@ fn full_interactivity() -> Interactivity {
             hoverable: true,
             delay_ms: 300,
         }),
+        on_back: Some(81),
     }
 }
 
@@ -403,6 +405,13 @@ fn first_nodes() -> Vec<Node> {
                 invalid: Some(Invalid::True),
                 required: true,
                 read_only: true,
+                text_input: view_wire::TextInput {
+                    autocorrect: true,
+                    autocapitalize: view_wire::Autocapitalize::Words,
+                    suggestions: true,
+                    input_action: view_wire::TextInputAction::Go,
+                    virtual_keyboard: view_wire::VirtualKeyboard::Url,
+                },
                 ..Default::default()
             }),
             placeholder: "Name".into(),
@@ -419,6 +428,14 @@ fn first_nodes() -> Vec<Node> {
             style: style(),
             on_dismiss: Some(30),
             children: vec![text("base"), text("modal")],
+        },
+        Node::Sheet {
+            id: id("sheet"),
+            label: Some("Message actions".into()),
+            style: style(),
+            detents: vec![0.6, 1.0],
+            on_dismiss: Some(31),
+            child: boxed("actions"),
         },
         Node::Canvas {
             style: style(),
@@ -868,6 +885,7 @@ pub fn node_variant(node: &Node) -> &'static str {
         Node::Field { .. } => "Field",
         Node::Space => "Space",
         Node::Overlay { .. } => "Overlay",
+        Node::Sheet { .. } => "Sheet",
         Node::Canvas { .. } => "Canvas",
         Node::Web { .. } => "Web",
     }

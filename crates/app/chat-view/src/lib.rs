@@ -124,7 +124,7 @@ impl Render for Chat {
         // names land async: the frame is the one place that sees each
         self.settle_title(cx);
         self.settle_showing(cx);
-        ui::render(self, cx)
+        ui::render(self, window.touch(), cx)
     }
 }
 

@@ -8,8 +8,14 @@ use crate::ui::code::{links, no_commits};
 use crate::ui::components::{empty_state, id, path_text, quiet};
 use crate::ui::{markdown, staged};
 use forge::{BlobView, Content, Query, Reply};
+use view::design::Ladder;
 
-pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+pub(crate) fn render(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let page = div()
         .id(id("forge-readme"))
         .flex_1()
@@ -32,6 +38,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         "Reading the tree…",
         cx,
         theme,
+        ladder,
     ) {
         return page.child(state).into_any_element();
     }
@@ -57,6 +64,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         "Reading the README…",
         cx,
         theme,
+        ladder,
     ) {
         Ok(reply) => reply,
         Err(state) => return page.child(state).into_any_element(),

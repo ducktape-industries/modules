@@ -160,6 +160,9 @@ fn in_modal_layer(chain: &[&Node], dialog: &[ElementIdWire]) -> bool {
                     && std::ptr::eq(pair[1], &children[1])
                     && authored_path(&chain[..=at]) == dialog
             }
+            Node::Sheet { child, .. } => {
+                std::ptr::eq(pair[1], &**child) && authored_path(&chain[..=at]) == dialog
+            }
             _ => false,
         })
 }
@@ -178,14 +181,14 @@ pub(super) fn pressed(chain: &[&Node]) -> Option<Focus> {
 pub(super) fn open_dialogs(root: &Node) -> Vec<Vec<ElementIdWire>> {
     let mut out = Vec::new();
     chain(root, &mut |chain| {
-        if let Node::Overlay {
-            label: Some(_),
-            children,
-            ..
-        } = chain.last().unwrap()
-            && children.len() == 2
-        {
-            out.push(authored_path(chain));
+        match chain.last().unwrap() {
+            Node::Overlay {
+                label: Some(_),
+                children,
+                ..
+            } if children.len() == 2 => out.push(authored_path(chain)),
+            Node::Sheet { label: Some(_), .. } => out.push(authored_path(chain)),
+            _ => {}
         }
         false
     });
