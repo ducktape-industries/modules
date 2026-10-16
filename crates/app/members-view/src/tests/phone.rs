@@ -4,9 +4,17 @@
 use super::*;
 
 /// The view as a phone draws it: a finger, 390 wide, the reader's device
-/// signing with eddy's laptop key.
+/// signing with eddy's laptop key; chat describes its `hi` as a post.
 fn phone() -> TestAppContext {
     let (mut cx, _) = ready();
+    cx.host()
+        .handle::<ProgramDescribe>(|(target, payload): (String, Vec<u8>)| {
+            assert_eq!((target.as_str(), payload.as_slice()), ("chat", &b"hi"[..]));
+            Ok(Some(view::methods::Description {
+                title: "Post in #general".into(),
+                fields: Vec::new(),
+            }))
+        });
     cx.host().stream::<HostSession>().send(Session {
         account: Some(7),
         chain_id: "testnet#0a1b2c3d".into(),
@@ -239,7 +247,7 @@ fn a_phone_row_opens_its_member_and_back_returns() {
         "Manages",
         "account 9 · Agent",
         "Recent activity",
-        "chat",
+        "Post in #general",
         "block 12",
         " · 0s",
     ] {
@@ -386,6 +394,44 @@ fn a_member_page_says_why_the_roster_was_refused_and_retry_reads_it_again() {
     cx.simulate_click("members-retry");
     cx.run_until_parked();
     assert!(cx.has_text("account 11 · User · 1 device"));
+}
+
+/// A phone titles each frame by what its transaction did, as the Expo
+/// app does: its transaction read by its place, its payload as its
+/// program describes it, else its program and size. The desk reads no
+/// transaction (`recent_activity_lists_frames_and_reads_no_transaction`).
+#[test]
+fn a_phone_titles_activity_by_what_each_transaction_did() {
+    let mut cx = phone();
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    let row = format!("{:?}", cx.node("members-signed-0"));
+    assert!(row.contains("\"Post in #general\""), "{row}");
+    let places: Vec<_> = cx
+        .host()
+        .requests::<ChainTx>()
+        .into_iter()
+        .map(|ask| ask.tx)
+        .collect();
+    assert_eq!(
+        places,
+        [
+            TxRef::At {
+                height: 12,
+                position: 0
+            },
+            TxRef::At {
+                height: 11,
+                position: 0
+            },
+        ]
+    );
+    // a program whose code cannot read the bytes leaves their size
+    cx.host().handle::<ProgramDescribe>(|_| Ok(None));
+    cx.simulate_back();
+    cx.simulate_click("members-row-9");
+    cx.run_until_parked();
+    assert!(cx.has_text("chat · 2 bytes"), "{:?}", cx.texts());
 }
 
 #[test]

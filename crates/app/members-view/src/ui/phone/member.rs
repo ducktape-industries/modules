@@ -402,8 +402,9 @@ fn activity(view: &Members, ladder: &Ladder, theme: &Theme) -> Vec<AnyElement> {
         .collect()
 }
 
-/// One frame the account signed: its program, then its block (a link to
-/// it in Explorer) and how long ago, in the data face.
+/// One frame the account signed: what its transaction did (`Signed::title`),
+/// then its block (a link to it in Explorer) and how long ago, in the data
+/// face.
 fn signed_row(
     index: usize,
     signed: &Signed,
@@ -430,7 +431,12 @@ fn signed_row(
     design::row(format!("members-signed-{index}"), ladder, theme)
         .min_h(ROW_TALL)
         .child(title_and_caption(
-            div().truncate().child(signed.target.clone()),
+            div().truncate().child(
+                signed
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| signed.target.clone()),
+            ),
             Some(when),
         ))
         .into_any_element()

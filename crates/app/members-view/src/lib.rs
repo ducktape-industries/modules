@@ -87,6 +87,10 @@ pub struct Members {
     /// the pane's width, read from the window each render
     #[serde(skip)]
     width: f32,
+    /// the device's pointer is a finger, read from the window each render:
+    /// a phone's activity rows are titled by what each transaction did
+    #[serde(skip)]
+    touch: bool,
     /// the list's dragged width; `None` until the first drag
     #[serde(skip)]
     list: Option<f32>,
@@ -109,6 +113,7 @@ impl Default for Members {
             rereading: None,
             rereading_rows: None,
             width: 0.,
+            touch: false,
             list: None,
         }
     }
@@ -387,9 +392,10 @@ impl Render for Members {
         // the pane's width, as the host lays the frame out: the detail
         // docks or floats by it in the frame that shows it
         self.width = window.viewport_size().width.into();
+        self.touch = window.touch();
         // a finger draws the phone's screens (the Expo app's), a pointer
         // the desk's: two trees over the one model, picked here once
-        if window.touch() {
+        if self.touch {
             ui::phone::render(self, cx).into_any_element()
         } else {
             ui::render(self, cx).into_any_element()
@@ -505,7 +511,7 @@ impl Members {
             return;
         }
         let number = row.number;
-        let work = activity::recent(cx.host(), number);
+        let work = activity::recent(cx.host(), number, self.touch);
         // held in `activity` or `rereading`, so choosing someone else drops
         // it unfinished
         let task = cx.land(work, move |view, result, cx| {
