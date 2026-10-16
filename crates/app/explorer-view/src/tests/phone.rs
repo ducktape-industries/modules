@@ -625,9 +625,13 @@ fn back_closes_a_sheet_before_it_leaves_the_page() {
 fn every_screen_fits_a_phone() {
     let mut cx = reader(Some(3), ADA, true, grants(), waiting());
     testing::sweep(&mut cx, |cx| {
-        // the strip is a finger's 44, and each tab its whole height
+        // the strip is a finger's 44 and scrolls sideways (Expo's
+        // `ScrollView horizontal`: Programs runs past a 390 edge on both),
+        // and each tab its whole height
         let whole = StyleRefinement::default().h_full().size.height;
-        assert_eq!(cx.style("explorer-tabs").size.height, Some(px(44.).into()));
+        let strip = cx.style("explorer-tabs");
+        assert_eq!(strip.size.height, Some(px(44.).into()));
+        assert_eq!(format!("{:?}", strip.overflow.x), "Some(Scroll)");
         for tab in ["overview", "blocks", "transactions", "accounts"] {
             let id = format!("explorer-tab-{tab}");
             assert_eq!(cx.style(&id).size.height, whole);
