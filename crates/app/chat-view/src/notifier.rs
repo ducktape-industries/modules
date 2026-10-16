@@ -279,14 +279,15 @@ impl ChatNotices {
     /// counted, what is new for the reader is announced, and the badge is
     /// counted again.
     fn settle(&mut self, cx: &mut Context<Self>) {
-        let (Some(me), Some(_), Some(rooms), Some(reads), Some(kept)) = (
-            self.session.account,
-            &self.names,
-            &self.rooms,
-            &self.reads,
-            &self.announced,
-        ) else {
+        // no account, nothing is meant for the reader; the rest still
+        // loading, the badge stays as it was until it is counted
+        let Some(me) = self.session.account else {
             return self.settle_badge(cx);
+        };
+        let (Some(_), Some(rooms), Some(reads), Some(kept)) =
+            (&self.names, &self.rooms, &self.reads, &self.announced)
+        else {
+            return;
         };
         // the first run on this device: every room as it stands is history
         let first = kept.is_none();
