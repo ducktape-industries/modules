@@ -27,7 +27,7 @@ pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) 
             .map(|account| account_row(view, account, cx, theme))
             .collect()
     });
-    let caption_text = format!("{} · tx recorded", grouped(listed.list.len() as u64));
+    let caption_text = words::tx_recorded(listed.list.len() as u64);
     div()
         .id("explorer-accounts")
         .flex_1()
@@ -49,7 +49,7 @@ pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) 
 
 fn account_row(view: &Explorer, account: &Account, cx: Cx, theme: &Theme) -> Stateful<Div> {
     let name = &account.card.name;
-    let sent = view.used_by(account.number).map(|used| frames(&used));
+    let sent = view.sent_by(account.number);
     row(
         SharedString::from(format!("explorer-account-{}", account.number)).into(),
         name.clone(),
@@ -67,16 +67,12 @@ fn account_row(view: &Explorer, account: &Account, cx: Cx, theme: &Theme) -> Sta
         "devices",
     )))
     .child(
-        mono(sent.map_or_else(|| "–".to_owned(), |sent| plural(sent, "tx", "tx")))
+        mono(sent.map_or_else(|| words::NO_COUNT.to_owned(), words::tx_count))
             .w(COUNT_W)
             .flex()
             .justify_end()
             .text_color(theme.muted),
     )
-}
-
-fn frames(used: &[&activity::Used]) -> u64 {
-    used.iter().map(|used| used.frames).sum()
 }
 
 fn acted(view: &Explorer, number: u64, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
@@ -121,11 +117,9 @@ pub(super) fn account(
             }
         };
     };
-    let total = view.used_by(number).map(|used| frames(&used));
-    let recorded = total.map(|total| {
-        let total = plural(total, "transaction", "transactions");
-        caption(format!("{total} recorded"), theme)
-    });
+    let recorded = view
+        .sent_by(number)
+        .map(|total| caption(words::recorded(total), theme));
     let activity = div()
         .id("explorer-activity")
         .flex_1()
@@ -227,13 +221,7 @@ fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
                     .text_color(theme.muted),
             )
     });
-    let mut used: Vec<(&str, u64)> = view
-        .used_by(account.number)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|used| (used.program.as_str(), used.frames))
-        .collect();
-    used.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    let used = view.programs_used(account.number).unwrap_or_default();
     // a heading over nothing says nothing: it comes with its rows
     let used_heading =
         (!used.is_empty()).then(|| heading("explorer-used-heading", "Programs used", None, theme));
@@ -246,7 +234,7 @@ fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
             .border_b_1()
             .border_color(theme.border)
             .child(mono(program.to_owned()).flex_1())
-            .child(mono(format!("{count} tx")).text_color(theme.muted))
+            .child(mono(words::tx_count(count)).text_color(theme.muted))
     });
     div()
         .id("explorer-account-side")

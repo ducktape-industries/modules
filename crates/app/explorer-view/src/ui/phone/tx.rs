@@ -63,7 +63,7 @@ fn found(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> AnyElement {
     );
     let anchor = linked(
         "explorer-tx-anchor",
-        format!("Block {}", grouped(tx.anchor)),
+        words::block(tx.anchor),
         Route::Block(tx.anchor),
         cx,
         k,
@@ -301,7 +301,7 @@ fn account_value(view: &Explorer, number: u64, at: &str, cx: Cx, k: &Kit) -> Any
     let name = view
         .account(number)
         .map(|account| account.card.name.clone());
-    let shown = name.clone().unwrap_or_else(|| format!("account {number}"));
+    let shown = view.name_of(number);
     div()
         .flex()
         .items_center()

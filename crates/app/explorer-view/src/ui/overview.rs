@@ -43,7 +43,7 @@ pub(super) fn overview(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) 
 /// The row of figures: height, epoch, validators, accounts.
 fn stats(view: &Explorer, theme: &Theme) -> impl IntoElement {
     let status = view.status.ready();
-    let dash = || "—".to_string();
+    let dash = || words::NO_VALUE.to_owned();
     let (height, cadence) = match status {
         Some(status) => (
             grouped(status.height),
@@ -51,12 +51,8 @@ fn stats(view: &Explorer, theme: &Theme) -> impl IntoElement {
         ),
         None => (dash(), String::new()),
     };
-    let (epoch, next) = match status {
-        Some(status) if status.epoch_length > 0 => {
-            let closes = (status.epoch + 1) * status.epoch_length - 1;
-            let left = closes.saturating_sub(status.height);
-            (grouped(status.epoch), words::next_in(left))
-        }
+    let (epoch, next) = match (status, view.epoch_left()) {
+        (Some(status), Some(left)) => (grouped(status.epoch), words::next_in(left)),
         _ => (dash(), String::new()),
     };
     let validators = view

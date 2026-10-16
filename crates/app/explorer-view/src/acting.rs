@@ -3,7 +3,7 @@
 //! op goes to valset wrapped in a `Role` motion for the programs role), else not at all. The
 //! app's confirm card is the yes for every op; nothing here asks again.
 //! The forms' ops are built by pure functions, each a unit test.
-use programs::{Change, Grant, NOTICE, Programs, Scheduled, Scope};
+use programs::{Change, Grant, NOTICE, Pending, Programs, Scheduled, Scope};
 use valset::{Motion, Valset, Voted};
 use view::methods::Submitted;
 use view::prelude::*;
@@ -27,6 +27,22 @@ pub(crate) enum Path {
 }
 
 impl Path {
+    /// The press that opens an upgrade's form on this path.
+    pub(crate) fn upgrade_word(self) -> &'static str {
+        match self {
+            Path::Grant => "Upgrade",
+            Path::Vote => "Propose upgrade",
+        }
+    }
+
+    /// The press that opens a removal's form on this path.
+    pub(crate) fn remove_word(self) -> &'static str {
+        match self {
+            Path::Grant => "Remove",
+            Path::Vote => "Propose remove",
+        }
+    }
+
     /// The press that cancels a scheduled change on this path.
     pub(crate) fn cancel_word(self) -> &'static str {
         match self {
@@ -86,6 +102,14 @@ impl Edit {
             Edit::Grant => "explorer-propose-grant".into(),
         }
     }
+}
+
+/// One press [`Explorer::edits`] offers on a name: what its form edits, the
+/// path it takes, and its word.
+pub(crate) struct Offer {
+    pub(crate) edit: Edit,
+    pub(crate) path: Path,
+    pub(crate) word: &'static str,
 }
 
 /// One form open on the page; its fields are the ones its [`Edit`] reads.
@@ -320,16 +344,11 @@ impl Explorer {
         self.acting.votes().then_some(Path::Vote)
     }
 
-    /// Upgrade and Remove on the reader's path to `name`, each with the
-    /// words its press says: straight to the programs by grant, proposed by
-    /// vote, or none. A role's program is never removed; a hook only by
-    /// vote, which a maintainer with voices proposes.
-    pub(crate) fn edits(
-        &self,
-        network: &Network,
-        name: &str,
-        listed: bool,
-    ) -> Vec<(Edit, Path, &'static str)> {
+    /// Upgrade and Remove on the reader's path to `name`: straight to the
+    /// programs by grant, proposed by vote, or none. A role's program is
+    /// never removed; a hook only by vote, which a maintainer with voices
+    /// proposes.
+    pub(crate) fn edits(&self, network: &Network, name: &str, listed: bool) -> Vec<Offer> {
         let Some(path) = self.path(name) else {
             return Vec::new();
         };
@@ -337,38 +356,47 @@ impl Explorer {
             .roles
             .as_ref()
             .is_none_or(|roles| programs::role_bound(roles, name));
-        let hook = network.hooks.iter().any(|hook| hook == name);
-        let upgrade = match path {
-            Path::Grant => "Upgrade",
-            Path::Vote => "Propose upgrade",
-        };
-        let mut out = vec![(
-            Edit::Upgrade {
+        let mut out = vec![Offer {
+            edit: Edit::Upgrade {
                 name: name.to_owned(),
                 view: listed,
             },
             path,
-            upgrade,
-        )];
+            word: path.upgrade_word(),
+        }];
         let removes = match path {
-            Path::Grant if hook => self.acting.votes().then_some(Path::Vote),
+            Path::Grant if network.is_hook(name) => self.acting.votes().then_some(Path::Vote),
             path => Some(path),
         };
         if let Some(path) = removes.filter(|_| !bound) {
-            let remove = match path {
-                Path::Grant => "Remove",
-                Path::Vote => "Propose remove",
-            };
-            out.push((
-                Edit::Remove {
+            out.push(Offer {
+                edit: Edit::Remove {
                     name: name.to_owned(),
                     view: listed,
                 },
                 path,
-                remove,
-            ));
+                word: path.remove_word(),
+            });
         }
         out
+    }
+
+    /// The way the reader cancels `pending`: by a grant covering its
+    /// program when a grant made it, else by the validators' vote; none.
+    pub(crate) fn cancels(&self, pending: &Pending) -> Option<Path> {
+        match pending.by {
+            Some(_) if self.maintains(pending.change.program()) => Some(Path::Grant),
+            _ => self.acting.votes().then_some(Path::Vote),
+        }
+    }
+
+    /// The way the reader revokes `grant`: its holder steps down by it, a
+    /// reader with voices proposes it; none.
+    pub(crate) fn revokes(&self, grant: &Grant) -> Option<Path> {
+        if self.acting.account == Some(grant.account) {
+            return Some(Path::Grant);
+        }
+        self.acting.votes().then_some(Path::Vote)
     }
 
     /// Whether the reader's grants cover `program`, as the programs role reads them.
@@ -562,6 +590,16 @@ impl Explorer {
 }
 
 impl Network {
+    /// Whether the programs role runs, lists and will change nothing.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.programs.is_empty() && self.views.is_empty() && self.changes.is_empty()
+    }
+
+    /// Whether the kernel tells `name` of every frame.
+    pub(crate) fn is_hook(&self, name: &str) -> bool {
+        self.hooks.iter().any(|hook| hook == name)
+    }
+
     /// Whether `name` runs or is listed as a view.
     pub(crate) fn names(&self, name: &str) -> bool {
         self.programs.iter().any(|entry| entry.program == name)

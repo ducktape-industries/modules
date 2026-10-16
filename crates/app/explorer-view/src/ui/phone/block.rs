@@ -8,8 +8,7 @@ use crate::decode::short;
 
 pub(super) fn block(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> AnyElement {
     let copy = copy_link(view, &Route::Block(height), cx, k);
-    let title = format!("Block {}", grouped(height));
-    let page = over("explorer-block", title, view, cx, k);
+    let page = over("explorer-block", words::block(height), view, cx, k);
     let page = match copy {
         Some(copy) => page.trailing(copy),
         None => page,
@@ -128,8 +127,8 @@ fn steps(view: &Explorer, height: u64, cx: Cx, k: &Kit) -> Div {
         });
         small(id, label, design::Kind::Outline, press, k)
     };
-    let back_label = format!("← {}", previous.map_or(String::new(), grouped));
-    let on_label = format!("{} →", grouped(height + 1));
+    let back_label = words::step_back(previous);
+    let on_label = words::step_on(height + 1);
     div()
         .flex()
         .gap(space::SM)

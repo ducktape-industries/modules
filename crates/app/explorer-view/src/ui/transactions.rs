@@ -138,7 +138,7 @@ pub(super) fn tx(
             "Anchor",
             link(
                 "explorer-tx-anchor".into(),
-                format!("Block {}", grouped(tx.anchor)),
+                words::block(tx.anchor),
                 Route::Block(tx.anchor),
                 cx,
                 theme,
@@ -151,7 +151,7 @@ pub(super) fn tx(
                 .flex()
                 .gap_2()
                 .child(date(tx.time))
-                .child(mono(format!("{} ago", ago(now, tx.time))).text_color(theme.faint)),
+                .child(mono(words::age(now, tx.time)).text_color(theme.faint)),
             theme,
         ))
         .child(div().h(design::space::LG))
@@ -374,7 +374,7 @@ fn account(view: &Explorer, number: u64, at: &str, cx: Cx, theme: &Theme) -> Any
     let name = view
         .account(number)
         .map(|account| account.card.name.clone());
-    let shown = name.clone().unwrap_or_else(|| format!("account {number}"));
+    let shown = view.name_of(number);
     div()
         .flex()
         .items_center()

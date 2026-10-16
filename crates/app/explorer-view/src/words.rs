@@ -2,11 +2,16 @@
 //! line the desktop's pages and the phone's screens both show (the phone's
 //! are Expo's: `src/network/words.ts` and the explorer screens, mobile dev
 //! 266633c). Neither design types a sentence the other also types; a
-//! heading or a button's label stays where it is drawn.
-use view::methods::Capability;
+//! heading or a button's label stays where it is drawn. Two homes sit
+//! beside this one, each with the model it words: a form's titles, fields,
+//! notes, problems and press words in `acting.rs`, and why a program page
+//! lists no capability in `state.rs` (`Unlisted::sentence`).
+use ::programs::{Change, NOTICE, Pending};
+use view::methods::{Capability, Manifested};
 
-use crate::Note;
-use crate::decode::{ago, grouped, plural, scheme, short};
+use crate::decode::{ago, grouped, plural, scheme, short, size};
+use crate::state::blob_kind;
+use crate::{Network, Note};
 
 pub(crate) const READING_CHAIN: &str = "Reading the chain…";
 pub(crate) const READING_BLOCK: &str = "Reading the block…";
@@ -20,6 +25,17 @@ pub(crate) const READING_CODE: &str = "Reading the code…";
 /// The search field's name, and what it takes.
 pub(crate) const SEARCH: &str = "Search the chain";
 pub(crate) const SEARCH_HINT: &str = "Search by height, hash, account or program";
+
+/// A figure not read yet.
+pub(crate) const NO_VALUE: &str = "—";
+/// A count not read yet.
+pub(crate) const NO_COUNT: &str = "–";
+/// A view-only entry: a view with no program behind it.
+pub(crate) const VIEW_ONLY: &str = "view only";
+/// What marks an agent among maintainers.
+pub(crate) const AGENT: &str = "agent";
+/// A program that runs with no params.
+pub(crate) const NO_PARAMS: &str = "none";
 
 pub(crate) const ALL_BLOCKS: &str = "All blocks →";
 pub(crate) const ALL_TRANSACTIONS: &str = "All transactions →";
@@ -47,6 +63,167 @@ pub(crate) const CODE_ID: &str = "the code id";
 pub(crate) const LINK: &str = "the link";
 /// A grant form before its account is typed.
 pub(crate) const TYPE_ACCOUNT: &str = "Type the account's number.";
+
+/// What a programs role entry is: a program, or a view with none behind it.
+pub(crate) fn entry_kind(listed: bool) -> &'static str {
+    match listed {
+        true => VIEW_ONLY,
+        false => "program",
+    }
+}
+
+/// How big the code is, and for a program whose code carries a view
+/// (`listed`: a view-only entry, which is all view) how much of it the
+/// view: `2.3 MB of code, 1.8 MB of it the view`.
+pub(crate) fn code_size(blob: &Manifested, listed: bool) -> String {
+    match &blob.view {
+        Some(carried) if !listed => format!(
+            "{} of code, {} of it the view",
+            size(blob.size),
+            size(carried.size)
+        ),
+        _ => size(blob.size),
+    }
+}
+
+/// A block by its height: `Block 8,342`.
+pub(crate) fn block(height: u64) -> String {
+    format!("Block {}", grouped(height))
+}
+
+/// A run of empty blocks folded into one line: `8,343–8,400 · 58 empty
+/// blocks`.
+pub(crate) fn empty_run(oldest: u64, newest: u64) -> String {
+    format!(
+        "{}–{} · {} empty blocks",
+        grouped(oldest),
+        grouped(newest),
+        grouped(newest - oldest + 1)
+    )
+}
+
+/// A count of transactions, short: `12 tx`.
+pub(crate) fn tx_count(transactions: u64) -> String {
+    format!("{} tx", grouped(transactions))
+}
+
+/// How long ago a block or a transaction was: `3m ago`.
+pub(crate) fn age(now: u64, time: u64) -> String {
+    format!("{} ago", ago(now, time))
+}
+
+/// The narrowest window a view's manifest asks for: `480 px`.
+pub(crate) fn min_width(pixels: u32) -> String {
+    format!("{pixels} px")
+}
+
+/// The step to the block before: `← 8,341`; none before, the arrow alone.
+pub(crate) fn step_back(previous: Option<u64>) -> String {
+    format!("← {}", previous.map_or(String::new(), grouped))
+}
+
+/// The step to the block after: `8,343 →`.
+pub(crate) fn step_on(next: u64) -> String {
+    format!("{} →", grouped(next))
+}
+
+/// An account's transactions activity recorded: `12 transactions
+/// recorded`.
+pub(crate) fn recorded(transactions: u64) -> String {
+    format!(
+        "{} recorded",
+        plural(transactions, "transaction", "transactions")
+    )
+}
+
+/// The accounts list's count: `15 · tx recorded`.
+pub(crate) fn tx_recorded(accounts: u64) -> String {
+    format!("{} · tx recorded", grouped(accounts))
+}
+
+/// How long a maintainer's change waits, in blocks and, at a known block
+/// time, about how many minutes.
+pub(crate) fn maintainer_wait(minutes: Option<u64>) -> String {
+    match minutes {
+        Some(minutes) => {
+            format!("changes by a maintainer wait {NOTICE} blocks (about {minutes} min)")
+        }
+        None => format!("changes by a maintainer wait {NOTICE} blocks"),
+    }
+}
+
+/// A grant on a name that runs nothing yet: who may add it.
+pub(crate) fn may_add(name: &str) -> String {
+    format!("runs nothing yet: {name} may add it")
+}
+
+/// The reader, marked so among accounts: `Ada (you)`.
+pub(crate) fn you(name: &str) -> String {
+    format!("{name} (you)")
+}
+
+/// A maintainer by its name, the reader and an agent marked so (Expo
+/// `holderName`, and `· agent` after it): `Ada (you) · agent`.
+pub(crate) fn holder(name: &str, reader: bool, agent: bool) -> String {
+    let name = match reader {
+        true => you(name),
+        false => name.to_owned(),
+    };
+    match agent {
+        true => format!("{name} · {AGENT}"),
+        false => name,
+    }
+}
+
+/// Who changes a name, as its row says (Expo `changedBy`): its
+/// maintainers, else the validators' vote.
+pub(crate) fn changed_by(maintainers: &[String]) -> String {
+    match maintainers.is_empty() {
+        true => first_up(VALIDATORS_VOTE),
+        false => format!("Maintainer {}", maintainers.join(", ")),
+    }
+}
+
+/// `words` with its first letter a capital, to open a line.
+fn first_up(words: &str) -> String {
+    let mut letters = words.chars();
+    letters.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(letters).collect()
+    })
+}
+
+/// A code id as the screens show it (Expo `words.ts` `codeWords`):
+/// `sha256:1a2b3c4d…9f0e`.
+pub(crate) fn code_words(code: &abi::BlobId) -> String {
+    format!("{}:{}", blob_kind(code), short(code.digest()))
+}
+
+/// A scheduled change (Expo `words.ts` `scheduledWords`): a set against
+/// what runs now, anything else by its verb.
+pub(crate) fn scheduled_words(pending: &Pending, network: &Network) -> String {
+    let at = grouped(pending.height);
+    let Change::Set(entry) = &pending.change else {
+        return format!(
+            "{} {} at block {at}",
+            pending.change.verb(),
+            pending.change.program()
+        );
+    };
+    let now = network
+        .programs
+        .iter()
+        .find(|running| running.program == entry.program);
+    let params = match now {
+        None => "a new program",
+        Some(now) if now.params == entry.params => "params unchanged",
+        Some(_) => "params changed",
+    };
+    format!(
+        "Set {} to code {} at block {at} · {params}",
+        entry.program,
+        code_words(&entry.code)
+    )
+}
 
 pub(crate) fn no_block(height: u64) -> String {
     format!("No block {}", grouped(height))
@@ -138,13 +315,14 @@ pub(crate) fn validator_key(key: &[u8]) -> String {
 }
 
 /// Which of `account`'s keys signed, its `at`th: `#8 device 1 · ed25519
-/// 623b55d3…efd0`.
+/// 623b55d3…efd0`; a key with no label named as a device is, inside the
+/// line (Expo `tx/[hash].tsx:166`).
 pub(crate) fn key_line(account: &identity::Account, at: usize, signer: &[u8]) -> String {
     let key = &account.keys()[at];
     let label = key
         .label
         .clone()
-        .unwrap_or_else(|| format!("device {}", at + 1));
+        .unwrap_or_else(|| device(at).to_lowercase());
     format!(
         "#{} {label} · {} {}",
         account.number,

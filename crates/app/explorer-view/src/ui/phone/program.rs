@@ -7,9 +7,8 @@
 //! (`manifest`), the window; writes the route and the clipboard (Copy).
 use super::*;
 use crate::Network;
-use crate::decode::{preview, size};
+use crate::decode::bytes_preview;
 use crate::state::{Declared, blob_ref};
-use view::methods::Manifested;
 use view::wire::manifest::Manifest;
 
 pub(super) fn program(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> AnyElement {
@@ -17,10 +16,7 @@ pub(super) fn program(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> AnyElemen
     let copy = copy_link(view, &Route::Program(name.to_owned()), cx, k);
     let page = over("explorer-program", name.to_owned(), view, cx, k);
     let page = match code.is_some() {
-        true => page.caption(match view.runs(name) {
-            Some(_) => "program",
-            None => "view only",
-        }),
+        true => page.caption(words::entry_kind(view.runs(name).is_none())),
         false => page,
     };
     let page = match copy {
@@ -68,7 +64,7 @@ fn detail(
 
 /// The hook and the role it fills, as badges; neither, nothing.
 fn standing(network: &Network, name: &str, k: &Kit) -> Option<Div> {
-    let hook = network.hooks.iter().any(|hook| hook == name);
+    let hook = network.is_hook(name);
     let role = network.role_of(name);
     if !hook && role.is_none() {
         return None;
@@ -143,7 +139,13 @@ fn about(
     let declared = view_manifest(view);
     let entry = view.runs(name);
     let mut rows = vec![key_value("Code", code_and_copy(code, cx, k), k)];
-    rows.extend(blob.map(|blob| key_value("Size", div().child(sizes(blob, entry.is_none())), k)));
+    rows.extend(blob.map(|blob| {
+        key_value(
+            "Size",
+            div().child(words::code_size(blob, entry.is_none())),
+            k,
+        )
+    }));
     rows.extend(entry.map(|entry| key_value("Params", params(&entry.params), k)));
     rows.push(key_value(
         "Maintained by",
@@ -161,7 +163,7 @@ fn about(
             Some(key_value("Declares", div().child(says), k)),
             Some(key_value(
                 "Min width",
-                div().child(format!("{} px", manifest.min_width)),
+                div().child(words::min_width(manifest.min_width)),
                 k,
             )),
             talks,
@@ -200,28 +202,12 @@ fn code_and_copy(code: &abi::BlobId, cx: Cx, k: &Kit) -> Div {
         ))
 }
 
-/// How big the code is, and how much of it the view, for a program that
-/// carries one.
-fn sizes(blob: &Manifested, listed: bool) -> String {
-    match &blob.view {
-        Some(carried) if !listed => format!(
-            "{} of code, {} of it the view",
-            size(blob.size),
-            size(carried.size)
-        ),
-        _ => size(blob.size),
-    }
-}
-
 /// The params it runs with: "none", or their length and ends in the data
 /// face.
 fn params(params: &[u8]) -> Div {
     match params.is_empty() {
-        true => div().child("none"),
-        false => data(preview(
-            params.len() as u64,
-            &params[..params.len().min(32)],
-        )),
+        true => div().child(words::NO_PARAMS),
+        false => data(bytes_preview(params)),
     }
 }
 
@@ -236,15 +222,11 @@ fn maintained_by(view: &Explorer, network: &Network, name: &str) -> String {
         .named
         .iter()
         .map(|&number| {
-            let you = match view.acting.account == Some(number) {
-                true => " (you)",
-                false => "",
-            };
-            let agent = match view.account(number).map(|account| account.kind()) {
-                Some(identity::Kind::Program { .. }) => " · agent",
-                _ => "",
-            };
-            format!("{}{you}{agent}", view.name_of(number))
+            words::holder(
+                &view.name_of(number),
+                view.acting.account == Some(number),
+                view.is_agent(number),
+            )
         })
         .collect();
     if maintainers.every {
@@ -266,7 +248,7 @@ fn scheduled(view: &Explorer, network: &Network, name: &str, k: &Kit) -> Vec<Any
         .enumerate()
         .filter(|(_, pending)| pending.change.program() == name)
         .map(|(index, pending)| {
-            programs::scheduled_row(view, network, index, pending, k).into_any_element()
+            super::programs::scheduled_row(view, network, index, pending, k).into_any_element()
         })
         .collect();
     let none = rows.is_empty().then(|| {
@@ -286,8 +268,7 @@ fn scheduled(view: &Explorer, network: &Network, name: &str, k: &Kit) -> Vec<Any
 /// many blocks.
 fn transactions(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> Stateful<Div> {
     let blocks = view.chain.blocks.len() as u64;
-    let sent = view.chain.txs.iter().filter(|tx| tx.target == name).count() as u64;
-    let title = words::to_transactions(sent, blocks);
+    let title = words::to_transactions(view.sent_to(name), blocks);
     let row = design::row("explorer-program-txs", &k.ladder, &k.theme);
     opens(
         row,

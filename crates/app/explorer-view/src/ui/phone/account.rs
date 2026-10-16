@@ -111,16 +111,14 @@ fn head(account: &identity::Account, kind: &str, k: &Kit) -> Div {
 
 /// The transactions activity recorded for it, and its devices.
 fn figures(view: &Explorer, account: &identity::Account, k: &Kit) -> Stateful<Div> {
-    let total = view
-        .used_by(account.number)
-        .map(|used| used.iter().map(|used| used.frames).sum::<u64>());
+    let total = view.sent_by(account.number);
     facts(
         "explorer-account-facts",
         vec![
             Fact {
                 key: "transactions",
                 label: "Transactions",
-                value: total.map_or_else(|| "—".to_owned(), grouped),
+                value: total.map_or_else(|| words::NO_VALUE.to_owned(), grouped),
                 caption: Some("recorded".into()),
             },
             Fact {
@@ -171,18 +169,13 @@ fn devices(view: &Explorer, account: &identity::Account, k: &Kit) -> Vec<AnyElem
 /// The programs it used, most first, a chip each with its count; a chip
 /// opens the program's transactions (Expo `Chips`). None used, no section.
 fn programs_used(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> Option<Div> {
-    let mut used: Vec<(String, u64)> = view
-        .used_by(number)?
-        .into_iter()
-        .map(|used| (used.program.clone(), used.frames))
-        .collect();
+    let used = view.programs_used(number)?;
     if used.is_empty() {
         return None;
     }
-    used.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     let chips = used
         .into_iter()
-        .map(|(program, count)| chip(program, count, cx, k));
+        .map(|(program, count)| chip(program.to_owned(), count, cx, k));
     Some(
         div()
             .child(section("explorer-used-heading", "Programs used", None, k))
@@ -206,7 +199,7 @@ fn chip(program: String, count: u64, cx: Cx, k: &Kit) -> Div {
     let route = Route::Transactions(Some(program.clone()));
     let go =
         cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.go(route.clone(), cx));
-    let count = format!("{} tx", grouped(count));
+    let count = words::tx_count(count);
     div()
         .relative()
         .flex_none()
@@ -241,10 +234,7 @@ fn chip(program: String, count: u64, cx: Cx, k: &Kit) -> Div {
 /// What it signed, newest first, under its head (Expo `TxLine
 /// who={false}`).
 fn activity(view: &Explorer, number: u64, cx: Cx, k: &Kit) -> Vec<AnyElement> {
-    let recorded = view.used_by(number).map(|used| {
-        let total = used.iter().map(|used| used.frames).sum::<u64>();
-        format!("{} recorded", plural(total, "transaction", "transactions"))
-    });
+    let recorded = view.sent_by(number).map(words::recorded);
     let head = section(
         "explorer-activity-heading",
         "Activity",

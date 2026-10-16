@@ -82,7 +82,7 @@ pub(super) fn block(
                 .flex()
                 .gap_2()
                 .child(date(block.time))
-                .child(mono(format!("{} ago", ago(now, block.time))).text_color(theme.faint)),
+                .child(mono(words::age(now, block.time)).text_color(theme.faint)),
             theme,
         ))
         .children(proposer(view, &block, theme))
@@ -103,8 +103,8 @@ fn title(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> impl IntoElemen
     let head = view.status.ready().map_or(0, |status| status.height);
     let previous = height.checked_sub(1);
     let next = (height < head).then_some(height + 1);
-    let back = format!("← {}", previous.map_or(String::new(), grouped));
-    let on = format!("{} →", grouped(height + 1));
+    let back = words::step_back(previous);
+    let on = words::step_on(height + 1);
     div()
         .flex()
         .items_center()

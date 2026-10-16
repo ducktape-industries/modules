@@ -7,7 +7,7 @@
 use super::*;
 use crate::Network;
 use crate::acting::{self, Asked, Edit, Form, FormField, Path};
-use crate::decode::{self, preview, size};
+use crate::decode::{self, bytes_preview};
 use crate::state::{Declared, Unlisted, blob_ref};
 use ::programs::{Grant, NOTICE, Pending, Scope};
 use view::design::Ladder;
@@ -20,7 +20,7 @@ pub(super) fn programs(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) 
             return quiet("explorer-programs-loading", words::READING_ROLE, theme);
         }
     };
-    if network.programs.is_empty() && network.views.is_empty() && network.changes.is_empty() {
+    if network.is_empty() {
         return empty_state("explorer-empty", "No programs", words::RUNS_NOTHING, theme)
             .into_any_element();
     }
@@ -167,7 +167,7 @@ fn listed(
             theme,
         )
         .child(named(view, network, &listed.name, theme, ladder))
-        .child(muted("view only", theme))
+        .child(muted(words::VIEW_ONLY, theme))
         .child(mono(short(listed.view.digest())).text_color(theme.muted))
         .children(presses(view, network, &listed.name, true, cx, theme));
         list.row(route, row, theme)
@@ -177,7 +177,7 @@ fn listed(
 
 /// A name and who changes it ([`changers`]); a hook marked so.
 fn named(view: &Explorer, network: &Network, name: &str, theme: &Theme, ladder: &Ladder) -> Div {
-    let hook = network.hooks.iter().any(|hook| hook == name);
+    let hook = network.is_hook(name);
     div()
         .flex_1()
         .min_w(px(0.))
@@ -246,7 +246,7 @@ pub(super) fn program(
         .into_any_element();
     };
     let listed = entry.is_none();
-    let hook = network.hooks.iter().any(|hook| hook == name);
+    let hook = network.is_hook(name);
     let role = network.role_of(name);
     let blob = view.manifest.ready().and_then(|blob| blob.as_ref());
     let manifest = blob
@@ -257,11 +257,7 @@ pub(super) fn program(
         .items_center()
         .gap_3()
         .pr_5()
-        .child(titled(
-            if listed { "view only" } else { "program" },
-            name.to_owned(),
-            theme,
-        ))
+        .child(titled(words::entry_kind(listed), name.to_owned(), theme))
         .children(hook.then(|| chip("explorer-program-hook".into(), "hook", theme, ladder)))
         .children(role.map(|role| chip("explorer-program-role".into(), role, theme, ladder)))
         .child(div().flex_1())
@@ -314,21 +310,10 @@ pub(super) fn program(
                 .overflow_hidden(),
         )
         .child(copy);
-    let sizes = blob.map(|blob| match &blob.view {
-        Some(carried) if !listed => format!(
-            "{} of code, {} of it the view",
-            size(blob.size),
-            size(carried.size)
-        ),
-        _ => size(blob.size),
-    });
+    let sizes = blob.map(|blob| words::code_size(blob, listed));
     let params = entry.map(|entry| match entry.params.is_empty() {
-        true => muted("none", theme),
-        false => mono(preview(
-            entry.params.len() as u64,
-            &entry.params[..entry.params.len().min(32)],
-        ))
-        .into_any_element(),
+        true => muted(words::NO_PARAMS, theme),
+        false => mono(bytes_preview(&entry.params)).into_any_element(),
     });
     let mut who = changers(view, network, name, theme, ladder);
     if who.is_empty() {
@@ -351,7 +336,7 @@ pub(super) fn program(
         .filter(|manifest| !manifest.targets.is_empty())
         .map(|manifest| manifest.targets.join(", "));
     let blocks = view.chain.blocks.len() as u64;
-    let sent = view.chain.txs.iter().filter(|tx| tx.target == name).count() as u64;
+    let sent = view.sent_to(name);
     // no window yet: the way to its transactions, without a count of nothing
     let transactions = (!listed).then(|| {
         line("explorer-program-transactions".into(), theme).child(link(
@@ -398,7 +383,7 @@ pub(super) fn program(
         .children(manifest.map(|manifest| {
             field(
                 "Min width",
-                muted(&format!("{} px", manifest.min_width), theme),
+                muted(&words::min_width(manifest.min_width), theme),
                 theme,
             )
         }))
@@ -493,16 +478,17 @@ fn chip(id: String, label: &str, theme: &Theme, ladder: &Ladder) -> AnyElement {
 /// An account by its name (`account N` while unread), an agent marked so,
 /// the reader marked "(you)".
 fn holder(view: &Explorer, number: u64, theme: &Theme, ladder: &Ladder) -> AnyElement {
-    let account = view.account(number);
-    let name = account.map_or_else(|| format!("account {number}"), |a| a.card.name.clone());
-    let you = view.acting.account == Some(number);
-    let agent = account.is_some_and(|a| {
-        matches!(
-            a.kind(),
-            identity::Kind::Program {
-                category: identity::Category::Agent,
-                ..
-            }
+    let name = view.name_of(number);
+    let name = match view.acting.account == Some(number) {
+        true => words::you(&name),
+        false => name,
+    };
+    let agent = view.is_agent(number).then(|| {
+        chip(
+            format!("explorer-agent-{number}"),
+            words::AGENT,
+            theme,
+            ladder,
         )
     });
     div()
@@ -510,8 +496,8 @@ fn holder(view: &Explorer, number: u64, theme: &Theme, ladder: &Ladder) -> AnyEl
         .items_center()
         .gap_1()
         .text_size(design::text::SECONDARY)
-        .child(if you { format!("{name} (you)") } else { name })
-        .children(agent.then(|| chip(format!("explorer-agent-{number}"), "agent", theme, ladder)))
+        .child(name)
+        .children(agent)
         .into_any_element()
 }
 
@@ -526,8 +512,9 @@ fn presses(
 ) -> Vec<AnyElement> {
     view.edits(network, name, listed)
         .into_iter()
-        .map(|(edit, path, label)| {
-            press(edit.press_id(), label, cx, theme, move |view, cx| {
+        .map(|offer| {
+            let (edit, path) = (offer.edit, offer.path);
+            press(edit.press_id(), offer.word, cx, theme, move |view, cx| {
                 view.open_form(edit.clone(), path, cx)
             })
         })
@@ -562,11 +549,7 @@ fn scheduled(
         )
     });
     let program = change.program();
-    let path = match pending.by {
-        Some(_) if view.maintains(program) => Some(Path::Grant),
-        _ => view.acting.votes().then_some(Path::Vote),
-    };
-    let cancel = path.map(|path| {
+    let cancel = view.cancels(pending).map(|path| {
         let op = acting::cancel(pending);
         let label = path.cancel_word();
         press(
@@ -613,16 +596,11 @@ fn scheduled(
 /// Every grant: what it covers, who holds it. The reader's own steps down
 /// by grant; a reader with voices proposes a grant or a revoke.
 fn access(view: &Explorer, network: &Network, cx: Cx, theme: &Theme, ladder: &Ladder) -> Div {
-    let about = view.status.ready().map_or_else(String::new, |status| {
-        format!(
-            " (about {} min)",
-            decode::minutes(NOTICE, status.block_time_ms)
-        )
-    });
-    let notice = caption(
-        format!("changes by a maintainer wait {NOTICE} blocks{about}"),
-        theme,
-    );
+    let minutes = view
+        .status
+        .ready()
+        .map(|status| decode::minutes(NOTICE, status.block_time_ms));
+    let notice = caption(words::maintainer_wait(minutes), theme);
     let propose = view.acting.votes().then(|| {
         press(
             "explorer-propose-grant",
@@ -663,21 +641,12 @@ fn granted(
     ladder: &Ladder,
 ) -> AnyElement {
     let unseated = match &grant.scope {
-        Scope::Program(id) if !network.names(id) => Some(muted(
-            &format!(
-                "runs nothing yet: {} may add it",
-                view.name_of(grant.account)
-            ),
-            theme,
-        )),
+        Scope::Program(id) if !network.names(id) => {
+            Some(muted(&words::may_add(&view.name_of(grant.account)), theme))
+        }
         _ => None,
     };
-    let own = view.acting.account == Some(grant.account);
-    let path = match own {
-        true => Some(Path::Grant),
-        false => view.acting.votes().then_some(Path::Vote),
-    };
-    let revoke = path.map(|path| {
+    let revoke = view.revokes(grant).map(|path| {
         let op = ::programs::Op::Revoke(grant.clone());
         let label = path.revoke_word();
         press(

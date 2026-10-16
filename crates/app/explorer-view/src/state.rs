@@ -94,11 +94,15 @@ impl Route {
 
 /// A blob id as `blob.*` asks spell it: `sha256:<hex>` or `sha1:<hex>`.
 pub(crate) fn blob_ref(id: &abi::BlobId) -> String {
-    let kind = match id {
+    format!("{}:{}", blob_kind(id), abi::hex(id.digest()))
+}
+
+/// The digest a blob id names, by its name in a `blob.*` ask.
+pub(crate) fn blob_kind(id: &abi::BlobId) -> &'static str {
+    match id {
         abi::BlobId::Sha256(_) => "sha256",
         abi::BlobId::Sha1(_) => "sha1",
-    };
-    format!("{kind}:{}", abi::hex(id.digest()))
+    }
 }
 
 /// A 32-byte hash as 64 hex digits, `0x` allowed.
@@ -358,6 +362,38 @@ impl Explorer {
         )
     }
 
+    /// Whether account `number` is an agent: a program account its manager
+    /// declared one.
+    pub(crate) fn is_agent(&self, number: u64) -> bool {
+        self.account(number).is_some_and(|account| {
+            matches!(
+                account.kind(),
+                identity::Kind::Program {
+                    category: identity::Category::Agent,
+                    ..
+                }
+            )
+        })
+    }
+
+    /// The network's label: the session's chain id before its salt
+    /// (`<label>#<salt>`); none until a session names one.
+    pub(crate) fn network_label(&self) -> Option<&str> {
+        let chain = self.session_chain.as_str();
+        let label = chain.split_once('#').map_or(chain, |(label, _)| label);
+        (!label.is_empty()).then_some(label)
+    }
+
+    /// Blocks left in the epoch, while the node counts epochs.
+    pub(crate) fn epoch_left(&self) -> Option<u64> {
+        let status = self
+            .status
+            .ready()
+            .filter(|status| status.epoch_length > 0)?;
+        let closes = (status.epoch + 1) * status.epoch_length - 1;
+        Some(closes.saturating_sub(status.height))
+    }
+
     /// What `account` is, its manager named from the list: "User", "Agent ·
     /// managed by Dev · suspended", "Program · forge" (identity's own wording,
     /// [`identity::view::kind`], over `Kind::badge` and `Kind::note`).
@@ -390,6 +426,29 @@ impl Explorer {
                 .filter(|used| used.account == number)
                 .collect(),
         )
+    }
+
+    /// The transactions activity recorded for account `number`, once read.
+    pub(crate) fn sent_by(&self, number: u64) -> Option<u64> {
+        let used = self.used_by(number)?;
+        Some(used.iter().map(|used| used.frames).sum())
+    }
+
+    /// The programs account `number` used and how often, most first, then
+    /// by name, once read.
+    pub(crate) fn programs_used(&self, number: u64) -> Option<Vec<(&str, u64)>> {
+        let mut used: Vec<(&str, u64)> = self
+            .used_by(number)?
+            .into_iter()
+            .map(|used| (used.program.as_str(), used.frames))
+            .collect();
+        used.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+        Some(used)
+    }
+
+    /// How many of the window's transactions went to `name`.
+    pub(crate) fn sent_to(&self, name: &str) -> u64 {
+        self.chain.txs.iter().filter(|tx| tx.target == name).count() as u64
     }
 
     pub(crate) fn acted(&self, number: u64) -> Option<&[activity::Frame]> {

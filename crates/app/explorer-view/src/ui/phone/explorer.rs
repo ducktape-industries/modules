@@ -44,11 +44,7 @@ pub(super) fn root(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
 /// The network the session is on, by its label (`<label>#<salt>`), and the
 /// reader (Expo's root caption, `testkit · Dev`).
 fn network_and_me(view: &Explorer) -> Option<String> {
-    let chain = view.session_chain.as_str();
-    let network = chain.split_once('#').map_or(chain, |(label, _)| label);
-    if network.is_empty() {
-        return None;
-    }
+    let network = view.network_label()?;
     let me = view
         .acting
         .account

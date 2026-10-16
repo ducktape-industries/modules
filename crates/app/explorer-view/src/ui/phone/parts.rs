@@ -465,7 +465,7 @@ pub(super) fn time_and_age(time: u64, now: u64, k: &Kit) -> Div {
         .flex()
         .flex_wrap()
         .child(data(format!("{} ", date(time))))
-        .child(data(format!("{} ago", ago(now, time))).text_color(k.theme.faint))
+        .child(data(words::age(now, time)).text_color(k.theme.faint))
 }
 
 // SDK gap: Linked, swap when feat/phone-kit lands
@@ -671,7 +671,11 @@ fn block_line(block: &BlockRow, now: u64, cx: Cx, k: &Kit) -> Stateful<Div> {
             tail(short(&block.id), k),
         ))
         .child(tail(
-            format!("{} tx · {}", block.txs, ago(now, block.time)),
+            format!(
+                "{} · {}",
+                words::tx_count(block.txs as u64),
+                ago(now, block.time)
+            ),
             k,
         ))
         .child(chevron(k))
@@ -689,14 +693,9 @@ fn empty_run(newest: u64, oldest: u64, k: &Kit) -> Stateful<Div> {
         .border_b_1()
         .border_color(k.theme.border)
         .child(
-            mono(format!(
-                "{}–{} · {} empty blocks",
-                grouped(oldest),
-                grouped(newest),
-                grouped(newest - oldest + 1)
-            ))
-            .text_type(k.ladder.secondary)
-            .text_color(k.theme.faint),
+            mono(words::empty_run(oldest, newest))
+                .text_type(k.ladder.secondary)
+                .text_color(k.theme.faint),
         )
 }
 

@@ -7,10 +7,14 @@
 //! (`sheet`) and the form a sheet opens (`open_form`).
 use super::*;
 use crate::Network;
-use crate::acting::{self, Edit, Path};
+use crate::acting::{self, Edit, Offer, Path};
 use crate::decode::minutes;
-use crate::state::{Sheet, blob_ref};
-use ::programs::{Change, NOTICE, Pending, Scope};
+use crate::state::Sheet;
+use ::programs::{NOTICE, Pending, Scope};
+
+/// The block time Expo words a maintainer's wait in before the node's
+/// status is read (`programs.tsx:94`).
+const UNREAD_BLOCK_MS: u64 = 1000;
 
 pub(super) fn programs(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
     let network = match &view.network {
@@ -20,9 +24,7 @@ pub(super) fn programs(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
             return quiet("explorer-programs-loading", words::READING_ROLE, k);
         }
     };
-    let empty =
-        network.programs.is_empty() && network.views.is_empty() && network.changes.is_empty();
-    let listed = match empty {
+    let listed = match network.is_empty() {
         true => vec![quiet("explorer-empty", words::RUNS_NOTHING, k)],
         false => [
             scheduled(view, network, cx, k),
@@ -62,31 +64,21 @@ pub(super) fn more(view: &Explorer, page: design::Page, cx: Cx, k: &Kit) -> desi
 
 // ---------- the words ----------
 
-/// A code id as the screens show it (Expo `words.ts` `codeWords`):
-/// `sha256:1a2b3c4d…9f0e`.
-fn code_words(code: &abi::BlobId) -> String {
-    let id = blob_ref(code);
-    match id.split_once(':') {
-        Some((kind, digest)) => format!("{kind}:{}", design::short_hex(digest)),
-        None => design::short_hex(&id),
-    }
-}
-
 /// An account by its name, the reader's marked "(you)" (Expo
 /// `holderName`).
 fn holder_name(view: &Explorer, number: u64) -> String {
-    let name = view.name_of(number);
-    match view.acting.account == Some(number) {
-        true => format!("{name} (you)"),
-        false => name,
-    }
+    words::holder(
+        &view.name_of(number),
+        view.acting.account == Some(number),
+        false,
+    )
 }
 
 /// Who changes `name` (Expo `changedBy`): the validators' vote for a
 /// role's program, else its maintainers and the every-program ones.
 fn changed_by(view: &Explorer, network: &Network, name: &str) -> String {
     let Some(maintainers) = network.maintainers(name) else {
-        return "Validators' vote".into();
+        return words::changed_by(&[]);
     };
     let mut named: Vec<String> = maintainers
         .named
@@ -96,37 +88,7 @@ fn changed_by(view: &Explorer, network: &Network, name: &str) -> String {
     if maintainers.every {
         named.push(words::EVERY_PROGRAM.into());
     }
-    match named.is_empty() {
-        true => "Validators' vote".into(),
-        false => format!("Maintainer {}", named.join(", ")),
-    }
-}
-
-/// A scheduled change (Expo `words.ts` `scheduledWords`): a set against
-/// what runs now, anything else by its verb.
-fn scheduled_words(pending: &Pending, network: &Network) -> String {
-    let at = grouped(pending.height);
-    let Change::Set(entry) = &pending.change else {
-        return format!(
-            "{} {} at block {at}",
-            pending.change.verb(),
-            pending.change.program()
-        );
-    };
-    let now = network
-        .programs
-        .iter()
-        .find(|running| running.program == entry.program);
-    let params = match now {
-        None => "a new program",
-        Some(now) if now.params == entry.params => "params unchanged",
-        Some(_) => "params changed",
-    };
-    format!(
-        "Set {} to code {} at block {at} · {params}",
-        entry.program,
-        code_words(&entry.code)
-    )
+    words::changed_by(&named)
 }
 
 /// Whose a scheduled change is (Expo `byWords`): the vote's, or a
@@ -178,7 +140,9 @@ pub(super) fn scheduled_row(
             design::icon("clock", k.ladder.icon_row).text_color(k.theme.muted),
         ))
         .child(title_and_caption(
-            div().truncate().child(scheduled_words(pending, network)),
+            div()
+                .truncate()
+                .child(words::scheduled_words(pending, network)),
             caption(by_words(view, pending), k),
         ))
 }
@@ -192,10 +156,7 @@ fn cancel(
     cx: Cx,
     k: &Kit,
 ) -> Option<Stateful<Div>> {
-    let path = match pending.by {
-        Some(_) if view.maintains(pending.change.program()) => Path::Grant,
-        _ => view.acting.votes().then_some(Path::Vote)?,
-    };
+    let path = view.cancels(pending)?;
     let label = path.cancel_word();
     let op = acting::cancel(pending);
     let press = (!view.acting.busy).then(|| -> Press {
@@ -220,7 +181,7 @@ fn running(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElemen
     let rows = network.programs.iter().map(|entry| {
         let caption = format!(
             "{} · {}",
-            code_words(&entry.code),
+            words::code_words(&entry.code),
             changed_by(view, network, &entry.program)
         );
         entry_row(network, &entry.program, caption, cx, k)
@@ -244,8 +205,9 @@ fn views(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElement>
     );
     let rows = network.views.iter().map(|listed| {
         let caption = format!(
-            "view only · {} · {}",
-            code_words(&listed.view),
+            "{} · {} · {}",
+            words::VIEW_ONLY,
+            words::code_words(&listed.view),
             changed_by(view, network, &listed.name)
         );
         entry_row(network, &listed.name, caption, cx, k)
@@ -273,7 +235,7 @@ fn entry_row(
             cx.notify();
         })
     };
-    let hook = network.hooks.iter().any(|hook| hook == name).then(|| {
+    let hook = network.is_hook(name).then(|| {
         design::badge(
             SharedString::from(format!("explorer-hook-{name}")),
             "hook",
@@ -303,11 +265,8 @@ fn access(view: &Explorer, network: &Network, cx: Cx, k: &Kit) -> Vec<AnyElement
     let block_time = view
         .status
         .ready()
-        .map_or(1000, |status| status.block_time_ms);
-    let wait = format!(
-        "changes by a maintainer wait {NOTICE} blocks (about {} min)",
-        minutes(NOTICE, block_time)
-    );
+        .map_or(UNREAD_BLOCK_MS, |status| status.block_time_ms);
+    let wait = words::maintainer_wait(Some(minutes(NOTICE, block_time)));
     let head = section("explorer-access-header", "Access", Some(aside(wait)), k);
     let none = network
         .grants
@@ -335,19 +294,14 @@ fn grant_row(
     cx: Cx,
     k: &Kit,
 ) -> AnyElement {
-    let agent = view
-        .account(grant.account)
-        .is_some_and(|account| matches!(account.kind(), identity::Kind::Program { .. }));
-    let unseated = matches!(&grant.scope, Scope::Program(id) if !network.names(id));
-    let mut about = format!("Maintainer {}", holder_name(view, grant.account));
-    if agent {
-        about.push_str(" · agent");
-    }
-    if unseated {
-        about.push_str(&format!(
-            " · runs nothing yet: {} may add it",
-            view.name_of(grant.account)
-        ));
+    let holder = words::holder(
+        &view.name_of(grant.account),
+        view.acting.account == Some(grant.account),
+        view.is_agent(grant.account),
+    );
+    let mut about = words::changed_by(&[holder]);
+    if matches!(&grant.scope, Scope::Program(id) if !network.names(id)) {
+        about = format!("{about} · {}", words::may_add(&view.name_of(grant.account)));
     }
     list_row(ElementId::named_usize("explorer-grant", index), k)
         .child(title_and_caption(
@@ -369,10 +323,7 @@ fn revoke(
     cx: Cx,
     k: &Kit,
 ) -> Option<Stateful<Div>> {
-    let path = match view.acting.account == Some(grant.account) {
-        true => Path::Grant,
-        false => view.acting.votes().then_some(Path::Vote)?,
-    };
+    let path = view.revokes(grant)?;
     let label = path.revoke_word();
     let op = ::programs::Op::Revoke(grant.clone());
     let press = (!view.acting.busy).then(|| -> Press {
@@ -471,7 +422,7 @@ pub(super) fn more_sheet(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
 pub(super) fn program_sheet(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> Option<AnyElement> {
     let network = view.network.ready()?;
     let listed = view.runs(name).is_none();
-    let hook = network.hooks.iter().any(|hook| hook == name);
+    let hook = network.is_hook(name);
     let about = design::sheet_row(
         "explorer-program-about",
         None,
@@ -498,7 +449,7 @@ pub(super) fn program_sheet(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> Opt
     let edits: Vec<Stateful<Div>> = view
         .edits(network, name, listed)
         .into_iter()
-        .map(|(edit, path, label)| edit_row(edit, path, label, cx, k))
+        .map(|offer| edit_row(offer, cx, k))
         .collect();
     Some(
         design::sheet(
@@ -526,10 +477,7 @@ pub(super) fn program_sheet(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> Opt
 /// What a program's sheet is about: its square face, its name in the data
 /// face, program or view only, and hook.
 fn sheet_head(name: &str, listed: bool, hook: bool, k: &Kit) -> Stateful<Div> {
-    let kind = match listed {
-        true => "view only",
-        false => "program",
-    };
+    let kind = words::entry_kind(listed);
     let kind = match hook {
         true => format!("{kind} · hook"),
         false => kind.to_owned(),
@@ -557,9 +505,9 @@ fn sheet_head(name: &str, listed: bool, hook: bool, k: &Kit) -> Stateful<Div> {
 
 /// Upgrade or Remove on the reader's path, opening its form; Remove in the
 /// danger tone.
-fn edit_row(edit: Edit, path: Path, label: &'static str, cx: Cx, k: &Kit) -> Stateful<Div> {
-    let id = SharedString::from(edit.press_id());
-    let danger = matches!(edit, Edit::Remove { .. });
-    let press = opens_form(edit, path, cx);
-    design::sheet_row(id, None, label, danger, &k.ladder, &k.theme, press)
+fn edit_row(offer: Offer, cx: Cx, k: &Kit) -> Stateful<Div> {
+    let id = SharedString::from(offer.edit.press_id());
+    let danger = matches!(offer.edit, Edit::Remove { .. });
+    let press = opens_form(offer.edit, offer.path, cx);
+    design::sheet_row(id, None, offer.word, danger, &k.ladder, &k.theme, press)
 }

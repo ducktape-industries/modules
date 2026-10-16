@@ -469,7 +469,7 @@ fn block_row(block: &BlockRow, now: u64, cx: Cx, theme: &Theme) -> Stateful<Div>
     .child(
         div()
             .text_color(theme.muted)
-            .child(format!("{} tx", block.txs)),
+            .child(words::tx_count(block.txs as u64)),
     )
     .child(
         mono(ago(now, block.time))
@@ -491,12 +491,7 @@ fn line_row(line: &Line, now: u64, cx: Cx, theme: &Theme) -> Stateful<Div> {
     match line {
         Line::Block(block) => block_row(block, now, cx, theme),
         Line::Empty { newest, oldest } => {
-            let text = format!(
-                "{}–{} · {} empty blocks",
-                grouped(*oldest),
-                grouped(*newest),
-                grouped(newest - oldest + 1)
-            );
+            let text = words::empty_run(*oldest, *newest);
             row(
                 SharedString::from(format!("explorer-empty-{newest}")).into(),
                 text.clone(),

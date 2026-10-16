@@ -105,10 +105,8 @@ fn overview(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
 /// one not read yet.
 fn figures(view: &Explorer) -> Vec<Fact> {
     let status = view.status.ready();
-    let dash = || "—".to_owned();
-    let left = status
-        .filter(|status| status.epoch_length > 0)
-        .map(|status| ((status.epoch + 1) * status.epoch_length - 1).saturating_sub(status.height));
+    let dash = || words::NO_VALUE.to_owned();
+    let left = view.epoch_left();
     vec![
         Fact {
             key: "height",
@@ -217,7 +215,7 @@ fn accounts(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
             return quiet("explorer-accounts-loading", words::READING_ACCOUNTS, k);
         }
     };
-    let count = format!("{} · tx recorded", grouped(listed.list.len() as u64));
+    let count = words::tx_recorded(listed.list.len() as u64);
     let kit = *k;
     let rows = uniform_list(
         "explorer-accounts-list",
@@ -254,9 +252,7 @@ fn accounts(view: &Explorer, cx: Cx, k: &Kit) -> AnyElement {
 /// · its devices`, the transactions recorded for it.
 fn account_line(view: &Explorer, account: &identity::Account, cx: Cx, k: &Kit) -> Stateful<Div> {
     let number = account.number;
-    let sent = view
-        .used_by(number)
-        .map(|used| used.iter().map(|used| used.frames).sum::<u64>());
+    let sent = view.sent_by(number);
     let about = format!(
         "#{number} · {} · {}",
         view.kind_of(account),
@@ -270,7 +266,7 @@ fn account_line(view: &Explorer, account: &identity::Account, cx: Cx, k: &Kit) -
             caption(about, k),
         ))
         .child(tail(
-            sent.map_or_else(|| "–".to_owned(), |sent| format!("{} tx", grouped(sent))),
+            sent.map_or_else(|| words::NO_COUNT.to_owned(), words::tx_count),
             k,
         ))
         .child(chevron(k))

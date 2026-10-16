@@ -34,14 +34,24 @@ pub fn size(bytes: u64) -> String {
     }
 }
 
+/// The bytes a preview shows whole, as a describe module keeps them
+/// (`Value::bytes`): a longer run shows its length and its ends.
+pub const PREVIEW: usize = 32;
+
 /// [`Value::Bytes`] as `abi::preview` reads bytes: all of a short run, the
 /// length and the ends of a long one.
 pub fn preview(len: u64, preview: &[u8]) -> String {
     match len {
         0 => "0 bytes".into(),
-        1..=32 => short_hex(&abi::hex(preview)),
+        len if len <= PREVIEW as u64 => short_hex(&abi::hex(preview)),
         _ => format!("{len} bytes · {}", short_hex(&abi::hex(preview))),
     }
+}
+
+/// Bytes held whole (a program's params) as [`preview`] shows them: the
+/// first [`PREVIEW`] of them stand for the run.
+pub fn bytes_preview(bytes: &[u8]) -> String {
+    preview(bytes.len() as u64, &bytes[..bytes.len().min(PREVIEW)])
 }
 
 /// `value / 10^decimals`, the whole part grouped.
