@@ -61,11 +61,16 @@ pub fn entry_glyph(entry: &EntryInfo) -> &'static str {
     match entry.node {
         Node::Dir { .. } => "folder",
         Node::Symlink { .. } => "link",
-        Node::File { .. } => match holds_by_name(name_of(&entry.path)) {
-            Holds::Picture => "image",
-            Holds::Text => "file-text",
-            Holds::Bytes => "file",
-        },
+        Node::File { .. } => file_glyph(name_of(&entry.path)),
+    }
+}
+
+/// The glyph a file's row leads with, by what its name says it holds.
+pub fn file_glyph(name: &str) -> &'static str {
+    match holds_by_name(name) {
+        Holds::Picture => "image",
+        Holds::Text => "file-text",
+        Holds::Bytes => "file",
     }
 }
 

@@ -1009,7 +1009,8 @@
             "Web",
             "Live",
             "Camera",
-            "Microphone"
+            "Microphone",
+            "File"
           ],
           "min_width": 480,
           "targets": [
@@ -1199,6 +1200,44 @@
     "kind": "microphone.chime",
     "request": null,
     "reply": null
+  },
+  {
+    "kind": "file.pick",
+    "request": {
+      "multiple": true
+    },
+    "reply": [
+      {
+        "name": "tape.png",
+        "size": 3,
+        "file": 1
+      },
+      {
+        "name": "film.mov",
+        "size": 1073741824,
+        "file": 2
+      }
+    ]
+  },
+  {
+    "kind": "file.pick",
+    "request": {
+      "multiple": false
+    },
+    "reply": []
+  },
+  {
+    "kind": "file.read",
+    "request": {
+      "file": 1,
+      "offset": 0,
+      "len": 1048576
+    },
+    "reply": [
+      137,
+      80,
+      78
+    ]
   },
   {
     "kind": "link.open",

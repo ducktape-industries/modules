@@ -549,6 +549,30 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
         ),
         exchange::<MicrophoneChime>(Some("Headphones".into()), ()),
         exchange::<MicrophoneChime>(None, ()),
+        exchange::<FilePick>(
+            Pick { multiple: true },
+            vec![
+                Picked {
+                    name: "tape.png".into(),
+                    size: 3,
+                    file: 1,
+                },
+                Picked {
+                    name: "film.mov".into(),
+                    size: 1 << 30,
+                    file: 2,
+                },
+            ],
+        ),
+        exchange::<FilePick>(Pick { multiple: false }, Vec::new()),
+        exchange::<FileRead>(
+            ReadFile {
+                file: 1,
+                offset: 0,
+                len: FILE_READ_MOST,
+            },
+            vec![0x89, b'P', b'N'],
+        ),
         exchange::<LinkOpen>("duck://chat/room".into(), ()),
         exchange::<HostRoute>((), "tx/00ff".into()),
         exchange::<HostId>("msg".into(), "msg-1".into()),

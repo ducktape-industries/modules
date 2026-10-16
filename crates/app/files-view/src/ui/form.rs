@@ -1,13 +1,15 @@
 //! A write's form, as a sheet over the page: its title, the fields its
-//! write reads (a name or a new path, the text, the message), what a
-//! removal takes away, why the last commit did not land, then Cancel and
-//! Commit. Reads the open form; writes its fields, the commit (`submit`)
+//! write reads (a name or a new path, the text, the message), an upload's
+//! files, what a removal takes away, why the last commit did not land,
+//! then Cancel and Commit. Reads the open form; writes its fields, the commit (`submit`)
 //! and Cancel (`close_sheet`).
 use view::Autocapitalize;
 use view::accesskit::Invalid;
 use view::design::space;
 
 use super::*;
+use crate::state::file_glyph;
+use crate::upload;
 use crate::write::{Form, Write};
 
 /// How tall the text field starts.
@@ -47,6 +49,7 @@ pub(super) fn sheet(view: &Files, cx: Cx, k: &Kit) -> Option<AnyElement> {
                     .children(removes)
                     .children(naming(form, cx, k))
                     .children(text(form, k))
+                    .children(picked(form, k))
                     .child(message(form, cx, k))
                     .children(refused)
                     .child(buttons(form, cx, k)),
@@ -115,6 +118,58 @@ fn text(form: &Form, k: &Kit) -> Option<Div> {
     Some(labelled(words::TEXT, area, k))
 }
 
+/// An upload's files: each one's name and size, whether it replaces one
+/// there, or why it is left out.
+fn picked(form: &Form, k: &Kit) -> Option<Stateful<Div>> {
+    if form.upload.is_empty() {
+        return None;
+    }
+    let rows = form.upload.iter().enumerate().map(|(index, file)| {
+        let size = words::size(file.size);
+        let (aside, color) = match &file.path {
+            Err(why) => (why.clone(), k.theme.danger),
+            Ok(_) if file.replaces => (format!("{size} · {}", words::REPLACES), k.theme.muted),
+            Ok(_) => (size, k.theme.muted),
+        };
+        div()
+            .id(ElementId::Name(format!("files/upload/{index}").into()))
+            .min_h(ROW_H)
+            .flex()
+            .items_center()
+            .gap_3()
+            .border_b_1()
+            .border_color(k.theme.border)
+            .child(
+                design::icon(file_glyph(&file.name), k.ladder.icon_row).text_color(k.theme.muted),
+            )
+            .child(div().flex_1().min_w_0().truncate().child(file.name.clone()))
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(design::text::SECONDARY)
+                    .text_color(color)
+                    .child(aside),
+            )
+    });
+    Some(
+        div()
+            .id("files/upload/files")
+            .flex()
+            .flex_col()
+            .border_t_1()
+            .border_color(k.theme.border)
+            .children(rows)
+            .children(upload::sent(&form.upload).is_empty().then(|| {
+                div()
+                    .id("files/upload/none")
+                    .py_2()
+                    .text_size(design::text::SECONDARY)
+                    .text_color(k.theme.danger)
+                    .child(words::NOTHING_TO_UPLOAD)
+            })),
+    )
+}
+
 /// The commit's message; its placeholder is what it says left empty.
 fn message(form: &Form, cx: Cx, k: &Kit) -> Div {
     let submit = cx.listener(|view: &mut Files, _: &(), _, cx| view.submit(cx));
@@ -129,7 +184,7 @@ fn message(form: &Form, cx: Cx, k: &Kit) -> Div {
 fn buttons(form: &Form, cx: Cx, k: &Kit) -> Div {
     let cancel = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.close_sheet(cx));
     let commit = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.submit(cx));
-    let verb = words::commit(form.sending);
+    let verb = words::commit(form.sending, upload::progress(&form.upload));
     div()
         .flex()
         .justify_end()
@@ -147,6 +202,6 @@ fn buttons(form: &Form, cx: Cx, k: &Kit) -> Div {
         .child(
             design::button("files/write/submit", verb, &k.ladder, &k.theme, commit)
                 .kind(design::Kind::Primary)
-                .enabled(!form.sending),
+                .enabled(form.committable()),
         )
 }
