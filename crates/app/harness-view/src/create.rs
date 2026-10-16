@@ -1,9 +1,10 @@
 //! The create form: a new agent is identity's `CreateAgent`, a `files` commit of its
-//! configuration file, identity's `SetScript` with a script that calls harness and names that
-//! file, then identity's `SetAudience` when it answers more than its manager. A step that is
-//! refused keeps the steps before it, so pressing on resumes where it stopped. Editing an agent
-//! is the same form at its commit: a new version of its file, and a new script when its path
-//! moves.
+//! configuration file (proposed in its manager's home, `/home/<manager's name>/agents/`) that
+//! also sets the file's write list to `Owner`, so only the manager's account number changes it
+//! whatever names change, identity's `SetScript` with a script that calls harness and names that
+//! file, then identity's `SetOwnership` when it answers more than its manager. A step that is refused keeps the steps before it, so pressing on resumes where it
+//! stopped. Editing an agent is the same form at its commit: a new version of its file, which
+//! keeps its list, and a new script and a new list when its path moves.
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -11,7 +12,7 @@ use view::methods::Submitted;
 use view::prelude::*;
 
 use harness::{AgentSetup, BlobId, Config, Configured};
-use identity::{Audience, Identity, Script};
+use identity::{Identity, Ownership, Script};
 
 use crate::{Agents, Screen, applied};
 
@@ -48,18 +49,19 @@ pub(crate) enum Answers {
 pub(crate) struct Form {
     pub path: String,
     pub config: Config,
-    pub audience: Audience,
+    pub ownership: Ownership,
 }
 
 enum Next {
     Create(String),
     Commit(u64),
     Script(u64),
-    Answer(u64, Audience),
+    Answer(u64, Ownership),
     Done(u64),
 }
 
-pub(crate) fn proposed_path(name: &str) -> String {
+pub(crate) fn proposed_path(home: Option<&str>, name: &str) -> Option<String> {
+    let home = home?;
     let slug: String = name
         .trim()
         .to_lowercase()
@@ -69,22 +71,27 @@ pub(crate) fn proposed_path(name: &str) -> String {
             false => '-',
         })
         .collect();
-    format!("/shared/agents/{slug}.md")
+    Some(format!("/home/{home}/agents/{slug}.md"))
 }
 
 impl Draft {
-    pub fn path(&self) -> String {
+    pub fn path(&self, home: Option<&str>) -> Option<String> {
         let typed = self.path.text().trim().to_owned();
         match typed.is_empty() {
-            true => proposed_path(&self.name.text()),
-            false => typed,
+            true => proposed_path(home, &self.name.text()),
+            false => Some(typed),
         }
     }
 
-    pub fn checked(&self) -> Result<Form, String> {
+    pub fn checked(&self, home: Option<&str>) -> Result<Form, String> {
         if self.name.text().trim().is_empty() {
             return Err("Name the agent.".into());
         }
+        let Some(path) = self.path(home) else {
+            return Err(
+                "Your account's name is not read yet, so no home is proposed: type the configuration file's path.".into(),
+            );
+        };
         let Some(model) = self.model.clone() else {
             return Err("Pick the model it asks.".into());
         };
@@ -100,9 +107,9 @@ impl Draft {
                 _ => return Err("Wait is a whole number of blocks, at least 1, or empty.".into()),
             },
         };
-        let audience = match self.answers {
-            Answers::Manager => Audience::Manager,
-            Answers::Anyone => Audience::Anyone,
+        let ownership = match self.answers {
+            Answers::Manager => Ownership::Owner,
+            Answers::Anyone => Ownership::Anyone,
             Answers::Accounts => {
                 let numbers: Result<Vec<u64>, _> = self
                     .accounts
@@ -112,20 +119,20 @@ impl Draft {
                     .map(str::parse)
                     .collect();
                 match numbers {
-                    Ok(numbers) if !numbers.is_empty() => Audience::Accounts(numbers),
+                    Ok(numbers) if !numbers.is_empty() => Ownership::Accounts(numbers),
                     _ => return Err("List the account numbers it answers, like 7, 12.".into()),
                 }
             }
         };
         Ok(Form {
-            path: self.path(),
+            path,
             config: Config {
                 model,
                 max_tokens,
                 wait,
                 system: self.system.text().trim().to_owned(),
             },
-            audience,
+            ownership,
         })
     }
 
@@ -140,9 +147,9 @@ impl Draft {
         if moved && !self.scripted {
             return Next::Script(agent);
         }
-        let answers_more = !self.again && !self.answered && form.audience != Audience::Manager;
+        let answers_more = !self.again && !self.answered && form.ownership != Ownership::Owner;
         if answers_more {
-            return Next::Answer(agent, form.audience.clone());
+            return Next::Answer(agent, form.ownership.clone());
         }
         Next::Done(agent)
     }
@@ -204,7 +211,7 @@ impl Agents {
         if self.draft.sending.is_some() {
             return;
         }
-        let form = match self.draft.checked() {
+        let form = match self.draft.checked(self.home()) {
             Ok(form) => form,
             Err(problem) => {
                 self.draft.problem = Some(problem);
@@ -222,8 +229,8 @@ impl Agents {
                 });
                 self.send(identity::Op::SetScript { account, script }, cx)
             }
-            Next::Answer(account, audience) => {
-                self.send(identity::Op::SetAudience { account, audience }, cx)
+            Next::Answer(account, ownership) => {
+                self.send(identity::Op::SetOwnership { account, ownership }, cx)
             }
             Next::Done(agent) => {
                 self.draft = Draft::default();
@@ -267,15 +274,23 @@ impl Agents {
 
     fn commit(&mut self, agent: u64, form: Form, cx: &mut Context<Self>) {
         let name = self.draft.name.text();
+        let new_path = self.draft.script_path.as_deref() != Some(form.path.as_str());
+        let mut changes = vec![files::Change::Put {
+            path: form.path.clone(),
+            exec: false,
+            meta: BTreeMap::new(),
+            content: files::Content::Inline(form.config.write().into_bytes()),
+        }];
+        if new_path {
+            changes.push(files::Change::SetOwnership {
+                path: form.path,
+                write: Some(Ownership::Owner),
+            });
+        }
         let op = files::Op::Commit {
             base: self.draft.base.map(BlobId::Sha256),
             message: format!("Configure agent {name} (account {agent})"),
-            changes: vec![files::Change::Put {
-                path: form.path,
-                exec: false,
-                meta: BTreeMap::new(),
-                content: files::Content::Inline(form.config.write().into_bytes()),
-            }],
+            changes,
         };
         let submit = cx.host().ask::<Submit<files::Files>>(op);
         self.draft.sending = Some(cx.land(submit, |view, answer, cx| {

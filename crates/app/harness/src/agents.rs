@@ -136,23 +136,18 @@ pub(crate) fn setup(ctx: &QueryCtx, number: AccountNumber) -> Result<Option<Agen
     }))
 }
 
-fn audience(ctx: &QueryCtx, agent: AccountNumber) -> Result<identity::Audience, Error> {
+fn ownership(ctx: &QueryCtx, agent: AccountNumber) -> Result<identity::Ownership, Error> {
     let identity = &ctx.env().role(abi::role::IDENTITY)?.clone();
-    let asked = identity::Query::Audience { number: agent };
+    let asked = identity::Query::Ownership { number: agent };
     match ctx.query::<identity::Query, identity::Reply>(identity, &asked)? {
-        identity::Reply::Audience(audience) => Ok(audience),
-        other => Err(unexpected_reply(identity, "Audience", &other)),
+        identity::Reply::Ownership(ownership) => Ok(ownership),
+        other => Err(unexpected_reply(identity, "Ownership", &other)),
     }
 }
 
 fn answers(ctx: &QueryCtx, agent: &Agent, actor: AccountNumber) -> Result<bool, Error> {
     let by_manager = actor == agent.manager;
-    Ok(by_manager
-        || match audience(ctx, agent.number)? {
-            identity::Audience::Manager => false,
-            identity::Audience::Accounts(numbers) => numbers.contains(&actor),
-            identity::Audience::Anyone => true,
-        })
+    Ok(by_manager || ownership(ctx, agent.number)?.allows(Some(agent.manager), actor))
 }
 
 pub(crate) fn thread(ctx: &QueryCtx, id: u64) -> Result<ThreadRow, Error> {

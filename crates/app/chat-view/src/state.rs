@@ -18,7 +18,7 @@ pub struct Chat {
     /// whom each agent of the roster answers besides its manager, by
     /// number, as identity keeps it
     #[serde(skip)]
-    pub(crate) audiences: Loadable<BTreeMap<u64, identity::Audience>>,
+    pub(crate) ownerships: Loadable<BTreeMap<u64, identity::Ownership>>,
     pub(crate) channels: Loadable<Vec<ChannelInfo>>,
     pub(crate) room: Option<Room>,
     pub(crate) drafts: BTreeMap<String, Draft>,
