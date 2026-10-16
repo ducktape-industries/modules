@@ -9,7 +9,7 @@ use crate::{Chat, Control, Pane};
 use chat::view::Names;
 use chat::{Block, Principal, Span};
 mod controls;
-mod rich;
+pub(crate) mod rich;
 use controls::{Face, action_button, reaction_button, replies_button};
 use rich::{plain_line, rich_line};
 use view::design::Ladder;

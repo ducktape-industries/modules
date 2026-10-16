@@ -141,6 +141,12 @@ pub fn zone() -> u64 {
     design::local(DAY_MS)
 }
 
+/// The reader's day a time in milliseconds falls on, as a number two
+/// times compare by.
+pub fn day_of(millis: u64) -> u64 {
+    design::local(millis) / DAY_MS
+}
+
 /// The day message `index` opens, when it is the first of its day: a
 /// served row whose day differs from the served row above it (or that has
 /// none above). Pending rows carry no time and open nothing.

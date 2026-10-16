@@ -40,6 +40,11 @@ pub fn mention_token(principal: &Principal) -> String {
     }
 }
 
+/// The account a [`mention_token`] names.
+pub fn mentioned(token: &str) -> Option<u64> {
+    token.strip_prefix("<@")?.strip_suffix('>')?.parse().ok()
+}
+
 /// Why `agent` would give `reader` no answer, by the rule harness answers
 /// by: an active agent's manager always gets one, anyone else by its
 /// audience. None when it answers them, for anyone not an active agent,
@@ -89,6 +94,36 @@ pub fn answers(names: &Names, audience: &Audience) -> String {
 pub fn dm_peer_of(mine: u64, channel_id: &str) -> Option<u64> {
     let (a, b) = chat::dm_peers(channel_id)?;
     (mine == a).then_some(b).or((mine == b).then_some(a))
+}
+
+impl crate::Chat {
+    /// The open direct room's other person: their name, and whether they
+    /// are an agent. None for a channel, or before the roster is read.
+    pub(crate) fn dm_peer(&self) -> Option<(String, bool)> {
+        let room = self.room.as_ref()?;
+        let names = self.names.ready()?;
+        let peer = Principal::Account(dm_peer_of(self.my_account()?, &room.id)?);
+        Some((names.member(&peer), crate::message::agent(names, &peer)))
+    }
+
+    /// What the top of the open room's history says: where it starts, by
+    /// the channel's name or the direct room's other person.
+    pub(crate) fn intro(&self) -> Option<String> {
+        let room = self.room.as_ref()?;
+        Some(match self.dm_peer() {
+            Some((peer, _)) => {
+                format!("This is the very beginning of your conversation with {peer}.")
+            }
+            None => {
+                let name = self
+                    .info(&room.id)
+                    .map_or(room.id.as_str(), |info| info.channel.name.as_str());
+                format!(
+                    "This is the very beginning of #{name}. Say hello, or pin what the room is for."
+                )
+            }
+        })
+    }
 }
 
 #[cfg(test)]

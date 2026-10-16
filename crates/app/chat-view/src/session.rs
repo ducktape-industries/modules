@@ -88,6 +88,12 @@ impl Chat {
         cx.load(self, channels(cx.host()), |chat| &mut chat.channels);
     }
 
+    /// The network the session is on, by its label (`<label>#<salt>`).
+    pub(crate) fn network(&self) -> &str {
+        let chain = self.session.chain_id.as_str();
+        chain.split_once('#').map_or(chain, |(label, _)| label)
+    }
+
     /// The reader's account number, as the host resolved it.
     pub(crate) fn my_account(&self) -> Option<u64> {
         self.session.account

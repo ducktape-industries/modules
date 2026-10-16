@@ -13,6 +13,7 @@ use crate::ui::room::selection_bar;
 use crate::ui::{message, quiet};
 use crate::{Chat, Pane, Shape};
 use view::design::Ladder;
+use view::{Div, Stateful};
 
 pub(crate) const OVERDRAW: f32 = 600.;
 
@@ -25,7 +26,7 @@ impl Shape {
             (Pane::Timeline, false) => Self::Tail,
         }
     }
-    fn id(self) -> &'static str {
+    pub(crate) fn id(self) -> &'static str {
         match self {
             Self::Tail => "chat-message-rows",
             Self::Landed => "chat-landed-rows",
@@ -123,20 +124,8 @@ fn nothing_yet(chat: &Chat, pane: Pane, theme: &Theme) -> Option<AnyElement> {
     }
     Some(match pane {
         Pane::Thread => no_replies(theme).into_any_element(),
-        Pane::Timeline => {
-            let (name, dm) = beginning(chat)?;
-            intro(&name, dm.as_deref(), theme).into_any_element()
-        }
+        Pane::Timeline => intro(&chat.intro()?, theme).into_any_element(),
     })
-}
-
-/// The open room's name and, for a dm, its peer: what its intro names.
-fn beginning(chat: &Chat) -> Option<(String, Option<String>)> {
-    let room = chat.room.as_ref()?;
-    let name = chat
-        .info(&room.id)
-        .map_or_else(|| room.id.clone(), |info| info.channel.name.clone());
-    Some((name, super::sidebar::dm_peer(chat).map(|peer| peer.0)))
 }
 
 /// The way to older history, while there is some.
@@ -176,22 +165,29 @@ fn older(
     Some(row.into_any_element())
 }
 
-/// The native list: the room's intro first once its history is all here,
-/// the unread divider over the first unread message, and "No replies yet"
-/// under a thread that is only its root.
-fn rows(
+/// What both designs' lists share (the phone draws its own rows over it,
+/// `ui/phone/timeline.rs`): the list's state under the rows' keys, the
+/// room's intro leading them once its history is all here, whether "No
+/// replies yet" closes a thread that is only its root, and the first
+/// unread message.
+pub(crate) struct Listing {
+    pub shape: Shape,
+    pub intro: Option<String>,
+    pub bare: bool,
+    pub state: ListState,
+    pub unread: Option<u64>,
+}
+
+pub(crate) fn listing(
     chat: &Chat,
     pane: Pane,
-    messages: Rc<[ChatMessage]>,
+    messages: &[ChatMessage],
     cx: &mut Context<Chat>,
-    theme: &Theme,
-    ladder: &Ladder,
-) -> impl IntoElement {
-    let ladder = *ladder;
+) -> Listing {
     let room = chat.room.as_ref();
     let shape = Shape::of(chat, pane);
     let lead = pane == Pane::Timeline && room.is_some_and(|room| !room.has_older);
-    let lead_text = lead.then(|| beginning(chat)).flatten();
+    let intro = lead.then(|| chat.intro()).flatten();
     let bare = pane == Pane::Thread
         && messages.len() == 1
         && room
@@ -203,16 +199,34 @@ fn rows(
         .chain(messages.iter().map(|message| message.id.clone()))
         .chain(bare.then_some("no-replies".to_owned()))
         .collect::<Vec<_>>();
-    let landing = || landing(chat, &messages) + usize::from(lead);
+    let landing = || landing(chat, messages) + usize::from(lead);
     let state = list_state(chat, pane, shape, &keys, landing);
     state.set_scroll_handler(cx.listener(move |chat, event, _window, cx| {
         chat.list_scrolled(pane, event, cx);
     }));
-    let theme = *theme;
     let unread = unread_seq(
-        &messages,
+        messages,
         (pane == Pane::Timeline).then_some(chat.reads.boundary),
     );
+    Listing {
+        shape,
+        intro,
+        bare,
+        state,
+        unread,
+    }
+}
+
+/// The grid the desktop's arrows walk, and where its cursor is: the active
+/// message's id and cell.
+fn grid(
+    chat: &Chat,
+    pane: Pane,
+    messages: &Rc<[ChatMessage]>,
+    lead: bool,
+    state: &ListState,
+    cx: &mut Context<Chat>,
+) -> (Stateful<Div>, Option<String>, usize) {
     // One Tab stop, a grid: ↑ ↓ walk the messages (the list scrolls the
     // next one into view before it claims), ← → a message's cells (the
     // message, then its controls), Enter presses the active cell — on the
@@ -283,13 +297,37 @@ fn rows(
         }
     }))
     .build();
+    (grid, active_id, cell)
+}
+
+/// The native list: the room's intro first once its history is all here,
+/// the unread divider over the first unread message, and "No replies yet"
+/// under a thread that is only its root.
+fn rows(
+    chat: &Chat,
+    pane: Pane,
+    messages: Rc<[ChatMessage]>,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
+    let ladder = *ladder;
+    let Listing {
+        shape,
+        intro: lead_text,
+        bare,
+        state,
+        unread,
+    } = listing(chat, pane, &messages, cx);
+    let lead = lead_text.is_some();
+    let (grid, active_id, cell) = grid(chat, pane, &messages, lead, &state, cx);
+    let theme = *theme;
     let list = gpui_list(
         shape.id(),
         state,
         cx.processor(move |chat, index: usize, _window, cx| {
-            if lead && index == 0 {
-                let (name, dm) = lead_text.clone().expect("lead row");
-                return intro(&name, dm.as_deref(), &theme).into_any_element();
+            if let Some(text) = lead_text.as_ref().filter(|_| index == 0) {
+                return intro(text, &theme).into_any_element();
             }
             let at = index - usize::from(lead);
             let Some(message) = messages.get(at).cloned() else {
@@ -339,7 +377,7 @@ fn rows(
     grid.flex().flex_col().flex_1().min_h(px(0.)).child(list)
 }
 
-fn landing(chat: &Chat, messages: &[ChatMessage]) -> usize {
+pub(crate) fn landing(chat: &Chat, messages: &[ChatMessage]) -> usize {
     let Some(room) = chat.room.as_ref().filter(|room| room.landed) else {
         return 0;
     };
@@ -508,14 +546,8 @@ fn unread_marker(theme: &Theme) -> impl IntoElement {
 }
 
 /// The top of a room's history. The room's name is already its header's,
-/// so this says only where the history starts.
-fn intro(name: &str, dm: Option<&str>, theme: &Theme) -> impl IntoElement {
-    let detail = match dm {
-        Some(peer) => format!("This is the very beginning of your conversation with {peer}."),
-        None => format!(
-            "This is the very beginning of #{name}. Say hello, or pin what the room is for."
-        ),
-    };
+/// so this says only where the history starts ([`Chat::intro`]).
+fn intro(text: &str, theme: &Theme) -> impl IntoElement {
     div()
         .id("chat-timeline-intro")
         .px_6()
@@ -523,7 +555,7 @@ fn intro(name: &str, dm: Option<&str>, theme: &Theme) -> impl IntoElement {
         .pb_3()
         .text_size(design::text::SECONDARY)
         .text_color(theme.muted)
-        .child(detail)
+        .child(text.to_owned())
 }
 
 /// A thread with nothing under its root yet.

@@ -136,23 +136,14 @@ fn compose(
     // inset from the pane's edges, so the field reads as a field
     div()
         .p_3()
-        .child(composer(chat, target, &hint(chat, room), editable, cx))
+        .child(composer(
+            chat,
+            target,
+            &chat.composer_hint(room),
+            editable,
+            cx,
+        ))
         .into_any_element()
-}
-
-/// The composer's placeholder: who or where a message goes.
-fn hint(chat: &Chat, room: &Room) -> String {
-    if let Some((peer, _)) = super::sidebar::dm_peer(chat) {
-        return format!("Message {peer}");
-    }
-    let name = chat.info(&room.id).map_or_else(
-        || view::design::short_hex(&room.id),
-        |info| info.channel.name.clone(),
-    );
-    match chat::dm_peers(&room.id) {
-        Some(_) => format!("Message {name}"),
-        None => format!("Message #{name}"),
-    }
 }
 
 fn header(
@@ -174,7 +165,7 @@ fn header(
     // a direct room is a person: their initials and name, no `#`, and no
     // "Members only" (a direct room always is)
     let direct = chat::dm_peers(&room.id).is_some();
-    let peer = super::sidebar::dm_peer(chat);
+    let peer = chat.dm_peer();
     let mut title = div().flex().items_center().gap_2();
     if direct {
         let (name, agent) = peer.clone().unwrap_or((name.clone(), false));

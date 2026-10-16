@@ -1,0 +1,405 @@
+//! One message row (Expo `src/chat/MessageRow.tsx`, design §4.2): the
+//! run's face and byline, the blocks ([`super::rich`]), "edited", the
+//! reactions and their "+", and in the room the button into its thread. A
+//! tap does nothing, as in the phone's own messengers; a long press (or
+//! the screen reader's "Message actions") opens the actions sheet. Reads
+//! the message and the open menu; writes through the model's own
+//! reactions, menus and thread.
+use view::prelude::*;
+use view::{Div, Stateful};
+use view::{FontWeight, HighlightStyle, UnderlineStyle};
+
+use super::parts::{HAIRLINE, face};
+use super::rich;
+use crate::message::ChatMessage;
+use crate::{Chat, Control, Mode, Pane};
+use chat::Reaction;
+use view::design::Ladder;
+
+/// A post on its way, faded (mobile `src/chat/MessageRow.tsx:82`).
+const FADED: f32 = 0.5;
+/// A reaction chip: 30 tall, at least 40 wide (mobile
+/// `src/chat/MessageRow.tsx:155`), the emoji 14 on an 18 line (`:177`),
+/// the "+" 14 (`:184`).
+const CHIP_HEIGHT: Pixels = px(30.);
+const CHIP_WIDTH: Pixels = px(40.);
+const CHIP_EMOJI: design::Type = design::Type::lined(14., 18.);
+const CHIP_PLUS: Pixels = px(14.);
+/// The button into a thread: 32 tall, its icons 16 (mobile
+/// `src/chat/MessageRow.tsx:137` and `:139`).
+const THREAD_BUTTON: Pixels = px(32.);
+const THREAD_ICON: Pixels = px(16.);
+/// The custom action a screen reader offers on a row: the long press's
+/// twin (rule 5).
+const ACTIONS: i32 = 1;
+
+pub(super) fn row(
+    chat: &Chat,
+    message: &ChatMessage,
+    pane: Pane,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
+    let (seq, rev) = (message.seq, message.rev);
+    // the row the actions sheet is open for, lit behind the scrim
+    let chosen = chat.menu.as_ref().is_some_and(|menu| {
+        menu.pane == pane && menu.seq == seq && matches!(menu.mode, Mode::Toolbar | Mode::More)
+    });
+    let actions = cx.listener(move |chat, event: &ClickEvent, window, cx| {
+        if let ClickEvent::Touch(touch) = event
+            && touch.long_press
+        {
+            cx.notify();
+            chat.open_menu(pane, seq, rev, Mode::More, window, cx);
+        }
+    });
+    let id = match message.pending {
+        // what an e2e flow finds a post on its way by (Expo's testID)
+        true => "pending".to_owned(),
+        false => format!("chat-message-{}-row", message.id),
+    };
+    let row = div()
+        .id(id)
+        .relative()
+        .w_full()
+        // a finger lands in `hit` (rule 3)
+        .min_h(ladder.hit)
+        .flex()
+        .gap(design::space::MD)
+        .px(design::space::BLOCK)
+        .pt(match message.show_author {
+            true => design::space::MD,
+            false => design::space::HAIR,
+        })
+        .pb(design::space::HAIR)
+        .when(chosen, |row| row.bg(theme.accent_soft))
+        .role(Role::Group)
+        .aria_label(format!("{}: {}", message.author, message.body))
+        .on_click(actions)
+        .child(
+            div()
+                .w(ladder.avatar.side)
+                .flex_none()
+                .children(message.show_author.then(|| {
+                    face(&message.author, message.agent, ladder.avatar, theme)
+                        .id(format!("chat-message-{}-avatar", message.id))
+                })),
+        )
+        .child(content(chat, message, pane, cx, theme, ladder));
+    match message.pending {
+        true => row.into_any_element(),
+        false => {
+            let chat = cx.weak_entity();
+            row.custom_action(ACTIONS, "Message actions")
+                .on_a11y_action(
+                    view::wire::Action::CustomAction,
+                    move |_: Option<&view::wire::ActionData>, _: &mut Window, app: &mut App| {
+                        // a released view answers no action
+                        let _ = chat.update_in(app, |chat, window, cx| {
+                            cx.notify();
+                            chat.open_menu(pane, seq, rev, Mode::More, window, cx);
+                        });
+                    },
+                )
+                .into_any_element()
+        }
+    }
+}
+
+/// The column beside the face: the byline on a run's first message, the
+/// body, the reactions, the way into the thread.
+fn content(
+    chat: &Chat,
+    message: &ChatMessage,
+    pane: Pane,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Div {
+    let reacted = !message.deleted && !message.pending && !message.reactions.is_empty();
+    let threaded = pane == Pane::Timeline && message.thread.is_none() && message.reply_count > 0;
+    div()
+        .flex_1()
+        .min_w(px(0.))
+        .flex()
+        .flex_col()
+        .gap(design::space::XXS)
+        .children(message.show_author.then(|| byline(message, theme, ladder)))
+        .child(body(chat, message, cx, theme, ladder))
+        .children(reacted.then(|| reactions(message, pane, cx, theme, ladder)))
+        .children(threaded.then(|| thread_button(message, cx, theme, ladder)))
+}
+
+/// The name in body medium, Agent for an agent, the time.
+fn byline(message: &ChatMessage, theme: &Theme, ladder: &Ladder) -> Stateful<Div> {
+    let badge = message
+        .badge
+        .as_ref()
+        .filter(|_| message.agent)
+        .map(|label| {
+            design::badge(
+                format!("chat-message-{}-badge", message.id),
+                label.clone(),
+                ladder,
+                theme.agent,
+                theme.agent_soft,
+            )
+        });
+    div()
+        .id(format!("chat-message-{}-header", message.id))
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(design::space::SM)
+        .child(
+            div()
+                .flex_shrink_1()
+                .min_w(px(0.))
+                .truncate()
+                .text_type(ladder.body)
+                .font_weight(FontWeight::MEDIUM)
+                .child(message.author.clone()),
+        )
+        .children(badge)
+        .children((message.time > 0).then(|| {
+            div()
+                .id(format!("chat-message-{}-time", message.id))
+                .text_type(ladder.caption)
+                .text_color(theme.muted)
+                .whitespace_nowrap()
+                .child(design::clock(message.time))
+        }))
+}
+
+/// What the message says, faded while it is on its way: its blocks, a
+/// program's own line, or the tombstone; "edited" under an edited one.
+fn body(
+    chat: &Chat,
+    message: &ChatMessage,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Div {
+    let said: Vec<AnyElement> = match (&message.system, message.deleted) {
+        (_, true) => vec![
+            div()
+                .italic()
+                .text_color(theme.muted)
+                .child("Message deleted")
+                .into_any_element(),
+        ],
+        (Some((program, code)), false) => {
+            vec![program_line(chat, message, program, code, cx, theme)]
+        }
+        (None, false) => rich::blocks(chat, message, cx, theme, ladder),
+    };
+    div()
+        .flex()
+        .flex_col()
+        .gap(design::space::XXS)
+        .when(message.pending, |body| body.opacity(FADED))
+        .children(said)
+        .children((message.edited && !message.deleted).then(|| {
+            div()
+                .text_type(ladder.caption)
+                .text_color(theme.muted)
+                .child("edited")
+        }))
+}
+
+/// A program's own post: the program in medium, its event, and the way to
+/// where the program shows this room.
+fn program_line(
+    chat: &Chat,
+    message: &ChatMessage,
+    program: &str,
+    code: &str,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+) -> AnyElement {
+    let open = format!("Open in {program}");
+    let text = format!("{program} {code}  {open}");
+    let link = text.len() - open.len()..text.len();
+    let highlights = vec![
+        (
+            0..program.len(),
+            HighlightStyle {
+                font_weight: Some(FontWeight::MEDIUM),
+                ..Default::default()
+            },
+        ),
+        (
+            link.clone(),
+            HighlightStyle {
+                color: Some(theme.foreground),
+                underline: Some(UnderlineStyle {
+                    thickness: HAIRLINE,
+                    color: None,
+                    wavy: false,
+                }),
+                ..Default::default()
+            },
+        ),
+    ];
+    let target = crate::links::program_link(&chat.session.chain_id, &chat.room_id());
+    let line = InteractiveText::new(
+        ElementId::from(format!("chat-message-{}-program", message.id)),
+        StyledText::new(text).with_highlights(highlights),
+    );
+    let line = match target {
+        Some(target) => line.on_click(
+            vec![link],
+            cx.processor(move |chat, _: usize, _window, cx| chat.open_link(target.clone(), cx)),
+        ),
+        None => line,
+    };
+    div().text_color(theme.muted).child(line).into_any_element()
+}
+
+/// The reactions: a chip per emoji (the reader's own on the accent), then
+/// "+" for the picker.
+fn reactions(
+    message: &ChatMessage,
+    pane: Pane,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Div {
+    let (seq, rev) = (message.seq, message.rev);
+    let act = |control: Control| {
+        cx.listener(move |chat, _: &ClickEvent, window, cx| {
+            cx.notify();
+            chat.act(pane, seq, rev, control.clone(), window, cx);
+        })
+    };
+    let chips: Vec<AnyElement> = message
+        .reactions
+        .iter()
+        .map(|reaction| {
+            let control = Control::Reaction {
+                emoji: reaction.emoji.clone(),
+                add: !reaction.reacted_by_me,
+            };
+            let id = format!("chat-message-{}-reaction-{}", message.id, reaction.emoji);
+            emoji_chip(id, reaction, act(control), theme, ladder)
+        })
+        .collect();
+    let add = add_chip(
+        format!("chat-message-{}-reaction-add", message.id),
+        act(Control::AddReaction),
+        theme,
+        ladder,
+    );
+    div()
+        .flex()
+        .flex_wrap()
+        .gap(design::space::XS)
+        .mt(design::space::XXS)
+        .children(chips)
+        .child(add)
+}
+
+/// A chip's frame: 30 tall, at least 40 wide, 8 in, a hairline edge; it
+/// only draws, its press is `design::hit` over it, reaching to `hit`, so
+/// the row keeps Expo's spacing.
+fn chip(mine: bool, theme: &Theme) -> Div {
+    div()
+        .relative()
+        .h(CHIP_HEIGHT)
+        .min_w(CHIP_WIDTH)
+        .px(design::space::SM)
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(design::space::XXS)
+        .border_1()
+        .border_color(if mine { theme.accent } else { theme.border })
+        .when(mine, |chip| chip.bg(theme.accent_soft))
+}
+
+/// One emoji and how many chose it; a press adds the reader's or takes it
+/// back.
+fn emoji_chip(
+    id: String,
+    reaction: &Reaction,
+    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
+    let mine = reaction.reacted_by_me;
+    let hit = design::hit(id, CHIP_WIDTH, CHIP_HEIGHT, ladder)
+        .role(Role::Button)
+        .aria_label(format!("{} {}", reaction.emoji, reaction.count))
+        .aria_toggled(mine.into())
+        .on_click(click)
+        .consumes_click();
+    chip(mine, theme)
+        .child(div().text_type(CHIP_EMOJI).child(reaction.emoji.clone()))
+        .child(
+            div()
+                .font_family(design::fonts::FAMILY_MONO)
+                .text_type(ladder.caption)
+                .child(reaction.count.to_string()),
+        )
+        .child(hit)
+        .into_any_element()
+}
+
+/// The "+" that opens the picker.
+fn add_chip(
+    id: String,
+    click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
+    let hit = design::hit(id, CHIP_WIDTH, CHIP_HEIGHT, ladder)
+        .role(Role::Button)
+        .aria_label("Add reaction")
+        .on_click(click)
+        .consumes_click();
+    chip(false, theme)
+        .child(design::icon("plus", CHIP_PLUS).text_color(theme.muted))
+        .child(hit)
+        .into_any_element()
+}
+
+/// Under a root in the room: a speech square, how many replies, a
+/// chevron; it opens the thread.
+fn thread_button(
+    message: &ChatMessage,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
+    let seq = message.seq;
+    let replies = design::plural(message.reply_count, "reply", "replies");
+    let open = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
+        cx.notify();
+        chat.open_thread(seq, cx)
+    });
+    let hit = design::hit(
+        format!("chat-message-{}-replies", message.id),
+        ladder.hit,
+        THREAD_BUTTON,
+        ladder,
+    )
+    .role(Role::Button)
+    .aria_label(format!("Open thread, {replies}"))
+    .on_click(open)
+    .consumes_click();
+    div()
+        .relative()
+        .self_start()
+        .h(THREAD_BUTTON)
+        .flex()
+        .items_center()
+        .gap(design::space::XS)
+        .text_type(ladder.secondary)
+        .font_weight(FontWeight::MEDIUM)
+        .child(design::icon("message-square", THREAD_ICON).text_color(theme.muted))
+        .child(replies)
+        .child(design::icon("chevron-right", THREAD_ICON).text_color(theme.muted))
+        .child(hit)
+        .into_any_element()
+}

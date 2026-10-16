@@ -9,6 +9,7 @@ use view::prelude::*;
 use crate::composer::Draft;
 use crate::message::ChatMessage;
 use chat::view::Names;
+use view::design::Pages;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Chat {
@@ -42,6 +43,10 @@ pub struct Chat {
     /// row deleted or scrolled away) leaves nothing once it moves on.
     #[serde(skip)]
     pub(crate) hovered: Option<Hovered>,
+    /// the reader's day the chain's newest head falls on (days since the
+    /// epoch, in the reader's zone): a phone's separator says "Today"
+    #[serde(skip)]
+    pub(crate) today: Option<u64>,
     /// The room the arrows are on in the sidebar's list; the open room
     /// until they move.
     #[serde(skip)]
@@ -79,6 +84,87 @@ pub struct Chat {
     /// the channel list read again while the one on screen stays
     #[serde(skip)]
     pub(crate) rereading_channels: Option<view::Task<()>>,
+}
+
+/// A page of the view's [`Pages`]: the room list, search, the new-channel
+/// form, the open room, its thread, its details. Each is a marker; its
+/// data lives on [`Chat`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Page {
+    Rooms,
+    /// message search, over the rooms (the phone's own page)
+    Search,
+    /// the create-channel form (the phone's own page; the desktop's
+    /// dialog)
+    New,
+    Room,
+    Thread,
+    Details,
+}
+
+impl Chat {
+    /// Where the reader is, as the phone's screens stack: read off the
+    /// data that is open (`search`, `create`, `room`, its `thread`,
+    /// `details`), so the stack and the data cannot disagree. The phone
+    /// shows the top page alone and Back closes it ([`Self::back`]); the
+    /// desktop docks the same data as panes.
+    pub(crate) fn pages(&self) -> Pages<Page> {
+        let mut pages = Pages::root(Page::Rooms);
+        if self.search.shown {
+            pages.push(Page::Search);
+        }
+        if self.create.is_some() {
+            pages.push(Page::New);
+        }
+        if let Some(room) = &self.room {
+            pages.push(Page::Room);
+            if room.thread.is_some() {
+                pages.push(Page::Thread);
+            }
+            if self.details.is_some() {
+                pages.push(Page::Details);
+            }
+        }
+        pages
+    }
+
+    /// Whether a dialog the view owns is open over the page: a message
+    /// sheet or menu, or the create-channel dialog. Back closes it first.
+    pub(crate) fn dialog_open(&self) -> bool {
+        self.menu.is_some()
+            || self.create.is_some()
+            || self.details.as_ref().is_some_and(|d| d.sheet.is_some())
+    }
+
+    /// The phone's Back: a dialog closes first, then the top page.
+    pub(crate) fn back(&mut self) {
+        if self.menu.take().is_some() || self.create.take().is_some() {
+            return;
+        }
+        if let Some(details) = &mut self.details
+            && details.sheet.take().is_some()
+        {
+            return;
+        }
+        match self.pages().top() {
+            Page::Details => self.details = None,
+            Page::Thread => self.close_thread(),
+            Page::Room => self.close_room(),
+            Page::Search => self.search_clear(),
+            // a dialog above: closed first
+            Page::New | Page::Rooms => {}
+        }
+    }
+
+    /// The open room left: the list alone shows. Its draft stays in
+    /// `drafts`; its reads were saved when it was chosen.
+    pub(crate) fn close_room(&mut self) {
+        self.room = None;
+        self.details = None;
+        self.menu = None;
+        self.copy = None;
+        self.hovered = None;
+    }
 }
 
 #[derive(Default)]
@@ -142,6 +228,10 @@ pub struct Thread {
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Search {
+    /// The phone's Search page is open (the desktop's field is always
+    /// beside the rooms).
+    #[serde(default)]
+    pub(crate) shown: bool,
     pub(crate) draft: TextField,
     /// the query the hits answer; "" while no search stands
     pub(crate) query: String,
@@ -171,9 +261,21 @@ pub struct ChannelCreate {
 pub struct Details {
     pub(crate) name_draft: TextField,
     pub(crate) member_draft: TextField,
+    /// the sheet open over the phone's details page
+    #[serde(default)]
+    pub(crate) sheet: Option<DetailsSheet>,
 }
 
-#[derive(Serialize, Deserialize)]
+/// A sheet over the details page (the Expo details screen's): add a
+/// member, rename the channel, or remove the member with this account.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DetailsSheet {
+    Add,
+    Rename,
+    Remove(u64),
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy)]
 pub struct Layout {
     /// the pane's size, read from the window each render
     #[serde(skip)]
@@ -207,15 +309,36 @@ const THREAD_W: (f32, f32) = (280., 640.);
 const ROOM_KEEPS_W: f32 = 320. + 20.;
 
 impl Layout {
-    pub(crate) fn clamp(&mut self) {
+    /// The panes' widths as this viewport allows them: the person's
+    /// settings clamped at read, never written back, so a narrow window
+    /// leaves no mark on a wide one after it (rule 12).
+    pub(crate) fn clamped(&self) -> Layout {
         let (w, _) = self.viewport;
         let (lo, hi) = SIDEBAR_W;
-        self.sidebar = self.sidebar.clamp(lo, (w * 0.5).clamp(lo, hi));
-        let side = w - self.sidebar - ROOM_KEEPS_W;
+        let sidebar = self.sidebar.clamp(lo, (w * 0.5).clamp(lo, hi));
+        let side = w - sidebar - ROOM_KEEPS_W;
         let (lo, hi) = DETAILS_W;
-        self.details = self.details.clamp(lo, side.clamp(lo, hi));
+        let details = self.details.clamp(lo, side.clamp(lo, hi));
         let (lo, hi) = THREAD_W;
-        self.thread = self.thread.clamp(lo, side.clamp(lo, hi));
+        let thread = self.thread.clamp(lo, side.clamp(lo, hi));
+        Layout {
+            sidebar,
+            details,
+            thread,
+            ..*self
+        }
+    }
+
+    /// A drag's new width, kept inside the pane's own bounds: what the
+    /// viewport allows is settled at read ([`Self::clamped`]).
+    pub(crate) fn drag_sidebar(&mut self, dx: f32) {
+        self.sidebar = (self.sidebar + dx).clamp(SIDEBAR_W.0, SIDEBAR_W.1);
+    }
+    pub(crate) fn drag_details(&mut self, dx: f32) {
+        self.details = (self.details - dx).clamp(DETAILS_W.0, DETAILS_W.1);
+    }
+    pub(crate) fn drag_thread(&mut self, dx: f32) {
+        self.thread = (self.thread - dx).clamp(THREAD_W.0, THREAD_W.1);
     }
 
     /// Whether a side pane `side` wide fits beside the sidebar and the
@@ -355,16 +478,17 @@ impl Chat {
     /// Where a popup the keys open sits: a key has no pointer position, so
     /// it takes the top-right of the pane's message list, inside the window.
     pub(crate) fn key_spot(&self, pane: Pane) -> (f32, f32) {
-        let (width, _) = self.layout.viewport;
+        let layout = self.layout.clamped();
+        let (width, _) = layout.viewport;
         let side = match pane {
             Pane::Thread => 0.,
-            Pane::Timeline if self.details.is_some() && self.room.is_some() => self.layout.details,
+            Pane::Timeline if self.details.is_some() && self.room.is_some() => layout.details,
             Pane::Timeline if self.room.as_ref().is_some_and(|room| room.thread.is_some()) => {
-                self.layout.thread
+                layout.thread
             }
             Pane::Timeline => 0.,
         };
-        let side = if side > 0. && self.layout.docks(side) {
+        let side = if side > 0. && layout.docks(side) {
             side
         } else {
             0.

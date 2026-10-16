@@ -201,7 +201,7 @@ impl RenderOnce for MentionItem {
 /// A press that acts on the draft. A pointer press focuses the control it
 /// lands on, so the press hands the keys back to `editor` first: the
 /// typing goes on where it was.
-fn press<V: 'static>(
+pub(crate) fn press<V: 'static>(
     editable: bool,
     tag: String,
     editor: &str,
@@ -222,8 +222,9 @@ fn press<V: 'static>(
     )))
 }
 
-/// The host's text area over the draft: what it shows, what it claims.
-fn editor<V: 'static>(
+/// The host's text area over the draft: what it shows, what it claims,
+/// its lines wrapping; each design sizes it.
+pub(crate) fn editor<V: 'static>(
     draft: &Draft,
     key: &str,
     label: &str,
@@ -252,12 +253,7 @@ fn editor<V: 'static>(
             },
         ));
     }
-    area.w_full()
-        .min_h(px(40.))
-        .max_h(px(200.))
-        .p(design::space::MD)
-        .text_size(design::text::BODY)
-        .whitespace_normal()
+    area.w_full().whitespace_normal()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -281,7 +277,11 @@ pub fn view<V: 'static, F: Fn(&mut V, Event, &mut Window, &mut Context<V>) + 'st
 ) -> impl IntoElement + use<V, F> {
     let handle: Handle<V> = Rc::new(handle);
     let editor_id = super::draft::editor_id(key);
-    let editor = editor(draft, &editor_id, label, hint, editable, &handle, cx);
+    let editor = editor(draft, &editor_id, label, hint, editable, &handle, cx)
+        .min_h(px(40.))
+        .max_h(px(200.))
+        .p(design::space::MD)
+        .text_size(design::text::BODY);
     let mut rows: Vec<AnyElement> = Vec::new();
 
     if let Some((_, partial)) = draft.query() {

@@ -21,7 +21,7 @@ pub fn thread(
     });
     let mut pane = div()
         .id("chat-thread-pane")
-        .w(px(chat.layout.thread))
+        .w(px(chat.layout.clamped().thread))
         .h_full()
         .flex()
         .flex_col()
@@ -107,7 +107,7 @@ pub fn details(
     let dm = chat::dm_peers(&info.channel.id).is_some();
     let pane = div()
         .id("chat-details-pane")
-        .w(px(chat.layout.details))
+        .w(px(chat.layout.clamped().details))
         .h_full()
         .overflow_y_scroll()
         .flex()

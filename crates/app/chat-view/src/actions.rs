@@ -249,10 +249,13 @@ impl Chat {
     /// Whether the reader may delete the message at `seq`: its author, or
     /// the channel's owner.
     pub(crate) fn may_delete(&self, pane: Pane, seq: u64) -> bool {
-        self.wrote(pane, seq)
-            || self
-                .room_info()
-                .is_some_and(|info| Some(&info.channel.owner) == self.me().as_ref())
+        self.wrote(pane, seq) || self.owns_room()
+    }
+
+    /// Whether the reader owns the open channel.
+    pub(crate) fn owns_room(&self) -> bool {
+        self.room_info()
+            .is_some_and(|info| Some(&info.channel.owner) == self.me().as_ref())
     }
 
     // ---------- writes ----------
@@ -379,6 +382,7 @@ impl Chat {
                 self.details = Some(crate::Details {
                     name_draft: view::TextField::new(name),
                     member_draft: Default::default(),
+                    sheet: None,
                 });
             }
         }

@@ -15,6 +15,32 @@ enum Reread {
 }
 
 impl Chat {
+    /// The composer's placeholder: who or where a message goes
+    /// (`Message #general`, `Message Priya Nair`).
+    pub(crate) fn composer_hint(&self, room: &Room) -> String {
+        if let Some((peer, _)) = self.dm_peer() {
+            return format!("Message {peer}");
+        }
+        let name = self.info(&room.id).map_or_else(
+            || view::design::short_hex(&room.id),
+            |info| info.channel.name.clone(),
+        );
+        match chat::dm_peers(&room.id) {
+            Some(_) => format!("Message {name}"),
+            None => format!("Message #{name}"),
+        }
+    }
+
+    /// A pane's refused read, asked again: the open thread, or the room
+    /// from its newest message.
+    pub(crate) fn retry_read(&mut self, pane: Pane, cx: &mut Context<Self>) {
+        let Some(room) = &self.room else { return };
+        match (pane, room.thread.as_ref().map(|thread| thread.root)) {
+            (Pane::Thread, Some(root)) => self.open_thread(root, cx),
+            _ => self.open(room.id.clone(), cx),
+        }
+    }
+
     /// A room the reader chose: opened here, and only here. Named to the
     /// host as a link, its route would reach another chat window too.
     pub(crate) fn choose(&mut self, id: String, cx: &mut Context<Self>) {
@@ -615,7 +641,7 @@ impl Chat {
     pub(crate) fn settle_title(&mut self, cx: &mut Context<Self>) {
         let title = match &self.room {
             Some(room) if chat::dm_peers(&room.id).is_some() => {
-                crate::ui::sidebar::dm_peer(self).map(|(peer, _)| peer)
+                self.dm_peer().map(|(peer, _)| peer)
             }
             Some(room) => self
                 .info(&room.id)

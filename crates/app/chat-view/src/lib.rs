@@ -18,6 +18,7 @@ mod names;
 mod notices;
 mod queries;
 mod room;
+mod room_list;
 mod search;
 mod session;
 mod state;
@@ -40,6 +41,8 @@ impl View for Chat {
         "Channels, direct messages, threads, search and the live call of this workspace.";
     const ICON: &'static str = "icons/messages-square.svg";
     const CAPABILITIES: &'static [Capability] = &[
+        // the heads' time: which day "Today" is
+        Capability::Chain,
         Capability::Program,
         Capability::Op,
         Capability::Host,
@@ -88,11 +91,15 @@ impl Render for Chat {
         // clamp to it before the frame that shows them
         let size = window.viewport_size();
         self.layout.viewport = (size.width.into(), size.height.into());
-        self.layout.clamp();
         self.seat_drafts();
         // names land async: the frame is the one place that sees each
         self.settle_title(cx);
-        ui::render(self, window.touch(), cx)
+        // the one pick: a phone draws the Expo app's own screens, every
+        // other window the desktop's (STRUCTURE v2)
+        match window.touch() {
+            true => ui::phone::render(self, cx),
+            false => ui::render(self, cx).into_any_element(),
+        }
     }
 }
 

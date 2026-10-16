@@ -25,7 +25,7 @@ const STACK_GAP: f32 = design::spacing::XS as f32;
 /// strip is 26 tall, and a gap keeps the menu off it.
 const STRIP_CLEAR: f32 = 26. + design::spacing::XS as f32;
 /// The delete confirmation's Cancel, the button that takes the keys on open.
-const CANCEL_DELETE: &str = "chat-menu-cancel-delete";
+pub(crate) const CANCEL_DELETE: &str = "chat-menu-cancel-delete";
 type Press = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 pub mod card;
