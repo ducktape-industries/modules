@@ -283,7 +283,7 @@ fn member_row(
         // an agent: identity's words name its manager and why it no longer
         // acts
         Some(_) => identity::view::kind(&row.kind, name_of),
-        None => row.kind_word(words::DESK_USER),
+        None => row.kind_word(),
     };
     let me = view.me == Some(number);
     let row = div()
@@ -414,15 +414,11 @@ fn head(
     // a narrow pane wraps between parts
     let mut caption: Vec<Vec<AnyElement>> = vec![vec![text(words::account(row.number))]];
     match row.manager() {
-        None => caption.push(vec![text(row.kind_word(words::DESK_USER))]),
+        None => caption.push(vec![text(row.kind_word())]),
         Some(manager) => {
             // what the agent is and `managed by`, then the manager's name
             // as a link that chooses the manager here
-            let what = format!(
-                "{} · {}",
-                row.kind_word(words::DESK_USER),
-                words::MANAGED_BY
-            );
+            let what = format!("{} · {}", row.kind_word(), words::MANAGED_BY);
             let label = name_or_number(rows, manager);
             let link = div()
                 .id("members-manager")

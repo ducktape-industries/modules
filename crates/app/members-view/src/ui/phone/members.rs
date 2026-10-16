@@ -326,7 +326,7 @@ fn member_row(
         None => {
             let word = match row.kind {
                 identity::Kind::System(_) => words::PROGRAM,
-                _ => words::PHONE_PERSON,
+                _ => words::USER,
             };
             let tail = caption(word, ladder, theme).flex_none();
             (tail.into_any_element(), word)

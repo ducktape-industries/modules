@@ -154,7 +154,7 @@ fn head(
         )
 }
 
-/// What the account is, in the data face: `account 7 · Person · 1 device`,
+/// What the account is, in the data face: `account 7 · User · 1 device`,
 /// `account 8 · Program`, `account 8 · Program · chat`, or `account 9 ·
 /// Agent · managed by <manager> · 1 device` with the manager a link that
 /// opens the manager over this page.
@@ -165,11 +165,7 @@ fn account_line(
     ladder: &Ladder,
     theme: &Theme,
 ) -> Stateful<Div> {
-    let what = format!(
-        "{} · {}",
-        words::account(row.number),
-        row.kind_word(words::PHONE_PERSON)
-    );
+    let what = format!("{} · {}", words::account(row.number), row.kind_word());
     let devices = words::devices(row.devices.len());
     let line = div()
         .id("members-account-line")

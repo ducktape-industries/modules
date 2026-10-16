@@ -92,7 +92,7 @@ fn the_phone_roster_groups_people_agents_and_programs_and_says_what_each_is() {
     for text in [
         "testnet · 5 accounts",
         "  you",
-        "Person",
+        "User",
         "Program",
         "managed by eddy",
         "active",
@@ -199,7 +199,7 @@ fn the_phone_arrows_move_a_cursor_and_open_nothing() {
     assert_eq!(cx.interactivity("members-row-11").aria.selected, Some(true));
     cx.simulate_key_down("members-list", "enter");
     cx.run_until_parked();
-    assert!(cx.has_text("account 11 · Person · 1 device"));
+    assert!(cx.has_text("account 11 · User · 1 device"));
 }
 
 #[test]
@@ -212,7 +212,7 @@ fn a_phone_row_opens_its_member_and_back_returns() {
     for text in [
         "eddy",
         "account 7",
-        "account 7 · Person · 1 device",
+        "account 7 · User · 1 device",
         "Validator",
         "eddy's bio",
         "Explorer",
@@ -280,11 +280,11 @@ fn an_agent_opens_over_its_manager_and_its_manager_over_that() {
     }
     cx.simulate_click("members-manager");
     cx.run_until_parked();
-    assert!(cx.has_text("account 7 · Person · 1 device"));
+    assert!(cx.has_text("account 7 · User · 1 device"));
     cx.simulate_back();
     assert!(cx.has_text("account 9 · Agent · managed by "));
     cx.simulate_back();
-    assert!(cx.has_text("account 7 · Person · 1 device"));
+    assert!(cx.has_text("account 7 · User · 1 device"));
 }
 
 #[test]
@@ -364,7 +364,7 @@ fn a_member_page_says_why_the_roster_was_refused_and_retry_reads_it_again() {
     respond(&mut cx);
     cx.simulate_click("members-retry");
     cx.run_until_parked();
-    assert!(cx.has_text("account 11 · Person · 1 device"));
+    assert!(cx.has_text("account 11 · User · 1 device"));
 }
 
 #[test]

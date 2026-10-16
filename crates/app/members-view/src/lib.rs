@@ -220,13 +220,12 @@ impl Row {
         }
     }
 
-    /// What the account is, in words: `person` for a person (each tree says
-    /// it its own way: `words::PHONE_PERSON`, `words::DESK_USER`), `Agent`
-    /// for an agent, `Program` for a program named after its program (it
-    /// says so once), else `Program · chat`.
-    fn kind_word(&self, person: &'static str) -> String {
+    /// What the account is, in words: `User` for a person, `Agent` for an
+    /// agent, `Program` for a program named after its program (it says so
+    /// once), else `Program · chat`.
+    fn kind_word(&self) -> String {
         match &self.kind {
-            identity::Kind::User => person.into(),
+            identity::Kind::User => words::USER.into(),
             identity::Kind::Program { .. } => words::AGENT.into(),
             identity::Kind::System(program) if *program == self.name => words::PROGRAM.into(),
             identity::Kind::System(program) => format!("{} · {program}", words::PROGRAM),

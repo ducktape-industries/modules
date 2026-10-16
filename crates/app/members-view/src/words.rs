@@ -28,12 +28,11 @@ pub(crate) const ALL: &str = "All";
 pub(crate) const YOU: &str = "you";
 /// An agent's standing while it acts (`[number].tsx:134`).
 pub(crate) const ACTIVE: &str = "active";
-/// A person's account on the phone: Expo's word (`index.tsx:69`,
-/// `[number].tsx:64`).
-pub(crate) const PHONE_PERSON: &str = "Person";
-/// A person's account on the desk: identity's own word
-/// (`identity::view::kind`), as the desk has always said it.
-pub(crate) const DESK_USER: &str = "User";
+/// A person's account, on both trees: identity's own word
+/// (`identity::view::kind`). Expo's "Person" (`index.tsx:69`,
+/// `[number].tsx:63`) is its copy of that word from before programs #394
+/// renamed it, not a word of its own.
+pub(crate) const USER: &str = "User";
 /// An agent account (`[number].tsx:69`, `:140`).
 pub(crate) const AGENT: &str = "Agent";
 /// Before an agent's manager (`index.tsx:63`, `[number].tsx:69`).
