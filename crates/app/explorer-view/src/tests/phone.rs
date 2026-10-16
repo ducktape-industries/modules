@@ -531,21 +531,62 @@ fn a_form_that_builds_nothing_says_why_and_sends_nothing() {
     assert!(cx.host().requests::<Submit<Valset>>().is_empty());
 }
 
+/// Each of `ids` that tells assistive tech it is wrong, with why.
+fn wrong<'a>(cx: &TestAppContext, ids: &[&'a str]) -> Vec<(&'a str, String)> {
+    ids.iter()
+        .filter_map(|&id| match cx.node(id) {
+            view::wire::Node::Field { options, .. } => options
+                .invalid
+                .map(|_| (id, options.description.clone().unwrap_or_default())),
+            other => panic!("{id} is no field: {other:?}"),
+        })
+        .collect()
+}
+
 #[test]
 fn the_field_a_problem_is_about_tells_assistive_tech_it_is_wrong_and_why() {
     let mut cx = grant_form();
     click(&mut cx, "explorer-form-submit");
-    let options = |cx: &TestAppContext, id: &str| match cx.node(id) {
-        view::wire::Node::Field { options, .. } => options.clone(),
-        other => panic!("{id} is no field: {other:?}"),
-    };
-    let account = options(&cx, "explorer-form-account");
-    assert_eq!(account.invalid, Some(view::accesskit::Invalid::True));
     assert_eq!(
-        account.description.as_deref(),
-        Some("An account is its number.")
+        wrong(&cx, &["explorer-form-account", "explorer-form-name"]),
+        [(
+            "explorer-form-account",
+            "An account is its number.".to_owned()
+        )]
     );
-    assert_eq!(options(&cx, "explorer-form-name").invalid, None);
+}
+
+#[test]
+fn a_problem_moves_to_the_field_it_is_about_and_a_refusal_marks_none() {
+    let fields = ["explorer-form-code", "explorer-form-height"];
+    let mut cx = reader(Some(3), ADA, false, grants(), waiting());
+    cx.host()
+        .refuse::<Submit<Programs>>("unauthorized", "no grant covers chat");
+    phone(&mut cx);
+    click(&mut cx, "explorer-program-chat");
+    click(&mut cx, "explorer-upgrade-chat");
+    click(&mut cx, "explorer-form-submit");
+    assert_eq!(
+        wrong(&cx, &fields),
+        [(
+            "explorer-form-code",
+            "A code id is sha256: and 64 hex digits.".to_owned()
+        )]
+    );
+    cx.simulate_input("explorer-form-code", CHAT_CODE);
+    cx.simulate_input("explorer-form-height", "12");
+    click(&mut cx, "explorer-form-submit");
+    assert_eq!(
+        wrong(&cx, &fields),
+        [(
+            "explorer-form-height",
+            "Block 12 has passed: pick a later one.".to_owned()
+        )]
+    );
+    cx.simulate_input("explorer-form-height", "5000");
+    click(&mut cx, "explorer-form-submit");
+    shows(&cx, "Not sent: no grant covers chat");
+    assert_eq!(wrong(&cx, &fields), [], "the refusal is the whole form's");
 }
 
 #[test]
