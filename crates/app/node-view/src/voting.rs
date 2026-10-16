@@ -72,7 +72,8 @@ impl Voting {
         self.voices.iter().filter(|v| !voters.contains(v)).count()
     }
 
-    fn entries(&self) -> &[Entry] {
+    /// The programs the programs role runs now; none until read.
+    pub(crate) fn entries(&self) -> &[Entry] {
         self.roster.ready().map_or(&[], Vec::as_slice)
     }
 

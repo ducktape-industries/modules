@@ -19,7 +19,7 @@ use view::{Div, FontWeight, Stateful};
 use super::LADDER;
 use super::parts::{empty, last_answer, outcome, press, quiet, refused, scroller, small_button};
 use crate::queries::{Motions, Node, Schedule};
-use crate::row::{self, Status};
+use crate::row::Status;
 use crate::words::{self, EpochPlace};
 use crate::{Nodes, voting};
 
@@ -105,20 +105,13 @@ fn door_button(cx: &mut Context<Nodes>, theme: &Theme) -> impl IntoElement {
 /// still being read.
 fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
     if let Some(refusal) = view.status.failed() {
-        let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| {
-            view.status = Loadable::Idle;
-            view.read_status(cx);
-            cx.notify();
-        });
+        let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.retry_status(cx));
         return refused("nodes-status", &refusal.message, theme, retry).into_any_element();
     }
     let Some(status) = view.status.ready() else {
         return quiet("nodes-status-loading", words::READING_STATUS, theme).into_any_element();
     };
-    let last = match view.ticks - view.moved {
-        0 => "last block just now".to_owned(),
-        seconds => format!("last block {} ago", design::ago(seconds * 1000, 0)),
-    };
+    let last = format!("last block {}", words::block_age(view.ticks - view.moved));
     let height = Fact {
         key: "height",
         label: words::HEIGHT,
@@ -327,10 +320,7 @@ fn member_row(
     cx: &Context<Nodes>,
     theme: &Theme,
 ) -> Stateful<Div> {
-    let status = view
-        .heard()
-        .map_or(row::BLANK, |network| row::synced(node, network))
-        .status;
+    let status = view.cells(node).status;
     let (dot, tone) = tones(node, &status, view.answering(), theme);
     let key = node.key.clone();
     let open = cx.listener(move |view: &mut Nodes, _: &ClickEvent, _, cx| {
@@ -406,24 +396,12 @@ fn member_title(node: &Node, theme: &Theme) -> Div {
 /// A member's caption: its address in the data face, and `this node` on
 /// the one this app talks to.
 fn member_address(view: &Nodes, node: &Node, theme: &Theme) -> Div {
-    let address = node
-        .address
-        .clone()
-        .unwrap_or_else(|| words::NO_VALUE.to_owned());
-    let this = view
-        .status
-        .ready()
-        .is_some_and(|status| status.identity == node.key);
-    let words = match this {
-        true => format!("{address} · {}", words::THIS_NODE),
-        false => address,
-    };
     div()
         .font_family(design::fonts::FAMILY_MONO)
         .text_type(LADDER.caption)
         .text_color(theme.muted)
         .truncate()
-        .child(words)
+        .child(view.address_line(node))
 }
 
 /// A row's title over its caption, taking the room the row leaves.
@@ -532,16 +510,10 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Vec<AnyEle
         let why = quiet("nodes-scheduled-refused", refusal.message.clone(), theme);
         return vec![why.into_any_element()];
     }
-    let Some(schedule) = voting.scheduled.ready() else {
+    let (Some(schedule), Some(ahead)) = (voting.scheduled.ready(), view.scheduled_ahead()) else {
         let reading = quiet("nodes-scheduled-loading", words::READING_SCHEDULE, theme);
         return vec![reading.into_any_element()];
     };
-    let tip = view.status.ready().map_or(0, |status| status.height);
-    let ahead: Vec<&Scheduled> = schedule
-        .changes
-        .iter()
-        .filter(|change| change.height > tip)
-        .collect();
     if ahead.is_empty() {
         let none = quiet("nodes-scheduled-none", words::NO_CHANGE, theme);
         return vec![none.into_any_element()];
@@ -566,7 +538,6 @@ fn scheduled_row(
     theme: &Theme,
 ) -> Stateful<Div> {
     let voting = &view.voting;
-    let roster = voting.roster.ready().map_or(&[][..], Vec::as_slice);
     let cancel = small_button(
         ElementId::Name(format!("nodes-scheduled-cancel-{index}").into()),
         words::PROPOSE_CANCEL,
@@ -576,7 +547,7 @@ fn scheduled_row(
     );
     line(
         ElementId::Name(format!("nodes-scheduled-{index}").into()),
-        voting::scheduled_words(change.height, &change.change, roster),
+        voting::scheduled_words(change.height, &change.change, voting.entries()),
         words::scheduled_caption(change, schedule, view.status.ready()),
         cancel.into_any_element(),
         theme,

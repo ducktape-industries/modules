@@ -214,15 +214,10 @@ fn pending(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
 fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder) -> Div {
     let voting = &view.voting;
     let status = view.status.ready();
-    let tip = status.map_or(0, |status| status.height);
-    let entries = voting.roster.ready().map_or(&[][..], Vec::as_slice);
+    let entries = voting.entries();
     let lines: Vec<AnyElement> = match &voting.scheduled {
         Loadable::Ready(schedule) | Loadable::Reloading(schedule, _) => {
-            let ahead: Vec<_> = schedule
-                .changes
-                .iter()
-                .filter(|change| change.height > tip)
-                .collect();
+            let ahead = view.scheduled_ahead().unwrap_or_default();
             if ahead.is_empty() {
                 vec![quiet("nodes-scheduled-none", words::NO_CHANGE, theme)]
             } else {

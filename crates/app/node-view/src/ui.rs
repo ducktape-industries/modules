@@ -121,11 +121,8 @@ fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
     let status = match &view.status {
         Loadable::Ready(status) | Loadable::Reloading(status, _) => status,
         Loadable::Failed(refusal) => {
-            let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| {
-                view.status = Loadable::Idle;
-                view.read_status(cx);
-                cx.notify();
-            });
+            let retry =
+                cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.retry_status(cx));
             return design::refused(
                 "nodes-status",
                 refusal.message.clone(),
@@ -141,11 +138,7 @@ fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme, ladder: &Ladder
                 .into_any_element();
         }
     };
-    let age = view.ticks - view.moved;
-    let last = match age {
-        0 => "just now".to_owned(),
-        seconds => format!("{} ago", design::ago(seconds * 1000, 0)),
-    };
+    let last = words::block_age(view.ticks - view.moved);
     let block_time = format!("{:.1} s", status.block_time_ms as f64 / 1000.);
     div()
         .id("nodes-status")

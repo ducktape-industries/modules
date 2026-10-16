@@ -8,7 +8,7 @@ use view::{Div, Stateful};
 
 use crate::queries::Node;
 use crate::recent::{Recent, WINDOW};
-use crate::row::{self, Row, Status};
+use crate::row::{Row, Status};
 use crate::{Nodes, Unheard, ui, voting, words};
 use view::design::Ladder;
 
@@ -101,7 +101,7 @@ pub(crate) fn table(
             .enumerate()
             .filter(move |(_, node)| node.validator == validator)
             .map(move |(index, node)| {
-                let cells = heard.map_or(row::BLANK, |network| row::synced(node, network));
+                let cells = view.cells(node);
                 let marks = strip(node, head, gap.unwrap_or(GAPS[0]), &view.recent, theme);
                 line(
                     index,
@@ -256,10 +256,7 @@ fn line(
     ladder: &Ladder,
 ) -> Stateful<Div> {
     // this node's row says so
-    let this = view
-        .status
-        .ready()
-        .is_some_and(|status| status.identity == node.key);
+    let this = view.is_this(node);
     let muted = |text: String| div().text_color(theme.muted).child(text);
     let address = address_fits(view);
     // without the Address column, this node's mark goes under its key
@@ -274,12 +271,12 @@ fn line(
         false => cell(KEY_W, false).child(key),
     };
     let address = address.then(|| {
-        let address = node
-            .address
-            .clone()
-            .unwrap_or_else(|| words::NO_VALUE.to_owned());
         cell(ADDRESS_W, false)
-            .child(design::mono(address).text_color(theme.muted).truncate())
+            .child(
+                design::mono(node.shown_address().to_owned())
+                    .text_color(theme.muted)
+                    .truncate(),
+            )
             .children(this.then(|| muted(words::THIS_NODE.into())))
     });
     let height = match cells.signed {

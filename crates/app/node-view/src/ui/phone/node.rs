@@ -87,18 +87,7 @@ fn seat(node: &Node) -> String {
 /// Who the member is: its key, its address (`this node` on the one this
 /// app talks to), and who operates it.
 fn identity(view: &Nodes, node: &Node, theme: &Theme) -> Div {
-    let address = node
-        .address
-        .clone()
-        .unwrap_or_else(|| words::NO_VALUE.to_owned());
-    let this = view
-        .status
-        .ready()
-        .is_some_and(|status| status.identity == node.key);
-    let address = match this {
-        true => format!("{address} · {}", words::THIS_NODE),
-        false => address,
-    };
+    let address = view.address_line(node);
     div()
         .child(key_value("key", words::KEY, mono(hex(&node.key)), theme))
         .child(key_value("address", words::ADDRESS, mono(address), theme))
@@ -116,9 +105,7 @@ fn vote_facts(view: &Nodes, node: &Node, theme: &Theme) -> Div {
         signed,
         behind,
         status,
-    } = view
-        .heard()
-        .map_or(row::BLANK, |network| row::synced(node, network));
+    } = view.cells(node);
     let height = signed.map_or(words::NO_VALUE.to_owned(), |signed| {
         format!("{} {}", design::grouped(signed), words::VOTED)
     });

@@ -38,6 +38,7 @@ mod words;
 
 use queries::Node;
 use recent::Recent;
+use row::Row;
 use view::design::Pages;
 use voting::Voting;
 
@@ -305,6 +306,45 @@ impl Nodes {
                 .iter()
                 .any(|peer| this == Some(peer.key.as_slice()) && peer.signed.is_some())
         })
+    }
+
+    /// A member's cells as this node heard them: blank where it hears no
+    /// votes.
+    pub(crate) fn cells(&self, node: &Node) -> Row {
+        self.heard()
+            .map_or(row::BLANK, |network| row::synced(node, network))
+    }
+
+    /// Whether `node` is the node this app talks to.
+    pub(crate) fn is_this(&self, node: &Node) -> bool {
+        self.status
+            .ready()
+            .is_some_and(|status| status.identity == node.key)
+    }
+
+    /// A member's address, and `this node` after the one this app talks to.
+    pub(crate) fn address_line(&self, node: &Node) -> String {
+        let address = node.shown_address();
+        match self.is_this(node) {
+            true => format!("{address} · {}", words::THIS_NODE),
+            false => address.to_owned(),
+        }
+    }
+
+    /// The changes scheduled past the tip, once the schedule is read; one
+    /// at or below the tip has landed.
+    pub(crate) fn scheduled_ahead(&self) -> Option<Vec<&programs::Pending>> {
+        let schedule = self.voting.scheduled.ready()?;
+        let tip = self.status.ready().map_or(0, |status| status.height);
+        let ahead = schedule.changes.iter().filter(|change| change.height > tip);
+        Some(ahead.collect())
+    }
+
+    /// Retry on a refused status: read it again from nothing.
+    pub(crate) fn retry_status(&mut self, cx: &mut Context<Self>) {
+        self.status = Loadable::Idle;
+        self.read_status(cx);
+        cx.notify();
     }
 
     /// Why the validators' cells are empty, once the node said anything of

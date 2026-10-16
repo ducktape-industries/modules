@@ -79,6 +79,14 @@ pub(crate) fn pulse(answering: bool) -> &'static str {
     }
 }
 
+/// How long ago the node's height last moved: `just now`, `8s ago`.
+pub(crate) fn block_age(seconds: u64) -> String {
+    match seconds {
+        0 => "just now".to_owned(),
+        seconds => format!("{} ago", design::ago(seconds * 1000, 0)),
+    }
+}
+
 /// How long the node has been silent.
 pub(crate) fn last_answer(seconds: u64) -> String {
     format!("Last answer {} ago", design::ago(seconds * 1000, 0))
