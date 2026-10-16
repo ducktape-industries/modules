@@ -11,13 +11,12 @@
 //! `submit_rename_agent`, `set_standing`, `pick_ownership`,
 //! `submit_listed_person`, `remove_listed_person`).
 use identity::{Ownership, Standing};
-use view::design::{Kind as ButtonKind, Ladder};
+use view::design::{Kind as ButtonKind, Ladder, SHEET_INSET};
 use view::prelude::*;
-use view::{Div, FontWeight, Stateful};
+use view::{Div, Stateful};
 
 use super::parts::{
-    caption, chevron, column, mono, muted_icon, name_input, name_line, named, note, problem_of,
-    quiet, title_and_caption,
+    column, mono, muted_icon, name_input, name_line, named, note, problem_of, quiet,
 };
 use crate::Settings;
 use crate::queries::{Agent, Seat};
@@ -25,9 +24,6 @@ use crate::state::{Choice, Form, Sheet};
 use crate::ui::shared::{agent_face, ownership_choices};
 use crate::words;
 
-// SDK gap: the sheet's inset, swap when feat/phone-kit lands
-/// A sheet's content inset (Expo `src/account/Agents.tsx:24`).
-const SHEET_INSET: Pixels = px(20.);
 // SDK gap: a face at 0.5 when off, swap when the SDK builds it (kit.md §2)
 /// A revoked agent's face, faded (Expo `src/kit/Avatar.tsx:38`).
 const REVOKED_OPACITY: f32 = 0.5;
@@ -117,13 +113,11 @@ fn add_row(
         .focusable()
         .on_click(open)
         .child(design::lead(muted_icon(glyph, ladder, theme)))
-        .child(title_and_caption(
-            title,
-            theme.foreground,
-            caption(about, ladder, theme),
-            ladder,
-        ))
-        .child(chevron(ladder, theme))
+        .child(
+            design::row_words(design::row_title(title.to_owned(), ladder, theme))
+                .child(design::row_caption(about.to_owned(), ladder, theme)),
+        )
+        .child(design::chevron(ladder, theme))
 }
 
 /// One agent's row; a press opens its sheet, a revoked one's too.
@@ -156,14 +150,14 @@ fn agent_row(
         .focusable()
         .on_click(open)
         .child(design::lead(agent_avatar(agent, ladder.avatar, theme)))
-        .child(title_and_caption(
-            &agent.name,
-            tone,
-            caption(about, ladder, theme),
-            ladder,
-        ))
+        .child(
+            design::row_words(
+                design::row_title(agent.name.clone(), ladder, theme).text_color(tone),
+            )
+            .child(design::row_caption(about, ladder, theme)),
+        )
         .child(standing_badge(agent, ladder, theme))
-        .child(chevron(ladder, theme))
+        .child(design::chevron(ladder, theme))
 }
 
 fn standing_badge(agent: &Agent, ladder: &Ladder, theme: &Theme) -> Stateful<Div> {
@@ -528,7 +522,6 @@ fn people(
                 .when_some(problem, design::Field::problem),
         )
         .child(
-            // SDK gap: the busy button, swap when feat/phone-kit lands (its spinner needs a wire and host change)
             div().flex().child(
                 design::button(
                     format!("settings/agents/{number}/answers/add"),
@@ -542,7 +535,7 @@ fn people(
                     add,
                 )
                 .kind(ButtonKind::Outline)
-                .enabled(!busy),
+                .busy(busy),
             ),
         )
 }
@@ -578,7 +571,6 @@ fn person_row(
                 .child(mono(words::account(person), ladder, theme)),
         )
         .child(
-            // SDK gap: the small button, swap when feat/phone-kit lands
             design::button(
                 format!("settings/agents/{number}/answers/{person}/remove"),
                 words::REMOVE,
@@ -587,6 +579,7 @@ fn person_row(
                 remove,
             )
             .kind(ButtonKind::Quiet)
+            .small()
             .enabled(!busy),
         )
 }
@@ -677,7 +670,6 @@ fn add_key(
     )
 }
 
-// SDK gap: the form sheet's head and footer, swap when feat/phone-kit lands
 /// An add sheet: its title in the sheet's head, then its field and verbs.
 fn add_sheet(
     id: &str,
@@ -690,14 +682,12 @@ fn add_sheet(
     div()
         .flex()
         .flex_col()
-        .child(
-            design::sheet_head(format!("{id}/head"), theme).child(
-                div()
-                    .text_type(ladder.title)
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(title.to_owned()),
-            ),
-        )
+        .child(design::sheet_title(
+            format!("{id}/head"),
+            title.to_owned(),
+            ladder,
+            theme,
+        ))
         .child(
             column(format!("{id}/form"))
                 .gap(design::space::LG)
@@ -708,7 +698,6 @@ fn add_sheet(
         .into_any_element()
 }
 
-// SDK gap: the form sheet's head and footer, swap when feat/phone-kit lands
 /// A sheet form's buttons, `{base}/cancel` then `{base}/submit` taking the
 /// rest; the verb says `busy` and takes no press while its submit is in
 /// flight.
@@ -721,31 +710,23 @@ fn verbs(
     ladder: &Ladder,
     theme: &Theme,
 ) -> Div {
-    div()
-        .flex()
-        .gap(design::space::SM)
-        .child(
-            design::button(
-                format!("{base}/cancel"),
-                words::CANCEL,
-                ladder,
-                theme,
-                cancel,
-            )
-            .kind(ButtonKind::Quiet),
+    design::form_verbs(
+        design::button(
+            format!("{base}/cancel"),
+            words::CANCEL,
+            ladder,
+            theme,
+            cancel,
         )
-        .child(
-            // SDK gap: the busy button, swap when feat/phone-kit lands (its spinner needs a wire and host change)
-            div().flex_1().flex().flex_col().child(
-                design::button(
-                    format!("{base}/submit"),
-                    busy.unwrap_or(verb),
-                    ladder,
-                    theme,
-                    pressed,
-                )
-                .kind(ButtonKind::Primary)
-                .enabled(busy.is_none()),
-            ),
+        .kind(ButtonKind::Quiet),
+        design::button(
+            format!("{base}/submit"),
+            busy.unwrap_or(verb),
+            ladder,
+            theme,
+            pressed,
         )
+        .kind(ButtonKind::Primary)
+        .busy(busy.is_some()),
+    )
 }

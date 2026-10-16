@@ -15,7 +15,7 @@ use view::prelude::*;
 use view::{Div, Stateful};
 
 use super::LADDER;
-use super::parts::{empty, last_answer, outcome, press, quiet, scroller, small_button, tint};
+use super::parts::{last_answer, outcome, press, quiet, scroller, small_button, tint};
 use crate::queries::Node;
 use crate::recent::Recent;
 use crate::row;
@@ -63,11 +63,12 @@ pub(super) fn render(view: &Nodes, key: &[u8], cx: &mut Context<Nodes>, theme: &
 /// or the members still being read.
 fn missing(view: &Nodes, theme: &Theme) -> AnyElement {
     match view.nodes.ready() {
-        Some(_) => empty(
+        Some(_) => design::empty_state(
             "nodes-node-none",
             "server-off",
             "Not a member",
             "This key holds no seat on the network.",
+            &LADDER,
             theme,
         )
         .into_any_element(),

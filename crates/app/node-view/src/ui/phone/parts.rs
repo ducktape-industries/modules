@@ -1,14 +1,13 @@
 //! What both phone screens draw: a page's scroller, a press on a motion,
 //! a vote's outcome strip and the confirm sheet a press that enacts
 //! raises (Expo `src/network/voting.tsx` `Outcomes`, `usePress`, and
-//! `src/kit/Confirm.tsx`), the node's last answer, and the Expo kit's
-//! pieces the SDK has no helper for yet: the notice strip and a refused
-//! read on it (`src/kit/Notice.tsx`), the small button
-//! (`src/kit/Button.tsx`), the quiet line and the empty state
+//! `src/kit/Confirm.tsx`), the node's last answer, the kit's small button
+//! as a vote draws it, and the Expo kit's pieces the SDK has no helper for
+//! yet: the notice strip (`src/kit/Notice.tsx`) and the quiet line
 //! (`src/kit/States.tsx`). Reads the vote's outcome and what waits for a
 //! yes; writes the press, the yes, Not now and Dismiss.
 use valset::Motion;
-use view::design::{Kind, space};
+use view::design::{Kind, SHEET_INSET, space};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
@@ -16,17 +15,6 @@ use super::LADDER;
 use crate::row::Status;
 use crate::{Nodes, words};
 
-// SDK gap: the sheet's inset (`design::SHEET_INSET`), swap when feat/phone-kit lands
-/// How far a sheet's content sits in from its sides (Expo
-/// `src/kit/Sheet.tsx:148,162` and `Confirm.tsx:65`: 20).
-const SHEET_INSET: Pixels = px(20.);
-// SDK gap: the small button (`Button::small`; with `small_button`), swap when feat/phone-kit lands
-/// The kit's small button's height (Expo `src/design/theme.ts:76`
-/// `size.small`, `Button.tsx:60`).
-const SMALL_BUTTON: Pixels = px(36.);
-/// The small button's edge, its `border_1` hairline, which its press
-/// reaches past.
-const SMALL_BUTTON_EDGE: Pixels = px(1.);
 // SDK gap: the notice and its action (with `notice`, `action`, `alert`);
 // the SDK builds it later
 /// A notice's action: its secondary line (18) with 6 over and under, its
@@ -39,14 +27,6 @@ const NOTICE_REACH: Pixels = px(8.);
 /// How tall the confirm card's Not now stands, as its Vote and enact
 /// (Expo `src/kit/Confirm.tsx:84` `height: size.primary`, `theme.ts:75`).
 const CONFIRM_ROW: Pixels = px(48.);
-// SDK gap: the empty state (`design::empty_state`; with `empty`), swap when feat/phone-kit lands
-/// The empty state's icon (Expo `src/design/theme.ts:87` `icon.empty`),
-/// its padding (`States.tsx:26`: 40 over and under, 32 at the sides) and
-/// how wide its body runs (`States.tsx:31`).
-const EMPTY_ICON: Pixels = px(28.);
-const EMPTY_Y: Pixels = px(40.);
-const EMPTY_X: Pixels = px(32.);
-const EMPTY_BODY_W: Pixels = px(280.);
 
 // SDK gap: the page's scroller; the SDK builds it later
 /// What a page scrolls, 16 clear at its end (Expo `index.tsx:170` and
@@ -200,29 +180,6 @@ pub(super) fn tint(status: &Status, live: bool, theme: &Theme) -> (Hsla, Hsla) {
     }
 }
 
-// SDK gap: the refused strip (`design::refused` under a finger), swap when feat/phone-kit lands
-/// A refused read (the kit's `Refused`): its sentence on a danger strip,
-/// Retry at the right. The strip is `{name}-refused`, its press
-/// `{name}-retry`.
-pub(super) fn refused(
-    name: &str,
-    sentence: &str,
-    theme: &Theme,
-    retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> Stateful<Div> {
-    let strip = notice(
-        ElementId::Name(format!("{name}-refused").into()),
-        theme.danger_soft,
-        theme.danger,
-        sentence,
-    );
-    alert(strip).child(action(
-        ElementId::Name(format!("{name}-retry").into()),
-        "Retry",
-        retry,
-    ))
-}
-
 /// A danger notice, said as soon as it shows (the kit's `alert` role).
 fn alert(strip: Stateful<Div>) -> Stateful<Div> {
     strip
@@ -279,49 +236,22 @@ fn action(
         )
 }
 
-/// The kit's small outline button: a hairline edge, its label in
-/// secondary medium, its press reaching to the ladder's hit over and
-/// under. Never narrower than the hit (12 each side of a label, Expo
-/// `Button.tsx:61`; the shortest label, Vote, makes it 52), so it reaches
-/// nothing sideways: the hit gets the hit as its width. One that may
-/// not be pressed now (a vote in flight) goes faint on a quiet edge and
-/// takes no press.
+/// The kit's small outline button; one that may not be pressed now (a
+/// vote in flight) is disabled.
 pub(super) fn small_button(
     id: ElementId,
     label: &'static str,
     pressable: bool,
     theme: &Theme,
     click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> Div {
-    let (edge, tone) = match pressable {
-        true => (theme.border_strong, theme.foreground),
-        false => (theme.border, theme.faint),
-    };
-    let hit = design::hit(id, LADDER.hit, SMALL_BUTTON, SMALL_BUTTON_EDGE, &LADDER)
-        .role(Role::Button)
-        .aria_label(label);
-    let hit = match pressable {
-        true => hit.focusable().on_click(click),
-        false => hit.aria_disabled(true),
-    };
-    div()
-        .relative()
-        .flex_none()
-        .h(SMALL_BUTTON)
-        .px(space::LG)
-        .flex()
-        .items_center()
-        .justify_center()
-        .border_1()
-        .border_color(edge)
-        .text_type(LADDER.secondary)
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(tone)
-        .child(label)
-        .child(hit)
+) -> impl IntoElement {
+    design::button(id, label, &LADDER, theme, click)
+        .kind(Kind::Outline)
+        .small()
+        .enabled(pressable)
 }
 
-// SDK gap: the quiet line (`design::quiet(text, ladder, theme)`), swap when feat/phone-kit lands
+// SDK gap: the quiet line at the ladder's sizes; the SDK builds it later
 /// The kit's `Quiet`: one muted line of secondary text, 16 in all round.
 pub(super) fn quiet(
     id: &'static str,
@@ -332,40 +262,4 @@ pub(super) fn quiet(
         .id(id)
         .p(space::BLOCK)
         .text_type(LADDER.secondary)
-}
-
-/// The kit's `EmptyState`: a faint icon, what is missing in medium, what
-/// would fill it muted, centred.
-pub(super) fn empty(
-    id: &'static str,
-    icon: &str,
-    title: &'static str,
-    body: &'static str,
-    theme: &Theme,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .flex_col()
-        .items_center()
-        .justify_center()
-        .gap(space::SM)
-        .py(EMPTY_Y)
-        .px(EMPTY_X)
-        .child(design::icon(icon, EMPTY_ICON).text_color(theme.faint))
-        .child(
-            div()
-                .text_type(LADDER.body)
-                .font_weight(FontWeight::MEDIUM)
-                .text_center()
-                .child(title),
-        )
-        .child(
-            div()
-                .max_w(EMPTY_BODY_W)
-                .text_type(LADDER.secondary)
-                .text_color(theme.muted)
-                .text_center()
-                .child(body),
-        )
 }

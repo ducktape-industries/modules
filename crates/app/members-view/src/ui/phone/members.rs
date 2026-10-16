@@ -10,7 +10,7 @@ use view::design::{self, CAPSULE_CLEARANCE, Ladder, Nav, space};
 use view::prelude::*;
 use view::{Div, Stateful};
 
-use super::parts::{caption, chevron, face, name_line, quiet, refused, title_and_caption};
+use super::parts::{face, name_line, quiet};
 use crate::{Group, Members, Roster, Row, name_or_number, standing_badge, words};
 
 /// The filter field's id: opened, the view gives it the keyboard.
@@ -230,7 +230,9 @@ fn list(view: &Members, cx: &mut Context<Members>, ladder: &Ladder, theme: &Them
     let shown = match view.roster() {
         Roster::Rows(shown) => shown,
         Roster::Reading => return quiet("members-loading", words::READING_ROSTER, ladder, theme),
-        Roster::Refused(refusal) => return refused(refusal, cx, ladder, theme),
+        Roster::Refused(refusal) => {
+            return crate::refused(refusal, cx, ladder, theme).into_any_element();
+        }
         Roster::Empty { id, title, detail } => {
             // Expo's `Users` (`app/(tabs)/members/index.tsx:33`, `:37`)
             return design::empty_state(id, "users", title, detail, ladder, theme)
@@ -321,7 +323,7 @@ fn member_row(
         // (`index.tsx:69`), never the program a program account runs
         None => {
             let word = row.group().word();
-            let tail = caption(word, ladder, theme).flex_none();
+            let tail = design::row_caption(word, ladder, theme).flex_none();
             (tail.into_any_element(), word)
         }
     };
@@ -344,11 +346,11 @@ fn member_row(
     .aria_selected(place.cursor)
     .on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.open(number, cx)))
     .child(design::lead(face(row, ladder.avatar, theme)))
-    .child(title_and_caption(
-        name_line(row, me, ladder.body, ladder, theme),
-        managed_by.map(|words| caption(words, ladder, theme)),
-    ))
+    .child(
+        design::row_words(name_line(row, me, ladder.body, ladder, theme))
+            .children(managed_by.map(|words| design::row_caption(words, ladder, theme))),
+    )
     .child(tail)
-    .child(chevron(ladder, theme));
+    .child(design::chevron(ladder, theme));
     design::item(element, Role::ListBoxOption, place.active)
 }
