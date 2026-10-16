@@ -108,7 +108,8 @@ pub(super) fn notice(
         .text_type(ladder.secondary)
         .text_color(tone)
         .children(icon.map(|icon| design::icon(icon, NOTICE_ICON).text_color(tone)))
-        .child(div().flex_1().child(words.into()))
+        // the words take the room the icon and the action leave, and wrap in it
+        .child(div().flex_1().min_w(px(0.)).child(words.into()))
         .children(action)
 }
 
