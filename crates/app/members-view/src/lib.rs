@@ -17,6 +17,7 @@ mod ui;
 
 use programs::PageRequest;
 use serde::{Deserialize, Serialize};
+use view::design::Pages;
 use view::prelude::*;
 
 use identity::Identity;
@@ -24,20 +25,34 @@ use valset::Valset;
 
 pub use activity::Recent;
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize)]
 pub struct Members {
     rows: Loadable<Vec<Row>>,
     /// what the reader typed into the filter; the rows are never refetched
     /// for it, since the program has no search
     filter: TextField,
     /// the kind chip that is on; `None` is All. It and the filter narrow the
-    /// list together and never touch `selected`.
+    /// list together and never touch the page shown.
     only: Option<Group>,
-    /// the account the detail shows, kept while the filter hides its row
-    selected: Option<u64>,
+    /// where the reader is: the roster, or one member over it. The member
+    /// is the detail the desktop docks or floats beside the list, kept while
+    /// the filter hides its row; on a phone it is the page shown, and Back
+    /// pops it.
+    pages: Pages<Page>,
+    /// the phone's filter field is open in the title row, in the title's
+    /// place
+    filtering: bool,
+    /// the row the arrows rest on in the phone's roster, where moving them
+    /// opens nothing; `None` until they move
+    #[serde(skip)]
+    cursor: Option<usize>,
     /// the reader's own account, from the session
     #[serde(skip)]
     me: Option<u64>,
+    /// the key this device signs with (hex), from the session: its device
+    /// row says it is this phone
+    #[serde(skip)]
+    signer: String,
     /// the chain links are minted on, from the session
     #[serde(skip)]
     chain: String,
@@ -60,6 +75,48 @@ pub struct Members {
     /// the list's dragged width; `None` until the first drag
     #[serde(skip)]
     list: Option<f32>,
+}
+
+impl Default for Members {
+    fn default() -> Self {
+        Self {
+            rows: Loadable::default(),
+            filter: TextField::default(),
+            only: None,
+            pages: Pages::root(Page::Roster),
+            filtering: false,
+            cursor: None,
+            me: None,
+            signer: String::new(),
+            chain: String::new(),
+            activity: Loadable::default(),
+            seen: Default::default(),
+            rereading: None,
+            rereading_rows: None,
+            width: 0.,
+            list: None,
+        }
+    }
+}
+
+/// A page of the view's stack.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Page {
+    /// every account
+    Roster,
+    /// one account, by its number
+    Member(u64),
+}
+
+/// What the roster has to show.
+pub(crate) enum Roster<'a> {
+    /// every account, once read; the filter and the chip let some through
+    Rows(&'a [Row]),
+    /// the first read is on its way
+    Reading,
+    Refused(&'a Error),
+    /// nobody to show: the state's id, what is missing and why
+    Empty(&'static str, &'static str, String),
 }
 
 /// The list's three groups, in the order they are drawn.
@@ -148,9 +205,11 @@ impl View for Members {
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         cx.follow::<HostSession>((), |view, session, cx| match session {
             Ok(session) => {
-                if (view.me, &view.chain) != (session.account, &session.chain_id) {
+                let now = (session.account, &session.chain_id, &session.signer);
+                if (view.me, &view.chain, &view.signer) != now {
                     view.me = session.account;
                     view.chain = session.chain_id;
+                    view.signer = session.signer;
                     cx.notify();
                 }
             }
@@ -178,7 +237,13 @@ impl Render for Members {
         // the pane's width, as the host lays the frame out: the detail
         // docks or floats by it in the frame that shows it
         self.width = window.viewport_size().width.into();
-        ui::render(self, window.touch(), cx)
+        // a finger draws the phone's screens (the Expo app's), a pointer
+        // the desk's: two trees over the one model, picked here once
+        let touch = window.touch();
+        match touch {
+            true => ui::phone::render(self, cx).into_any_element(),
+            false => ui::render(self, touch, cx).into_any_element(),
+        }
     }
 }
 
@@ -196,7 +261,7 @@ impl Members {
                 (Ok(rows), old) => {
                     let old = old.map_or(&[][..], Vec::as_slice);
                     let keys_moved = view
-                        .selected
+                        .selected()
                         .is_some_and(|number| keys(old, number) != keys(&rows, number));
                     view.rows = Loadable::Ready(rows);
                     cx.notify();
@@ -223,15 +288,56 @@ impl Members {
         }
     }
 
-    /// Shows `number` in the detail and reads what it signed lately.
+    /// Shows `number` in the detail, in place of the one shown: the list's
+    /// choice (a press, the arrows), which never stacks deeper than one
+    /// member over the roster.
     pub fn select(&mut self, number: u64, cx: &mut Context<Self>) {
-        if self.selected == Some(number) {
+        if self.selected() == Some(number) {
             return;
         }
-        self.selected = Some(number);
+        match self.pages.depth() {
+            0 => self.pages.push(Page::Member(number)),
+            _ => self.pages.replace(Page::Member(number)),
+        }
+        self.moved(cx);
+    }
+
+    /// Opens `number` over the member shown (the phone's manager link and
+    /// Manages rows): Back comes back here.
+    fn open(&mut self, number: u64, cx: &mut Context<Self>) {
+        if self.selected() == Some(number) {
+            return;
+        }
+        self.pages.push(Page::Member(number));
+        self.moved(cx);
+    }
+
+    /// Back: the member under the one shown, else the roster.
+    fn back(&mut self, cx: &mut Context<Self>) {
+        if self.pages.pop().is_some() {
+            self.moved(cx);
+        }
+    }
+
+    /// The desktop's Close on a floating detail: the roster again.
+    fn close(&mut self, cx: &mut Context<Self>) {
+        while self.pages.pop().is_some() {}
+        self.moved(cx);
+    }
+
+    /// The page moved: read what the member shown signed lately.
+    fn moved(&mut self, cx: &mut Context<Self>) {
         self.activity = Loadable::Idle;
         self.read_activity(cx);
         cx.notify();
+    }
+
+    /// The account the top page shows, if it is a member's.
+    fn selected(&self) -> Option<u64> {
+        match *self.pages.top() {
+            Page::Member(number) => Some(number),
+            Page::Roster => None,
+        }
     }
 
     /// Reads the selected account's recent activity, once its keys are
@@ -282,8 +388,51 @@ impl Members {
     }
 
     fn selected_row(&self) -> Option<&Row> {
-        let number = self.selected?;
+        let number = self.selected()?;
         self.rows.ready()?.iter().find(|row| row.number == number)
+    }
+
+    /// The roster's state: its rows, or why there are none to show (nobody
+    /// on the network, or nobody the filter and the chip let through).
+    fn roster(&self) -> Roster<'_> {
+        let all = match &self.rows {
+            Loadable::Idle | Loadable::Loading(_) => return Roster::Reading,
+            Loadable::Failed(refusal) => return Roster::Refused(refusal),
+            Loadable::Ready(rows) | Loadable::Reloading(rows, _) => rows,
+        };
+        if all.is_empty() {
+            let why = "The identity program of this network holds no accounts yet.";
+            return Roster::Empty("members-empty", "No accounts", why.into());
+        }
+        if self.shown().is_empty() {
+            // the chip alone, or the filter (with or without a chip)
+            let detail = match (self.filter.text().trim(), self.only) {
+                ("", Some(group)) => {
+                    format!("No {} on this network yet.", group.label().to_lowercase())
+                }
+                (needle, _) => format!("No account reads like “{needle}”."),
+            };
+            return Roster::Empty("members-no-match", "Nothing matches", detail);
+        }
+        Roster::Rows(all)
+    }
+
+    /// The chips: All, People, Agents, Programs, each with how many the
+    /// network holds.
+    fn choices(&self) -> [(Option<Group>, &'static str, usize); 4] {
+        let rows = self.rows.ready().map_or(&[][..], Vec::as_slice);
+        let count = |group: Option<Group>| {
+            rows.iter()
+                .filter(|row| group.is_none_or(|group| row.group() == group))
+                .count()
+        };
+        [
+            None,
+            Some(Group::People),
+            Some(Group::Agents),
+            Some(Group::Programs),
+        ]
+        .map(|group| (group, group.map_or("All", Group::label), count(group)))
     }
 
     /// The rows the filter and the chip let through, grouped and in order.

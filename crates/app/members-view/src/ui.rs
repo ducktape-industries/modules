@@ -6,8 +6,10 @@ use view::design::{size, space, text};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
-use crate::{Group, Members, Row};
+use crate::{Group, Members, Roster, Row};
 use view::design::Ladder;
+
+pub(crate) mod phone;
 
 /// The list pane's width until it is dragged.
 const LIST: f32 = 400.;
@@ -147,26 +149,14 @@ fn list_pane(
 
 /// All, People, Agents, Programs, each with how many the network holds.
 fn chips(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> impl IntoElement {
-    let rows = view.rows.ready().map_or(&[][..], Vec::as_slice);
-    let count = |group: Option<Group>| {
-        rows.iter()
-            .filter(|row| group.is_none_or(|group| row.group() == group))
-            .count()
-    };
-    let choices = [
-        (None, "All"),
-        (Some(Group::People), "People"),
-        (Some(Group::Agents), "Agents"),
-        (Some(Group::Programs), "Programs"),
-    ];
     div()
         .flex()
         .gap(space::XS)
         .children(
-            choices
+            view.choices()
                 .into_iter()
                 .enumerate()
-                .map(|(index, (group, label))| {
+                .map(|(index, (group, label, count))| {
                     let on = view.only == group;
                     div()
                         .id(format!("members-chip-{}", index))
@@ -187,62 +177,31 @@ fn chips(view: &Members, cx: &mut Context<Members>, theme: &Theme) -> impl IntoE
                             cx.notify();
                         }))
                         .child(label)
-                        .child(
-                            div()
-                                .text_color(theme.faint)
-                                .child(count(group).to_string()),
-                        )
+                        .child(div().text_color(theme.faint).child(count.to_string()))
                 }),
         )
 }
 
 /// The four states of the roster: loading, refused, empty, ready.
 fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladder) -> AnyElement {
-    let all = match &view.rows {
-        Loadable::Idle | Loadable::Loading(_) => {
+    let all = match view.roster() {
+        Roster::Rows(all) => all,
+        Roster::Reading => {
             return pad(design::quiet("Reading the roster…", theme))
                 .id("members-loading")
                 .into_any_element();
         }
-        Loadable::Failed(refusal) => {
-            let retry = cx.listener(|view, _: &ClickEvent, _, cx| view.read(cx));
-            return pad(design::refused(
-                "members",
-                refusal.message.clone(),
-                ladder,
-                theme,
-                retry,
-            ))
-            .into_any_element();
+        Roster::Refused(refusal) => return refused(refusal, cx, theme, ladder),
+        Roster::Empty(id, title, detail) => {
+            return design::empty_state(id, title, detail, theme).into_any_element();
         }
-        Loadable::Ready(rows) | Loadable::Reloading(rows, _) => rows,
     };
-    if all.is_empty() {
-        return design::empty_state(
-            "members-empty",
-            "No accounts",
-            "The identity program of this network holds no accounts yet.",
-            theme,
-        )
-        .into_any_element();
-    }
     let shown = view.shown();
-    if shown.is_empty() {
-        // the chip alone, or the filter (with or without a chip)
-        let detail = match (view.filter.text().trim(), view.only) {
-            ("", Some(group)) => {
-                format!("No {} on this network yet.", group.label().to_lowercase())
-            }
-            (needle, _) => format!("No account reads like “{needle}”."),
-        };
-        return design::empty_state("members-no-match", "Nothing matches", detail, theme)
-            .into_any_element();
-    }
     // one Tab stop; the arrows select as they move, and the active row is
     // the selected one, else the first shown, which Enter selects
     let numbers: Vec<u64> = shown.iter().map(|row| row.number).collect();
     let active = view
-        .selected
+        .selected()
         .and_then(|number| numbers.iter().position(|shown| *shown == number))
         .unwrap_or(0);
     let active_number = numbers[active];
@@ -305,7 +264,7 @@ fn member_row(
 ) -> impl IntoElement {
     let theme = *theme;
     let number = row.number;
-    let selected = view.selected == Some(number);
+    let selected = view.selected() == Some(number);
     let dim = row.kind.note().is_some();
     let name_of = |manager| name(all, manager);
     let kind = match &row.kind {
@@ -385,10 +344,28 @@ fn avatar(row: &Row, size: Pixels, dim: bool, theme: &Theme) -> Div {
     }
 }
 
-fn name(rows: &[Row], number: u64) -> Option<String> {
+pub(crate) fn name(rows: &[Row], number: u64) -> Option<String> {
     rows.iter()
         .find(|row| row.number == number)
         .map(|row| row.name.clone())
+}
+
+/// A refused roster read: its sentence, and Retry.
+pub(crate) fn refused(
+    refusal: &Error,
+    cx: &mut Context<Members>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
+    let retry = cx.listener(|view, _: &ClickEvent, _, cx| view.read(cx));
+    pad(design::refused(
+        "members",
+        refusal.message.clone(),
+        ladder,
+        theme,
+        retry,
+    ))
+    .into_any_element()
 }
 
 fn pad(inner: impl IntoElement) -> Div {
@@ -494,21 +471,8 @@ fn head(
         caption.push(vec![text(devices)]);
     }
     if let Some(standing) = &row.standing {
-        // a validator in the success colours, a resident quiet: Nodes'
-        // memberships drew them so
-        let (foreground, background) = match standing.as_str() {
-            "Validator" => (theme.success, theme.success_soft),
-            _ => (theme.muted, theme.surface_raised),
-        };
         caption.push(vec![
-            design::badge(
-                "members-validator",
-                standing.clone(),
-                ladder,
-                foreground,
-                background,
-            )
-            .into_any_element(),
+            valset_badge(standing, theme, ladder).into_any_element(),
         ]);
     }
     let last = caption.len() - 1;
@@ -603,11 +567,7 @@ fn head(
                     theme,
                 ))
                 .when(over, |buttons| {
-                    let close = cx.listener(|view, _: &ClickEvent, _, cx| {
-                        view.selected = None;
-                        view.activity = Loadable::Idle;
-                        cx.notify();
-                    });
+                    let close = cx.listener(|view, _: &ClickEvent, _, cx| view.close(cx));
                     buttons.child(design::button(
                         "members-detail-close",
                         "Close",
@@ -619,8 +579,24 @@ fn head(
         )
 }
 
+/// A key's valset standing: a validator in the success colours, a
+/// resident quiet (Nodes' memberships drew them so).
+pub(crate) fn valset_badge(standing: &str, theme: &Theme, ladder: &Ladder) -> Stateful<Div> {
+    let (foreground, background) = match standing {
+        "Validator" => (theme.success, theme.success_soft),
+        _ => (theme.muted, theme.surface_raised),
+    };
+    design::badge(
+        "members-validator",
+        standing.to_owned(),
+        ladder,
+        foreground,
+        background,
+    )
+}
+
 /// Active, suspended or revoked, in its colour.
-fn standing_badge(
+pub(crate) fn standing_badge(
     id: &'static str,
     kind: &identity::Kind,
     standing: identity::Standing,

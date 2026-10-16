@@ -446,7 +446,7 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_choice() {
     view.read(|view| {
         assert_eq!(view.filter.text(), "sc");
         assert_eq!(view.only, Some(Group::Agents));
-        assert_eq!(view.selected, Some(9));
+        assert_eq!(view.selected(), Some(9));
     });
     assert_eq!(restored.host().requests::<Query<Identity>>().len(), 1);
     // the activity is read again for the restored choice
@@ -801,4 +801,330 @@ fn style(cx: &TestAppContext, key: &str) -> StyleRefinement {
 fn list_is(cx: &TestAppContext, width: f32) -> bool {
     style(cx, "members-list-pane").size.width
         == StyleRefinement::default().w(view::px(width)).size.width
+}
+
+// ---------- the phone's screens (`ui/phone/`) ----------
+
+/// The view as a phone draws it: a finger, 390 wide, the reader's device
+/// signing with eddy's laptop key.
+fn phone() -> TestAppContext {
+    let (mut cx, _) = ready();
+    cx.host().stream::<HostSession>().send(Session {
+        account: Some(7),
+        chain_id: "testnet#0a1b2c3d".into(),
+        signer: "0102".into(),
+        ..Session::default()
+    });
+    on_a_phone(&mut cx);
+    cx
+}
+
+fn on_a_phone(cx: &mut TestAppContext) {
+    cx.simulate_touch(true);
+    cx.simulate_resize(390., 844.);
+    cx.run_until_parked();
+}
+
+/// The link the host was last asked to open.
+fn last_link(cx: &TestAppContext) -> Option<String> {
+    cx.host()
+        .requests::<view::methods::LinkOpen>()
+        .last()
+        .cloned()
+}
+
+/// The sweep (SPEC §8.1d-1): the roster and the member page at
+/// 360/390/430 under a finger, every frame audited and fitted. It lives
+/// here, not in `tests/sweep.rs`, because the fixture does.
+#[test]
+fn sweep() {
+    let mut cx = phone();
+    view::testing::sweep(&mut cx, |cx| {
+        assert_eq!(cx.back_handler(), None);
+        cx.simulate_click("members-filter-open");
+        cx.simulate_input("members-filter", "sc");
+        cx.simulate_click("members-filter-close");
+        cx.simulate_click("members-chip-3");
+        cx.simulate_click("members-chip-0");
+        cx.simulate_click("members-row-7");
+        cx.run_until_parked();
+        cx.simulate_click("members-manages-9");
+        cx.run_until_parked();
+        cx.simulate_click("members-manager");
+        cx.run_until_parked();
+        for _ in 0..3 {
+            cx.simulate_back();
+        }
+        assert_eq!(cx.back_handler(), None);
+    });
+}
+
+#[test]
+fn the_root_picks_the_phone_screens_by_the_pointer_alone() {
+    let (mut cx, _) = ready();
+    // a narrow desk window keeps the desk's list
+    cx.simulate_resize(360., 780.);
+    assert!(cx.find("members-list-pane").is_some());
+    // a finger draws the phone's roster at any width
+    cx.simulate_touch(true);
+    assert!(cx.find("members-list-pane").is_none());
+    assert!(cx.find("members-roster").is_some());
+    cx.simulate_resize(1000., 780.);
+    assert!(cx.find("members-roster").is_some());
+    assert!(cx.find("members-list-resize").is_none());
+}
+
+#[test]
+fn the_phone_roster_groups_every_account_in_the_expo_words() {
+    let cx = phone();
+    let texts = cx.texts();
+    // the last of each, past the chips of the same names
+    let at = |text: &str| texts.iter().rposition(|t| t == text).unwrap();
+    assert!(at("Members") < at("All") && at("All") < at("People"));
+    assert!(at("People") < at("eddy") && at("eddy") < at("ada"));
+    assert!(at("ada") < at("Agents") && at("Agents") < at("scout"));
+    assert!(at("relay") < at("Programs") && at("Programs") < at("chat"));
+    for text in [
+        "testnet · 5 accounts",
+        "  you",
+        "Person",
+        "Program",
+        "managed by eddy",
+        "active",
+        "revoked",
+        "  5",
+    ] {
+        assert!(cx.has_text(text), "{text}: {texts:?}");
+    }
+    // the desk's words and its detail are not the phone's
+    for gone in ["5 accounts", "Choose a member", "Agent · managed by eddy"] {
+        assert!(!texts.iter().any(|t| t == gone), "{gone}");
+    }
+    assert_eq!(cx.back_handler(), None);
+}
+
+#[test]
+fn the_phone_roster_says_it_is_reading_until_the_roster_lands() {
+    let mut cx = TestAppContext::new();
+    cx.host().never::<Query<Identity>>();
+    cx.open::<Members>();
+    on_a_phone(&mut cx);
+    assert!(cx.has_text("Reading the roster…"));
+    assert!(
+        cx.find("members-chips").is_none(),
+        "no chips with nobody listed"
+    );
+}
+
+#[test]
+fn a_refused_phone_roster_says_why_and_retry_asks_again() {
+    let mut cx = TestAppContext::new();
+    cx.host()
+        .refuse::<Query<Identity>>("unavailable", "identity is not running here");
+    cx.open::<Members>();
+    on_a_phone(&mut cx);
+    assert!(cx.has_text("identity is not running here"));
+    respond(&mut cx);
+    cx.simulate_click("members-retry");
+    cx.run_until_parked();
+    assert!(cx.find("members-row-7").is_some());
+}
+
+#[test]
+fn a_phone_roster_with_nobody_in_it_says_so() {
+    let mut cx = TestAppContext::new();
+    cx.host()
+        .handle::<Query<Identity>>(|_| Ok(identity::Reply::Accounts(page(vec![]))));
+    cx.host()
+        .handle::<Query<Valset>>(|_| Ok(valset::Reply::Memberships(page(vec![]))));
+    cx.open::<Members>();
+    on_a_phone(&mut cx);
+    assert!(cx.has_text("No accounts"));
+    assert!(cx.has_text("The identity program of this network holds no accounts yet."));
+    assert!(cx.find("members-chips").is_none());
+}
+
+#[test]
+fn the_phone_filter_takes_the_title_and_close_filter_empties_it() {
+    let mut cx = phone();
+    assert!(cx.find("members-filter").is_none());
+    cx.simulate_click("members-filter-open");
+    assert!(
+        cx.find("members-roster-heading").is_none(),
+        "the field in its place"
+    );
+    cx.simulate_input("members-filter", "sc");
+    assert!(cx.find("members-row-9").is_some() && cx.find("members-row-7").is_none());
+    cx.simulate_input("members-filter", "zz");
+    assert!(cx.has_text("Nothing matches") && cx.has_text("No account reads like “zz”."));
+    cx.simulate_click("members-filter-close");
+    assert!(cx.find("members-filter").is_none());
+    assert!(cx.find("members-row-7").is_some() && cx.find("members-row-9").is_some());
+}
+
+#[test]
+fn the_filter_carries_its_keyboard_hints() {
+    let mut cx = phone();
+    cx.simulate_click("members-filter-open");
+    let Some(Node::Field { options, .. }) = cx.find("members-filter") else {
+        panic!("no filter field");
+    };
+    assert!(!options.text_input.autocorrect);
+    assert_eq!(
+        options.text_input.autocapitalize,
+        view::wire::Autocapitalize::None
+    );
+}
+
+#[test]
+fn a_phone_chip_narrows_the_roster_to_its_group() {
+    let mut cx = phone();
+    cx.simulate_click("members-chip-3");
+    assert!(cx.find("members-row-8").is_some() && cx.find("members-row-7").is_none());
+    cx.simulate_click("members-chip-0");
+    assert!(cx.find("members-row-7").is_some());
+}
+
+#[test]
+fn the_phone_arrows_move_a_cursor_and_open_nothing() {
+    let mut cx = phone();
+    cx.simulate_focus("members-list");
+    cx.simulate_key_down("members-list", "down");
+    assert_eq!(cx.back_handler(), None, "still the roster");
+    assert_eq!(cx.interactivity("members-row-11").aria.selected, Some(true));
+    cx.simulate_key_down("members-list", "enter");
+    cx.run_until_parked();
+    assert!(cx.has_text("account 11 · Person · 1 device"));
+}
+
+#[test]
+fn a_phone_row_opens_its_member_and_back_returns() {
+    let mut cx = phone();
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    assert!(cx.back_handler().is_some());
+    assert!(cx.find("members-list").is_none(), "one page at a time");
+    for text in [
+        "eddy",
+        "account 7",
+        "account 7 · Person · 1 device",
+        "Validator",
+        "eddy's bio",
+        "Explorer",
+        "Devices",
+        "laptop",
+        "added 1 Jan 1970",
+        "Manages",
+        "account 9 · Agent",
+        "Recent activity",
+        "chat",
+        "block 12",
+        " · 0s",
+    ] {
+        assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
+    }
+    assert!(
+        !cx.has_text("newest first"),
+        "Expo's head has no count here"
+    );
+    // the reader has no one to DM in their own page
+    assert!(cx.find("members-open-dm").is_none());
+    cx.simulate_back();
+    assert!(cx.find("members-list").is_some());
+    assert_eq!(cx.back_handler(), None);
+}
+
+#[test]
+fn a_member_page_names_this_phone_and_opens_explorer() {
+    let mut cx = phone();
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    let device = format!("{:?}", cx.node("members-device-0"));
+    assert!(device.contains("icons/smartphone.svg"), "{device}");
+    cx.simulate_click("members-block-0");
+    assert_eq!(last_link(&cx).as_deref(), Some("duck://explorer/block/12"));
+    cx.simulate_click("members-explorer-open");
+    assert_eq!(last_link(&cx).as_deref(), Some("duck://explorer/account/7"));
+    cx.simulate_click("members-explorer");
+    assert_eq!(last_link(&cx).as_deref(), Some("duck://explorer/account/7"));
+    // another person's key is a key, and a DM opens
+    cx.simulate_back();
+    cx.simulate_click("members-row-11");
+    cx.run_until_parked();
+    let device = format!("{:?}", cx.node("members-device-0"));
+    assert!(device.contains("icons/key-round.svg"), "{device}");
+    cx.simulate_click("members-open-dm");
+    assert!(last_link(&cx).is_some_and(|link| link.contains("/chat/")));
+}
+
+#[test]
+fn an_agent_opens_over_its_manager_and_its_manager_over_that() {
+    let mut cx = phone();
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    cx.simulate_click("members-manages-9");
+    cx.run_until_parked();
+    for text in [
+        "account 9 · Agent · managed by ",
+        "eddy",
+        " · 1 device",
+        "active",
+        "Suspend, revoke, rename and keys live in Account → Agents, for the manager.",
+    ] {
+        assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
+    }
+    cx.simulate_click("members-manager");
+    cx.run_until_parked();
+    assert!(cx.has_text("account 7 · Person · 1 device"));
+    cx.simulate_back();
+    assert!(cx.has_text("account 9 · Agent · managed by "));
+    cx.simulate_back();
+    assert!(cx.has_text("account 7 · Person · 1 device"));
+}
+
+#[test]
+fn a_program_page_has_no_devices_and_no_one_to_dm() {
+    let mut cx = phone();
+    cx.simulate_click("members-row-8");
+    cx.run_until_parked();
+    assert!(cx.has_text("account 8 · Program") && cx.has_text("No devices"));
+    assert!(!cx.has_text("Recent activity"));
+    assert!(cx.find("members-open-dm").is_none());
+}
+
+#[test]
+fn a_refused_activity_read_is_said_quietly() {
+    let mut cx = phone();
+    cx.host()
+        .refuse::<Query<Activity>>("not_found", "This network runs no program called activity.");
+    cx.simulate_click("members-row-11");
+    cx.run_until_parked();
+    assert!(cx.has_text("This network runs no program called activity."));
+    assert!(cx.find("members-retry").is_none(), "nothing to retry");
+}
+
+#[test]
+fn a_member_page_with_no_such_account_says_so() {
+    let mut cx = phone();
+    let feed = cx.host().stream::<Changes<Identity>>();
+    cx.simulate_click("members-row-11");
+    cx.run_until_parked();
+    cx.host().handle::<Query<Identity>>(|_| {
+        Ok(identity::Reply::Accounts(page(vec![person(
+            7,
+            "eddy",
+            vec![key(EDDY, "laptop")],
+        )])))
+    });
+    feed.send(None);
+    cx.run_until_parked();
+    for text in [
+        "Account 11",
+        "No account #11",
+        "Identity holds no account by this number.",
+    ] {
+        assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
+    }
+    cx.simulate_back();
+    assert!(cx.find("members-row-7").is_some());
 }
