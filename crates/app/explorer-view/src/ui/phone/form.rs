@@ -7,17 +7,13 @@
 //! (`close_form`).
 use view::design::space;
 use view::prelude::*;
-use view::{Div, FontWeight};
+use view::Div;
 
 use crate::acting::{Asked, Edit, Form, FormField, Problem, Takes};
 use crate::words;
 use crate::{Cx, Explorer};
 
 use super::Look;
-
-// SDK gap: the sheet's inset, swap when feat/phone-kit lands
-/// The form's inset (Expo `programs.tsx:465`).
-const FORM_INSET: Pixels = px(20.);
 
 pub(super) fn sheet(view: &Explorer, cx: Cx, k: &Look) -> Option<AnyElement> {
     let form = view.acting.form.as_ref()?;
@@ -44,7 +40,7 @@ pub(super) fn sheet(view: &Explorer, cx: Cx, k: &Look) -> Option<AnyElement> {
         .flex()
         .flex_col()
         .gap(space::LG)
-        .p(FORM_INSET)
+        .p(design::SHEET_INSET)
         .children(fields(form, cx, k))
         .children(notes)
         .children(problem)
@@ -59,14 +55,12 @@ pub(super) fn sheet(view: &Explorer, cx: Cx, k: &Look) -> Option<AnyElement> {
                     .id("explorer-form")
                     .flex()
                     .flex_col()
-                    // SDK gap: `sheet_title`, swap when feat/phone-kit lands
-                    .child(
-                        design::sheet_head("explorer-form-head", &k.theme).child(
-                            design::heading("explorer-form-title", form.title(), 2, &k.theme)
-                                .text_type(k.ladder.title)
-                                .font_weight(FontWeight::MEDIUM),
-                        ),
-                    )
+                    .child(design::sheet_title(
+                        "explorer-form-head",
+                        form.title(),
+                        &k.ladder,
+                        &k.theme,
+                    ))
                     .child(body),
             )
             .into_any_element(),
@@ -99,16 +93,13 @@ fn fields(form: &Form, cx: Cx, k: &Look) -> Vec<AnyElement> {
         .collect()
 }
 
-// SDK gap: a labelled field with its problem, swap when feat/phone-kit lands
-/// One labelled field (Expo `Field label` + `mono`): the label over a
-/// strong hairline box, the text in the data face, the keys it takes; a
-/// problem that is the field's marks it invalid and says why to assistive
-/// tech.
+/// One labelled field (Expo `Field label` + `mono`): the label over the
+/// box, the text in the data face, the keys it takes. A problem that is
+/// the field's marks it invalid and says why to assistive tech; the eye
+/// reads it once, under the form, as Expo draws it (`programs.tsx:500`).
 fn labelled(form: &Form, field: FormField, k: &Look) -> AnyElement {
-    let input = Input::new(field.id(), form.text(field), field.label())
-        .w_full()
-        .font_family(design::fonts::FAMILY_MONO)
-        .placeholder(field.hint());
+    let input =
+        Input::new(field.id(), form.text(field), field.label()).placeholder(field.hint());
     let input = match field.takes() {
         Takes::Number => input.virtual_keyboard(VirtualKeyboard::Numeric),
         Takes::Id => input
@@ -122,17 +113,9 @@ fn labelled(form: &Form, field: FormField, k: &Look) -> AnyElement {
             .description(sentence.to_owned()),
         None => input,
     };
-    div()
-        .flex()
-        .flex_col()
-        .child(
-            div()
-                .mb(space::XS)
-                .text_type(k.ladder.caption)
-                .text_color(k.theme.muted)
-                .child(field.label()),
-        )
-        .child(design::field(input, &k.ladder, &k.theme).text_type(k.ladder.secondary))
+    design::field(input, &k.ladder, &k.theme)
+        .label(field.label())
+        .mono()
         .into_any_element()
 }
 
@@ -161,30 +144,16 @@ fn program_or_view(form: &Form, cx: Cx, k: &Look) -> AnyElement {
     .into_any_element()
 }
 
-// SDK gap: the form sheet's Close + primary footer, swap when feat/phone-kit lands
-/// Close, quiet; and Schedule or Propose, the primary, off while a write is
-/// out.
+/// Close, quiet; and Schedule or Propose, the primary, busy while a write
+/// is out.
 fn buttons(view: &Explorer, form: &Form, cx: Cx, k: &Look) -> Div {
     let send = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.submit_form(cx));
     let close = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.close_form(cx));
-    div()
-        .flex()
-        .gap(space::SM)
-        .child(
-            design::button("explorer-form-close", "Close", &k.ladder, &k.theme, close)
-                .kind(design::Kind::Quiet),
-        )
-        .child(
-            div().flex_1().flex().flex_col().child(
-                design::button(
-                    "explorer-form-submit",
-                    form.verb(),
-                    &k.ladder,
-                    &k.theme,
-                    send,
-                )
-                .kind(design::Kind::Primary)
-                .enabled(!view.acting.busy),
-            ),
-        )
+    design::form_verbs(
+        design::button("explorer-form-close", "Close", &k.ladder, &k.theme, close)
+            .kind(design::Kind::Quiet),
+        design::button("explorer-form-submit", form.verb(), &k.ladder, &k.theme, send)
+            .kind(design::Kind::Primary)
+            .busy(view.acting.busy),
+    )
 }

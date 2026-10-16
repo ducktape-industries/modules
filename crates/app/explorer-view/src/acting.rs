@@ -9,7 +9,7 @@ use view::methods::Submitted;
 use view::prelude::*;
 
 use crate::state::{Network, Note};
-use crate::{Explorer, words};
+use crate::Explorer;
 
 /// Blocks past the earliest a maintainer's change may land that a form
 /// asks by default: the op lands a block or two after the press.
@@ -565,14 +565,14 @@ impl Explorer {
         cx: &mut Context<Self>,
     ) {
         self.acting.busy = false;
-        let problem = match words::failure(answer) {
-            Ok(output) => {
+        let Some(problem) = design::failure(&answer) else {
+            // only a write that landed has no failure
+            if let Ok(Submitted::Applied { output, .. }) = answer {
                 self.acting.form = None;
                 self.note = Some(Note::Sent(sent(path, &output, title)));
-                cx.notify();
-                return;
             }
-            Err(problem) => problem,
+            cx.notify();
+            return;
         };
         match &mut self.acting.form {
             Some(form) => form.problem = Some(Problem::whole(problem)),

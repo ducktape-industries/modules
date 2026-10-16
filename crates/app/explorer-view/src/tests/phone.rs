@@ -265,7 +265,7 @@ fn a_refused_window_says_why_and_offers_retry() {
     cx.open::<Explorer>();
     phone(&mut cx);
     shows(&cx, "the node is catching up");
-    assert!(cx.find("explorer-refused-retry").is_some());
+    assert!(cx.find("explorer-retry").is_some());
 }
 
 #[test]
@@ -468,7 +468,7 @@ fn a_page_read_past_the_window_says_reading_then_refused_and_retry_asks_again() 
         });
         shows(&cx, "the archive is offline");
         serve(&cx, || chain(12));
-        click(&mut cx, "explorer-refused-retry");
+        click(&mut cx, "explorer-retry");
         shows(&cx, asked_again);
     }
 }

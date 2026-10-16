@@ -7,6 +7,7 @@
 //!
 //! The Expo line numbers below are mobile dev 266633c.
 use view::design::{Face, mono, space};
+use view::host::Error;
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
@@ -36,21 +37,8 @@ const MORE_REACH: Pixels = px(12.);
 /// `Linked` sets none, and a one-digit height (8 wide) then presses the
 /// ladder's 44, our rule.
 const LINK_REACH: Pixels = px(18.);
-/// An empty state's insets, over and under, and each side (Expo
-/// `src/kit/States.tsx:26`).
-const EMPTY_INSET_Y: Pixels = px(40.);
-const EMPTY_INSET_X: Pixels = px(32.);
-/// An empty state's icon (Expo `src/design/theme.ts:87` `icon.empty`).
-const EMPTY_ICON: Pixels = px(28.);
-/// An empty state's line length (Expo `src/kit/States.tsx:31`).
-const EMPTY_LINE_W: Pixels = px(280.);
-/// The room between a row's title and its caption (Expo
-/// `src/kit/Row.tsx:58`).
-const TITLE_GAP: Pixels = px(1.);
 /// A key's column in a key/value row (Expo `src/kit/Facts.tsx:64`).
 const KEY_W: Pixels = px(96.);
-/// A small button (Expo `src/design/theme.ts:76` `size.small`).
-const SMALL_BUTTON_H: Pixels = px(36.);
 /// The face of an account that does not act, at half strength (Expo
 /// `src/kit/Avatar.tsx:38`).
 const OFF_OPACITY: f32 = 0.5;
@@ -289,22 +277,16 @@ pub(super) fn notice(
         .children(action)
 }
 
-// SDK gap: Refused (a danger Notice with Retry), swap when feat/phone-kit lands
-/// A refused read (Expo `Refused`): its sentence as a danger notice, and
-/// Retry, which reads the view's data again.
-pub(super) fn refused(sentence: &str, cx: Cx, k: &Look) -> AnyElement {
+/// A refused read (Expo `Refused`): its sentence, and Retry, which reads
+/// the view's data again.
+pub(super) fn refused(refusal: &Error, cx: Cx, k: &Look) -> AnyElement {
     let retry = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.read_all(cx));
-    let retry = Act {
-        id: "explorer-refused-retry",
-        label: "Retry",
-        press: Box::new(retry),
-    };
-    notice(
-        "explorer-refused",
-        sentence.to_owned(),
-        Tone::Danger,
-        Some(retry),
-        k,
+    design::refused(
+        "explorer",
+        design::sentence(refusal),
+        &k.ladder,
+        &k.theme,
+        retry,
     )
     .into_any_element()
 }
@@ -319,7 +301,6 @@ pub(super) fn quiet(id: &'static str, text: impl Into<SharedString>, k: &Look) -
         .into_any_element()
 }
 
-// SDK gap: EmptyState with its icon, swap when feat/phone-kit lands
 /// Nothing to show (Expo `EmptyState`): its icon, what is missing, why.
 pub(super) fn empty(
     id: &'static str,
@@ -328,32 +309,7 @@ pub(super) fn empty(
     body: impl Into<SharedString>,
     k: &Look,
 ) -> AnyElement {
-    div()
-        .id(id)
-        .flex()
-        .flex_col()
-        .items_center()
-        .justify_center()
-        .gap(space::SM)
-        .py(EMPTY_INSET_Y)
-        .px(EMPTY_INSET_X)
-        .child(design::icon(icon, EMPTY_ICON).text_color(k.theme.faint))
-        .child(
-            div()
-                .text_type(k.ladder.body)
-                .font_weight(FontWeight::MEDIUM)
-                .text_center()
-                .child(title.into()),
-        )
-        .child(
-            div()
-                .max_w(EMPTY_LINE_W)
-                .text_type(k.ladder.secondary)
-                .text_color(k.theme.muted)
-                .text_center()
-                .child(body.into()),
-        )
-        .into_any_element()
+    design::empty_state(id, icon, title, body, &k.ladder, &k.theme).into_any_element()
 }
 
 // ---------- sections and facts ----------
@@ -576,33 +532,19 @@ pub(super) fn opens(
         .on_click(go)
 }
 
-// SDK gap: the Row's title over caption, swap when feat/phone-kit lands
 /// A row's title over its caption.
 pub(super) fn title_and_caption(title: impl IntoElement, caption: impl IntoElement) -> Div {
-    div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .gap(TITLE_GAP)
-        .child(title)
-        .child(caption)
+    design::row_words(title).child(caption)
 }
 
-// SDK gap: the Row's caption, swap when feat/phone-kit lands
 /// A caption under a row's title, muted, cut short where it runs out.
 pub(super) fn caption(text: impl Into<SharedString>, k: &Look) -> Div {
-    div()
-        .truncate()
-        .text_type(k.ladder.caption)
-        .text_color(k.theme.muted)
-        .child(text.into())
+    design::row_caption(text, &k.ladder, &k.theme)
 }
 
-// SDK gap: the Row's chevron, swap when feat/phone-kit lands
 /// The chevron a row that opens a page ends with (Expo `Row chevron`).
 pub(super) fn chevron(k: &Look) -> impl IntoElement {
-    design::icon("chevron-right", k.ladder.icon_row).text_color(k.theme.faint)
+    design::chevron(&k.ladder, &k.theme)
 }
 
 // SDK gap: the Row's tail in the data face, the SDK builds it later
@@ -618,52 +560,22 @@ pub(super) fn column(id: &'static str, rows: Vec<Stateful<Div>>) -> Stateful<Div
     div().id(id).flex_none().flex().flex_col().children(rows)
 }
 
-// SDK gap: Button small, swap when feat/phone-kit lands
-/// A small button (Expo `Button small`): [`SMALL_BUTTON_H`] drawn, its
-/// press reaching past it to `ladder.hit`. `Quiet` has no edge and muted
-/// words, `Outline` a strong hairline and medium words; with no press it
-/// is disabled, faint.
+/// A small button (Expo `Button small`): `Quiet` or `Outline`; with no
+/// press it is disabled.
 pub(super) fn small(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
     kind: design::Kind,
     press: Option<Press>,
     k: &Look,
-) -> Stateful<Div> {
-    let theme = &k.theme;
-    let (id, label) = (id.into(), label.into());
-    let outline = kind == design::Kind::Outline;
-    let (edge, ink) = match (&press, outline) {
-        (None, _) => (theme.border, theme.faint),
-        (Some(_), true) => (theme.border_strong, theme.foreground),
-        (Some(_), false) => (Hsla::transparent_black(), theme.muted),
-    };
-    // never under 44 wide (`space::LG` each side of the shortest label,
-    // Cancel), so its press reaches up and down only
-    let hit = design::hit(id.clone(), k.ladder.hit, SMALL_BUTTON_H, px(1.), &k.ladder)
-        .role(Role::Button)
-        .aria_label(label.clone());
-    let hit = match press {
-        Some(press) => hit.focusable().on_click(press),
-        None => hit.aria_disabled(true),
-    };
-    div()
-        .id(SharedString::from(format!("{id}-box")))
-        .relative()
-        .flex_none()
-        .h(SMALL_BUTTON_H)
-        .px(space::LG)
-        .flex()
-        .items_center()
-        .justify_center()
-        .border_1()
-        .border_color(edge)
-        .text_type(k.ladder.secondary)
-        .text_color(ink)
-        .when(outline, |button| button.font_weight(FontWeight::MEDIUM))
-        .whitespace_nowrap()
-        .child(label)
-        .child(hit)
+) -> AnyElement {
+    let enabled = press.is_some();
+    let press = press.unwrap_or_else(|| Box::new(|_: &ClickEvent, _: &mut Window, _: &mut App| {}));
+    design::button(ElementId::Name(id.into()), label, &k.ladder, &k.theme, press)
+        .kind(kind)
+        .small()
+        .enabled(enabled)
+        .into_any_element()
 }
 
 /// An account's face (Expo `Avatar` with `words.ts` `faceOf`): a system

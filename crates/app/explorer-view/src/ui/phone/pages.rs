@@ -226,7 +226,7 @@ pub(super) fn transactions(view: &Explorer, program: Option<&str>, cx: Cx, k: &L
 fn accounts(view: &Explorer, cx: Cx, k: &Look) -> AnyElement {
     let listed = match &view.accounts {
         Loadable::Ready(listed) | Loadable::Reloading(listed, _) => listed,
-        Loadable::Failed(refusal) => return refused(&words::refusal(refusal), cx, k),
+        Loadable::Failed(refusal) => return refused(refusal, cx, k),
         Loadable::Idle | Loadable::Loading(_) => {
             return quiet("explorer-accounts-loading", words::READING_ACCOUNTS, k);
         }

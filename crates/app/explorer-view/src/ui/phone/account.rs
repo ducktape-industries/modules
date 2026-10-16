@@ -77,7 +77,7 @@ fn missing(view: &Explorer, number: u64, cx: Cx, k: &Look) -> AnyElement {
             words::NO_ACCOUNT_HERE,
             k,
         ),
-        Loadable::Failed(refusal) => refused(&words::refusal(refusal), cx, k),
+        Loadable::Failed(refusal) => refused(refusal, cx, k),
         Loadable::Idle | Loadable::Loading(_) => {
             quiet("explorer-account-loading", words::READING_ACCOUNT, k)
         }
@@ -280,7 +280,7 @@ fn activity(view: &Explorer, number: u64, cx: Cx, k: &Look) -> Vec<AnyElement> {
                 .collect(),
         )
         .into_any_element(),
-        Err(Some(refusal)) => refused(&words::refusal(refusal), cx, k),
+        Err(Some(refusal)) => refused(refusal, cx, k),
         Err(None) => quiet("explorer-activity-loading", words::READING_ACTIVITY, k),
     };
     vec![head.into_any_element(), list]

@@ -148,7 +148,7 @@ fn searching(view: &Explorer, cx: Cx, k: &Look) -> Stateful<Div> {
 /// is the field's own hairline, which the host draws 2 wide in the ink
 /// while it is focused, as Expo's `Field` does (`Field.tsx:38-39`); it
 /// opens focused.
-fn field(view: &Explorer, cx: Cx, k: &Look) -> Div {
+fn field(view: &Explorer, cx: Cx, k: &Look) -> impl IntoElement {
     let submit = cx.listener(|view: &mut Explorer, _: &(), _, cx| view.search(cx));
     let input = Input::new("explorer-search", &view.search, words::SEARCH)
         .autocorrect(false)
@@ -157,27 +157,9 @@ fn field(view: &Explorer, cx: Cx, k: &Look) -> Div {
         .input_action(TextInputAction::Search)
         .placeholder(words::SEARCH_HINT)
         .on_submit(submit);
-    // SDK gap: Field `lead`, swap when feat/phone-kit lands
-    // the magnifier in the field's padding, where Expo's `lead` sits: past
-    // the hairline and `gap.lg`, the text `gap.sm` after it
-    let lead = div()
-        .absolute()
-        .top_0()
-        .bottom_0()
-        .left(px(1.) + space::LG)
-        .flex()
-        .items_center()
-        .child(design::icon("search", k.ladder.icon_row).text_color(k.theme.muted));
-    div()
-        .child(
-            design::field(input, &k.ladder, &k.theme)
-                .w_full()
-                .pl(space::LG + k.ladder.icon_row + space::SM),
-        )
-        .child(lead)
+    design::field(input, &k.ladder, &k.theme).lead("search")
 }
 
-// SDK gap: Strip, swap when feat/phone-kit lands
 /// The five pages on a strip that scrolls sideways (Expo `Strip`): one Tab
 /// stop, ← → move through the pages, a press opens a page's list.
 fn strip(view: &Explorer, cx: Cx, k: &Look) -> Stateful<Div> {
@@ -188,7 +170,7 @@ fn strip(view: &Explorer, cx: Cx, k: &Look) -> Stateful<Div> {
         .into_iter()
         .map(|(key, label, route)| page_tab(key, label, route, shown, cx, k))
         .collect();
-    design::composite("explorer-tabs", Role::TabList, "Pages")
+    let bar = design::composite("explorer-tabs", Role::TabList, "Pages")
         .orientation(design::Orientation::Horizontal)
         .wrap()
         .active(shown, PAGES.len())
@@ -202,15 +184,8 @@ fn strip(view: &Explorer, cx: Cx, k: &Look) -> Stateful<Div> {
                 view.go(pressed[index].clone(), cx)
             }),
         )
-        .build()
-        .flex_none()
-        .h(k.ladder.strip)
-        .flex()
-        .px(space::SM)
-        .overflow_x_scroll()
-        .border_b_1()
-        .border_color(k.theme.border)
-        .children(pages)
+        .build();
+    design::strip(bar, &k.ladder, &k.theme).children(pages)
 }
 
 /// One page on the strip (the Expo kit's `Strip` item, `design::tab`): its
