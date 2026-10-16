@@ -38,7 +38,7 @@ pub(crate) fn render(
     // refuse the read
     if forge.tree_query(Vec::new()).is_none() {
         return match forge.refs() {
-            Some(_) => crate::ui::code::no_commits(forge, theme),
+            Some(_) => crate::ui::code::no_commits(forge, theme, ladder),
             None => quiet("Resolving the ref…", theme),
         };
     }
@@ -85,8 +85,10 @@ pub(crate) fn log(
     if held == 0 {
         return empty_state(
             id(format!("{element_id}-empty")),
+            "git-commit-horizontal",
             "No commits",
             "This ref carries no history yet.",
+            &ladder,
             theme,
         )
         .into_any_element();

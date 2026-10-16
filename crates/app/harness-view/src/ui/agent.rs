@@ -56,8 +56,12 @@ fn detail(
     let Some(setup) = detail.setup.clone() else {
         return design::empty_state(
             "agent-gone",
+            "bot-off",
             "Not run by harness",
-            format!("Account {agent} has no script that calls harness: its manager took it back, or never handed it over."),
+            format!(
+                "Account {agent} has no script that calls harness: its manager took it back, or never handed it over."
+            ),
+            ladder,
             theme,
         )
         .into_any_element();

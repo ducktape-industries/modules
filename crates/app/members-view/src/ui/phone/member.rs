@@ -94,11 +94,13 @@ fn missing(
 ) -> AnyElement {
     let body = match &view.rows {
         Loadable::Failed(refusal) => refused(refusal, cx, ladder, theme),
-        // SDK gap: the kit's `EmptyState` (centred, with its icon), swap when feat/phone-kit lands
+        // Expo's `UserX` (`app/(tabs)/members/[number].tsx:33`)
         Loadable::Ready(_) | Loadable::Reloading(..) => design::empty_state(
             "members-no-account",
+            "user-x",
             words::no_account(number),
             words::NO_ACCOUNT_WHY,
+            ladder,
             theme,
         )
         .into_any_element(),

@@ -203,8 +203,15 @@ impl Render for Agents {
                     .into_any_element()
             }
             Loadable::Ready(agents) | Loadable::Reloading(agents, _) if agents.is_empty() => {
-                design::empty_state("no-agents", "No agents yet", "Name one above.", &theme)
-                    .into_any_element()
+                design::empty_state(
+                    "no-agents",
+                    "bot",
+                    "No agents yet",
+                    "Name one above.",
+                    ladder,
+                    &theme,
+                )
+                .into_any_element()
             }
             Loadable::Ready(agents) | Loadable::Reloading(agents, _) => div()
                 .id("agents")
