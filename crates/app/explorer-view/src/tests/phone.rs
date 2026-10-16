@@ -6,6 +6,7 @@ use super::access::{grants, reader, waiting};
 use super::*;
 use view::methods::Submit;
 use view::testing::{self, StreamSender};
+use view::{StyleRefinement, Styled as _, px};
 
 /// Under a finger, 390 wide: the phone tree.
 fn phone(cx: &mut TestAppContext) {
@@ -624,8 +625,13 @@ fn back_closes_a_sheet_before_it_leaves_the_page() {
 fn every_screen_fits_a_phone() {
     let mut cx = reader(Some(3), ADA, true, grants(), waiting());
     testing::sweep(&mut cx, |cx| {
+        // the strip is a finger's 44, and each tab its whole height
+        let whole = StyleRefinement::default().h_full().size.height;
+        assert_eq!(cx.style("explorer-tabs").size.height, Some(px(44.).into()));
         for tab in ["overview", "blocks", "transactions", "accounts"] {
-            click(cx, &format!("explorer-tab-{tab}"));
+            let id = format!("explorer-tab-{tab}");
+            assert_eq!(cx.style(&id).size.height, whole);
+            click(cx, &id);
         }
         click(cx, "explorer-account-3");
         back(cx);

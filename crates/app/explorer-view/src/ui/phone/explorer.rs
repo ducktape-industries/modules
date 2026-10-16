@@ -7,7 +7,9 @@
 //! whether the field is open.
 use super::*;
 
-/// The page strip's band (Expo `src/design/theme.ts:81` `size.strip`).
+// SDK gap: Ladder::strip (#406), swap when feat/phone-kit lands
+/// The page strip's band, the tabs' height (Expo `src/design/theme.ts:81`
+/// `size.strip`).
 const STRIP_H: Pixels = px(44.);
 /// The chosen page's underline (Expo `src/kit/Choice.tsx:138`).
 const UNDERLINE_H: Pixels = px(2.);
