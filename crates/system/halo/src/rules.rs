@@ -1,6 +1,6 @@
-// The rules: a lane is listed under a valid name at the next id, changed or unlisted only by
-// name, and its id is never handed out again; the 256 ids a lane byte holds are all there are.
-// A lane the founding pins is served for the network's life: no vote pauses or closes it.
+//! The rules: a lane is listed under a valid name at the next id, changed or unlisted only by
+//! name, and its id is never handed out again; the 256 ids a lane byte holds are all there are.
+//! A lane the founding pins is served for the network's life: no vote pauses or closes it.
 
 use ::program::{Error, ExecCtx, QueryCtx, already_exists, capacity, invalid, not_found};
 use store::{Item, Map};

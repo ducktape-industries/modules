@@ -1,5 +1,5 @@
-// The program on a `MockChain`, with a real valset bound to the validators role: what the
-// validators' vote opens, sets and closes, and what the table refuses.
+//! The program on a `MockChain`, with a real valset bound to the validators role: what the
+//! validators' vote opens, sets and closes, and what the table refuses.
 
 use ::program::{Error, MockChain, Origin, code};
 use valset::{Member, Motion, Valset, Voted};
