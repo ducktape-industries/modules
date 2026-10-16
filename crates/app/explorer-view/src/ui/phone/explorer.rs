@@ -7,13 +7,6 @@
 //! whether the field is open.
 use super::*;
 
-// SDK gap: Ladder::strip (#406), swap when feat/phone-kit lands
-/// The page strip's band, the tabs' height (Expo `src/design/theme.ts:81`
-/// `size.strip`).
-const STRIP_H: Pixels = px(44.);
-/// The chosen page's underline (Expo `src/kit/Choice.tsx:138`).
-const UNDERLINE_H: Pixels = px(2.);
-
 /// The five pages, in the strip's order: each one's key, label and list.
 const PAGES: [(&str, &str, Route); 5] = [
     ("overview", "Overview", Route::Overview),
@@ -66,9 +59,14 @@ fn titled(view: &Explorer, cx: Cx, k: &Kit) -> design::Page {
         window.focus("explorer-search");
         cx.notify();
     });
-    // SDK gap: `Nav::Root` (#406), swap when #406 lands
-    let no_back = None::<fn(&ClickEvent, &mut Window, &mut App)>;
-    let page = design::page("explorer-root", "Explorer", no_back, &k.ladder, &k.theme).trailing(
+    let page = design::page(
+        "explorer-root",
+        "Explorer",
+        design::Nav::Root,
+        &k.ladder,
+        &k.theme,
+    )
+    .trailing(
         design::icon_button(
             "explorer-search-open",
             design::icon("search", k.ladder.icon),
@@ -130,10 +128,13 @@ fn searching(view: &Explorer, cx: Cx, k: &Kit) -> Stateful<Div> {
         .child(row)
 }
 
-// SDK gap: Field `.lead` (its icon), swap when feat/phone-kit lands; the
-// header's centre slot that holds it, the SDK builds it later
+// SDK gap: the header's centre slot that holds the field, the SDK builds
+// it later
 /// The search field (Expo `Field` with a magnifier lead): a height, a hash,
-/// `#3` or a name; no capitals, no corrections, Return searches.
+/// `#3` or a name; no capitals, no corrections, Return searches. Its edge
+/// is the field's own hairline, which the host draws 2 wide in the ink
+/// while it is focused, as Expo's `Field` does (`Field.tsx:38-39`); it
+/// opens focused.
 fn field(view: &Explorer, cx: Cx, k: &Kit) -> Div {
     let submit = cx.listener(|view: &mut Explorer, _: &(), _, cx| view.search(cx));
     let input = Input::new("explorer-search", &view.search, words::SEARCH)
@@ -141,22 +142,26 @@ fn field(view: &Explorer, cx: Cx, k: &Kit) -> Div {
         .autocapitalize(Autocapitalize::None)
         .virtual_keyboard(VirtualKeyboard::Search)
         .input_action(TextInputAction::Search)
-        .flex_1()
-        .min_w_0()
-        .text_type(k.ladder.body)
         .placeholder(words::SEARCH_HINT)
         .on_submit(submit);
-    div()
-        .min_h(k.ladder.control)
+    // SDK gap: Field `lead`, swap when feat/phone-kit lands
+    // the magnifier in the field's padding, where Expo's `lead` sits: past
+    // the hairline and `gap.lg`, the text `gap.sm` after it
+    let lead = div()
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .left(px(1.) + space::LG)
         .flex()
         .items_center()
-        .gap(space::SM)
-        .px(space::LG)
-        .border_1()
-        .border_color(k.theme.border_strong)
-        .bg(k.theme.background)
-        .child(design::icon("search", k.ladder.icon_row).text_color(k.theme.muted))
-        .child(input)
+        .child(design::icon("search", k.ladder.icon_row).text_color(k.theme.muted));
+    div()
+        .child(
+            design::field(input, &k.ladder, &k.theme)
+                .w_full()
+                .pl(space::LG + k.ladder.icon_row + space::SM),
+        )
+        .child(lead)
 }
 
 // SDK gap: Strip, swap when feat/phone-kit lands
@@ -186,7 +191,7 @@ fn strip(view: &Explorer, cx: Cx, k: &Kit) -> Stateful<Div> {
         )
         .build()
         .flex_none()
-        .h(STRIP_H)
+        .h(k.ladder.strip)
         .flex()
         .px(space::SM)
         .overflow_x_scroll()
@@ -195,9 +200,8 @@ fn strip(view: &Explorer, cx: Cx, k: &Kit) -> Stateful<Div> {
         .children(pages)
 }
 
-// SDK gap: Strip, swap when feat/phone-kit lands
-/// One page on the strip: its label in small, the chosen one foreground
-/// and medium over a 2 px underline, the rest muted.
+/// One page on the strip (the Expo kit's `Strip` item, `design::tab`): its
+/// press the strip's whole height.
 fn page_tab(
     key: &str,
     label: &'static str,
@@ -209,32 +213,7 @@ fn page_tab(
     let chosen = shown == route.tab();
     let go =
         cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.go(route.clone(), cx));
-    let underline = div()
-        .absolute()
-        .bottom_0()
-        .left(space::MD)
-        .right(space::MD)
-        .h(UNDERLINE_H)
-        .bg(k.theme.foreground);
-    let tab = div()
-        .id(SharedString::from(format!("explorer-tab-{key}")))
-        .relative()
-        .flex_none()
-        .h_full()
-        .flex()
-        .items_center()
-        .px(space::MD)
-        .text_type(k.ladder.small)
-        .text_color(if chosen {
-            k.theme.foreground
-        } else {
-            k.theme.muted
-        })
-        .when(chosen, |tab| tab.font_weight(FontWeight::MEDIUM))
-        .whitespace_nowrap()
-        .aria_selected(chosen)
-        .on_click(go)
-        .child(label)
-        .when(chosen, |tab| tab.child(underline));
+    let id = SharedString::from(format!("explorer-tab-{key}"));
+    let tab = design::tab(id, label, chosen, &k.ladder, &k.theme, go).flex_none();
     design::item(tab, Role::Tab, chosen)
 }

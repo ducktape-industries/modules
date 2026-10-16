@@ -9,8 +9,6 @@
 use super::*;
 use crate::decode::{clip, short, sized};
 
-/// A section head's least height (Expo `src/kit/Row.tsx:86`).
-const SECTION_H: Pixels = px(40.);
 /// A caption's line (Expo `src/design/theme.ts:47`): the box a section
 /// head's link draws in.
 const CAPTION_LINE: Pixels = px(16.);
@@ -20,6 +18,16 @@ const SMALL_LINE: Pixels = px(19.);
 /// A notice's action: secondary's 18 line (`theme.ts:46`) and `gap.xs`
 /// over and under (Expo `src/kit/Notice.tsx:60`).
 const NOTICE_ACTION_H: Pixels = px(30.);
+/// How far a notice's action presses past its words (Expo
+/// `src/kit/Notice.tsx:60` `hitSlop={8}`).
+const NOTICE_REACH: Pixels = px(8.);
+/// How far a section head's link presses past its words (Expo
+/// `src/network/explorer/pages.tsx:41` `hitSlop={12}`).
+const MORE_REACH: Pixels = px(12.);
+/// How far a link in a value presses past its words each side: Expo's
+/// `Linked` sets none, and a one-digit height (8 wide) then presses the
+/// ladder's 44, our rule.
+const LINK_REACH: Pixels = px(18.);
 /// An empty state's insets, over and under, and each side (Expo
 /// `src/kit/States.tsx:26`).
 const EMPTY_INSET_Y: Pixels = px(40.);
@@ -31,9 +39,6 @@ const EMPTY_LINE_W: Pixels = px(280.);
 /// The room between a row's title and its caption (Expo
 /// `src/kit/Row.tsx:58`).
 const TITLE_GAP: Pixels = px(1.);
-// SDK gap: Ladder::row_tall, swap when feat/phone-kit lands
-/// A row with a caption under its title (Expo `theme.ts` `rowTall`).
-const ROW_TALL: Pixels = px(design::height::touch::ROW_TALL as f32);
 /// A key's column in a key/value row (Expo `src/kit/Facts.tsx:64`).
 const KEY_W: Pixels = px(96.);
 /// A small button (Expo `src/design/theme.ts:76` `size.small`).
@@ -67,7 +72,6 @@ pub(super) fn scroller(id: &'static str) -> Stateful<Div> {
         .pb(space::BLOCK)
 }
 
-// SDK gap: `Nav::back` on `design::page` (#406), swap when #406 lands
 /// A page over the root (Expo `Header back`): its title row with Back,
 /// and the notice under it.
 pub(super) fn over(
@@ -77,7 +81,7 @@ pub(super) fn over(
     cx: Cx,
     k: &Kit,
 ) -> design::Page {
-    let page = design::page(id, title, Some(back(cx)), &k.ladder, &k.theme);
+    let page = design::page(id, title, design::Nav::back(back(cx)), &k.ladder, &k.theme);
     match note(view, cx, k) {
         Some(note) => page.child(note),
         None => page,
@@ -104,13 +108,27 @@ pub(super) fn copy_link(view: &Explorer, route: &Route, cx: Cx, k: &Kit) -> Opti
     )
 }
 
-// SDK gap: a hit that reads its parent's drawn width, the SDK builds it later
-/// [`design::hit`] over a parent whose width is its words. That width is
-/// not known while the tree is built, so the press reaches up and down to
-/// `ladder.hit` and not sideways; each such parent here is near 44 wide or
-/// wider.
-pub(super) fn reach(id: impl Into<ElementId>, height: Pixels, k: &Kit) -> Stateful<Div> {
-    design::hit(id, k.ladder.hit, height, &k.ladder)
+// SDK gap: a press over words reaching a set way (React Native's
+// `hitSlop`), the SDK builds it later
+/// A press box over words `height` tall (React Native's `hitSlop`):
+/// `side` past each end, and over and under `side` or to the ladder's 44,
+/// whichever is further. Not [`design::hit`]: that reaches from the
+/// parent's width, and a view cannot measure its words.
+pub(super) fn reach(
+    id: impl Into<ElementId>,
+    height: Pixels,
+    side: Pixels,
+    k: &Kit,
+) -> Stateful<Div> {
+    let to_hit = px(((f32::from(k.ladder.hit) - f32::from(height)) / 2.).max(0.));
+    let y = to_hit.max(side);
+    div()
+        .id(id)
+        .absolute()
+        .top(-y)
+        .bottom(-y)
+        .left(-side)
+        .right(-side)
 }
 
 // ---------- states ----------
@@ -210,7 +228,7 @@ pub(super) fn notice(
             .text_color(ink)
             .child(label)
             .child(
-                reach(id, NOTICE_ACTION_H, k)
+                reach(id, NOTICE_ACTION_H, NOTICE_REACH, k)
                 .role(Role::Button)
                 .aria_label(label)
                 .focusable()
@@ -303,37 +321,16 @@ pub(super) fn empty(
 
 // ---------- sections and facts ----------
 
-// SDK gap: SectionHead with any right slot (#406 `section_head`), swap when #406 lands
-/// A section's head (Expo `SectionHead`): its label in caption medium, and
-/// what sits beside it (a count, a sentence, a link).
+/// A section's head (Expo `SectionHead`): its label, and what sits beside
+/// it (a count, a sentence, a link).
 pub(super) fn section(
-    id: impl Into<SharedString>,
+    id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     aside: Option<AnyElement>,
     k: &Kit,
 ) -> Stateful<Div> {
-    let id = id.into();
-    div()
-        .id(id.clone())
+    design::section_head(id, label, &k.ladder, &k.theme)
         .flex_none()
-        .min_h(SECTION_H)
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap(space::SM)
-        .pt(space::LG)
-        .pb(space::XXS)
-        .px(space::BLOCK)
-        .text_type(k.ladder.caption)
-        .text_color(k.theme.muted)
-        .child(
-            div()
-                .id(SharedString::from(format!("{id}-title")))
-                .font_weight(FontWeight::MEDIUM)
-                .role(Role::Heading)
-                .aria_level(2)
-                .child(label.into()),
-        )
         .children(aside)
 }
 
@@ -361,7 +358,7 @@ pub(super) fn more_link(
         .items_center()
         .child(label)
         .child(
-            reach(id, CAPTION_LINE, k)
+            reach(id, CAPTION_LINE, MORE_REACH, k)
                 .role(Role::Link)
                 .aria_label(label)
                 .focusable()
@@ -510,7 +507,7 @@ pub(super) fn linked(
         .whitespace_nowrap()
         .child(text.clone())
         .child(
-            reach(id.into(), SMALL_LINE, k)
+            reach(id.into(), SMALL_LINE, LINK_REACH, k)
                 .role(Role::Link)
                 .aria_label(text)
                 .focusable()
@@ -520,24 +517,25 @@ pub(super) fn linked(
 
 // ---------- rows ----------
 
-// SDK gap: the tall Row (Ladder::row_tall), swap when feat/phone-kit lands
 /// A list row with a caption under its title (Expo `Row`): the kit's frame
 /// at `rowTall`.
 pub(super) fn list_row(id: impl Into<ElementId>, k: &Kit) -> Stateful<Div> {
-    design::row(id, &k.ladder, &k.theme).min_h(ROW_TALL)
+    design::row(id, &k.ladder, &k.theme).min_h(k.ladder.row_tall)
 }
 
 /// A row whose press opens `route` (Expo `Row onPress`): a button named
-/// `label`, the whole row the press.
+/// `label`, the whole row the press, dimmed while held.
 pub(super) fn opens(
     row: Stateful<Div>,
     label: impl Into<SharedString>,
     route: Route,
     cx: Cx,
+    k: &Kit,
 ) -> Stateful<Div> {
     let go =
         cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.go(route.clone(), cx));
-    row.role(Role::Button)
+    design::pressed(row, &k.ladder)
+        .role(Role::Button)
         .aria_label(label.into())
         .focusable()
         .on_click(go)
@@ -605,7 +603,9 @@ pub(super) fn small(
         (Some(_), true) => (theme.border_strong, theme.foreground),
         (Some(_), false) => (Hsla::transparent_black(), theme.muted),
     };
-    let hit = reach(id.clone(), SMALL_BUTTON_H, k)
+    // never under 44 wide (`space::LG` each side of the shortest label,
+    // Cancel), so its press reaches up and down only
+    let hit = design::hit(id.clone(), k.ladder.hit, SMALL_BUTTON_H, px(1.), &k.ladder)
         .role(Role::Button)
         .aria_label(label.clone());
     let hit = match press {
@@ -677,7 +677,7 @@ fn block_line(block: &BlockRow, now: u64, cx: Cx, k: &Kit) -> Stateful<Div> {
     let height = block.height;
     let carries = block.txs > 0;
     let row = list_row(SharedString::from(format!("explorer-block-{height}")), k);
-    opens(row, format!("Block {height}"), Route::Block(height), cx)
+    opens(row, format!("Block {height}"), Route::Block(height), cx, k)
         .child(title_and_caption(
             mono(grouped(height))
                 .text_type(k.ladder.body)
@@ -791,7 +791,7 @@ pub(super) fn tx_line(view: &Explorer, tx: &TxRow, cx: Cx, k: &Kit) -> Stateful<
         SharedString::from(format!("explorer-tx-{height}-{position}")),
         k,
     );
-    opens(row, label, Route::Tx { height, position }, cx)
+    opens(row, label, Route::Tx { height, position }, cx, k)
         .child(mark(applied, k))
         .child(title_and_caption(title, place))
         .child(tail(ago(view.chain.now(), tx.time), k))
@@ -813,7 +813,7 @@ pub(super) fn frame_line(
         SharedString::from(format!("explorer-tx-{height}-{position}")),
         k,
     );
-    opens(row, label, Route::Tx { height, position }, cx)
+    opens(row, label, Route::Tx { height, position }, cx, k)
         .child(mark(Some(frame.applied), k))
         .child(title_and_caption(
             div().truncate().child(frame.target.clone()),

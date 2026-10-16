@@ -280,6 +280,7 @@ fn transactions(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> Stateful<Div> {
         title.clone(),
         Route::Transactions(Some(name.to_owned())),
         cx,
+        k,
     )
     .child(div().flex_1().truncate().child(title))
 }

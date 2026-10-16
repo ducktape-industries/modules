@@ -261,7 +261,7 @@ fn account_line(view: &Explorer, account: &identity::Account, cx: Cx, k: &Kit) -
         plural(account.keys().len() as u64, "device", "devices")
     );
     let row = list_row(SharedString::from(format!("explorer-account-{number}")), k);
-    opens(row, account.card.name.clone(), Route::Account(number), cx)
+    opens(row, account.card.name.clone(), Route::Account(number), cx, k)
         .child(design::lead(face(account, k.ladder.avatar, k)))
         .child(title_and_caption(
             div().truncate().child(account.card.name.clone()),

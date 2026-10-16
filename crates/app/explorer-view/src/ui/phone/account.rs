@@ -219,7 +219,15 @@ fn chip(program: String, count: u64, cx: Cx, k: &Kit) -> Div {
                 .text_color(k.theme.muted),
         )
         .child(
-            reach(SharedString::from(format!("explorer-used-{program}")), CHIP_H, k)
+            // never under 44 wide (a name, its count and `gap.md` each
+            // side), so its press reaches up and down only
+            design::hit(
+                SharedString::from(format!("explorer-used-{program}")),
+                k.ladder.hit,
+                CHIP_H,
+                px(1.),
+                &k.ladder,
+            )
             .role(Role::Button)
             .aria_label(format!("{program}, {count}"))
             .focusable()
