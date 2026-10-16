@@ -17,22 +17,12 @@ use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
 use super::LADDER;
-use super::parts::{
-    empty, last_answer, outcome, press, quiet, refused, scroller, share, small_button, tint,
-};
+use super::parts::{last_answer, outcome, press, quiet, scroller, share, small_button, tint};
 use crate::queries::{Motions, Node, Schedule};
 use crate::row::Status;
 use crate::words::{self, EpochPlace};
 use crate::{Nodes, voting};
 
-// SDK gap: the kit's tall row (`ROW_TALL`, `row_lines`), swap when
-// feat/phone-kit lands
-
-/// A list row with a caption under its title (Expo `src/kit/Row.tsx:44`
-/// `size.rowTall`).
-const ROW_TALL: Pixels = px(design::height::touch::ROW_TALL as f32);
-/// The gap between a row's title and its caption (Expo `Row.tsx:58`).
-const ROW_LINES_GAP: Pixels = px(1.);
 /// A member's dot (Expo `index.tsx:114`).
 const DOT: Pixels = px(8.);
 /// How tall the epoch's bar is (Expo `index.tsx:76`).
@@ -106,7 +96,14 @@ fn door_button(cx: &mut Context<Nodes>, theme: &Theme) -> impl IntoElement {
 fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
     if let Some(refusal) = view.status.failed() {
         let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.retry_status(cx));
-        return refused("nodes-status", &refusal.message, theme, retry).into_any_element();
+        return design::refused(
+            "nodes-status",
+            refusal.message.clone(),
+            &LADDER,
+            theme,
+            retry,
+        )
+        .into_any_element();
     }
     let Some(status) = view.status.ready() else {
         return quiet("nodes-status-loading", words::READING_STATUS, theme).into_any_element();
@@ -240,14 +237,16 @@ fn epoch_bar(place: &EpochPlace, theme: &Theme) -> Div {
 fn members(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
     if let Some(refusal) = view.nodes.failed() {
         let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.read(cx));
-        return refused("nodes", &refusal.message, theme, retry).into_any_element();
+        return design::refused("nodes", refusal.message.clone(), &LADDER, theme, retry)
+            .into_any_element();
     }
     let Some(nodes) = view.nodes.ready() else {
         return quiet("nodes-loading", words::READING_MEMBERS, theme).into_any_element();
     };
     if nodes.is_empty() {
         let (title, why) = (words::NO_MEMBERS, words::NO_MEMBERS_WHY);
-        return empty("nodes-empty", "server", title, why, theme).into_any_element();
+        return design::empty_state("nodes-empty", "server", title, why, &LADDER, theme)
+            .into_any_element();
     }
     match view.status.ready() {
         Some(_) => roster(view, nodes, cx, theme).into_any_element(),
@@ -307,15 +306,12 @@ fn member_row(view: &Nodes, node: &Node, cx: &Context<Nodes>, theme: &Theme) -> 
         &LADDER,
         theme,
     )
-    .min_h(ROW_TALL)
+    .min_h(LADDER.row_tall)
     .role(Role::Button)
     .focusable()
     .on_click(open)
     .child(design::lead(div().size(DOT).rounded_full().bg(dot)))
-    .child(row_lines(
-        member_title(node, theme),
-        member_address(view, node, theme),
-    ))
+    .child(design::row_words(member_title(node, theme)).child(member_address(view, node, theme)))
     .children(node.validator.then(|| {
         div()
             .flex_none()
@@ -323,8 +319,7 @@ fn member_row(view: &Nodes, node: &Node, cx: &Context<Nodes>, theme: &Theme) -> 
             .text_color(tone)
             .child(status.word())
     }))
-    // SDK gap: the row's chevron (`design::chevron`), swap when feat/phone-kit lands
-    .child(design::icon("chevron-right", LADDER.icon_row).text_color(theme.faint))
+    .child(design::chevron(&LADDER, theme))
 }
 
 /// A member's title: its short key in the data face, then who operates
@@ -337,8 +332,7 @@ fn member_title(node: &Node, theme: &Theme) -> Div {
         .whitespace_nowrap()
         .overflow_hidden()
         .text_type(LADDER.body)
-        // SDK gap: `design::mono` sized by the ladder
-        // (`design::mono(text, ladder)`), swap when feat/phone-kit lands
+        // SDK gap: `design::mono` sized by the ladder; the SDK builds it later
         .child(
             design::mono(design::short_hex(&hex(&node.key)))
                 .flex_none()
@@ -357,25 +351,8 @@ fn member_title(node: &Node, theme: &Theme) -> Div {
 /// A member's caption: its address in the data face, and `this node` on
 /// the one this app talks to.
 fn member_address(view: &Nodes, node: &Node, theme: &Theme) -> Div {
-    // SDK gap: the row's caption (`design::row_caption`), swap when feat/phone-kit lands
-    div()
+    design::row_caption(view.address_line(node), &LADDER, theme)
         .font_family(design::fonts::FAMILY_MONO)
-        .text_type(LADDER.caption)
-        .text_color(theme.muted)
-        .truncate()
-        .child(view.address_line(node))
-}
-
-/// A row's title over its caption, taking the room the row leaves.
-fn row_lines(title: impl IntoElement, caption: impl IntoElement) -> Div {
-    div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .gap(ROW_LINES_GAP)
-        .child(title)
-        .child(caption)
 }
 
 /// The vote, for a reader who votes: the motions that wait, the scheduled
@@ -403,7 +380,16 @@ fn waiting(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Vec<AnyEleme
     let voting = &view.voting;
     if let Some(refusal) = voting.motions.failed() {
         let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.read_motions(cx));
-        return vec![refused("nodes-motions", &refusal.message, theme, retry).into_any_element()];
+        return vec![
+            design::refused(
+                "nodes-motions",
+                refusal.message.clone(),
+                &LADDER,
+                theme,
+                retry,
+            )
+            .into_any_element(),
+        ];
     }
     let Some(motions) = voting.motions.ready() else {
         let reading = quiet("nodes-motions-loading", words::READING_MOTIONS, theme);
@@ -469,7 +455,16 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Vec<AnyEle
     let voting = &view.voting;
     if let Some(refusal) = voting.scheduled.failed() {
         let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.read_programs(cx));
-        return vec![refused("nodes-scheduled", &refusal.message, theme, retry).into_any_element()];
+        return vec![
+            design::refused(
+                "nodes-scheduled",
+                refusal.message.clone(),
+                &LADDER,
+                theme,
+                retry,
+            )
+            .into_any_element(),
+        ];
     }
     let (Some(schedule), Some(ahead)) = (voting.scheduled.ready(), view.scheduled_ahead()) else {
         let reading = quiet("nodes-scheduled-loading", words::READING_SCHEDULE, theme);
@@ -525,15 +520,10 @@ fn vote_row(
     theme: &Theme,
 ) -> Stateful<Div> {
     let title = div().text_type(LADDER.body).truncate().child(title);
-    // SDK gap: the row's caption (`design::row_caption`), swap when feat/phone-kit lands
-    let caption = div()
-        .text_type(LADDER.caption)
-        .text_color(theme.muted)
-        .truncate()
-        .child(caption);
+    let caption = design::row_caption(caption, &LADDER, theme);
     design::row(id, &LADDER, theme)
-        .min_h(ROW_TALL)
-        .child(row_lines(title, caption))
+        .min_h(LADDER.row_tall)
+        .child(design::row_words(title).child(caption))
         .child(div().flex().items_center().gap(space::SM).child(tail))
 }
 

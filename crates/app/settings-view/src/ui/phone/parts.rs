@@ -1,18 +1,13 @@
-//! Expo `src/kit/Row.tsx`, `src/kit/Field.tsx` and `src/kit/States.tsx`:
-//! the kit's pieces both phone files draw. They draw only what they are
-//! handed; none reads the state or writes. The ones marked "SDK gap" are
-//! every view's, and come to the SDK in one PR; until then they live here
-//! as they are.
+//! The pieces both phone files draw that are this view's own, beside the
+//! SDK's kit (`design`). They draw only what they are handed; none reads
+//! the state or writes. The ones marked "SDK gap" are the kit's still to
+//! come.
 use view::design::Ladder;
 use view::prelude::*;
 use view::{Div, ElementId, FontWeight, Stateful, Svg};
 
 use crate::state::Form;
 use crate::words;
-
-// SDK gap: the row's title over caption, swap when feat/phone-kit lands
-/// The room between a row's title and its caption (Expo `src/kit/Row.tsx:58`).
-const TITLE_GAP: Pixels = px(1.);
 
 /// A column of a pane or a sheet, its children edge to edge.
 pub(super) fn column(id: impl Into<ElementId>) -> Stateful<Div> {
@@ -44,7 +39,7 @@ pub(super) fn problem_of(form: &Form, empty: &str) -> Option<String> {
         .map(|problem| words::problem_text(problem, empty))
 }
 
-// SDK gap: quiet at the ladder's sizes, swap when feat/phone-kit lands
+// SDK gap: `design::quiet` at the ladder's sizes; the SDK builds it later
 /// One muted line standing for a pane's content: a help line, a wait, a
 /// note (the Expo kit's `Quiet`, `src/kit/States.tsx:40`).
 pub(super) fn quiet(
@@ -70,37 +65,7 @@ pub(super) fn note(text: impl Into<SharedString>, tone: Hsla, ladder: &Ladder) -
         .child(text.into())
 }
 
-// SDK gap: the row's title over caption, swap when feat/phone-kit lands
-/// A row's words (the Expo kit's `Row`): the title on one line, in `tone`,
-/// the caption under it.
-pub(super) fn title_and_caption(title: &str, tone: Hsla, caption: Div, ladder: &Ladder) -> Div {
-    div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .gap(TITLE_GAP)
-        .child(
-            div()
-                .truncate()
-                .text_type(ladder.body)
-                .text_color(tone)
-                .child(title.to_owned()),
-        )
-        .child(caption)
-}
-
-// SDK gap: the row's title over caption, swap when feat/phone-kit lands
-/// The muted line under a row's title.
-pub(super) fn caption(text: impl Into<SharedString>, ladder: &Ladder, theme: &Theme) -> Div {
-    div()
-        .truncate()
-        .text_type(ladder.caption)
-        .text_color(theme.muted)
-        .child(text.into())
-}
-
-// SDK gap: mono at the ladder's sizes, swap when feat/phone-kit lands
+// SDK gap: `design::mono` at the ladder's sizes; the SDK builds it later
 /// A caption in the data face: a key, an account number.
 pub(super) fn mono(text: impl Into<SharedString>, ladder: &Ladder, theme: &Theme) -> Div {
     div()
@@ -108,12 +73,6 @@ pub(super) fn mono(text: impl Into<SharedString>, ladder: &Ladder, theme: &Theme
         .text_type(ladder.caption)
         .text_color(theme.muted)
         .child(text.into())
-}
-
-// SDK gap: the row's chevron, swap when feat/phone-kit lands
-/// A row that opens something (the Expo kit's `Row` `chevron`).
-pub(super) fn chevron(ladder: &Ladder, theme: &Theme) -> Svg {
-    design::icon("chevron-right", ladder.icon_row).text_color(theme.faint)
 }
 
 /// A row's leading glyph, muted.

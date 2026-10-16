@@ -664,6 +664,22 @@ fn a_vote_says_what_it_came_to() {
         ))),
         Err("That didn’t go through: not confirmed".into())
     );
+    // a node's own code refuses the frame: it did not go through
+    assert_eq!(
+        said(Err(refusal(
+            "bad_signature",
+            "The frame's signature does not verify."
+        ))),
+        Err("That didn’t go through: The frame's signature does not verify.".into())
+    );
+    // the node failed with the frame in hand: it may have run
+    assert_eq!(
+        said(Err(refusal(methods::refusal::NODE_FAILED, "the node stopped"))),
+        Err(
+            "This may have gone through: no answer came back. What you see is read again from the node."
+                .into()
+        )
+    );
     for code in [
         methods::refusal::SESSION_LOCKED,
         methods::refusal::STALE_CONNECTION,

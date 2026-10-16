@@ -6,7 +6,9 @@ mod binding;
 mod draft;
 
 pub use binding::{Click, Event, Outcome, view};
+pub(crate) use binding::{Handle, editor, press};
 pub use draft::{Draft, MentionChoice, Send, focus};
+pub(crate) use draft::{editor_id, matching_choices};
 
 use chat::{MsgRow, Op, Principal, parse_message};
 use serde::{Deserialize, Serialize};

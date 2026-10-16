@@ -4,6 +4,7 @@
 pub mod dialogs;
 pub mod menu;
 pub mod message;
+pub(crate) mod phone;
 pub mod room;
 pub mod side;
 pub mod sidebar;
@@ -13,11 +14,14 @@ pub(crate) use view::design::{badge, button, empty_state, quiet};
 use view::prelude::*;
 
 use crate::Chat;
+use crate::words;
 use view::design::Ladder;
 
-pub fn render(chat: &Chat, touch: bool, cx: &mut Context<Chat>) -> impl IntoElement {
+/// The desktop's chat: a window under a pointer (a phone draws
+/// [`phone::render`] instead).
+pub fn render(chat: &Chat, cx: &mut Context<Chat>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
-    let ladder = &design::ladder(touch);
+    let ladder = &design::POINTER;
     // A chosen message has no popup of its own (its strip sits in the
     // row), so no overlay dismisses it: the screen lets it and the copy
     // range go on Escape from anywhere in the view and on a press
@@ -46,7 +50,7 @@ pub fn render(chat: &Chat, touch: bool, cx: &mut Context<Chat>) -> impl IntoElem
         .text_size(design::text::BODY)
         // a node that hears a key or a press says what it is
         .role(Role::Group)
-        .aria_label("Chat")
+        .aria_label(words::CHAT)
         .on_key_down(escape)
         .when(chat.holds(), |screen| screen.consumes_keys(["escape"]))
         .on_any_mouse_down(press)
@@ -84,7 +88,7 @@ fn with_menu(
     // the picker is named by the host's modal layer, the one dialog the
     // audit knows is modal; its frame inside carries no dialog of its own
     let label = match mode {
-        Some(crate::Mode::Reactions) => "Add reaction",
+        Some(crate::Mode::Reactions) => words::ADD_REACTION,
         Some(crate::Mode::Profile) => "Agent profile",
         _ => "Message menu",
     };
@@ -146,21 +150,19 @@ fn connected(
             "Resize the room list",
             theme,
             cx,
-            |chat, dx| {
-                chat.layout.sidebar += dx;
-                chat.layout.clamp();
-            },
+            |chat, dx| chat.layout.drag_sidebar(dx),
         ))
         .child(room::render(chat, cx, theme, ladder));
     let details = chat.details.is_some() && chat.room.is_some();
     let thread = chat.room.as_ref().is_some_and(|room| room.thread.is_some());
+    let layout = chat.layout.clamped();
     let (pane, width) = match (details, thread) {
-        (true, _) => (side::details(chat, cx, theme, ladder), chat.layout.details),
-        (false, true) => (side::thread(chat, cx, theme, ladder), chat.layout.thread),
+        (true, _) => (side::details(chat, cx, theme, ladder), layout.details),
+        (false, true) => (side::thread(chat, cx, theme, ladder), layout.thread),
         (false, false) => return panes,
     };
     // too narrow for the room beside it: the pane covers the whole screen
-    if !chat.layout.docks(width) {
+    if !layout.docks(width) {
         return panes.child(design::over("chat-side-over", pane, theme));
     }
     let divider = match details {
@@ -169,20 +171,14 @@ fn connected(
             "Resize channel details",
             theme,
             cx,
-            |chat, dx| {
-                chat.layout.details -= dx;
-                chat.layout.clamp();
-            },
+            |chat, dx| chat.layout.drag_details(dx),
         ),
         false => design::divider(
             "chat-thread-resize",
             "Resize the thread",
             theme,
             cx,
-            |chat, dx| {
-                chat.layout.thread -= dx;
-                chat.layout.clamp();
-            },
+            |chat, dx| chat.layout.drag_thread(dx),
         ),
     };
     panes.child(divider).child(pane)

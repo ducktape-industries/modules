@@ -326,14 +326,12 @@ fn a_program_page_has_no_devices_and_no_one_to_dm() {
 fn a_refused_activity_read_is_said_quietly() {
     let mut cx = phone();
     // what a network with no activity program answers: the code and the
-    // program's bare name. Expo's core words it ("This network runs no
-    // program called activity."); here that wording is the SDK's to give
+    // program's bare name, said in full as Expo's core says it
     cx.host()
         .refuse::<Query<Activity>>("unknown_program", "activity");
     cx.simulate_click("members-row-11");
     cx.run_until_parked();
-    let line = format!("{:?}", cx.node("members-activity-refused"));
-    assert!(line.contains("\"activity\""), "{line}");
+    assert!(cx.has_text("This network runs no program called activity."));
     assert!(cx.find("members-retry").is_none(), "nothing to retry");
 }
 
@@ -575,6 +573,25 @@ fn every_chip_and_small_button_presses_44_tall_within_its_row() {
     );
     cx.simulate_click("members-row-11");
     cx.run_until_parked();
-    presses_44(&cx, "members-open-dm", 36.);
-    presses_44(&cx, "members-explorer", 36.);
+    small_presses_44(&cx, "members-open-dm");
+    small_presses_44(&cx, "members-explorer");
+}
+
+/// The kit's small button `key`: its press is 44 tall and hands back the
+/// 4 it reaches past each edge of the 36 face it holds.
+fn small_presses_44(cx: &TestAppContext, key: &str) {
+    let press = style(cx, key);
+    let kit = StyleRefinement::default()
+        .h(view::px(44.))
+        .my(view::px(-4.));
+    assert_eq!(press.size.height, kit.size.height, "{key}");
+    assert_eq!(
+        (press.margin.top, press.margin.bottom),
+        (kit.margin.top, kit.margin.bottom),
+        "{key}"
+    );
+    let face = &cx.node(key).children()[0];
+    let face = &cx.styles()[face.style().expect("a styled face")];
+    let drawn = StyleRefinement::default().h(view::px(36.));
+    assert_eq!(face.size.height, drawn.size.height, "{key}'s face");
 }

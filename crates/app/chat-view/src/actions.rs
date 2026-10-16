@@ -71,6 +71,9 @@ impl Chat {
                 .is_some_and(|menu| menu.mode == Mode::Toolbar)
     }
 
+    /// Opens the menu of the message at `seq` in `mode` and hands the keys
+    /// to what the desktop draws for it: the edit's field, the profile
+    /// card's first button, the delete's Cancel, the menu's own focus.
     pub(crate) fn open_menu(
         &mut self,
         pane: Pane,
@@ -80,17 +83,37 @@ impl Chat {
         window: &mut view::Window,
         _cx: &mut Context<Self>,
     ) {
-        if seq == 0 {
+        if !self.show_menu(pane, seq, rev, mode) {
             return;
+        }
+        match self.editing() {
+            // the edit field takes the keys as it opens: what is typed
+            // edits, and Enter saves; left in the room's composer, the
+            // typing was a new message and Enter sent it
+            Some(target) => crate::composer::focus(window, &target.key()),
+            None if mode == Mode::Profile => {
+                window.focus(crate::ui::menu::card::focus_key(self, pane, seq))
+            }
+            None => window.focus(crate::ui::menu::focus_key(pane, mode)),
+        }
+    }
+
+    /// Opens the menu of the message at `seq` in `mode`, its edit's draft
+    /// seeded and its picker fresh, and moves no keys: the surface that
+    /// draws it does. False when it does not open: no message there yet,
+    /// reactions in an archived room (said in the notice), an edit of
+    /// nothing.
+    pub(crate) fn show_menu(&mut self, pane: Pane, seq: u64, rev: u32, mode: Mode) -> bool {
+        if seq == 0 {
+            return false;
         }
         if mode == Mode::Reactions && self.room_info().is_some_and(|i| i.channel.archived) {
             self.notice = ARCHIVED_REACTIONS.into();
-            return;
+            return false;
         }
-        let mut editor = None;
         if mode == Mode::Editing {
             let Some(body) = self.edit_body(pane, seq) else {
-                return;
+                return false;
             };
             let target = Target::Edit {
                 channel: self.room_id(),
@@ -98,12 +121,10 @@ impl Chat {
                 base_rev: rev,
             };
             let choices = self.mention_choices();
-            let key = target.key();
             self.drafts
-                .entry(key.clone())
+                .entry(target.key())
                 .or_default()
                 .seed(&body, &choices);
-            editor = Some(key);
         }
         if mode == Mode::Reactions {
             self.picker = Default::default();
@@ -116,16 +137,7 @@ impl Chat {
             at: self.layout.press,
         });
         self.menu_cursor = 0;
-        match editor {
-            // the edit field takes the keys as it opens: what is typed
-            // edits, and Enter saves; left in the room's composer, the
-            // typing was a new message and Enter sent it
-            Some(key) => crate::composer::focus(window, &key),
-            None if mode == Mode::Profile => {
-                window.focus(crate::ui::menu::card::focus_key(self, pane, seq))
-            }
-            None => window.focus(crate::ui::menu::focus_key(pane, mode)),
-        }
+        true
     }
 
     pub(crate) fn close_menu(&mut self) {
@@ -161,7 +173,7 @@ impl Chat {
                 self.open_menu(pane, seq, rev, Mode::Reactions, window, cx)
             }
             Control::More => self.open_menu(pane, seq, rev, Mode::More, window, cx),
-            Control::Replies | Control::Thread => self.open_thread(seq, cx),
+            Control::Replies | Control::Thread => self.reply_in_thread(seq, cx),
         }
     }
 
@@ -249,10 +261,13 @@ impl Chat {
     /// Whether the reader may delete the message at `seq`: its author, or
     /// the channel's owner.
     pub(crate) fn may_delete(&self, pane: Pane, seq: u64) -> bool {
-        self.wrote(pane, seq)
-            || self
-                .room_info()
-                .is_some_and(|info| Some(&info.channel.owner) == self.me().as_ref())
+        self.wrote(pane, seq) || self.owns_room()
+    }
+
+    /// Whether the reader owns the open channel.
+    pub(crate) fn owns_room(&self) -> bool {
+        self.room_info()
+            .is_some_and(|info| Some(&info.channel.owner) == self.me().as_ref())
     }
 
     // ---------- writes ----------
@@ -311,10 +326,14 @@ impl Chat {
     pub(crate) fn rename(&mut self, cx: &mut Context<Self>) {
         let Some(details) = &self.details else { return };
         let name = details.name_draft.text().trim().to_owned();
-        if name.is_empty() {
+        let channel_id = self.room_id();
+        // the name it has already is no rename (Expo `details.tsx`, `rename`)
+        let unchanged = self
+            .info(&channel_id)
+            .is_some_and(|info| info.channel.name == name);
+        if name.is_empty() || unchanged {
             return;
         }
-        let channel_id = self.room_id();
         self.submit(Op::RenameChannel { channel_id, name }, cx);
     }
 
@@ -332,13 +351,16 @@ impl Chat {
         );
     }
 
+    /// The member the details' field names, if what it holds is an
+    /// account number.
+    pub(crate) fn typed_member(&self) -> Option<Principal> {
+        let typed = self.details.as_ref()?.member_draft.text();
+        Principal::parse(&typed)
+    }
+
     /// The member typed in the details pane joins the room.
     pub(crate) fn add_member(&mut self, cx: &mut Context<Self>) {
-        let typed = self
-            .details
-            .as_ref()
-            .map(|details| details.member_draft.text());
-        let Some(principal) = typed.as_deref().and_then(Principal::parse) else {
+        let Some(principal) = self.typed_member() else {
             self.notice = "A member is an account number".into();
             return;
         };
@@ -346,6 +368,25 @@ impl Chat {
             details.member_draft.reset("");
         }
         self.set_member(principal, true, cx);
+    }
+
+    /// The phone's Add sheet, from Add or the field's return: an account
+    /// number joins the room and the sheet closes; anything else leaves
+    /// the sheet open and does nothing (Expo `details.tsx`, `addTyped`).
+    pub(crate) fn add_typed(&mut self, cx: &mut Context<Self>) {
+        if self.typed_member().is_none() {
+            return;
+        }
+        self.close_details_sheet();
+        self.add_member(cx);
+    }
+
+    /// The phone's Rename sheet, from Rename or the field's return: it
+    /// closes, and the name goes as [`Chat::rename`] sends it (Expo
+    /// `details.tsx`, `rename`).
+    pub(crate) fn rename_from_sheet(&mut self, cx: &mut Context<Self>) {
+        self.close_details_sheet();
+        self.rename(cx);
     }
 
     pub(crate) fn set_member(
@@ -379,6 +420,7 @@ impl Chat {
                 self.details = Some(crate::Details {
                     name_draft: view::TextField::new(name),
                     member_draft: Default::default(),
+                    sheet: None,
                 });
             }
         }
@@ -459,14 +501,9 @@ impl Chat {
         let submit = cx.host().ask::<Submit<::chat::Chat>>(op);
         cx.land(submit, |chat, result, cx| {
             cx.notify();
-            match result {
-                Ok(Submitted::Applied { .. }) => chat.refresh(cx),
-                Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => {
-                    chat.notice = format!("That didn’t go through: {}", refusal.message)
-                }
-                Ok(Submitted::InDoubt { .. }) => {
-                    chat.notice = "No answer came back: it may have gone through.".into()
-                }
+            match design::failure(&result) {
+                None => chat.refresh(cx),
+                Some(said) => chat.notice = said,
             }
         })
         .detach();

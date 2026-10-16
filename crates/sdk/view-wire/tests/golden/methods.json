@@ -1007,7 +1007,9 @@
             "Notify",
             "Store",
             "Web",
-            "Live"
+            "Live",
+            "Camera",
+            "Microphone"
           ],
           "min_width": 480,
           "targets": [
@@ -1059,6 +1061,47 @@
     "reply": true
   },
   {
+    "kind": "host.float",
+    "request": {
+      "width": 320,
+      "height": 200,
+      "min_width": 240,
+      "min_height": 150,
+      "on_top": true
+    },
+    "reply": {
+      "floating": true,
+      "on_top": true
+    }
+  },
+  {
+    "kind": "host.float",
+    "request": {
+      "width": 320,
+      "height": 200,
+      "min_width": 240,
+      "min_height": 150,
+      "on_top": false
+    },
+    "reply": {
+      "floating": true,
+      "on_top": false
+    }
+  },
+  {
+    "kind": "host.unfloat",
+    "request": null,
+    "reply": null
+  },
+  {
+    "kind": "host.placement",
+    "request": null,
+    "reply": {
+      "floating": false,
+      "on_top": false
+    }
+  },
+  {
     "kind": "host.badge",
     "request": 3,
     "reply": null
@@ -1071,6 +1114,90 @@
   {
     "kind": "host.show",
     "request": "Account",
+    "reply": null
+  },
+  {
+    "kind": "host.show",
+    "request": "CameraSettings",
+    "reply": null
+  },
+  {
+    "kind": "host.show",
+    "request": "MicrophoneSettings",
+    "reply": null
+  },
+  {
+    "kind": "camera.devices",
+    "request": null,
+    "reply": [
+      {
+        "id": "0",
+        "name": "FaceTime HD Camera",
+        "default": true,
+        "facing": "Front"
+      },
+      {
+        "id": "1",
+        "name": "Back Camera",
+        "default": false,
+        "facing": "Back"
+      },
+      {
+        "id": "2",
+        "name": "USB Camera",
+        "default": false,
+        "facing": "External"
+      }
+    ]
+  },
+  {
+    "kind": "microphone.devices",
+    "request": null,
+    "reply": {
+      "inputs": [
+        {
+          "id": "Built-in Microphone",
+          "name": "Built-in Microphone",
+          "default": true,
+          "kind": "Other"
+        },
+        {
+          "id": "AirPods",
+          "name": "AirPods",
+          "default": false,
+          "kind": "Headphones"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "Speaker",
+          "name": "Speaker",
+          "default": true,
+          "kind": "Speaker"
+        },
+        {
+          "id": "Earpiece",
+          "name": "iPhone",
+          "default": false,
+          "kind": "Earpiece"
+        },
+        {
+          "id": "Headphones",
+          "name": "Headphones",
+          "default": false,
+          "kind": "Headphones"
+        }
+      ]
+    }
+  },
+  {
+    "kind": "microphone.chime",
+    "request": "Headphones",
+    "reply": null
+  },
+  {
+    "kind": "microphone.chime",
+    "request": null,
     "reply": null
   },
   {
