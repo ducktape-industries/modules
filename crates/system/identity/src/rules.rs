@@ -7,8 +7,8 @@ use ::program::{
 use store::{Item, Map, Set};
 
 use crate::{
-    Account, AccountNumber, Admission, Audience, CONSENT_NAMESPACE, Card, Category, Consent,
-    Control, Key, Life, Reference, Reply, Script,
+    Account, AccountNumber, Admission, CONSENT_NAMESPACE, Card, Category, Consent, Control, Key,
+    Life, Ownership, Reference, Reply, Script,
 };
 
 pub(crate) const ACCOUNTS: Map<AccountNumber, Account> = Map::new("a/");
@@ -19,7 +19,7 @@ const GENERATION: Map<Vec<u8>, u64> = Map::new("g/");
 /// ones too, so a manager's list keeps what they answered for.
 pub(crate) const MANAGED: Set<(AccountNumber, AccountNumber)> = Set::new("d/");
 const NEXT: Item<AccountNumber> = Item::new("next");
-const AUDIENCES: Map<AccountNumber, Audience> = Map::new("u/");
+const OWNERSHIPS: Map<AccountNumber, Ownership> = Map::new("u/");
 
 pub(crate) fn account(ctx: &QueryCtx, number: AccountNumber) -> Result<Account, Error> {
     ACCOUNTS
@@ -443,7 +443,7 @@ pub(crate) fn revoke(ctx: &ExecCtx, number: AccountNumber) -> Result<(), Error> 
     relive(ctx, number, |life| match life {
         Life::Active { keys } | Life::Suspended { keys } => {
             drop_keys(ctx, &keys);
-            AUDIENCES.remove(ctx, &number);
+            OWNERSHIPS.remove(ctx, &number);
             Ok(Life::Revoked)
         }
         Life::Revoked => Err(revoked(number)),
@@ -499,17 +499,17 @@ pub(crate) fn runs(
     }
 }
 
-pub(crate) fn audience(ctx: &QueryCtx, number: AccountNumber) -> Result<Audience, Error> {
+pub(crate) fn ownership(ctx: &QueryCtx, number: AccountNumber) -> Result<Ownership, Error> {
     let Control::Program { .. } = account(ctx, number)?.control else {
         return Err(not_managed(number));
     };
-    Ok(AUDIENCES.get(ctx, &number)?.unwrap_or_default())
+    Ok(OWNERSHIPS.get(ctx, &number)?.unwrap_or_default())
 }
 
-pub(crate) fn set_audience(
+pub(crate) fn set_ownership(
     ctx: &ExecCtx,
     number: AccountNumber,
-    audience: Audience,
+    ownership: Ownership,
 ) -> Result<(), Error> {
     let Control::Program { manager, life, .. } = account(ctx, number)?.control else {
         return Err(not_managed(number));
@@ -518,25 +518,17 @@ pub(crate) fn set_audience(
     if life == Life::Revoked {
         return Err(revoked(number));
     }
-    match settled(ctx, manager, audience)? {
-        Audience::Manager => AUDIENCES.remove(ctx, &number),
-        audience => AUDIENCES.put(ctx, &number, &audience),
-    }
-    Ok(())
-}
-
-fn settled(ctx: &ExecCtx, manager: AccountNumber, audience: Audience) -> Result<Audience, Error> {
-    let Audience::Accounts(mut numbers) = audience else {
-        return Ok(audience);
-    };
-    numbers.sort_unstable();
-    numbers.dedup();
-    numbers.retain(|number| *number != manager);
-    if let Some(missing) = numbers.iter().find(|number| !ACCOUNTS.has(ctx, number)) {
+    let ownership = ownership.settled(Some(manager));
+    if let Some(missing) = ownership
+        .listed()
+        .iter()
+        .find(|number| !ACCOUNTS.has(ctx, number))
+    {
         return Err(not_found(format!("account {missing}")));
     }
-    match numbers.is_empty() {
-        true => Ok(Audience::Manager),
-        false => Ok(Audience::Accounts(numbers)),
+    match ownership {
+        Ownership::Owner => OWNERSHIPS.remove(ctx, &number),
+        ownership => OWNERSHIPS.put(ctx, &number, &ownership),
     }
+    Ok(())
 }

@@ -6,7 +6,7 @@ use view::prelude::*;
 use crate::queries::Found;
 use crate::state::{Answering, Choice, Form, Problem, Section, Sheet, TTL};
 use crate::{Settings, queries, words};
-use identity::{Audience, Identity};
+use identity::{Identity, Ownership};
 
 impl Settings {
     pub(crate) fn session_changed(&mut self, session: Session, cx: &mut Context<Self>) {
@@ -188,17 +188,17 @@ impl Settings {
     }
 
     fn listed(&self, number: u64) -> Vec<u64> {
-        match self.agent(number).map(|agent| &agent.audience) {
-            Some(Audience::Accounts(numbers)) => numbers.clone(),
-            Some(Audience::Manager | Audience::Anyone) | None => Vec::new(),
+        match self.agent(number).map(|agent| &agent.ownership) {
+            Some(Ownership::Accounts(numbers)) => numbers.clone(),
+            Some(Ownership::Owner | Ownership::Anyone) | None => Vec::new(),
         }
     }
 
-    pub(crate) fn pick_audience(&mut self, number: u64, choice: Choice, cx: &mut Context<Self>) {
+    pub(crate) fn pick_ownership(&mut self, number: u64, choice: Choice, cx: &mut Context<Self>) {
         match choice {
-            Choice::Manager => self.answer(number, Audience::Manager, cx),
+            Choice::Manager => self.answer(number, Ownership::Owner, cx),
             Choice::Specific => self.open_people(number, cx),
-            Choice::Anyone => self.answer(number, Audience::Anyone, cx),
+            Choice::Anyone => self.answer(number, Ownership::Anyone, cx),
         }
     }
 
@@ -211,7 +211,7 @@ impl Settings {
         cx.notify();
     }
 
-    fn answer(&mut self, number: u64, audience: Audience, cx: &mut Context<Self>) {
+    fn answer(&mut self, number: u64, ownership: Ownership, cx: &mut Context<Self>) {
         let answering = self.answering.entry(number).or_default();
         if answering.busy() {
             return;
@@ -221,16 +221,16 @@ impl Settings {
         answering.form.problem = None;
         let unchanged = self
             .agent(number)
-            .is_some_and(|agent| agent.audience == audience);
+            .is_some_and(|agent| agent.ownership == ownership);
         if unchanged {
             cx.notify();
             return;
         }
         let from = self.sheet;
-        self.submit_audience(number, audience, |answering| &mut answering.pick, from, cx);
+        self.submit_ownership(number, ownership, |answering| &mut answering.pick, from, cx);
     }
 
-    pub(crate) fn submit_audience_person(&mut self, number: u64, cx: &mut Context<Self>) {
+    pub(crate) fn submit_listed_person(&mut self, number: u64, cx: &mut Context<Self>) {
         let Some(answering) = self.answering.get_mut(&number) else {
             let opened = Answering {
                 listing: true,
@@ -277,10 +277,10 @@ impl Settings {
             Ok(Found::Account(person)) => {
                 let mut listed = self.listed(number);
                 listed.push(person);
-                let audience = Audience::Accounts(listed);
-                return self.submit_audience(
+                let ownership = Ownership::Accounts(listed);
+                return self.submit_ownership(
                     number,
-                    audience,
+                    ownership,
                     |answering| &mut answering.form,
                     from,
                     cx,
@@ -294,7 +294,7 @@ impl Settings {
         cx.notify();
     }
 
-    pub(crate) fn remove_audience_person(
+    pub(crate) fn remove_listed_person(
         &mut self,
         number: u64,
         person: u64,
@@ -302,19 +302,19 @@ impl Settings {
     ) {
         let mut listed = self.listed(number);
         listed.retain(|listed| *listed != person);
-        let audience = Audience::Accounts(listed);
+        let ownership = Ownership::Accounts(listed);
         let from = self.sheet;
-        self.submit_audience(number, audience, |answering| &mut answering.form, from, cx);
+        self.submit_ownership(number, ownership, |answering| &mut answering.form, from, cx);
     }
 
     /// Sends whom an agent answers, pressed on sheet `from`; `which` of its
     /// forms carries the send (the choice's, or the person field's). Every
     /// change goes through here: one at a time, as dev's one form had it,
     /// so a Remove pressed while a choice is out cannot undo the choice.
-    fn submit_audience(
+    fn submit_ownership(
         &mut self,
         number: u64,
-        audience: Audience,
+        ownership: Ownership,
         which: fn(&mut Answering) -> &mut Form,
         from: Option<Sheet>,
         cx: &mut Context<Self>,
@@ -326,9 +326,9 @@ impl Settings {
         // the last change's problem goes with the next
         answering.pick.problem = None;
         answering.form.problem = None;
-        let op = identity::Op::SetAudience {
+        let op = identity::Op::SetOwnership {
             account: number,
-            audience,
+            ownership,
         };
         self.submit_agent_op(
             op,
@@ -400,7 +400,7 @@ impl Settings {
         // whom an agent answers: a change that lands takes the person typed
         // for it (dev's one form; Expo unmounts the field)
         let answered = match &op {
-            identity::Op::SetAudience { account, .. } => Some(*account),
+            identity::Op::SetOwnership { account, .. } => Some(*account),
             _ => None,
         };
         let ask = cx.host().ask::<Submit<Identity>>(op);

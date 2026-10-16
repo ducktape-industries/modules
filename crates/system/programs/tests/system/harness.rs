@@ -1,6 +1,6 @@
 //! harness on ducktape's host with the egress role bound: founding registers harness with
 //! attribution, an agent is a program account whose script calls harness and names its
-//! configuration file in files, a founder node serves the model's service and the relay, and a
+//! configuration file in files, which only its manager's account number writes, a founder node serves the model's service and the relay, and a
 //! mention in chat, the model's turn and the agent's write each land in their own block while
 //! the thread's loop waits parked; the next turn streams back through egress one event per
 //! block and grows in the thread's partial reply until the stream ends.
@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 
 const NODE: u64 = 1;
 const ADA: u64 = 11;
+const BO: u64 = 12;
 const SERVICE: &str = "ccs";
 const CONFIG: &str = "/home/Ada/agents/scout.md";
 
@@ -121,6 +122,106 @@ fn model_reply(content: Value, stop: &str) -> Vec<u8> {
     })
 }
 
+fn configured(config: &harness::Config) -> Vec<files::Change> {
+    vec![
+        files::Change::Put {
+            path: CONFIG.into(),
+            exec: false,
+            meta: Default::default(),
+            content: files::Content::Inline(config.write().into_bytes()),
+        },
+        files::Change::SetOwnership {
+            path: CONFIG.into(),
+            write: Some(files::Ownership::Owner),
+        },
+    ]
+}
+
+#[test]
+fn an_agents_configuration_is_its_managers_to_change_whoever_takes_the_managers_name() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        let mut net = Net::found_with(context, dir.path(), apps(), Vec::new(), MEMBER_CAP).await;
+        let named = |name: &str| identity::Op::Create {
+            name: name.into(),
+            scheme: Scheme::Ed25519,
+        };
+        let ada: u64 = abi::decode(
+            &net.apply(&public(ADA), identity::PROGRAM, &named("Ada"))
+                .await,
+        )
+        .unwrap();
+        let bo: u64 = abi::decode(
+            &net.apply(&public(BO), identity::PROGRAM, &named("Bo"))
+                .await,
+        )
+        .unwrap();
+        let config = harness::Config {
+            model: "claude-test".into(),
+            max_tokens: 512,
+            wait: None,
+            system: "Mine.".into(),
+        };
+        let commit = |base, changes| files::Op::Commit {
+            base,
+            message: "configure Scout".into(),
+            changes,
+        };
+        let first: BlobId = abi::decode(
+            &net.apply(
+                &public(ADA),
+                files::PROGRAM,
+                &commit(None, configured(&config)),
+            )
+            .await,
+        )
+        .unwrap();
+        let asked = files::Query::Ownership {
+            path: CONFIG.into(),
+            at: None,
+        };
+        let files::Reply::Ownership(owned) = net.ask(files::PROGRAM, &asked).await else {
+            panic!()
+        };
+        assert_eq!(
+            owned.writers,
+            files::Writers::Listed {
+                path: CONFIG.into(),
+                creator: Some(ada),
+                write: files::Ownership::Owner,
+            }
+        );
+
+        let rename = |account, name: &str| identity::Op::SetName {
+            account,
+            name: name.into(),
+        };
+        net.apply(&public(ADA), identity::PROGRAM, &rename(ada, "Ada L"))
+            .await;
+        net.apply(&public(BO), identity::PROGRAM, &rename(bo, "Ada"))
+            .await;
+        let theirs = commit(
+            Some(first),
+            vec![files::Change::Put {
+                path: CONFIG.into(),
+                exec: false,
+                meta: Default::default(),
+                content: files::Content::Inline(b"theirs".to_vec()),
+            }],
+        );
+        assert_eq!(
+            net.refuse(&public(BO), files::PROGRAM, &theirs).await,
+            reason::UNAUTHORIZED
+        );
+        net.apply(
+            &public(ADA),
+            files::PROGRAM,
+            &commit(Some(first), configured(&config)),
+        )
+        .await;
+    });
+}
+
 #[test]
 fn a_mentioned_agent_answers_through_elected_nodes_and_writes_as_itself() {
     deterministic::Runner::default().start(|context| async move {
@@ -169,12 +270,7 @@ fn a_mentioned_agent_answers_through_elected_nodes_and_writes_as_itself() {
         let commit = files::Op::Commit {
             base: None,
             message: "configure Scout".into(),
-            changes: vec![files::Change::Put {
-                path: CONFIG.into(),
-                exec: false,
-                meta: Default::default(),
-                content: files::Content::Inline(config.write().into_bytes()),
-            }],
+            changes: configured(&config),
         };
         let snapshot: BlobId =
             abi::decode(&net.apply(&public(ADA), files::PROGRAM, &commit).await).unwrap();

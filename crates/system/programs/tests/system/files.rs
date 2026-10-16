@@ -1,11 +1,14 @@
 //! files founded on ducktape's host: chunks staged as kernel blobs, referenced by a
 //! later frame of the same block, read back, and dropped with a refused commit; an
-//! account writes its own home, named after it in identity, and is refused another's.
+//! account writes its own home, named after it in identity, and is refused another's;
+//! a write list set on a folder decides who writes under it.
 use super::*;
 
-use files::{BlobId, CHUNK_SIZE, Change, Content, Op, Query, Reply};
+use files::{BlobId, CHUNK_SIZE, Change, Content, Op, Ownership, Query, Reply, Writers};
 
 const ADA_KEY: u64 = 11;
+const BO_KEY: u64 = 12;
+const CY_KEY: u64 = 13;
 
 fn apps() -> Vec<Founding> {
     vec![founding(files::PROGRAM, &program("files"))]
@@ -143,6 +146,70 @@ fn files_keeps_its_bytes_as_kernel_blobs_and_its_refs_in_state() {
                 &ada,
                 files::PROGRAM,
                 &commit(None, vec![put("/home/Bo/notes", b"theirs")])
+            )
+            .await,
+            reason::UNAUTHORIZED
+        );
+    });
+}
+
+#[test]
+fn a_write_list_on_a_shared_folder_lets_its_creator_and_the_listed_accounts_write_under_it() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        let mut net = Net::found_with(context, dir.path(), apps(), Vec::new(), MEMBER_CAP).await;
+        let mut numbers = Vec::new();
+        for (key, name) in [(ADA_KEY, "Ada"), (BO_KEY, "Bo"), (CY_KEY, "Cy")] {
+            let create = identity::Op::Create {
+                name: name.into(),
+                scheme: Scheme::Ed25519,
+            };
+            let number: u64 =
+                abi::decode(&net.apply(&public(key), identity::PROGRAM, &create).await).unwrap();
+            numbers.push(number);
+        }
+        let [ada, bo, _] = numbers[..] else { panic!() };
+        let team = Change::SetOwnership {
+            path: "/shared/team".into(),
+            write: Some(Ownership::Accounts(vec![bo])),
+        };
+        let first: BlobId = abi::decode(
+            &net.apply(
+                &public(ADA_KEY),
+                files::PROGRAM,
+                &commit(None, vec![put("/shared/team/plan", b"ada"), team]),
+            )
+            .await,
+        )
+        .unwrap();
+        let asked = Query::Ownership {
+            path: "/shared/team/plan".into(),
+            at: None,
+        };
+        let Reply::Ownership(owned) = net.ask(files::PROGRAM, &asked).await else {
+            panic!()
+        };
+        assert_eq!(owned.creator, Some(ada));
+        assert_eq!(
+            owned.writers,
+            Writers::Listed {
+                path: "/shared/team".into(),
+                creator: Some(ada),
+                write: Ownership::Accounts(vec![bo]),
+            }
+        );
+        net.apply(
+            &public(BO_KEY),
+            files::PROGRAM,
+            &commit(Some(first), vec![put("/shared/team/plan", b"bo")]),
+        )
+        .await;
+        assert_eq!(net.read("/shared/team/plan", 0, 100).await.bytes, b"bo");
+        assert_eq!(
+            net.refuse(
+                &public(CY_KEY),
+                files::PROGRAM,
+                &commit(None, vec![put("/shared/team/cy", b"cy")])
             )
             .await,
             reason::UNAUTHORIZED

@@ -1,5 +1,6 @@
 //! The `files` program: duckfs, the network's versioned filesystem. Its wire types live
-//! here; `program.rs` dispatches them, `ops.rs`/`commit.rs` write, `queries.rs` reads.
+//! here; `program.rs` dispatches them, `ops.rs`/`commit.rs` write, `queries.rs` reads, and
+//! `paths.rs` decides who writes a path, by its write list or the home and `/shared/` rule.
 mod commit;
 mod cursor;
 mod objects;
@@ -16,8 +17,8 @@ use std::collections::BTreeMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-pub use ::program::{BlobId, Principal};
-pub use objects::{CHUNK, FILE, FileObj, SNAPSHOT, SnapshotObj, TREE, Tree};
+pub use ::program::{AccountNumber, BlobId, Ownership, Principal};
+pub use objects::{Access, CHUNK, FILE, FileObj, SNAPSHOT, SnapshotObj, TREE, Tree};
 pub use program::Files;
 pub use store::{PageRequest, PageResponse};
 
@@ -66,6 +67,10 @@ pub enum Change {
         path: String,
         target: String,
     },
+    SetOwnership {
+        path: String,
+        write: Option<Ownership>,
+    },
 }
 
 impl Change {
@@ -74,7 +79,8 @@ impl Change {
             Change::Put { path, .. }
             | Change::Mkdir { path }
             | Change::Remove { path }
-            | Change::Symlink { path, .. } => vec![path],
+            | Change::Symlink { path, .. }
+            | Change::SetOwnership { path, .. } => vec![path],
             Change::Move { from, to } => vec![from, to],
         }
     }
@@ -159,6 +165,26 @@ pub struct DiffEntry {
     pub kind: DiffKind,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Writers {
+    Listed {
+        path: String,
+        creator: Option<AccountNumber>,
+        write: Ownership,
+    },
+    Home(String),
+    Shared,
+    Chain,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct PathOwnership {
+    pub snapshot: Option<BlobId>,
+    pub creator: Option<AccountNumber>,
+    pub write: Option<Ownership>,
+    pub writers: Writers,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
 #[ask(Files)]
 pub enum Query {
@@ -219,6 +245,9 @@ pub enum Query {
     Pin { name: String },
     #[ask(Reply::Held(Vec<bool>))]
     Held { chunks: Vec<BlobId> },
+    #[ask(Reply::Ownership(crate::PathOwnership))]
+    #[reads(state::HEAD, state::HISTORY, state::SNAPSHOTS)]
+    Ownership { path: String, at: Option<BlobId> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -243,6 +272,7 @@ pub enum Reply {
     Pins(PageResponse<PinRow>),
     Pin(Option<PinRow>),
     Held(Vec<bool>),
+    Ownership(PathOwnership),
 }
 
 pub fn describe(op: &Op) -> describe::Description {
@@ -267,6 +297,7 @@ pub fn describe(op: &Op) -> describe::Description {
                 field("message", Value::text(message)),
                 field("paths", Value::List(paths)),
             ];
+            fields.extend(changes.iter().filter_map(write_list));
             if let Some(base) = base {
                 fields.push(field("base", hash(base)));
             }
@@ -279,6 +310,28 @@ pub fn describe(op: &Op) -> describe::Description {
         Op::Unpin { name } => (format!("Unpin {name}"), Vec::new()),
     };
     describe::Description { title, fields }
+}
+
+fn write_list(change: &Change) -> Option<describe::Field> {
+    use describe::{Value, field};
+    let Change::SetOwnership { path, write } = change else {
+        return None;
+    };
+    let creator = || Value::text("its creator");
+    let who = match write {
+        None => Value::text("no list"),
+        Some(Ownership::Owner) => creator(),
+        Some(Ownership::Accounts(listed)) => Value::List(
+            std::iter::once(creator())
+                .chain(listed.iter().copied().map(Value::Account))
+                .collect(),
+        ),
+        Some(Ownership::Anyone) => Value::text("any account"),
+    };
+    Some(field(
+        "write list",
+        Value::List(vec![Value::text(path), who]),
+    ))
 }
 
 describe::export!(Op, describe);
