@@ -7,6 +7,7 @@ use super::timeline;
 use crate::Chat;
 use crate::ui::room;
 use crate::ui::{button, empty_state};
+use crate::words;
 use view::design::Ladder;
 
 pub fn thread(
@@ -45,7 +46,7 @@ pub fn thread(
                         .font_weight(view::FontWeight::SEMIBOLD)
                         .role(Role::Heading)
                         .aria_level(2)
-                        .child("Thread"),
+                        .child(words::THREAD),
                 )
                 .child(button(
                     "chat-thread-close",
@@ -76,7 +77,7 @@ pub fn thread(
             pane = pane.child(div().p_3().child(room::composer(
                 chat,
                 target,
-                "Reply in thread",
+                words::REPLY_IN_THREAD,
                 chat.session.connected && !thread_state.replies.is_loading(),
                 cx,
             )));
@@ -122,7 +123,7 @@ pub fn details(
             .child(rule(theme))
             .child(section("People", theme)),
         false => pane
-            .child(details_header("Channel details", cx, theme, ladder))
+            .child(details_header(words::CHANNEL_DETAILS, cx, theme, ladder))
             .child(rule(theme))
             .children(name_section(
                 &details.name_draft,
@@ -132,7 +133,7 @@ pub fn details(
                 ladder,
             ))
             .child(rule(theme))
-            .child(section("Members", theme))
+            .child(section(words::MEMBERS, theme))
             .children(member_adder(&details.member_draft, cx, theme, ladder)),
     };
     pane.children(members(chat, !dm, cx, theme))
@@ -182,8 +183,8 @@ fn name_section(
         chat.set_archived(!archived, cx);
     });
     let archive_label = match archived {
-        true => "Unarchive channel",
-        false => "Archive channel",
+        true => words::UNARCHIVE_CHANNEL,
+        false => words::ARCHIVE_CHANNEL,
     };
     vec![
         section("Name", theme).into_any_element(),
@@ -266,7 +267,7 @@ fn members(chat: &Chat, removable: bool, cx: &mut Context<Chat>, theme: &Theme) 
             .id("chat-details-no-members")
             .text_size(design::text::CAPTION)
             .text_color(theme.faint)
-            .child("No members added. An open channel needs none.");
+            .child(words::NO_MEMBERS);
         return vec![none.into_any_element()];
     }
     let mut rows = Vec::new();

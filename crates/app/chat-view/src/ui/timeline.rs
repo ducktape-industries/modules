@@ -1,51 +1,19 @@
 //! Native GPUI message lists. The room and thread use native variable-height lists;
 //! callbacks still call the root view's existing message operations.
 
-use std::collections::HashMap;
-use std::ops::Range;
 use std::rc::Rc;
 
 use view::list as gpui_list;
 use view::prelude::*;
 
-use crate::message::{ChatMessage, new_day, unread_seq};
+use crate::listing::{Listing, listing};
+use crate::message::{ChatMessage, new_day};
 use crate::ui::room::selection_bar;
 use crate::ui::{message, quiet};
-use crate::{Chat, Pane, Shape};
+use crate::words;
+use crate::{Chat, Pane};
 use view::design::Ladder;
 use view::{Div, Stateful};
-
-pub(crate) const OVERDRAW: f32 = 600.;
-
-impl Shape {
-    fn of(chat: &Chat, pane: Pane) -> Self {
-        let landed = chat.room.as_ref().is_some_and(|room| room.landed);
-        match (pane, landed) {
-            (Pane::Thread, _) => Self::Thread,
-            (Pane::Timeline, true) => Self::Landed,
-            (Pane::Timeline, false) => Self::Tail,
-        }
-    }
-    pub(crate) fn id(self) -> &'static str {
-        match self {
-            Self::Tail => "chat-message-rows",
-            Self::Landed => "chat-landed-rows",
-            Self::Thread => "chat-thread-rows",
-        }
-    }
-    fn alignment(self) -> ListAlignment {
-        match self {
-            Self::Tail => ListAlignment::Bottom,
-            Self::Landed | Self::Thread => ListAlignment::Top,
-        }
-    }
-    fn follow(self) -> FollowMode {
-        match self {
-            Self::Tail => FollowMode::Tail,
-            Self::Landed | Self::Thread => FollowMode::Normal,
-        }
-    }
-}
 
 /// A pane's messages: the room's timeline or the open thread. Around the
 /// list: paging older, the copy range's bar, the way back to the latest
@@ -113,7 +81,11 @@ fn nothing_yet(chat: &Chat, pane: Pane, theme: &Theme) -> Option<AnyElement> {
         Pane::Thread => room.thread.as_ref().map(|thread| &thread.replies),
     };
     if rows.is_some_and(|rows| matches!(rows, Loadable::Loading(_))) {
-        return Some(quiet("Loading messages…", theme).p_4().into_any_element());
+        return Some(
+            quiet(words::LOADING_MESSAGES, theme)
+                .p_4()
+                .into_any_element(),
+        );
     }
     if let Some(refusal) = rows.and_then(Loadable::failed) {
         return Some(
@@ -140,7 +112,7 @@ fn older(
         div()
             .id("chat-load-older-button")
             .text_color(theme.muted)
-            .child("Loading older messages…")
+            .child(words::LOADING_OLDER)
             .into_any_element()
     } else {
         let older = cx.listener(|chat, _: &ClickEvent, _window, cx| {
@@ -163,58 +135,6 @@ fn older(
         .p_2()
         .child(control);
     Some(row.into_any_element())
-}
-
-/// What both designs' lists share (the phone draws its own rows over it,
-/// `ui/phone/timeline.rs`): the list's state under the rows' keys, the
-/// room's intro leading them once its history is all here, whether "No
-/// replies yet" closes a thread that is only its root, and the first
-/// unread message.
-pub(crate) struct Listing {
-    pub shape: Shape,
-    pub intro: Option<String>,
-    pub bare: bool,
-    pub state: ListState,
-    pub unread: Option<u64>,
-}
-
-pub(crate) fn listing(
-    chat: &Chat,
-    pane: Pane,
-    messages: &[ChatMessage],
-    cx: &mut Context<Chat>,
-) -> Listing {
-    let room = chat.room.as_ref();
-    let shape = Shape::of(chat, pane);
-    let lead = pane == Pane::Timeline && room.is_some_and(|room| !room.has_older);
-    let intro = lead.then(|| chat.intro()).flatten();
-    let bare = pane == Pane::Thread
-        && messages.len() == 1
-        && room
-            .and_then(|room| room.thread.as_ref())
-            .is_some_and(|thread| thread.replies.ready().is_some_and(Vec::is_empty));
-    let keys = lead
-        .then_some("intro".to_owned())
-        .into_iter()
-        .chain(messages.iter().map(|message| message.id.clone()))
-        .chain(bare.then_some("no-replies".to_owned()))
-        .collect::<Vec<_>>();
-    let landing = || landing(chat, messages) + usize::from(lead);
-    let state = list_state(chat, pane, shape, &keys, landing);
-    state.set_scroll_handler(cx.listener(move |chat, event, _window, cx| {
-        chat.list_scrolled(pane, event, cx);
-    }));
-    let unread = unread_seq(
-        messages,
-        (pane == Pane::Timeline).then_some(chat.reads.boundary),
-    );
-    Listing {
-        shape,
-        intro,
-        bare,
-        state,
-        unread,
-    }
 }
 
 /// The grid the desktop's arrows walk, and where its cursor is: the active
@@ -377,22 +297,6 @@ fn rows(
     grid.flex().flex_col().flex_1().min_h(px(0.)).child(list)
 }
 
-pub(crate) fn landing(chat: &Chat, messages: &[ChatMessage]) -> usize {
-    let Some(room) = chat.room.as_ref().filter(|room| room.landed) else {
-        return 0;
-    };
-    let target = room
-        .messages
-        .ready()
-        .and_then(|rows| rows.iter().find(|row| row.seq == room.target))
-        .and_then(|row| row.thread)
-        .unwrap_or(room.target);
-    messages
-        .iter()
-        .position(|message| message.seq >= target)
-        .unwrap_or(messages.len().saturating_sub(1))
-}
-
 /// "Jump to latest", when the timeline is not at its live tail.
 fn jump_to_latest(
     chat: &Chat,
@@ -427,91 +331,6 @@ fn jump_to_latest(
             latest,
         )));
     Some(jump.into_any_element())
-}
-
-fn list_state(
-    chat: &Chat,
-    pane: Pane,
-    shape: Shape,
-    keys: &[String],
-    landing: impl FnOnce() -> usize,
-) -> ListState {
-    let mut drawn = chat.drawn(pane).borrow_mut();
-    if let Some((held, state)) = drawn.list.clone()
-        && held == shape
-    {
-        for (old, count) in splices(&drawn.keys, keys).into_iter().rev() {
-            state.splice(old, count);
-        }
-        if drawn.keys != keys {
-            drawn.keys = keys.to_vec();
-        }
-        return state;
-    }
-    let state = ListState::new(keys.len(), shape.alignment(), px(OVERDRAW));
-    state.set_follow_mode(shape.follow());
-    if shape == Shape::Landed {
-        state.scroll_to(ListOffset {
-            item_ix: landing(),
-            offset_in_item: px(0.),
-        });
-    }
-    drawn.list = Some((shape, state.clone()));
-    drawn.keys = keys.to_vec();
-    state
-}
-
-pub(crate) fn splices(old: &[String], new: &[String]) -> Vec<(Range<usize>, usize)> {
-    let mut edits = Vec::new();
-    diff(old, new, 0, &mut edits);
-    edits
-}
-
-fn common<'a>(
-    old: impl Iterator<Item = &'a String>,
-    new: impl Iterator<Item = &'a String>,
-) -> usize {
-    old.zip(new).take_while(|(a, b)| a == b).count()
-}
-
-fn diff(old: &[String], new: &[String], at: usize, edits: &mut Vec<(Range<usize>, usize)>) {
-    let prefix = common(old.iter(), new.iter());
-    let (old, new) = (&old[prefix..], &new[prefix..]);
-    let suffix = common(old.iter().rev(), new.iter().rev());
-    let (old, new) = (&old[..old.len() - suffix], &new[..new.len() - suffix]);
-    let at = at + prefix;
-    let unchanged = old.is_empty() && new.is_empty();
-    if unchanged {
-        return;
-    }
-    let Some((i, j, len)) = longest_run(old, new) else {
-        edits.push((at..at + old.len(), new.len()));
-        return;
-    };
-    diff(&old[..i], &new[..j], at, edits);
-    diff(&old[i + len..], &new[j + len..], at + i + len, edits);
-}
-
-fn longest_run(old: &[String], new: &[String]) -> Option<(usize, usize, usize)> {
-    let at: HashMap<&str, usize> = old
-        .iter()
-        .enumerate()
-        .map(|(index, key)| (key.as_str(), index))
-        .collect();
-    let mut longest: Option<(usize, usize, usize)> = None;
-    let mut j = 0;
-    while j < new.len() {
-        let Some(&i) = at.get(new[j].as_str()) else {
-            j += 1;
-            continue;
-        };
-        let len = common(old[i..].iter(), new[j..].iter());
-        if longest.is_none_or(|(_, _, most)| len > most) {
-            longest = Some((i, j, len));
-        }
-        j += len;
-    }
-    longest
 }
 
 /// The day the messages under it were posted on, between two days.
@@ -566,5 +385,5 @@ fn no_replies(theme: &Theme) -> impl IntoElement {
         .py_3()
         .text_size(design::text::SECONDARY)
         .text_color(theme.muted)
-        .child("No replies yet")
+        .child(words::NO_REPLIES)
 }

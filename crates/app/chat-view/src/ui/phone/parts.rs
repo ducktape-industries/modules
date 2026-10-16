@@ -8,28 +8,35 @@ use view::{Div, Stateful};
 
 use crate::Chat;
 use crate::session::Gate;
+use crate::words;
 use view::FontWeight;
 use view::design::Ladder;
 
+// SDK gap: the hairline token, swap when feat/phone-kit lands
 /// A hairline (mobile `src/design/theme.ts:83`, `size.hairline`).
 pub(super) const HAIRLINE: Pixels = px(1.);
+// SDK gap: `Ladder::row_tall`, swap when feat/phone-kit lands
 /// A row with a caption under its title (mobile `src/design/theme.ts:73`,
 /// `size.rowTall`).
 pub(super) const ROW_TALL: Pixels = px(56.);
+// SDK gap: the kit Notice, swap when feat/phone-kit lands
 /// The kit `Notice`'s icon (mobile `src/kit/Notice.tsx:49`).
 const NOTICE_ICON: Pixels = px(18.);
 /// A notice action's drawn height: its secondary line and `gap.xs` over
 /// and under (mobile `src/kit/Notice.tsx:60`); its press reaches `hit`.
 const NOTICE_ACTION_HEIGHT: Pixels = px(30.);
+// SDK gap: the small Button, swap when feat/phone-kit lands
 /// A small kit `Button` (mobile `src/design/theme.ts:76`, `size.small`)
 /// and its icon (mobile `src/kit/Button.tsx:75`).
 const SMALL_BUTTON: Pixels = px(36.);
 const SMALL_BUTTON_ICON: Pixels = px(16.);
 
+// SDK gap: the pressed opacity, swap when feat/phone-kit lands
 /// What a press does to a pressable the SDK's helpers do not draw: it dims
 /// while held (mobile `src/kit/platform.tsx:36`, `platform.pressed`).
 pub(super) const PRESSED: f32 = 0.6;
 
+// SDK gap: the agent avatar, swap when feat/phone-kit lands
 /// A person's round initial at `size` (the kit's `Avatar`), on the agent
 /// tint for an agent.
 pub(super) fn face(name: &str, agent: bool, size: design::Face, theme: &Theme) -> Div {
@@ -38,6 +45,7 @@ pub(super) fn face(name: &str, agent: bool, size: design::Face, theme: &Theme) -
     })
 }
 
+// SDK gap: quiet text at the ladder's sizes, swap when feat/phone-kit lands
 /// The kit `Quiet`: one muted line of secondary text, 16 in all round.
 pub(super) fn quiet(
     id: impl Into<ElementId>,
@@ -53,6 +61,7 @@ pub(super) fn quiet(
         .child(text.into())
 }
 
+// SDK gap: the kit Notice, swap when feat/phone-kit lands
 /// What a kit `Notice` says by its ground and tone.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum NoticeKind {
@@ -62,6 +71,7 @@ pub(super) enum NoticeKind {
     Quiet,
 }
 
+// SDK gap: the kit Notice, swap when feat/phone-kit lands
 /// The kit `Notice` (mobile `src/kit/Notice.tsx`): secondary words on its
 /// kind's ground, 16 in and 10 over and under, an icon before them and
 /// its one action at the right. A danger notice is an alert.
@@ -102,6 +112,7 @@ pub(super) fn notice(
         .children(action)
 }
 
+// SDK gap: the kit Notice, swap when feat/phone-kit lands
 /// A notice's action: secondary medium in the notice's tone, its press
 /// reaching to `hit`.
 pub(super) fn notice_action(
@@ -128,6 +139,7 @@ pub(super) fn notice_action(
         .into_any_element()
 }
 
+// SDK gap: the kit Refused, swap when feat/phone-kit lands
 /// The kit `Refused`: a read the node refused, its sentence verbatim in a
 /// danger notice, and Retry. The notice is `{name}-refused`, Retry
 /// `{name}-retry`.
@@ -151,6 +163,7 @@ pub(super) fn refused(
     .into_any_element()
 }
 
+// SDK gap: the small Button, swap when feat/phone-kit lands
 /// The kit's small outline `Button`: 36 tall, 12 in, secondary medium, an
 /// icon before its label; its press reaches `hit`. Drawn on the window's
 /// ground, so it reads over a list.
@@ -188,18 +201,11 @@ pub(super) fn small_button(
         )
 }
 
-/// Who may post in `channel`, as its caption and its details say it.
-pub(super) fn policy(channel: &chat::ChannelRow) -> &'static str {
-    match (channel.archived, channel.members_only()) {
-        (true, _) => "Archived",
-        (false, true) => "Members only",
-        (false, false) => "Open",
-    }
-}
-
+// SDK gap: the labelled field, swap when feat/phone-kit lands
 /// The kit `Field`: `input` (a [`design::field`]) with its label over it
 /// (caption, muted) and, where the value will not do, its problem under it
-/// in danger on a 2 edge.
+/// in danger on a 2 edge; the field itself says it is wrong and why, for
+/// assistive technology.
 pub(super) fn field(
     label: &'static str,
     input: Input,
@@ -210,7 +216,9 @@ pub(super) fn field(
     // a problem's edge is 2 (mobile `src/kit/Field.tsx:38`); the thicker
     // edge eats into the padding, so the words stay put
     let input = match problem {
-        Some(_) => input
+        Some(problem) => input
+            .invalid(view::accesskit::Invalid::True)
+            .description(problem)
             .border_2()
             .border_color(theme.danger)
             .px(design::space::LG - HAIRLINE),
@@ -276,22 +284,10 @@ pub(super) fn gate_strip(
     theme: &Theme,
     ladder: &Ladder,
 ) -> AnyElement {
-    let (kind, icon, words) = match gate {
-        Gate::Archived => (
-            NoticeKind::Warning,
-            None,
-            "This channel is archived. It keeps its history and takes no new messages.",
-        ),
-        Gate::NotMember => (
-            NoticeKind::Quiet,
-            Some("lock"),
-            "This channel is members-only and your key is not on its roster. Ask a member to add your key from Channel details.",
-        ),
-        Gate::NoAccount => (
-            NoticeKind::Quiet,
-            None,
-            "To send messages, create or join an account in Account. You can read this channel without an account.",
-        ),
+    let (kind, icon) = match gate {
+        Gate::Archived => (NoticeKind::Warning, None),
+        Gate::NotMember => (NoticeKind::Quiet, Some("lock")),
+        Gate::NoAccount => (NoticeKind::Quiet, None),
     };
     let unarchive = (gate == Gate::Archived && chat.owns_room()).then(|| {
         let unarchive = cx.listener(|chat, _: &ClickEvent, _window, cx| {
@@ -304,7 +300,7 @@ pub(super) fn gate_strip(
         "chat-room-write-refusal",
         kind,
         icon,
-        words,
+        words::gate(gate),
         unarchive,
         theme,
         ladder,

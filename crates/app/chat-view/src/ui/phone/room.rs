@@ -10,6 +10,7 @@ use view::prelude::*;
 
 use super::{composer, parts, timeline};
 use crate::composer::Target;
+use crate::words;
 use crate::{Chat, Pane, Room};
 use view::design::Ladder;
 
@@ -58,7 +59,7 @@ pub(super) fn screen(
 /// A channel's caption: how many members it seats, and who may post.
 fn caption(chat: &Chat, room: &Room) -> Option<String> {
     let channel = &chat.info(&room.id)?.channel;
-    let policy = parts::policy(channel);
+    let policy = words::policy(channel);
     let seated = room.members.ready().map_or(0, Vec::len);
     Some(match seated {
         0 => policy.to_owned(),
@@ -91,7 +92,7 @@ fn info(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> 
         None => design::icon_button(
             "chat-room-details",
             glyph,
-            "Channel details",
+            words::CHANNEL_DETAILS,
             ladder,
             theme,
             cx.listener(|chat, _: &ClickEvent, _window, cx| {

@@ -6,6 +6,7 @@ use view::prelude::*;
 use view::{Div, Stateful};
 
 use super::parts;
+use crate::words;
 use crate::{ChannelCreate, Chat};
 use view::FontWeight;
 use view::design::Ladder;
@@ -115,7 +116,7 @@ fn policy(create: &ChannelCreate, cx: &mut Context<Chat>, theme: &Theme, ladder:
         (ElementId::from("chat-new-anyone"), "Anyone".into()),
         (
             ElementId::from("chat-new-members-only"),
-            "Members only".into(),
+            words::MEMBERS_ONLY.into(),
         ),
     ];
     div()

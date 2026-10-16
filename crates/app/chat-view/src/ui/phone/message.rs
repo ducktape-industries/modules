@@ -13,6 +13,7 @@ use view::{FontWeight, HighlightStyle, UnderlineStyle};
 use super::parts::{HAIRLINE, face};
 use super::rich;
 use crate::message::ChatMessage;
+use crate::words;
 use crate::{Chat, Mode, Pane};
 use chat::Reaction;
 use view::design::Ladder;
@@ -93,7 +94,7 @@ pub(super) fn row(
         true => row.into_any_element(),
         false => {
             let chat = cx.weak_entity();
-            row.custom_action(ACTIONS, "Message actions")
+            row.custom_action(ACTIONS, words::MESSAGE_ACTIONS)
                 .on_a11y_action(
                     view::wire::Action::CustomAction,
                     move |_: Option<&view::wire::ActionData>, _: &mut Window, app: &mut App| {
@@ -188,7 +189,7 @@ fn body(
             div()
                 .italic()
                 .text_color(theme.muted)
-                .child("Message deleted")
+                .child(words::MESSAGE_DELETED)
                 .into_any_element(),
         ],
         (Some((program, code)), false) => {
@@ -220,7 +221,7 @@ fn program_line(
     cx: &mut Context<Chat>,
     theme: &Theme,
 ) -> AnyElement {
-    let open = format!("Open in {program}");
+    let open = words::open_in(program);
     let text = format!("{program} {code}  {open}");
     let link = text.len() - open.len()..text.len();
     let highlights = vec![
@@ -357,7 +358,7 @@ fn add_chip(
 ) -> AnyElement {
     let hit = design::hit(id, CHIP_WIDTH, CHIP_HEIGHT, ladder)
         .role(Role::Button)
-        .aria_label("Add reaction")
+        .aria_label(words::ADD_REACTION)
         .focusable()
         .on_click(click)
         .consumes_click();
@@ -388,7 +389,7 @@ fn thread_button(
         ladder,
     )
     .role(Role::Button)
-    .aria_label(format!("Open thread, {replies}"))
+    .aria_label(words::open_thread(&replies))
     .focusable()
     .on_click(open)
     .consumes_click();

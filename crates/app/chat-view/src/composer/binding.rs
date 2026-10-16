@@ -3,6 +3,7 @@
 //! [`Draft::handle`], which asks the host for the edits.
 
 use super::draft::{Draft, MentionChoice, matching_choices};
+use crate::words;
 use std::rc::Rc;
 use view::prelude::*;
 use view::{Div, FontWeight, wire};
@@ -337,7 +338,7 @@ pub fn view<V: 'static, F: Fn(&mut V, Event, &mut Window, &mut Context<V>) + 'st
                 .p_2()
                 .bg(cx.global::<Theme>().danger_soft)
                 .text_color(cx.global::<Theme>().danger)
-                .child(div().flex_1().child("An earlier message wasn’t sent"))
+                .child(div().flex_1().child(words::UNSENT))
                 .child(ActionButton {
                     id: ElementId::Name(format!("{key}/restore").into()),
                     label: "Restore".into(),

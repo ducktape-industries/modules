@@ -8,6 +8,7 @@ use view::prelude::*;
 
 use super::{composer, parts, timeline};
 use crate::composer::Target;
+use crate::words;
 use crate::{Chat, Pane, Room};
 use view::design::Ladder;
 
@@ -19,7 +20,7 @@ pub(super) fn screen(
     theme: &Theme,
     ladder: &Ladder,
 ) -> AnyElement {
-    let page = design::page("chat-thread-page", "Thread", Some(back), ladder, theme);
+    let page = design::page("chat-thread-page", words::THREAD, Some(back), ladder, theme);
     let page = match chat.info(&room.id) {
         Some(info) => page.caption(format!("#{}", info.channel.name)),
         None => page,
@@ -36,7 +37,7 @@ pub(super) fn screen(
                 channel: room.id.clone(),
                 thread: Some(root),
             },
-            "Reply in thread",
+            words::REPLY_IN_THREAD,
             cx,
             theme,
             ladder,

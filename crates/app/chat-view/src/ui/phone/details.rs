@@ -8,6 +8,7 @@ use view::prelude::*;
 use view::{Div, Stateful};
 
 use super::parts::{self, ROW_TALL, face, quiet};
+use crate::words;
 use crate::{Chat, Details, DetailsSheet, Room};
 use chat::view::Names;
 use chat::{ChannelInfo, Principal};
@@ -28,12 +29,12 @@ pub(super) fn screen(
 ) -> AnyElement {
     let page = design::page(
         "chat-details-page",
-        "Channel details",
+        words::CHANNEL_DETAILS,
         Some(back),
         ladder,
         theme,
     );
-    let (Some(info), Some(details)) = (chat.info(&room.id), chat.details.as_ref()) else {
+    let (Some(info), true) = (chat.info(&room.id), chat.details.is_some()) else {
         return page
             .child(quiet(
                 "chat-details-loading",
@@ -56,14 +57,13 @@ pub(super) fn screen(
     page.caption(format!("#{}", info.channel.name))
         .children(parts::room_notice(chat, cx, theme, ladder))
         .child(body)
-        .children(sheet(chat, details, cx, theme, ladder))
         .into_any_element()
 }
 
 /// The name, then who may post, when it was made and by whom.
 fn head(chat: &Chat, info: &ChannelInfo, theme: &Theme, ladder: &Ladder) -> Stateful<Div> {
     let channel = &info.channel;
-    let policy = parts::policy(channel);
+    let policy = words::policy(channel);
     let owner = chat.names.ready().map_or_else(
         || Names::empty().member(&channel.owner),
         |names| names.member(&channel.owner),
@@ -104,8 +104,14 @@ fn members(
     let roster = chat.roster();
     let count = (!roster.is_empty()).then_some(roster.len());
     let mut rows = vec![
-        design::section_head("chat-details-members-head", "Members", count, ladder, theme)
-            .into_any_element(),
+        design::section_head(
+            "chat-details-members-head",
+            words::MEMBERS,
+            count,
+            ladder,
+            theme,
+        )
+        .into_any_element(),
     ];
     if room.members.ready().is_none() {
         rows.push(
@@ -119,13 +125,7 @@ fn members(
         );
     } else if roster.is_empty() {
         rows.push(
-            quiet(
-                "chat-details-no-members",
-                "No members added. An open channel needs none.",
-                theme,
-                ladder,
-            )
-            .into_any_element(),
+            quiet("chat-details-no-members", words::NO_MEMBERS, theme, ladder).into_any_element(),
         );
     }
     let owner = chat.owns_room();
@@ -136,11 +136,11 @@ fn members(
     );
     if owner {
         let add = cx.listener(|chat, _: &ClickEvent, _window, cx| {
-            open_sheet(chat, DetailsSheet::Add);
+            chat.open_details_sheet(DetailsSheet::Add);
             cx.notify();
         });
         rows.push(
-            action_row("chat-details-add", "plus", ladder, theme)
+            action_row("chat-details-add", "plus", theme, ladder)
                 .on_click(add)
                 .child(
                     div()
@@ -211,7 +211,7 @@ fn member_row(
         .when(agent, |row| {
             row.child(design::badge(
                 format!("{id}-agent"),
-                "Agent",
+                words::AGENT,
                 ladder,
                 theme.agent,
                 theme.agent_soft,
@@ -222,7 +222,7 @@ fn member_row(
                 .aria_label(name)
                 .focusable()
                 .on_click(cx.listener(move |chat, _: &ClickEvent, _window, cx| {
-                    open_sheet(chat, DetailsSheet::Remove(account));
+                    chat.open_details_sheet(DetailsSheet::Remove(account));
                     cx.notify();
                 }))
         })
@@ -241,7 +241,7 @@ fn owner_actions(
         return Vec::new();
     }
     let rename = cx.listener(|chat, _: &ClickEvent, _window, cx| {
-        open_sheet(chat, DetailsSheet::Rename);
+        chat.open_details_sheet(DetailsSheet::Rename);
         cx.notify();
     });
     let archived = info.channel.archived;
@@ -252,12 +252,12 @@ fn owner_actions(
     let (icon, title, caption) = match archived {
         true => (
             "archive-restore",
-            "Unarchive channel",
+            words::UNARCHIVE_CHANNEL,
             "It takes messages again",
         ),
         false => (
             "archive",
-            "Archive channel",
+            words::ARCHIVE_CHANNEL,
             "Keeps history, takes no new messages",
         ),
     };
@@ -270,7 +270,7 @@ fn owner_actions(
             theme,
         )
         .into_any_element(),
-        action_row("chat-details-rename", "pencil", ladder, theme)
+        action_row("chat-details-rename", "pencil", theme, ladder)
             .on_click(rename)
             .child(
                 div()
@@ -278,11 +278,14 @@ fn owner_actions(
                     .text_type(ladder.body)
                     .child("Rename channel"),
             )
+            // SDK gap: the row's chevron, swap when feat/phone-kit lands
             .child(design::icon("chevron-right", ladder.icon_row).text_color(theme.faint))
             .into_any_element(),
-        action_row("chat-details-archive", icon, ladder, theme)
+        action_row("chat-details-archive", icon, theme, ladder)
             .min_h(ROW_TALL)
             .on_click(archive)
+            // SDK gap: the row's title over its caption, swap when
+            // feat/phone-kit lands
             .child(
                 div()
                     .flex_1()
@@ -304,8 +307,8 @@ fn owner_actions(
 fn action_row(
     id: &'static str,
     icon: &'static str,
-    ladder: &Ladder,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Stateful<Div> {
     design::row(id, ladder, theme)
         .role(Role::Button)
@@ -315,34 +318,14 @@ fn action_row(
         ))
 }
 
-/// Opens a sheet over the page, its field fresh.
-fn open_sheet(chat: &mut Chat, sheet: DetailsSheet) {
-    let name = chat
-        .room_info()
-        .map(|info| info.channel.name.clone())
-        .unwrap_or_default();
-    if let Some(details) = &mut chat.details {
-        details.member_draft.reset("");
-        details.name_draft.reset(name);
-        details.sheet = Some(sheet);
-    }
-}
-
-/// Closes the open sheet.
-fn shut(chat: &mut Chat) {
-    if let Some(details) = &mut chat.details {
-        details.sheet = None;
-    }
-}
-
 /// The sheet open over the page, if any.
-fn sheet(
+pub(super) fn sheet(
     chat: &Chat,
-    details: &Details,
     cx: &mut Context<Chat>,
     theme: &Theme,
     ladder: &Ladder,
 ) -> Option<AnyElement> {
+    let details = chat.details.as_ref()?;
     let which = details.sheet?;
     let empty = Names::empty();
     let names = chat.names.ready().unwrap_or(&empty);
@@ -357,7 +340,7 @@ fn sheet(
         ),
         DetailsSheet::Remove(account) => {
             let remove = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
-                shut(chat);
+                chat.close_details_sheet();
                 cx.notify();
                 chat.set_member(Principal::Account(account), false, cx);
             });
@@ -377,7 +360,7 @@ fn sheet(
         }
     };
     let close = cx.listener(|chat, _: &(), _window, cx| {
-        shut(chat);
+        chat.close_details_sheet();
         cx.notify();
     });
     let head = design::sheet_head("chat-details-sheet-head", theme).child(
@@ -404,12 +387,12 @@ fn add_body(
     ladder: &Ladder,
 ) -> Vec<AnyElement> {
     let add = cx.listener(|chat, _: &ClickEvent, _window, cx| {
-        shut(chat);
+        chat.close_details_sheet();
         cx.notify();
         chat.add_member(cx);
     });
     let input = Input::new(
-        "chat-details-member-input",
+        "chat-details-add/account",
         &details.member_draft,
         "Account number",
     )
@@ -428,7 +411,7 @@ fn add_body(
         .p(design::space::BLOCK)
         .child(field)
         .child(
-            design::button("chat-details-add-member", "Add", ladder, theme, add)
+            design::button("chat-details-add/submit", "Add", ladder, theme, add)
                 .kind(design::Kind::Primary),
         );
     let seated: Vec<Principal> = chat
@@ -442,7 +425,7 @@ fn add_body(
         .take(OFFERED)
         .map(|account| {
             let pick = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
-                shut(chat);
+                chat.close_details_sheet();
                 cx.notify();
                 chat.set_member(Principal::Account(account), true, cx);
             });
@@ -460,7 +443,7 @@ fn add_body(
                 div()
                     .text_type(ladder.caption)
                     .text_color(theme.muted)
-                    .child(format!("account {account}")),
+                    .child(words::account(account)),
             )
             .into_any_element()
         });
@@ -477,11 +460,11 @@ fn rename_body(
     ladder: &Ladder,
 ) -> Vec<AnyElement> {
     let rename = cx.listener(|chat, _: &ClickEvent, _window, cx| {
-        shut(chat);
+        chat.close_details_sheet();
         cx.notify();
         chat.rename(cx)
     });
-    let input = Input::new("chat-details-name-input", &details.name_draft, "Name")
+    let input = Input::new("chat-details-rename/name", &details.name_draft, "Name")
         .autocorrect(false)
         .autocapitalize(Autocapitalize::None);
     let input = design::field(input, ladder, theme);
@@ -494,7 +477,7 @@ fn rename_body(
             .child(parts::field("Name", input, None, theme, ladder))
             .child(
                 design::button(
-                    "chat-details-rename-button",
+                    "chat-details-rename/submit",
                     "Rename",
                     ladder,
                     theme,

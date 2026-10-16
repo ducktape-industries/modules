@@ -7,6 +7,7 @@
 use view::Div;
 use view::prelude::*;
 
+use crate::words;
 use crate::{Chat, Mode, emoji};
 use view::FontWeight;
 use view::design::Ladder;
@@ -66,7 +67,7 @@ pub(super) fn sheet(
         )
         .children(body);
     Some(
-        design::sheet("chat-picker-sheet", "Add reaction", ladder, theme)
+        design::sheet("chat-picker-sheet", words::ADD_REACTION, ladder, theme)
             .detents(DETENTS)
             .on_dismiss(close)
             .child(picker)
@@ -76,14 +77,18 @@ pub(super) fn sheet(
 
 /// The search field: a hairline box, its magnifier, the words.
 fn field(chat: &Chat, theme: &Theme, ladder: &Ladder) -> Div {
-    let input = Input::new("chat-reaction-search", &chat.picker.query, "Search emoji")
-        .autocorrect(false)
-        .autocapitalize(Autocapitalize::None)
-        .flex_1()
-        .min_w(px(0.))
-        .text_type(ladder.body)
-        .text_color(theme.foreground)
-        .placeholder("Search emoji");
+    let input = Input::new(
+        "chat-reaction-search",
+        &chat.picker.query,
+        words::SEARCH_EMOJI,
+    )
+    .autocorrect(false)
+    .autocapitalize(Autocapitalize::None)
+    .flex_1()
+    .min_w(px(0.))
+    .text_type(ladder.body)
+    .text_color(theme.foreground)
+    .placeholder(words::SEARCH_EMOJI);
     div()
         .min_h(ladder.control)
         .flex()
@@ -114,7 +119,7 @@ fn browse(
         .take(emoji::PER_TAB)
         .map(|(emoji, _)| (*emoji).to_owned());
     vec![
-        caption("Frequently used", theme, ladder),
+        caption(words::FREQUENTLY_USED, theme, ladder),
         grid(chat, "frequent", frequent, seq, cx, theme).into_any_element(),
         tabs(tab, cx, theme, ladder),
         caption(category.name, theme, ladder),
@@ -138,7 +143,7 @@ fn results(
         .map(str::to_owned)
         .collect();
     let count = match found.len() {
-        0 => "No emoji match".to_owned(),
+        0 => words::NO_EMOJI_MATCH.to_owned(),
         found => format!("Results · {found}"),
     };
     vec![
@@ -218,13 +223,9 @@ fn reacted(chat: &Chat, seq: u64, emoji: &str) -> bool {
     let Some(menu) = &chat.menu else {
         return false;
     };
-    chat.messages(menu.pane).iter().any(|message| {
-        message.seq == seq
-            && message
-                .reactions
-                .iter()
-                .any(|reaction| reaction.emoji == emoji && reaction.reacted_by_me)
-    })
+    chat.messages(menu.pane)
+        .iter()
+        .any(|message| message.seq == seq && message.reacted(emoji))
 }
 
 /// The category tabs, spread across the sheet; the chosen one's glyph
@@ -269,7 +270,7 @@ fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -
         .border_b_1()
         .border_color(theme.border)
         .role(Role::TabList)
-        .aria_label("Emoji categories")
+        .aria_label(words::EMOJI_CATEGORIES)
         .children(tabs)
         .into_any_element()
 }
@@ -295,7 +296,7 @@ pub(super) fn cell(
         .when(cell.mine, |cell| cell.bg(theme.accent_soft))
         .text_type(CELL_EMOJI)
         .role(Role::Button)
-        .aria_label(format!("React with {}", cell.emoji))
+        .aria_label(words::react_with(&cell.emoji))
         .focusable()
         .on_click(press)
         .child(cell.emoji)

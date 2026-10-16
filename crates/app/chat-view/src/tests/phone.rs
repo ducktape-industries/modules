@@ -330,6 +330,15 @@ fn a_refused_create_says_why_under_the_name() {
     cx.run_until_parked();
     assert!(cx.has_text("Couldn’t create this channel: the name is taken"));
     assert!(cx.find("chat-new-page").is_some());
+    // the field says so to assistive technology as well
+    let wire::Node::Field { options, .. } = cx.node("chat-new-name") else {
+        panic!("the name is a field");
+    };
+    assert!(options.invalid.is_some());
+    assert_eq!(
+        options.description.as_deref(),
+        Some("Couldn’t create this channel: the name is taken")
+    );
 }
 
 // ---------- a room (`app/(tabs)/chat/[channel]/index.tsx`) ----------
@@ -882,8 +891,8 @@ fn the_owners_sheets_add_and_rename_and_back_closes_a_sheet_first() {
         Some(Op::SetMembership { member: true, .. })
     ));
     cx.simulate_click("Rename channel");
-    cx.simulate_input("chat-details-name-input", "lobby");
-    cx.simulate_click("chat-details-rename-button");
+    cx.simulate_input("chat-details-rename/name", "lobby");
+    cx.simulate_click("chat-details-rename/submit");
     cx.run_until_parked();
     assert!(matches!(
         submitted(&cx).pop(),

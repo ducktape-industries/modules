@@ -9,6 +9,7 @@
 //! says so.
 use view::prelude::*;
 
+use crate::words;
 use crate::{Chat, Page};
 use view::design::Ladder;
 
@@ -29,10 +30,16 @@ mod timeline;
 pub fn render(chat: &Chat, cx: &mut Context<Chat>) -> AnyElement {
     let theme = *cx.global::<Theme>();
     let ladder = &design::TOUCH;
-    // Back has somewhere to go while a page is over the rooms or a sheet
-    // is over the page (rule 13); the host leaves the program else
-    let somewhere = chat.pages().depth() > 0 || chat.dialog_open();
-    let back = (chat.session.connected && somewhere).then(|| {
+    // what is drawn, decided once: the page on top and what is over it
+    let page = page(chat);
+    let sheet = actions::sheet(chat, cx, &theme, ladder)
+        .or_else(|| picker::sheet(chat, cx, &theme, ladder))
+        .or_else(|| details::sheet(chat, cx, &theme, ladder));
+    let confirm = actions::confirm(chat, cx, &theme, ladder);
+    // Back goes somewhere exactly while a page is over the rooms or a sheet
+    // or the dialog is over the page (rule 13); the host leaves the
+    // program else
+    let back = (page != Page::Rooms || sheet.is_some() || confirm.is_some()).then(|| {
         cx.listener(|chat, _: &BackEvent, _window, cx| {
             chat.back();
             cx.notify();
@@ -48,12 +55,11 @@ pub fn render(chat: &Chat, cx: &mut Context<Chat>) -> AnyElement {
         .text_color(theme.foreground)
         .text_type(ladder.body)
         .role(Role::Group)
-        .aria_label("Chat")
-        .child(screen(chat, cx, &theme, ladder))
-        .children(actions::sheet(chat, cx, &theme, ladder))
-        .children(picker::sheet(chat, cx, &theme, ladder))
+        .aria_label(words::CHAT)
+        .child(screen(chat, page, cx, &theme, ladder))
+        .children(sheet)
         .into_any_element();
-    let screen = actions::with_confirm(chat, screen, cx, &theme, ladder);
+    let screen = actions::with_confirm(screen, confirm, cx, &theme);
     div()
         .id("chat")
         .size_full()
@@ -62,16 +68,28 @@ pub fn render(chat: &Chat, cx: &mut Context<Chat>) -> AnyElement {
         .into_any_element()
 }
 
-/// The screen on top of the stack.
-fn screen(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> AnyElement {
-    if !chat.session.connected {
-        return rooms::screen(chat, cx, theme, ladder);
+/// The page on top: the stack's, or the rooms alone without a node.
+fn page(chat: &Chat) -> Page {
+    match chat.session.connected {
+        true => *chat.pages().top(),
+        false => Page::Rooms,
     }
+}
+
+/// `page`, drawn.
+fn screen(
+    chat: &Chat,
+    page: Page,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let back = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         chat.back();
         cx.notify();
     });
-    match (chat.pages().top(), &chat.room) {
+    // the stack holds a room's pages only while a room is open
+    match (page, &chat.room) {
         (Page::Room, Some(room)) => room::screen(chat, room, back, cx, theme, ladder),
         (Page::Thread, Some(room)) => thread::screen(chat, room, back, cx, theme, ladder),
         (Page::Details, Some(room)) => details::screen(chat, room, back, cx, theme, ladder),

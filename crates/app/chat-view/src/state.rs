@@ -128,12 +128,35 @@ impl Chat {
         pages
     }
 
-    /// Whether a dialog the view owns is open over the page: a message
-    /// sheet or menu, or the create-channel dialog. Back closes it first.
-    pub(crate) fn dialog_open(&self) -> bool {
-        self.menu.is_some()
-            || self.create.is_some()
-            || self.details.as_ref().is_some_and(|d| d.sheet.is_some())
+    /// The Search page, over the rooms.
+    pub(crate) fn open_search(&mut self) {
+        self.search.shown = true;
+    }
+
+    /// The new-channel form, empty unless one is already being written.
+    pub(crate) fn begin_create(&mut self) {
+        self.create.get_or_insert_default();
+    }
+
+    /// `sheet` over the channel's details, its field fresh: the member's
+    /// number empty, the name the channel's own.
+    pub(crate) fn open_details_sheet(&mut self, sheet: DetailsSheet) {
+        let name = self
+            .room_info()
+            .map(|info| info.channel.name.clone())
+            .unwrap_or_default();
+        if let Some(details) = &mut self.details {
+            details.member_draft.reset("");
+            details.name_draft.reset(name);
+            details.sheet = Some(sheet);
+        }
+    }
+
+    /// The sheet over the channel's details closed; the page stays.
+    pub(crate) fn close_details_sheet(&mut self) {
+        if let Some(details) = &mut self.details {
+            details.sheet = None;
+        }
     }
 
     /// The phone's Back: a dialog closes first, then the top page.
@@ -385,6 +408,12 @@ pub enum Mode {
     /// an agent author's card, opened from its avatar
     Profile,
 }
+
+/// The delete confirmation's Cancel, the button that takes the keys as it
+/// opens (a stray Enter keeps the message), and its Delete: one id each
+/// in both designs' dialogs.
+pub(crate) const CANCEL_DELETE: &str = "chat-menu-cancel-delete";
+pub(crate) const CONFIRM_DELETE: &str = "chat-menu-confirm-delete";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Menu {

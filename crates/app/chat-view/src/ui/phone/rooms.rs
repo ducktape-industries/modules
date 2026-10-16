@@ -11,12 +11,14 @@ use view::{Div, Stateful};
 use super::parts::{self, face, quiet};
 use crate::Chat;
 use crate::room_list::DmEntry;
+use crate::words;
 use chat::{ChannelInfo, Principal};
 use view::FontWeight;
 use view::design::Ladder;
 
 /// The unread dot (mobile `src/kit/Badge.tsx:31`).
 const DOT: Pixels = px(8.);
+// SDK gap: the kit EmptyState, swap when feat/phone-kit lands
 /// The kit `EmptyState`'s icon, its padding and how wide its words run
 /// (mobile `src/design/theme.ts:87`, `src/kit/States.tsx:26` and `:31`).
 const EMPTY_ICON: Pixels = px(28.);
@@ -31,17 +33,17 @@ pub(super) fn screen(
     ladder: &Ladder,
 ) -> AnyElement {
     let search = cx.listener(|chat, _: &ClickEvent, window, cx| {
-        chat.search.shown = true;
+        chat.open_search();
         window.focus("search");
         cx.notify();
     });
     let create = cx.listener(|chat, _: &ClickEvent, _window, cx| {
-        chat.create.get_or_insert_default();
+        chat.begin_create();
         cx.notify();
     });
     let page = design::page(
         "chat-rooms-page",
-        "Chat",
+        words::CHAT,
         None::<fn(&ClickEvent, &mut Window, &mut App)>,
         ladder,
         theme,
@@ -123,7 +125,7 @@ fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) ->
         .flex_col()
         .child(design::section_head(
             "chat-rooms-channels-head",
-            "Channels",
+            words::CHANNELS,
             count(list.channels.len()),
             ladder,
             theme,
@@ -134,7 +136,12 @@ fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) ->
                 .map(|info| channel_row(chat, info, cx, theme, ladder)),
         )
         .when(loading, |rooms| {
-            rooms.child(quiet("chat-rooms-loading", "Loading rooms…", theme, ladder))
+            rooms.child(quiet(
+                "chat-rooms-loading",
+                words::LOADING_ROOMS,
+                theme,
+                ladder,
+            ))
         })
         .when(!loading && list.channels.is_empty(), |rooms| {
             rooms.child(no_rooms(chat, cx, theme, ladder))
@@ -142,7 +149,7 @@ fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) ->
         .when(!dms.is_empty(), |rooms| {
             rooms.child(design::section_head(
                 "chat-rooms-dms-head",
-                "Direct messages",
+                words::DIRECT_MESSAGES,
                 count(dms.len()),
                 ladder,
                 theme,
@@ -198,9 +205,11 @@ fn channel_row(
         .items_center()
         .gap(design::space::SM)
         .when(channel.members_only(), |tail| {
-            tail.child(chip("members-only", "Members only"))
+            tail.child(chip("members-only", words::MEMBERS_ONLY))
         })
-        .when(archived, |tail| tail.child(chip("archived", "Archived")))
+        .when(archived, |tail| {
+            tail.child(chip("archived", words::ARCHIVED))
+        })
         .when(chat.unread(info), |tail| tail.child(dot(&id, theme)));
     row(
         &id,
@@ -229,7 +238,7 @@ fn person_row(
 ) -> AnyElement {
     let peer = Principal::Account(entry.peer);
     let names = chat.names.ready();
-    let name = names.map_or_else(|| format!("account {}", entry.peer), |n| n.member(&peer));
+    let name = names.map_or_else(|| words::account(entry.peer), |n| n.member(&peer));
     let agent = names.is_some_and(|names| crate::message::agent(names, &peer));
     let id = format!("chat-rooms-{kind}-{}", entry.peer);
     let unread = entry.info.is_some_and(|info| chat.unread(info));
@@ -241,7 +250,7 @@ fn person_row(
         .when(agent && entry.info.is_some(), |tail| {
             tail.child(design::badge(
                 format!("{id}-agent"),
-                "Agent",
+                words::AGENT,
                 ladder,
                 theme.agent,
                 theme.agent_soft,
@@ -249,7 +258,7 @@ fn person_row(
         })
         .when(unread, |tail| tail.child(dot(&id, theme)));
     row(&id, name.clone(), entry.id.clone(), cx, theme, ladder)
-        .when(agent, |row| row.aria_description("Agent"))
+        .when(agent, |row| row.aria_description(words::AGENT))
         .child(design::lead(face(&name, agent, ladder.avatar, theme)))
         .child(title(name, false, theme, ladder))
         .child(tail)
@@ -288,6 +297,7 @@ fn title(name: String, quiet: bool, theme: &Theme, ladder: &Ladder) -> Div {
         .child(name)
 }
 
+// SDK gap: the kit Dot, swap when feat/phone-kit lands
 /// The unread dot (the kit `Dot`): the accent, never a count.
 fn dot(row: &str, theme: &Theme) -> Stateful<Div> {
     div()
@@ -298,11 +308,12 @@ fn dot(row: &str, theme: &Theme) -> Stateful<Div> {
         .bg(theme.accent)
 }
 
+// SDK gap: the kit EmptyState, swap when feat/phone-kit lands
 /// No channel on the network yet (the kit `EmptyState`): what is missing,
 /// what would fill it, and New channel.
 fn no_rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> Stateful<Div> {
     let create = cx.listener(|chat, _: &ClickEvent, _window, cx| {
-        chat.create.get_or_insert_default();
+        chat.begin_create();
         cx.notify();
     });
     let network = match chat.network() {

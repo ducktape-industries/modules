@@ -10,8 +10,7 @@ use view::{FontStyle, FontWeight, HighlightStyle, UnderlineStyle};
 
 use super::parts::HAIRLINE;
 use crate::Chat;
-use crate::message::{ChatMessage, ChatSpan, SpanStyle};
-use crate::ui::message::rich::{Run, line, plain_line};
+use crate::message::{ChatMessage, ChatSpan, Run, SpanStyle, line, plain_line};
 use chat::view::Names;
 use chat::{Block, Span};
 use view::design::Ladder;

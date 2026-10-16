@@ -10,6 +10,7 @@ use view::{Div, Stateful};
 use view::{FontWeight, HighlightStyle};
 
 use super::parts::{self, ROW_TALL, face, quiet};
+use crate::words;
 use crate::{Chat, Hits};
 use chat::MsgRow;
 use view::design::Ladder;
@@ -52,12 +53,10 @@ fn title_row(
         chat.search_submit(cx)
     });
     let clear = cx.listener(|chat, _: &ClickEvent, _window, cx| {
-        chat.search.draft.reset("");
-        chat.search.query.clear();
-        chat.search.hits = Loadable::Idle;
+        chat.search_empty();
         cx.notify();
     });
-    let input = Input::new("search", &chat.search.draft, "Search messages")
+    let input = Input::new("search", &chat.search.draft, words::SEARCH_MESSAGES)
         .autocorrect(false)
         .autocapitalize(Autocapitalize::None)
         .virtual_keyboard(VirtualKeyboard::Search)
@@ -66,7 +65,7 @@ fn title_row(
         .min_w(px(0.))
         .text_type(ladder.body)
         .text_color(theme.foreground)
-        .placeholder("Search messages")
+        .placeholder(words::SEARCH_MESSAGES)
         .on_submit(submit);
     // the field as the focused kit field draws it: 2 in the foreground
     // (mobile `app/(tabs)/chat/search.tsx:84`)

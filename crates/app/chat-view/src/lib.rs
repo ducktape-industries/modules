@@ -13,6 +13,7 @@ mod composer;
 mod emoji;
 mod kept;
 mod links;
+mod listing;
 mod message;
 mod names;
 mod notices;
@@ -24,6 +25,7 @@ mod session;
 mod state;
 mod ui;
 mod watch;
+mod words;
 
 pub use state::*;
 
@@ -36,7 +38,7 @@ const WINDOW: usize = 256;
 const SPAN: usize = WINDOW;
 
 impl View for Chat {
-    const NAME: &'static str = "Chat";
+    const NAME: &'static str = words::CHAT;
     const DESCRIPTION: &'static str =
         "Channels, direct messages, threads, search and the live call of this workspace.";
     const ICON: &'static str = "icons/messages-square.svg";
@@ -96,9 +98,10 @@ impl Render for Chat {
         self.settle_title(cx);
         // the one pick: a phone draws the Expo app's own screens, every
         // other window the desktop's (STRUCTURE v2)
-        match window.touch() {
-            true => ui::phone::render(self, cx),
-            false => ui::render(self, cx).into_any_element(),
+        if window.touch() {
+            ui::phone::render(self, cx)
+        } else {
+            ui::render(self, cx).into_any_element()
         }
     }
 }

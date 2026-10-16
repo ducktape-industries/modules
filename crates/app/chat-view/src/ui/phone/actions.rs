@@ -12,8 +12,8 @@ use view::{Div, Stateful};
 use super::picker::{self, Cell};
 use crate::composer::Target;
 use crate::message::ChatMessage;
-use crate::ui::menu::CANCEL_DELETE;
-use crate::{Chat, Mode, Pane, emoji};
+use crate::words;
+use crate::{CANCEL_DELETE, CONFIRM_DELETE, Chat, Mode, Pane, emoji};
 use view::FontWeight;
 use view::design::Ladder;
 
@@ -22,8 +22,10 @@ use view::design::Ladder;
 /// (`:102`).
 const QUICK: usize = 6;
 const ALL_REACTIONS_ICON: Pixels = px(20.);
+// SDK gap: the sheet inset, swap when feat/phone-kit lands
 /// The delete dialog's inset (mobile `src/kit/Dialog.tsx:32`).
 const DIALOG_INSET: Pixels = px(20.);
+// SDK gap: the scrim token, swap when feat/phone-kit lands
 /// The scrim under a dialog, by appearance (mobile
 /// `src/design/theme.ts:12` and `:13`).
 const SCRIM_LIGHT: f32 = 0.4;
@@ -55,7 +57,7 @@ pub(super) fn sheet(
         .children((!message.deleted).then(|| quick(chat, message, pane, cx, theme)))
         .children(rows(chat, message, pane, cx, theme, ladder));
     Some(
-        design::sheet("chat-actions-sheet", "Message actions", ladder, theme)
+        design::sheet("chat-actions-sheet", words::MESSAGE_ACTIONS, ladder, theme)
             .on_dismiss(close)
             .child(body)
             .into_any_element(),
@@ -104,10 +106,7 @@ fn quick(
         .into_iter()
         .take(QUICK)
         .map(|emoji| {
-            let mine = message
-                .reactions
-                .iter()
-                .any(|reaction| reaction.emoji == emoji && reaction.reacted_by_me);
+            let mine = message.reacted(&emoji);
             let react = emoji.clone();
             let press = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
                 cx.notify();
@@ -187,7 +186,7 @@ fn rows(
         rows.push(row(
             "chat-actions-reply",
             "corner-up-left",
-            "Reply in thread",
+            words::REPLY_IN_THREAD,
             false,
             Box::new(reply),
         ));
@@ -211,12 +210,12 @@ fn rows(
         let copy = cx.listener(move |chat, _: &ClickEvent, _window, cx| {
             cx.notify();
             chat.close_menu();
-            chat.copy_text(link.clone(), "message link", cx);
+            chat.copy_text(link.clone(), words::MESSAGE_LINK, cx);
         });
         rows.push(row(
             "chat-actions-copy-link",
             "link-2",
-            "Copy link",
+            words::COPY_LINK,
             false,
             Box::new(copy),
         ));
@@ -231,7 +230,7 @@ fn rows(
         rows.push(row(
             "chat-actions-edit",
             "pencil",
-            "Edit message",
+            words::EDIT_MESSAGE,
             false,
             reopen(Mode::Editing, cx),
         ));
@@ -240,7 +239,7 @@ fn rows(
         rows.push(row(
             "chat-actions-delete",
             "trash",
-            "Delete message",
+            words::DELETE_MESSAGE,
             true,
             reopen(Mode::Delete, cx),
         ));
@@ -264,19 +263,27 @@ fn open(chat: &mut Chat, pane: Pane, seq: u64, rev: u32, mode: Mode, window: &mu
 /// A press on one of the sheet's rows.
 type Press = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
-/// `screen` under the delete dialog, while a delete asks: dimmed, a press
-/// on the scrim (or Back) keeps the message.
-pub(super) fn with_confirm(
+/// The delete dialog, while a delete asks.
+pub(super) fn confirm(
     chat: &Chat,
-    screen: AnyElement,
     cx: &mut Context<Chat>,
     theme: &Theme,
     ladder: &Ladder,
-) -> AnyElement {
-    let asking = chat
-        .menu
+) -> Option<Stateful<Div>> {
+    chat.menu
         .as_ref()
-        .is_some_and(|menu| menu.mode == Mode::Delete);
+        .filter(|menu| menu.mode == Mode::Delete)
+        .map(|_| delete_dialog(cx, theme, ladder))
+}
+
+/// `screen` under `dialog`, while there is one: dimmed, a press on the
+/// scrim (or Back) keeps the message.
+pub(super) fn with_confirm(
+    screen: AnyElement,
+    dialog: Option<Stateful<Div>>,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+) -> AnyElement {
     let cancel = cx.listener(|chat, _: &(), _window, cx| {
         chat.close_menu();
         cx.notify();
@@ -285,10 +292,9 @@ pub(super) fn with_confirm(
         true => SCRIM_DARK,
         false => SCRIM_LIGHT,
     };
-    let dialog = asking.then(|| delete_dialog(cx, theme, ladder));
     modal_overlay(
         "chat-delete-overlay",
-        "Delete this message?",
+        words::DELETE_QUESTION,
         screen,
         dialog,
     )
@@ -314,7 +320,7 @@ fn delete_dialog(cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> Stat
     });
     // the kit's danger button: its words and edge in the danger tone
     let delete = div()
-        .id("chat-menu-confirm-delete")
+        .id(CONFIRM_DELETE)
         .h(ladder.control)
         .px(design::space::BLOCK)
         .flex()
@@ -341,14 +347,14 @@ fn delete_dialog(cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> Stat
         .border_color(theme.border_strong)
         .bg(theme.background)
         .role(Role::AlertDialog)
-        .aria_label("Delete this message?")
+        .aria_label(words::DELETE_QUESTION)
         .occlude()
         .child(
             div()
                 .mb(design::space::SM)
                 .text_type(ladder.title)
                 .font_weight(FontWeight::MEDIUM)
-                .child("Delete this message?"),
+                .child(words::DELETE_QUESTION),
         )
         .child(
             div()

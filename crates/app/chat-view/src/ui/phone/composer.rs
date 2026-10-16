@@ -12,6 +12,7 @@ use view::{Div, Stateful};
 
 use super::parts::{self, NoticeKind, face};
 use crate::composer::{Click, Draft, Handle, MentionChoice, Target, editor, editor_id, press};
+use crate::words;
 use crate::{Chat, Pane};
 use view::FontWeight;
 use view::design::Ladder;
@@ -50,11 +51,11 @@ pub(super) fn band(
         return div().into_any_element();
     };
     let label = match &target {
-        Target::Post { thread: None, .. } => "New message",
+        Target::Post { thread: None, .. } => words::NEW_MESSAGE,
         Target::Post {
             thread: Some(_), ..
-        } => "Reply",
-        Target::Edit { .. } => "Edited message",
+        } => words::REPLY,
+        Target::Edit { .. } => words::EDITED_MESSAGE,
     };
     let handle: Handle<Chat> =
         Rc::new(move |chat, event, window, cx| chat.composer(target.clone(), event, window, cx));
@@ -101,7 +102,7 @@ pub(super) fn band(
                 format!("{key}/failed"),
                 NoticeKind::Danger,
                 None,
-                "An earlier message wasn’t sent",
+                words::UNSENT,
                 Some(action),
                 theme,
                 ladder,
@@ -189,7 +190,7 @@ fn mention_row(
             div()
                 .text_type(ladder.caption)
                 .text_color(theme.muted)
-                .child(format!("account {account}"))
+                .child(words::account(account))
         }));
     match pick {
         Some(pick) => row

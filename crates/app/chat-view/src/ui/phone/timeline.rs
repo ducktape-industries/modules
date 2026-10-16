@@ -11,8 +11,9 @@ use view::prelude::*;
 
 use super::message;
 use super::parts::{self, HAIRLINE, quiet};
+use crate::listing::{Listing, listing};
 use crate::message::{ChatMessage, day_of, new_day};
-use crate::ui::timeline::{Listing, listing};
+use crate::words;
 use crate::{Chat, Pane};
 use view::FontWeight;
 use view::design::Ladder;
@@ -42,7 +43,7 @@ pub(super) fn list(
         Pane::Thread => room.thread.as_ref().map(|thread| &thread.replies),
     };
     let loading = match pane {
-        Pane::Timeline => "Loading messages…",
+        Pane::Timeline => words::LOADING_MESSAGES,
         Pane::Thread => "Loading the thread…",
     };
     if read.is_some_and(|read| matches!(read, Loadable::Loading(_))) {
@@ -69,7 +70,7 @@ pub(super) fn list(
         .when(timeline && room.older_loading, |frame| {
             frame.child(quiet(
                 "chat-load-older",
-                "Loading older messages…",
+                words::LOADING_OLDER,
                 theme,
                 ladder,
             ))
@@ -110,7 +111,7 @@ fn rows(
             let at = index - lead;
             let Some(message) = messages.get(at) else {
                 return match bare {
-                    true => quiet("chat-thread-no-replies", "No replies yet", &theme, &ladder)
+                    true => quiet("chat-thread-no-replies", words::NO_REPLIES, &theme, &ladder)
                         .into_any_element(),
                     false => div().into_any_element(),
                 };

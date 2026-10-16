@@ -10,8 +10,10 @@ use chat::view::Names;
 use chat::{Block, Principal, Span};
 mod controls;
 pub(crate) mod rich;
+use crate::message::plain_line;
+use crate::words;
 use controls::{Face, action_button, reaction_button, replies_button};
-use rich::{plain_line, rich_line};
+use rich::rich_line;
 use view::design::Ladder;
 
 const PENDING_OPACITY: f32 = 0.5;
@@ -599,7 +601,7 @@ fn program_post(
             .hover(move |style| style.text_decoration_1())
             .on_click(open)
             .consumes_click()
-            .child(format!("Open in {program}"));
+            .child(words::open_in(program));
         line = line.child(cell(
             &id,
             true,

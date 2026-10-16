@@ -8,6 +8,7 @@ use super::timeline;
 use crate::composer::Target;
 use crate::session::Gate;
 use crate::ui::{badge, button, empty_state, quiet};
+use crate::words;
 use crate::{Chat, Hits, Pane, Room};
 use view::design::Ladder;
 
@@ -193,7 +194,7 @@ fn header(
     if info.is_some_and(|info| info.channel.archived) {
         title = title.child(badge(
             "chat-room-archived",
-            "Archived",
+            words::ARCHIVED,
             ladder,
             theme.warning,
             theme.warning_soft,
@@ -202,7 +203,7 @@ fn header(
     if !direct && info.is_some_and(|info| info.channel.members_only()) {
         title = title.child(badge(
             "chat-room-members-only",
-            "Members only",
+            words::MEMBERS_ONLY,
             ladder,
             theme.muted,
             theme.surface_raised,
@@ -248,7 +249,7 @@ fn header(
             if direct {
                 "Conversation details"
             } else {
-                "Channel details"
+                words::CHANNEL_DETAILS
             },
             ladder,
             theme,
@@ -440,17 +441,7 @@ fn hit(chat: &Chat, row: &MsgRow, cx: &mut Context<Chat>, theme: &Theme) -> AnyE
 
 /// Where the composer would be, why the reader may not write here.
 fn write_gate(gate: Gate, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> AnyElement {
-    let why = match gate {
-        Gate::Archived => {
-            "This channel is archived. It keeps its history and takes no new messages."
-        }
-        Gate::NotMember => {
-            "This channel is members-only and your key is not on its roster. Ask a member to add your key from Channel details."
-        }
-        Gate::NoAccount => {
-            "To send messages, create or join an account in Account. You can read this channel without an account."
-        }
-    };
+    let why = words::gate(gate);
     let mut notice = div()
         .id("chat-room-write-refusal")
         .mx_3()
@@ -509,11 +500,11 @@ pub fn composer(
     };
     // what the field is; the hint, drawn in it, says what to write
     let label = match target {
-        Target::Post { thread: None, .. } => "New message",
+        Target::Post { thread: None, .. } => words::NEW_MESSAGE,
         Target::Post {
             thread: Some(_), ..
-        } => "Reply",
-        Target::Edit { .. } => "Edited message",
+        } => words::REPLY,
+        Target::Edit { .. } => words::EDITED_MESSAGE,
     };
     crate::composer::view(
         draft,

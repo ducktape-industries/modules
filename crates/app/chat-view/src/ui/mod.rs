@@ -14,6 +14,7 @@ pub(crate) use view::design::{badge, button, empty_state, quiet};
 use view::prelude::*;
 
 use crate::Chat;
+use crate::words;
 use view::design::Ladder;
 
 /// The desktop's chat: a window under a pointer (a phone draws
@@ -49,7 +50,7 @@ pub fn render(chat: &Chat, cx: &mut Context<Chat>) -> impl IntoElement {
         .text_size(design::text::BODY)
         // a node that hears a key or a press says what it is
         .role(Role::Group)
-        .aria_label("Chat")
+        .aria_label(words::CHAT)
         .on_key_down(escape)
         .when(chat.holds(), |screen| screen.consumes_keys(["escape"]))
         .on_any_mouse_down(press)
@@ -85,7 +86,7 @@ fn with_menu(
     // the picker is named by the host's modal layer, the one dialog the
     // audit knows is modal; its frame inside carries no dialog of its own
     let label = match mode {
-        Some(crate::Mode::Reactions) => "Add reaction",
+        Some(crate::Mode::Reactions) => words::ADD_REACTION,
         Some(crate::Mode::Profile) => "Agent profile",
         _ => "Message menu",
     };
