@@ -1,6 +1,6 @@
 //! The Transactions tab and one transaction.
 use super::*;
-use crate::decode::{amount, clip, preview, scheme};
+use crate::decode::{amount, clip, preview};
 use view::design::Ladder;
 
 pub(super) fn transactions(
@@ -27,7 +27,7 @@ pub(super) fn transactions(
         .build(cx)
     });
     let title = match &program {
-        Some(program) => format!("Transactions · {program}"),
+        Some(program) => words::transactions_to(program),
         None => "Transactions".into(),
     };
     let empty =
@@ -35,7 +35,7 @@ pub(super) fn transactions(
     div()
         .id("explorer-transactions")
         .flex_1()
-        .min_h(px(0.))
+        .min_h_0()
         .flex()
         .flex_col()
         // the heading ends where the rows do, short of the gutter the host
@@ -79,11 +79,8 @@ pub(super) fn tx(
             Loadable::Ready(None) | Loadable::Reloading(None, _) => empty_state(
                 "explorer-no-tx",
                 "search-x",
-                "Transaction not found",
-                format!(
-                    "This node keeps no transaction at position {position} of block {}.",
-                    grouped(height)
-                ),
+                words::NO_TRANSACTION,
+                words::no_transaction_at(height, position),
                 ladder,
                 theme,
             )
@@ -93,7 +90,7 @@ pub(super) fn tx(
             | Loadable::Loading(_)
             | Loadable::Ready(Some(_))
             | Loadable::Reloading(Some(_), _) => {
-                quiet("explorer-tx-loading", "Reading the transaction…", theme)
+                quiet("explorer-tx-loading", words::READING_TX, theme)
             }
         };
     };
@@ -124,7 +121,7 @@ pub(super) fn tx(
             "Block",
             link(
                 "explorer-tx-block".into(),
-                format!("In block {}", grouped(tx.height)),
+                words::in_block(tx.height),
                 Route::Block(tx.height),
                 cx,
                 theme,
@@ -143,7 +140,7 @@ pub(super) fn tx(
             "Anchor",
             link(
                 "explorer-tx-anchor".into(),
-                format!("Block {}", grouped(tx.anchor)),
+                words::block(tx.anchor),
                 Route::Block(tx.anchor),
                 cx,
                 theme,
@@ -156,7 +153,7 @@ pub(super) fn tx(
                 .flex()
                 .gap_2()
                 .child(date(tx.time))
-                .child(mono(format!("{} ago", ago(now, tx.time))).text_color(theme.faint)),
+                .child(mono(words::age(now, tx.time)).text_color(theme.faint)),
             theme,
         ))
         .child(div().h(design::space::LG))
@@ -270,11 +267,6 @@ fn from(view: &Explorer, tx: &TxRow, cx: Cx, theme: &Theme) -> Div {
     let Some((account, at)) = view.holder(&tx.signer) else {
         return div().child(mono(abi::hex(&tx.signer)));
     };
-    let key = &account.keys()[at];
-    let label = key
-        .label
-        .clone()
-        .unwrap_or_else(|| format!("device {}", at + 1));
     div()
         .flex()
         .items_center()
@@ -291,15 +283,7 @@ fn from(view: &Explorer, tx: &TxRow, cx: Cx, theme: &Theme) -> Div {
             cx,
             theme,
         ))
-        .child(
-            mono(format!(
-                "#{} {label} · {} {}",
-                account.number,
-                scheme(key.scheme),
-                short(&tx.signer)
-            ))
-            .text_color(theme.faint),
-        )
+        .child(mono(words::key_line(account, at, &tx.signer)).text_color(theme.faint))
 }
 
 /// The op's fields, as its program described them; empty until it has.
@@ -392,7 +376,7 @@ fn account(view: &Explorer, number: u64, at: &str, cx: Cx, theme: &Theme) -> Any
     let name = view
         .account(number)
         .map(|account| account.card.name.clone());
-    let shown = name.clone().unwrap_or_else(|| format!("account {number}"));
+    let shown = view.name_of(number);
     div()
         .flex()
         .items_center()

@@ -2,12 +2,14 @@
 //! accounts, one validator and `programs`, each answered as the program
 //! would. Tests by what they cover: `access` (what a reader changes on the
 //! Programs page), `describe`, `window`, `pages`, `detail` (one program's
-//! page), `search`, `transactions`.
+//! page), `search`, `transactions`, `phone` (the touch body at phone
+//! widths).
 mod access;
 mod describe;
 mod detail;
 mod follow;
 mod pages;
+mod phone;
 mod search;
 mod transactions;
 mod window;

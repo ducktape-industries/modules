@@ -23,6 +23,13 @@ pub struct Pages<P> {
     stack: Vec<P>,
 }
 
+/// A stack at the page's own default: a view's state derives `Default`.
+impl<P: Default> Default for Pages<P> {
+    fn default() -> Self {
+        Self::root(P::default())
+    }
+}
+
 fn rooted<'de, P: Deserialize<'de>, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Vec<P>, D::Error> {
@@ -54,6 +61,10 @@ impl<P> Pages<P> {
     }
     pub fn top(&self) -> &P {
         self.stack.last().expect("a stack has its root")
+    }
+    /// The root page, under every other.
+    pub fn first(&self) -> &P {
+        self.stack.first().expect("a stack has its root")
     }
     /// `0` at the root: `.when(pages.depth() > 0, |root| root.on_back(..))`
     /// sets Back exactly when there is somewhere to go back to.

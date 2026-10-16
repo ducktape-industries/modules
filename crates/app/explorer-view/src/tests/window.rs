@@ -239,16 +239,16 @@ fn runs_of_empty_blocks_fold_into_one_line_and_the_list_reaches_back() {
     let mut blocks = vec![block(20, 0), block(19, 2), block(18, 0), block(17, 1)];
     blocks.extend((3..=16).rev().map(|height| block(height, 0)));
     blocks.push(block(2, 1));
-    let lines = ui::lines(&blocks, 6);
+    let lines = crate::chain::lines(&blocks, 6);
     let shape: Vec<String> = lines
         .iter()
         .map(|line| match line {
-            ui::Line::Block(block) => block.height.to_string(),
-            ui::Line::Empty { newest, oldest } => format!("{oldest}-{newest}"),
+            crate::chain::Line::Block(block) => block.height.to_string(),
+            crate::chain::Line::Empty { newest, oldest } => format!("{oldest}-{newest}"),
         })
         .collect();
     // a lone empty block stays a row; a run folds; the fold lets six lines
     // reach back to block 2
     assert_eq!(shape, ["20", "19", "18", "17", "3-16", "2"]);
-    assert_eq!(ui::lines(&blocks, 3).len(), 3);
+    assert_eq!(crate::chain::lines(&blocks, 3).len(), 3);
 }

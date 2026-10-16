@@ -226,3 +226,37 @@ impl Chain {
         self.txs.retain(|tx| tx.height >= oldest);
     }
 }
+
+/// One line of a block list: a block, or a run of empty ones.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Line<'a> {
+    Block(&'a BlockRow),
+    /// consecutive blocks with no transaction, `oldest..=newest`
+    Empty {
+        newest: u64,
+        oldest: u64,
+    },
+}
+
+/// `blocks` (newest first) as at most `rows` lines, each run of two or more
+/// empty blocks folded into one, so the list reaches back past quiet
+/// stretches as far as the window holds.
+pub(crate) fn lines(blocks: &[BlockRow], rows: usize) -> Vec<Line<'_>> {
+    let mut lines = Vec::new();
+    let mut at = 0;
+    while at < blocks.len() && lines.len() < rows {
+        let run = blocks[at..]
+            .iter()
+            .take_while(|block| block.txs == 0)
+            .count();
+        if run >= 2 {
+            let (newest, oldest) = (blocks[at].height, blocks[at + run - 1].height);
+            lines.push(Line::Empty { newest, oldest });
+            at += run;
+        } else {
+            lines.push(Line::Block(&blocks[at]));
+            at += 1;
+        }
+    }
+    lines
+}

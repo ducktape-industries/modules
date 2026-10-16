@@ -36,7 +36,7 @@ use abi::role::validators::{Genesis as Validators, Member};
 use borsh::{BorshDeserialize, BorshSerialize};
 use commonware_cryptography::{Signer as _, ed25519};
 use program::abi;
-use program::{AccountNumber, MockChain, MockHost, Origin, Program, ProgramId};
+use program::{AccountNumber, ExecCtx, MockChain, MockHost, Origin, Program, ProgramId, hook};
 use programs::{Entry, Genesis as Roster, View};
 use view_wire::methods::{self, Method};
 
@@ -52,11 +52,22 @@ const ANCHOR_WINDOW: u64 = 256;
 
 type Override = Box<dyn FnMut(&[u8]) -> Result<Vec<u8>, Error>>;
 type Writes = Vec<(Vec<u8>, Option<Vec<u8>>)>;
+/// A seat the roster lists as a hook.
+struct Hook {
+    name: ProgramId,
+    host: MockHost,
+    /// Its `hook` entry, which the kernel calls with each frame a block
+    /// carries.
+    entry: HookEntry,
+}
+type HookEntry = fn(&ExecCtx, hook::Record) -> Result<(), Error>;
 
 struct State {
     chain: MockChain,
     /// Every seated program and its host, in seating order.
     seats: Vec<(ProgramId, MockHost)>,
+    /// The seats the roster lists as hooks, in seating order.
+    hooks: Vec<Hook>,
     keys: BTreeMap<AccountNumber, ed25519::PrivateKey>,
     names: BTreeMap<String, AccountNumber>,
     me: AccountNumber,
@@ -138,6 +149,7 @@ impl Network {
         let net = Network(Rc::new(RefCell::new(State {
             chain: MockChain::default(),
             seats: Vec::new(),
+            hooks: Vec::new(),
             keys: BTreeMap::new(),
             names: BTreeMap::new(),
             me: 0,
@@ -198,6 +210,21 @@ impl Network {
                 },
             )
             .expect("identity registers a seated program");
+        host
+    }
+
+    /// Seats `M` as `program` and lists it among the roster's hooks: each
+    /// frame after is told to it, as the kernel tells a hook. Like every
+    /// [`seat`](Self::seat), it comes before the roster is founded
+    /// ([`back`](Self::back), [`run`]): the roster lists the hooks seated by
+    /// then.
+    pub fn hook<M: Program>(&self, program: &str) -> MockHost {
+        let host = self.seat::<M>(program);
+        self.0.borrow_mut().hooks.push(Hook {
+            name: program.to_owned(),
+            host: host.clone(),
+            entry: ::program::hook::<M>,
+        });
         host
     }
 
@@ -793,7 +820,7 @@ impl Network {
                 &Roster {
                     programs,
                     views,
-                    hooks: Vec::new(),
+                    hooks: state.hooks.iter().map(|hook| hook.name.clone()).collect(),
                 },
             )
             .expect("the programs role founds with the seated programs");
@@ -819,9 +846,10 @@ impl Network {
     /// whether the program applied or refused it, and what the run wrote
     /// recorded as the block's changes.
     pub(crate) fn run(&self, origin: Origin, target: String, payload: Vec<u8>) -> methods::Receipt {
-        let signer = match &origin {
-            Origin::Signed(key) => key.clone(),
-            Origin::Program(_) | Origin::Root => Vec::new(),
+        // the kernel tells hooks of signed frames only
+        let (signer, signed) = match &origin {
+            Origin::Signed(key) => (key.clone(), true),
+            Origin::Program(_) | Origin::Root => (Vec::new(), false),
         };
         let mut state = self.0.borrow_mut();
         let height = state.blocks.len() as u64 + 1;
@@ -839,6 +867,10 @@ impl Network {
             .iter()
             .map(|(_, host)| host.borrow().state.clone())
             .collect();
+        let account = match &origin {
+            Origin::Signed(key) => acting(&state.chain, key),
+            Origin::Program(_) | Origin::Root => None,
+        };
         let ran = state.chain.submit_raw(origin, target.clone(), &payload);
         let events = state
             .seats
@@ -846,6 +878,17 @@ impl Network {
             .find(|(name, _)| *name == target)
             .map(|(_, host)| std::mem::take(&mut host.borrow_mut().events))
             .unwrap_or_default();
+        let record = hook::Record {
+            height,
+            position: 0,
+            signer: signer.clone(),
+            account,
+            target: target.clone(),
+            applied: ran.is_ok(),
+        };
+        for hook in state.hooks.iter().filter(|_| signed) {
+            tell(&state.chain, hook, record.clone());
+        }
         let outcome = match ran {
             Ok(output) => methods::Outcome::Applied { output },
             Err(refusal) => methods::Outcome::Rejected(refusal),
@@ -917,6 +960,35 @@ impl Network {
                 .retain(|(name, sender)| *name != program || sender.send(item.clone()).is_ok());
         }
     }
+}
+
+/// The account a frame signed by `key` acts as, asked of identity as the
+/// kernel asks it; none for a key that holds none, or that identity
+/// refuses (`submit_raw` then refuses the frame itself).
+fn acting(chain: &MockChain, key: &[u8]) -> Option<AccountNumber> {
+    let asked = abi::role::identity::Query::Account(key.to_vec());
+    match chain.query(identity::PROGRAM, &asked) {
+        Ok(abi::role::identity::Reply::Account(account)) => account,
+        Ok(_) | Err(_) => None,
+    }
+}
+
+/// Hook `name` told of a frame as the kernel tells it: by the chain itself,
+/// its writes undone when it refuses or sends a message (a hook sends
+/// none), and the frame kept either way.
+fn tell(chain: &MockChain, hook: &Hook, record: hook::Record) {
+    let Hook { name, host, entry } = hook;
+    let kept = host.borrow().state.clone();
+    let height = record.height;
+    let told = entry(&host.exec(chain.env(name)), record);
+    let sent = !host.take_emissions().is_empty();
+    let refused = match told {
+        Err(refusal) => refusal.to_string(),
+        Ok(()) if sent => "a hook sends no messages".to_owned(),
+        Ok(()) => return,
+    };
+    eprintln!("hook {name} refused the frame at {height}: {refused}");
+    host.borrow_mut().state = kept;
 }
 
 fn listed(block: &methods::Block, most: u32) -> methods::Block {

@@ -24,6 +24,9 @@ programs.workspace = true
 activity.workspace = true
 valset.workspace = true
 serde.workspace = true
+# the reader's DM room with an account (`chat::dm_channel_id`), the
+# `duck://<chain>/chat/<room>` link Open DM opens, as members-view mints it
+chat.workspace = true
 
 # What a test needs to play the node: the borsh replies the program would
 # write, and the envelope the host method would open.
@@ -34,6 +37,5 @@ view = { workspace = true, features = ["rig"] }
 # as the modules in those programs' code would
 blobs.workspace = true
 borsh.workspace = true
-chat.workspace = true
 forge.workspace = true
 program.workspace = true
