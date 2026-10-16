@@ -378,7 +378,8 @@ pub enum Node {
     /// `monitor` plays what the microphone hears straight back while set:
     /// through a speaker ([`crate::methods::AudioKind::Speaker`]) it howls,
     /// so a view sets it only on the person's explicit choice, with
-    /// headphones on. `commands`
+    /// headphones on, and the host stops it when the sound falls to one
+    /// ([`crate::MediaState::monitor_stopped`]). `commands`
     /// apply in order, once, when `revision` moves (a [`Node::List`]'s
     /// pattern): [`crate::MicCommand::Record`] records, then plays back.
     /// `on_state` hears the microphone and the recording as

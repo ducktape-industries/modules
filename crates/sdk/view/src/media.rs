@@ -165,7 +165,9 @@ impl Microphone {
 
     /// Plays what the microphone hears straight back while set. Through
     /// speakers it feeds back: set it only on the person's explicit choice,
-    /// and tell them to wear headphones.
+    /// and tell them to wear headphones. The host stops it when the sound
+    /// falls to a loudspeaker ([`MediaState::monitor_stopped`]): turn your
+    /// switch off on it.
     pub fn monitor(mut self, monitor: bool) -> Self {
         self.monitor = monitor;
         self

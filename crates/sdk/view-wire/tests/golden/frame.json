@@ -2581,7 +2581,8 @@
           "playback": "Recording",
           "detail": "the driver stopped",
           "speaking": true,
-          "opens_settings": true
+          "opens_settings": true,
+          "monitor_stopped": true
         }
       }
     }

@@ -746,6 +746,7 @@ MediaState struct
   detail: Str
   speaking: Bool
   opens_settings: Bool
+  monitor_stopped: Bool
 MediaStatus enum
   0 Starting: Unit
   1 Live: Unit
