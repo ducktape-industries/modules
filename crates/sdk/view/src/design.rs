@@ -86,39 +86,58 @@ pub fn width_class(width: f32) -> WidthClass {
     }
 }
 
-/// A text role: its size, and the line height it is set on, if the role
-/// names one. Set on an element with [`TextType::text_type`]. A pointer's
-/// roles name none (the host's line height stands, as on the desktop
-/// today); a finger's are the Expo app's (`theme.ts` `type`).
+/// A text role: its size, and the line height it is set on and the
+/// spacing after each letter, if the role names them. Set on an element
+/// with [`TextType::text_type`]. A pointer's roles name neither (the
+/// host's line height stands, as on the desktop today); a finger's are the
+/// Expo app's (`theme.ts` `type`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Type {
     pub size: Pixels,
     pub line: Option<Pixels>,
+    pub letter_spacing: Option<Pixels>,
 }
 
 impl Type {
     /// A role at `size` on the host's line height.
     pub const fn size(size: Pixels) -> Self {
-        Self { size, line: None }
+        Self {
+            size,
+            line: None,
+            letter_spacing: None,
+        }
     }
     /// A role at `size` on a `line` tall line.
     pub const fn lined(size: f64, line: f64) -> Self {
         Self {
             size: px(size as f32),
             line: Some(px(line as f32)),
+            letter_spacing: None,
+        }
+    }
+    /// This role with `spacing` px after each letter, as CSS
+    /// `letter-spacing`: a negative one tightens the line.
+    pub const fn letter_spaced(self, spacing: f64) -> Self {
+        Self {
+            letter_spacing: Some(px(spacing as f32)),
+            ..self
         }
     }
 }
 
 /// [`Type`] on any styled element: `div().text_type(ladder.body)`.
 pub trait TextType: Styled + Sized {
-    /// The role's size, and its line height where it names one.
+    /// The role's size, and its line height and letter spacing where it
+    /// names them.
     fn text_type(self, role: Type) -> Self {
-        let element = self.text_size(role.size);
-        match role.line {
-            Some(line) => element.line_height(line),
-            None => element,
+        let mut element = self.text_size(role.size);
+        if let Some(line) = role.line {
+            element = element.line_height(line);
         }
+        if let Some(spacing) = role.letter_spacing {
+            element = element.letter_spacing(spacing);
+        }
+        element
     }
 }
 
@@ -202,8 +221,7 @@ pub struct Ladder {
     pub icon_row: Pixels,
     /// an icon leading a sheet row
     pub icon_sheet: Pixels,
-    /// a view's first page's title (Expo also tracks it -0.22,
-    /// `theme.ts:59`, which a [`Type`] does not carry)
+    /// a view's first page's title
     pub big_title: Type,
     /// a detail head's name
     pub heading: Type,
@@ -275,7 +293,7 @@ pub const TOUCH: Ladder = {
         icon: px(h::ICON as f32),
         icon_row: px(h::ICON_ROW as f32),
         icon_sheet: px(h::ICON_SHEET as f32),
-        big_title: Type::lined(t::BIG_TITLE, t::BIG_TITLE_LINE),
+        big_title: Type::lined(t::BIG_TITLE, t::BIG_TITLE_LINE).letter_spaced(t::BIG_TITLE_SPACING),
         heading: Type::lined(t::HEADING, t::HEADING_LINE),
         title: Type::lined(t::TITLE, t::TITLE_LINE),
         body: Type::lined(t::BODY, t::BODY_LINE),
@@ -1869,6 +1887,7 @@ mod tests {
         let lined = |size: f32, line: f32| Type {
             size: px(size),
             line: Some(px(line)),
+            letter_spacing: None,
         };
         let t = TOUCH;
         assert_eq!(
@@ -1886,6 +1905,21 @@ mod tests {
             ],
             [56., 48., 56., 44., 52., 44., 44., 22., 18., 20.].map(px)
         );
+        let mut roles = [
+            (22., 27.),
+            (20., 24.),
+            (17., 21.),
+            (15., 21.),
+            (15., 21.),
+            (14., 19.),
+            (13., 18.),
+            (12., 16.),
+            (11., 14.),
+            (12., 20.),
+        ]
+        .map(|(size, line)| lined(size, line));
+        // the one role of these the theme tracks: the big title
+        roles[0].letter_spacing = Some(px(-0.22));
         assert_eq!(
             [
                 t.big_title,
@@ -1899,19 +1933,7 @@ mod tests {
                 t.tiny,
                 t.code
             ],
-            [
-                (22., 27.),
-                (20., 24.),
-                (17., 21.),
-                (15., 21.),
-                (15., 21.),
-                (14., 19.),
-                (13., 18.),
-                (12., 16.),
-                (11., 14.),
-                (12., 20.)
-            ]
-            .map(|(size, line)| lined(size, line))
+            roles
         );
         let faces = [t.avatar_inline, t.avatar, t.avatar_sheet, t.avatar_detail];
         assert_eq!(

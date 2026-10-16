@@ -197,9 +197,9 @@ fn under_a_pointer_a_root_page_is_drawn_as_any_page() {
 }
 
 /// Under a finger the title row is the Expo kit's `Header`: a first page's
-/// title is the big one over a clear hairline; a page with Back has the
-/// 17 medium title, the hairline in `border`, and the Lucide arrow in a 44
-/// box.
+/// title is the big one, tracked tight, over a clear hairline; a page with
+/// Back has the 17 medium title, set solid, the hairline in `border`, and
+/// the Lucide arrow in a 44 box.
 #[test]
 fn under_touch_a_page_is_the_expo_header() {
     let mut cx = TestAppContext::new();
@@ -209,6 +209,7 @@ fn under_touch_a_page_is_the_expo_header() {
     let root = text(&cx, "rooms-heading");
     assert_eq!(root.font_size, Some(px(22.).into()));
     assert_eq!(root.line_height, Some(px(27.).into()));
+    assert_eq!(root.letter_spacing, Some(px(-0.22)));
     assert_eq!(root.font_weight, Some(gpui::FontWeight::MEDIUM));
     let hairline = |cx: &TestAppContext| {
         let row = cx.style("rooms-title");
@@ -220,6 +221,7 @@ fn under_touch_a_page_is_the_expo_header() {
     let detail = text(&cx, "rooms-heading");
     assert_eq!(detail.font_size, Some(px(17.).into()));
     assert_eq!(detail.line_height, Some(px(21.).into()));
+    assert_eq!(detail.letter_spacing, None);
     let theme = crate::Theme::light();
     assert_eq!(hairline(&cx), (Some(px(1.).into()), Some(theme.border)));
     assert_eq!(

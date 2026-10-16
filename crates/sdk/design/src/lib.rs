@@ -68,7 +68,8 @@ pub mod type_scale {
     pub const MONO: f64 = 12.;
 
     /// The scale under a finger (`window.touch()`): the Expo app's text
-    /// roles, each a size and its line height (`*_LINE`), since the reader
+    /// roles, each a size and its line height (`*_LINE`), and the letter
+    /// spacing of a role the theme tracks (`*_SPACING`), since the reader
     /// is further from a phone than from a desk. The body is 15. Each
     /// number is mobile `src/design/theme.ts` `type` (`theme.ts:40-62`),
     /// at the line named on it.
@@ -77,6 +78,9 @@ pub mod type_scale {
         pub const BIG_TITLE: f64 = 22.;
         /// [`BIG_TITLE`]'s line height
         pub const BIG_TITLE_LINE: f64 = 27.;
+        /// [`BIG_TITLE`]'s letter spacing, in px: tighter than set solid
+        /// (`theme.ts:59` `letterSpacing`)
+        pub const BIG_TITLE_SPACING: f64 = -0.22;
         /// a detail head's name, a fact's value (`theme.ts:57` `heading`)
         pub const HEADING: f64 = 20.;
         /// [`HEADING`]'s line height
