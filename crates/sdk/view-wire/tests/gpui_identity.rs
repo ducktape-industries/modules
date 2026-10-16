@@ -128,7 +128,10 @@ fn patch_inserting_a_collision_hidden_by_a_wrapper_is_refused() {
         }],
         &held(),
     );
-    assert!(matches!(result, Err(Refused::Duplicate(_))));
+    assert!(matches!(
+        result.as_ref().map_err(Refused::reason),
+        Err(Refused::Duplicate(_))
+    ));
 }
 
 #[test]
