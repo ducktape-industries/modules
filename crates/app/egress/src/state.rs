@@ -1,6 +1,6 @@
 //! Everything egress keeps: each registered service with its owner and assigned nodes, which
 //! node serves which service, each service's next turn in the election, and every open request,
-//! with the caller's ticket and its scheduled expiry, indexed by its node.
+//! with the caller's ticket, its wait and its scheduled expiry, indexed by its node.
 use borsh::{BorshDeserialize, BorshSerialize};
 use store::{Item, Map, Set};
 
@@ -12,6 +12,9 @@ use crate::{NodeRow, RequestRow, ServiceRow};
 pub struct Stored {
     pub row: RequestRow,
     pub ticket: Ticket,
+    /// The blocks the request waits for its answer, and an events request for each next
+    /// event: the expiry moves this far past every event.
+    pub wait: u64,
 }
 
 pub const SERVICES: Map<String, ServiceRow> = Map::new("service/");

@@ -172,6 +172,7 @@ impl Net {
             (abi::role::IDENTITY, identity::PROGRAM),
             (abi::role::BLOBS, blobs::PROGRAM),
             (abi::role::AWAITS, awaits::PROGRAM),
+            (abi::role::HALO, halo::PROGRAM),
             (abi::role::SCHEDULER, scheduler::PROGRAM),
         ]);
         let egress_founded = apps.iter().any(|app| app.program == egress::PROGRAM);
@@ -193,6 +194,10 @@ impl Net {
             .chain(apps)
             .chain([
                 founding(awaits::PROGRAM, &program("awaits")),
+                Founding {
+                    params: abi::encode(&halo::Genesis { lanes: Vec::new() }),
+                    ..founding(halo::PROGRAM, &program("halo"))
+                },
                 founding(scheduler::PROGRAM, &program("scheduler")),
             ])
             .collect(),
@@ -361,9 +366,21 @@ impl Net {
         enacting
     }
 
+    /// `op` passed by the validators' vote: the programs' run of it, applied or refused.
+    /// The vote stands either way, and the motion is gone.
     async fn govern(&mut self, op: &programs::Op) -> Receipt {
-        let op = abi::encode(op);
-        self.pass(valset::Motion::Programs { op }).await
+        let motion = valset::Motion::Role {
+            role: abi::role::PROGRAMS.into(),
+            op: abi::encode(op),
+        };
+        let enacting = self.pass(motion).await;
+        let voted: valset::Voted = abi::decode(output_of(&enacting)).unwrap();
+        assert_eq!(voted, valset::Voted::Enacted);
+        enacting
+            .nested
+            .into_iter()
+            .find(|receipt| receipt.program == programs::PROGRAM)
+            .expect("the vote ran its op on the programs")
     }
 
     /// A query the program refuses.

@@ -1,7 +1,10 @@
 //! The `egress` program, bound to the egress role (`abi::role::egress`): a program's call to
 //! something outside the chain, a registered service or the public internet, answered by the
-//! member node the chain elects, in a later block, or expired by its own scheduled run. Its
-//! first queries are the role's.
+//! member node the chain elects, in a later block, or expired by its own scheduled run. An
+//! `Http` request's call answers an encoded `http::Response`. One that asks for its reply as
+//! events (`Delivery::Events`) hears each event of a `text/event-stream` reply as its own op,
+//! and its call answers the `http::Response` with an empty body when the stream ends; any other
+//! reply comes whole, as for every request. Its first queries are the role's.
 mod program;
 mod rules;
 mod state;
@@ -10,7 +13,8 @@ mod tests;
 
 pub use ::program::{BlobId, ProgramId};
 pub use abi::role::egress::{
-    Answer, DEFAULT_WAIT, HTTP, NodeRow, Op, RELAY, RESERVED, Request, RequestRow, ServiceRow, http,
+    Answer, DEFAULT_WAIT, Delivery, Event, HTTP, NodeRow, Op, RELAY, RESERVED, Request, RequestRow,
+    ServiceRow, StreamEnd, http,
 };
 pub use abi::role::identity::AccountNumber;
 pub use program::Egress;
@@ -70,11 +74,13 @@ pub fn describe(op: &Op) -> describe::Description {
         Op::Serve { services } => ("Serve".to_owned(), vec![field("services", names(services))]),
         Op::Request {
             request: Request::Relay { note },
+            delivery,
             wait,
         } => (
             "Request a relay".to_owned(),
             vec![
                 field("note", Value::count(note.len() as u64)),
+                field("delivery", Value::text(delivered(delivery))),
                 field("wait", Value::count(wait.unwrap_or(DEFAULT_WAIT))),
             ],
         ),
@@ -85,6 +91,7 @@ pub fn describe(op: &Op) -> describe::Description {
                     head,
                     body,
                 },
+            delivery,
             wait,
         } => (
             format!("Request {service}"),
@@ -92,6 +99,7 @@ pub fn describe(op: &Op) -> describe::Description {
                 field("method", Value::text(head.method.as_str())),
                 field("target", Value::text(&head.target)),
                 field("body", Value::count(body.len() as u64)),
+                field("delivery", Value::text(delivered(delivery))),
                 field("wait", Value::count(wait.unwrap_or(DEFAULT_WAIT))),
             ],
         ),
@@ -102,9 +110,32 @@ pub fn describe(op: &Op) -> describe::Description {
             };
             (format!("Answer request {id}"), vec![field])
         }
+        Op::Event(Event { id, seq, data }) => (
+            format!("Event {seq} of request {id}"),
+            vec![field("data", Value::count(data.len() as u64))],
+        ),
+        Op::EndStream { id, events, end } => {
+            let end = match end {
+                StreamEnd::Complete { status, .. } => {
+                    field("status", Value::count(u64::from(*status)))
+                }
+                StreamEnd::Cut { reason } => field("cut", Value::text(reason)),
+            };
+            (
+                format!("End request {id}'s stream"),
+                vec![field("events", Value::count(*events)), end],
+            )
+        }
         Op::Expire { id } => (format!("Expire request {id}"), Vec::new()),
     };
     describe::Description { title, fields }
+}
+
+fn delivered(delivery: &Delivery) -> &'static str {
+    match delivery {
+        Delivery::Whole => "whole",
+        Delivery::Events { .. } => "events",
+    }
 }
 
 describe::export!(Op, describe);
@@ -148,10 +179,22 @@ fn the_roles_queries_lead_and_encode_as_the_role_asks() {
     }
 }
 
+/// `Op` is core's egress role op: this order is the role's, so a change here is a role change.
+/// Core put `Event` and `EndStream` before `Expire`, so an `Expire` scheduled by an older egress
+/// no longer decodes: swap egress in place with no request open.
 #[test]
-fn op_variants_only_append() {
+fn op_variants_follow_the_roles_order() {
     assert_eq!(
         describe::variants::<Op>(),
-        ["Register", "Assign", "Serve", "Request", "Answer", "Expire"]
+        [
+            "Register",
+            "Assign",
+            "Serve",
+            "Request",
+            "Answer",
+            "Event",
+            "EndStream",
+            "Expire"
+        ]
     );
 }

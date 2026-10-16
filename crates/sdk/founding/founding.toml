@@ -10,6 +10,7 @@ validators = "valset"
 identity = "identity"
 blobs = "blobs"
 awaits = "awaits"
+halo = "halo"
 egress = "egress"
 scheduler = "scheduler"
 
@@ -37,6 +38,11 @@ code = "blobs.wasm"
 [[programs]]
 id = "awaits"
 code = "awaits.wasm"
+
+[[programs]]
+id = "halo"
+code = "halo.wasm"
+params = "halo.params"
 
 [[programs]]
 id = "scheduler"

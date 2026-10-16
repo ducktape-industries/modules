@@ -2,8 +2,8 @@
 use ::program::{Awaiting, Ctx, Error, Program, QueryCtx};
 
 use crate::rules::{
-    answer, assign, assigned, expire, node, nodes, register, request, request_row, serve, service,
-    services, serving,
+    answer, assign, assigned, end_stream, event, expire, node, nodes, register, request,
+    request_row, serve, service, services, serving,
 };
 use crate::{Op, PROGRAM, Query, Reply};
 
@@ -39,9 +39,12 @@ impl Awaiting for Egress {
             Op::Serve { services: names } => serve(&ctx, names),
             Op::Request {
                 request: asked,
+                delivery,
                 wait,
-            } => request(&ctx, asked, wait).await,
+            } => request(&ctx, asked, delivery, wait).await,
             Op::Answer { id, answer: given } => answer(&ctx, id, given).await,
+            Op::Event(given) => event(&ctx, given).await,
+            Op::EndStream { id, events, end } => end_stream(&ctx, id, events, end).await,
             Op::Expire { id } => expire(&ctx, id),
         }
     }
