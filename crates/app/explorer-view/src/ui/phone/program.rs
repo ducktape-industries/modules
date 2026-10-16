@@ -11,6 +11,7 @@ use crate::decode::{preview, size};
 use crate::state::{Declared, blob_ref};
 use crate::ui::programs::{allows, name_of, role_of};
 use view::methods::Manifested;
+use view::wire::manifest::Manifest;
 
 pub(super) fn program(view: &Explorer, name: &str, cx: Cx, k: &Kit) -> AnyElement {
     let code = view.code_of(name);
@@ -90,20 +91,27 @@ fn standing(network: &Network, name: &str, k: &Kit) -> Option<Div> {
     )
 }
 
-/// What the code's view asks of the host, a row each, under its head; or
-/// why none is shown (Expo `Capabilities`).
+/// The manifest the code's view carries, once read and readable.
+fn view_manifest(view: &Explorer) -> Option<&Manifest> {
+    view.manifest
+        .ready()
+        .and_then(Option::as_ref)
+        .and_then(|blob| blob.view.as_ref())
+        .and_then(|carried| carried.manifest.as_ref())
+}
+
+/// What the code's view asks of the host, a row each, under its head with
+/// their count; or why none is shown (Expo `Capabilities`).
 fn capabilities(view: &Explorer, listed: bool, cx: Cx, k: &Kit) -> Vec<AnyElement> {
-    let declared = view.declared(listed);
-    let count = match &declared {
-        Declared::Asks(manifest) => Some(aside(plural(
+    let count = view_manifest(view).map(|manifest| {
+        aside(plural(
             manifest.capabilities.len() as u64,
             "capability",
             "capabilities",
-        ))),
-        Declared::Reading | Declared::Refused(_) | Declared::Nothing(_) => None,
-    };
+        ))
+    });
     let head = section("explorer-capabilities-header", "Capabilities", count, k);
-    let rows = match declared {
+    let rows = match view.declared(listed) {
         Declared::Reading => vec![quiet("explorer-manifest-loading", "Reading the code…", k)],
         Declared::Refused(sentence) => vec![refused(sentence, cx, k)],
         Declared::Nothing(why) => vec![quiet("explorer-unlisted", why.sentence(), k)],
@@ -132,9 +140,7 @@ fn about(
     k: &Kit,
 ) -> Vec<AnyElement> {
     let blob = view.manifest.ready().and_then(Option::as_ref);
-    let declared = blob
-        .and_then(|blob| blob.view.as_ref())
-        .and_then(|carried| carried.manifest.as_ref());
+    let declared = view_manifest(view);
     let entry = view.runs(name);
     let mut rows = vec![key_value("Code", code_and_copy(code, cx, k), k)];
     rows.extend(blob.map(|blob| key_value("Size", div().child(sizes(blob, entry.is_none())), k)));

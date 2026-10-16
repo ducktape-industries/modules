@@ -401,6 +401,32 @@ fn a_program_page_copies_its_code_id() {
 }
 
 #[test]
+fn a_program_whose_view_asks_nothing_counts_none_and_says_so() {
+    let (mut cx, routes) = linked(12);
+    cx.host().handle::<BlobManifest>(|_| {
+        Ok(Some(Manifested {
+            size: 2_400_000,
+            view: Some(CarriedView {
+                size: 1_900_000,
+                manifest: Some(view::wire::manifest::Manifest {
+                    wire_id: "0123abcd".into(),
+                    name: "Chat".into(),
+                    description: String::new(),
+                    capabilities: Vec::new(),
+                    min_width: 480,
+                    targets: Vec::new(),
+                    icon: "icons/chat.svg".into(),
+                }),
+            }),
+        }))
+    });
+    routes.send("program/chat".into());
+    cx.run_until_parked();
+    shows(&cx, "0 capabilities");
+    shows(&cx, "Its view asks nothing of the host.");
+}
+
+#[test]
 fn a_program_page_opens_the_programs_transactions() {
     let mut cx = opened("program/chat");
     shows(&cx, "2 transactions in the last 13 blocks →");
