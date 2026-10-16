@@ -1,6 +1,6 @@
 //! The program: every op and every query, each handed to its rule.
 
-use ::program::{Error, ExecCtx, Program, QueryCtx, decoded};
+use ::program::{Error, ExecCtx, MessageId, Outcome, Program, QueryCtx, decoded};
 
 use crate::rules::{MEMBERS, account_of, execute, init, memberships, motions, validators, voices};
 use crate::{Genesis, Membership, Op, PROGRAM, Query, Reply};
@@ -19,6 +19,13 @@ impl Program for Valset {
 
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
         execute(ctx, op)
+    }
+
+    /// The only message this program sends with a reply wanted is a passed `Role` motion's
+    /// op. Its refusal is taken, not passed on: the role's program wrote nothing, and the
+    /// motion stays gone from the pending set, so a vote never enacts it again.
+    fn reply(_ctx: &ExecCtx, _id: &MessageId, _outcome: &Outcome) -> Result<(), Error> {
+        Ok(())
     }
 
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {

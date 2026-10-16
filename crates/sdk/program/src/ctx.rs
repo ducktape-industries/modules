@@ -473,6 +473,20 @@ impl ExecCtx {
             other => protocol("done", other),
         }
     }
+
+    /// Binds `program` to `role` in the network's roles table, or unbinds
+    /// the role when `program` is `None`; the validators role's alone, on
+    /// its vote, and never a role in `abi::role::REQUIRED`.
+    pub fn bind(&self, role: impl Into<String>, program: Option<ProgramId>) -> Result<(), Error> {
+        match self.host(HostOp::Bind {
+            role: role.into(),
+            program,
+        }) {
+            HostReply::Done => Ok(()),
+            HostReply::Refused(refusal) => Err(crate::kernel::error_from(refusal)),
+            other => protocol("done", other),
+        }
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

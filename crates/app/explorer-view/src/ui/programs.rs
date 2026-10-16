@@ -256,6 +256,9 @@ fn allows(capability: Capability) -> &'static str {
         Capability::Notify => "posts notifications",
         Capability::Store => "keeps its own data on this device",
         Capability::Web => "shows web pages, and takes the web links the app opens",
+        Capability::Live => {
+            "sends and hears live streams in its program's rooms, as the program grants"
+        }
     }
 }
 

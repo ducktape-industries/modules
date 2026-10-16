@@ -530,7 +530,108 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             }),
         ),
         exchange::<ProgramDescribe>(("chat".into(), vec![3]), None),
+        exchange::<LivePublishTrack>(
+            LivePublish {
+                track: live_track("presence/3"),
+                mode: LiveMode::Datagram,
+                priority: 128,
+            },
+            Publishing::Waiting,
+        ),
+        exchange::<LivePublishTrack>(
+            LivePublish {
+                track: live_track("presence/3"),
+                mode: LiveMode::Datagram,
+                priority: 128,
+            },
+            Publishing::Subscribers(2),
+        ),
+        exchange::<LivePublishTrack>(
+            LivePublish {
+                track: live_track("doc"),
+                mode: LiveMode::Stream,
+                priority: 128,
+            },
+            Publishing::Cut { group: 4 },
+        ),
+        exchange::<LiveSendObject>(
+            LiveSend {
+                track: live_track("doc"),
+                group: 4,
+                object: 0,
+                body: vec![1, 2],
+                end: true,
+            },
+            (),
+        ),
+        exchange::<LiveSubscribeTrack>(
+            LiveSubscribe {
+                track: live_track("doc"),
+                from: LiveStart::Latest,
+            },
+            LiveItem::Waiting,
+        ),
+        exchange::<LiveSubscribeTrack>(
+            LiveSubscribe {
+                track: live_track("doc"),
+                from: LiveStart::Latest,
+            },
+            LiveItem::Opened {
+                by: 3,
+                mode: LiveMode::Stream,
+                latest: Some(4),
+            },
+        ),
+        exchange::<LiveSubscribeTrack>(
+            LiveSubscribe {
+                track: live_track("presence/3"),
+                from: LiveStart::Next,
+            },
+            LiveItem::Opened {
+                by: 3,
+                mode: LiveMode::Datagram,
+                latest: None,
+            },
+        ),
+        exchange::<LiveSubscribeTrack>(
+            LiveSubscribe {
+                track: live_track("doc"),
+                from: LiveStart::Latest,
+            },
+            LiveItem::Object {
+                group: 4,
+                object: 1,
+                body: vec![7],
+            },
+        ),
+        exchange::<LiveSubscribeTrack>(
+            LiveSubscribe {
+                track: live_track("doc"),
+                from: LiveStart::Latest,
+            },
+            LiveItem::GroupEnd {
+                group: 4,
+                complete: false,
+            },
+        ),
+        exchange::<LiveTracks>("lobby".into(), Watching::Waiting),
+        exchange::<LiveTracks>(
+            "lobby".into(),
+            Watching::Announce(LiveAnnounce {
+                name: "presence/3".into(),
+                by: 3,
+                mode: LiveMode::Datagram,
+                up: true,
+            }),
+        ),
     ]
+}
+
+fn live_track(name: &str) -> methods::LiveTrack {
+    methods::LiveTrack {
+        room: "lobby".into(),
+        name: name.into(),
+    }
 }
 
 fn notification() -> methods::Notification {
