@@ -31,15 +31,15 @@ pub(super) fn column(id: impl Into<ElementId>) -> Stateful<Div> {
 }
 
 /// A one-line field over `form` for a name: `label` names it, `prompt` is
-/// drawn in it while empty, Return sends `submit`. It takes no typing while
-/// the submit is in flight, and tells assistive tech what stopped it.
+/// drawn in it while empty. It takes no typing while the submit is in
+/// flight, and tells assistive tech what stopped it. Return sends nothing
+/// unless the caller says so (Expo sets `onSubmitEditing` on some fields).
 pub(super) fn name_input(
     id: impl Into<ElementId>,
     form: &Form,
     label: impl Into<String>,
     prompt: &str,
     problem: Option<&str>,
-    submit: impl Fn(&(), &mut Window, &mut App) + 'static,
 ) -> Input {
     Input::new(id, &form.text, label)
         .placeholder(prompt)
@@ -49,7 +49,6 @@ pub(super) fn name_input(
         .when_some(problem, |input, problem| {
             input.invalid(Invalid::True).description(problem)
         })
-        .when(!form.busy, |input| input.on_submit(submit))
 }
 
 // SDK gap: the labelled field, swap when feat/phone-kit lands

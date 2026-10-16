@@ -41,6 +41,22 @@ impl Settings {
             .collect()
     }
 
+    /// A write of Account's is in flight, any form's (Expo `useBusy`'s
+    /// scope, `src/account/Agents.tsx:38-43`).
+    pub(crate) fn writing(&self) -> bool {
+        let forms = [
+            &self.create_account,
+            &self.create_agent,
+            &self.agent_key,
+            &self.agent_standing,
+        ];
+        forms
+            .into_iter()
+            .chain(self.rename_agent.values())
+            .any(|form| form.busy)
+            || self.answering.values().any(Answering::busy)
+    }
+
     /// The pane on screen: the picked one, or Account once it is not listed.
     pub(crate) fn shown(&self) -> Section {
         match self.sections().contains(&self.section) {

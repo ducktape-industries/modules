@@ -33,15 +33,6 @@ fn identity_moves(cx: &mut TestAppContext, height: u64) {
     cx.run_until_parked();
 }
 
-/// A press on `key` as the host sends it, to batch several in one tick.
-fn press(cx: &TestAppContext, key: &str) -> wire::Event {
-    let handler = cx.interactivity(key).on_click.expect("a click route");
-    wire::Event::Click {
-        handler,
-        event: (&view::ClickEvent::default()).into(),
-    }
-}
-
 fn focused(cx: &TestAppContext) -> Option<String> {
     cx.focused().and_then(wire::Node::key).map(str::to_owned)
 }
@@ -637,8 +628,100 @@ fn whom_it_answers_opens_tall_and_scrolls() {
     let wire::Node::Sheet { detents, .. } = cx.node("settings/agents/12/sheet") else {
         panic!("the agent's sheet")
     };
-    assert_eq!(detents, &[0.85, 1.0]);
+    assert_eq!(detents, &[0.85]);
     assert!(cx.find("settings/agents/12/scroll").is_some());
+}
+
+/// A Remove pressed while a choice is out goes nowhere: sent, it would
+/// undo the choice. Its button is off until the choice lands (Expo turns
+/// Remove off while any write is out).
+#[test]
+fn a_remove_waits_for_a_choice_that_is_out() {
+    let (mut cx, answers) = answering(identity::Audience::Accounts(vec![8, 9]));
+    on_phone(&mut cx);
+    cx.simulate_click("settings/agents/12");
+    cx.simulate_click("settings/agents/12/answers/open");
+    // both pressed before the choice's frame is drawn
+    let anyone = press(&cx, "settings/agents/12/answers/anyone");
+    let remove = press(&cx, "settings/agents/12/answers/8/remove");
+    cx.tick(vec![anyone, remove]);
+    assert!(cx.has_text("Who it answers · Saving…"));
+    assert!(
+        cx.interactivity("settings/agents/12/answers/8/remove")
+            .on_click
+            .is_none()
+    );
+    cx.run_until_parked();
+    assert_eq!(sent(&cx).len(), 1, "a Remove went out: {:?}", sent(&cx));
+    assert_eq!(*answers.borrow(), identity::Audience::Anyone);
+}
+
+/// A person added from the sheet, then the sheet dismissed and Create
+/// opened before the person is found: the add's landing leaves Create.
+#[test]
+fn a_person_add_landing_leaves_a_sheet_opened_meanwhile() {
+    let (mut cx, answers) = answering(identity::Audience::Manager);
+    on_phone(&mut cx);
+    cx.simulate_click("settings/agents/12");
+    cx.simulate_click("settings/agents/12/answers/open");
+    cx.simulate_click("settings/agents/12/answers/specific");
+    cx.simulate_input("settings/agents/12/answers/name", "#9");
+    let add = press(&cx, "settings/agents/12/answers/add");
+    let wire::Node::Sheet {
+        on_dismiss: Some(dismiss),
+        ..
+    } = cx.node("settings/agents/12/sheet")
+    else {
+        panic!("the agent's sheet")
+    };
+    let dismiss = wire::Event::Message(*dismiss);
+    let create = press(&cx, "settings/agents/create/open");
+    cx.tick(vec![add, dismiss, create]);
+    cx.run_until_parked();
+    assert_eq!(*answers.borrow(), identity::Audience::Accounts(vec![9]));
+    assert!(
+        cx.find("settings/agents/create/sheet").is_some(),
+        "the add's landing closed the Create sheet: {:?}",
+        cx.texts()
+    );
+}
+
+/// "· Saving…" says any write is out, not only the choice's (Expo).
+#[test]
+fn whom_it_answers_says_saving_while_any_write_is_out() {
+    let mut cx = agents();
+    cx.host().never::<Submit<Identity>>();
+    cx.simulate_click("settings/agents/12");
+    cx.simulate_click("settings/agents/12/suspend");
+    cx.simulate_click("settings/agents/12/answers/open");
+    assert!(cx.has_text("Who it answers · Saving…"), "{:?}", cx.texts());
+}
+
+/// Return sends the create fields only; rename and the person field wait
+/// for their button (Expo sets `onSubmitEditing` on the creates alone).
+#[test]
+fn return_sends_only_the_create_fields() {
+    let submits = |cx: &TestAppContext, key: &str| {
+        let Some(wire::Node::Field { on_submit, .. }) = cx.find(key) else {
+            panic!("no field {key}");
+        };
+        on_submit.is_some()
+    };
+    assert!(submits(
+        &phone("unregistered"),
+        "settings/account/create/name"
+    ));
+    let mut cx = agents();
+    cx.simulate_click("settings/agents/create/open");
+    assert!(submits(&cx, "settings/agents/create/name"));
+    cx.simulate_back();
+    cx.simulate_click("settings/agents/12");
+    cx.simulate_click("settings/agents/12/rename/open");
+    assert!(!submits(&cx, "settings/agents/12/name"));
+    cx.simulate_click("settings/agents/12/rename/cancel");
+    cx.simulate_click("settings/agents/12/answers/open");
+    cx.simulate_click("settings/agents/12/answers/specific");
+    assert!(!submits(&cx, "settings/agents/12/answers/name"));
 }
 
 /// Every phone field says what keyboard it wants (rule 7).

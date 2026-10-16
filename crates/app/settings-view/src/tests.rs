@@ -8,6 +8,15 @@ use view::{Theme, wire};
 
 mod phone;
 
+/// A press on `key` as the host sends it, to batch several in one tick.
+fn press(cx: &TestAppContext, key: &str) -> wire::Event {
+    let handler = cx.interactivity(key).on_click.expect("a click route");
+    wire::Event::Click {
+        handler,
+        event: (&view::ClickEvent::default()).into(),
+    }
+}
+
 fn account(number: u64, name: &str, control: identity::Control) -> identity::Account {
     identity::Account {
         number,
@@ -973,6 +982,7 @@ fn typed(cx: &TestAppContext) -> &str {
 #[test]
 fn a_person_typed_goes_with_a_choice_that_lands() {
     let (mut cx, _) = answering(identity::Audience::Accounts(vec![8]));
+    cx.simulate_click("settings/agents/12/answers/add");
     cx.simulate_input("settings/agents/12/answers/name", "Sam");
     cx.simulate_click("settings/agents/12/answers/anyone");
     cx.run_until_parked();
@@ -986,6 +996,41 @@ fn a_person_typed_goes_with_a_choice_that_lands() {
     cx.run_until_parked();
     cx.simulate_click("settings/agents/12/answers/specific");
     assert_eq!(typed(&cx), "Eve");
+}
+
+/// The person field and Add wait while a choice is out (dev's one form).
+#[test]
+fn the_person_field_waits_for_a_choice_that_is_out() {
+    let (mut cx, _) = answering(identity::Audience::Accounts(vec![8]));
+    cx.simulate_click("settings/agents/12/answers/add");
+    let anyone = press(&cx, "settings/agents/12/answers/anyone");
+    cx.tick(vec![anyone]);
+    let Some(wire::Node::Field { options, .. }) = cx.find("settings/agents/12/answers/name") else {
+        panic!("the person field: {:?}", cx.texts())
+    };
+    assert!(options.disabled);
+    assert!(
+        cx.interactivity("settings/agents/12/answers/add")
+            .on_click
+            .is_none()
+    );
+}
+
+/// A Remove that lands takes a refused choice's sentence with it.
+#[test]
+fn a_landed_remove_takes_a_refused_choices_sentence() {
+    let (mut cx, _) = answering(identity::Audience::Accounts(vec![8, 9]));
+    cx.host()
+        .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
+    cx.simulate_click("settings/agents/12/answers/anyone");
+    cx.run_until_parked();
+    let refused = "That didn’t go through: account 7 does not manage account 12";
+    assert!(cx.has_text(refused));
+    cx.host()
+        .handle::<Submit<Identity>>(|_| Ok(view::testing::applied(Vec::new())));
+    cx.simulate_click("settings/agents/12/answers/8/remove");
+    cx.run_until_parked();
+    assert!(!cx.has_text(refused), "{:?}", cx.texts());
 }
 
 #[test]

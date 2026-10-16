@@ -5,7 +5,7 @@ use view::prelude::*;
 
 use crate::queries::Found;
 use crate::state::{Answering, Choice, Form, Problem, Section, Sheet, TTL};
-use crate::{Settings, queries};
+use crate::{Settings, queries, words};
 use identity::{Audience, Identity};
 
 impl Settings {
@@ -124,9 +124,7 @@ impl Settings {
                 }
                 Ok(Submitted::InDoubt { .. }) => {
                     view.create_account.busy = false;
-                    view.create_account.problem = Some(Problem::Refused(
-                        "No answer came back: it may have gone through.".into(),
-                    ));
+                    view.create_account.problem = Some(Problem::Refused(words::IN_DOUBT.into()));
                 }
             }
             cx.notify();
@@ -158,7 +156,13 @@ impl Settings {
             account: number,
             name,
         };
-        self.submit_agent_op(op, move |v| v.rename_agent.entry(number).or_default(), cx);
+        let from = self.sheet;
+        self.submit_agent_op(
+            op,
+            move |v| v.rename_agent.entry(number).or_default(),
+            from,
+            cx,
+        );
     }
 
     pub(crate) fn cancel_rename_agent(&mut self, number: u64, cx: &mut Context<Self>) {
@@ -222,7 +226,8 @@ impl Settings {
             cx.notify();
             return;
         }
-        self.submit_audience(number, audience, |answering| &mut answering.pick, cx);
+        let from = self.sheet;
+        self.submit_audience(number, audience, |answering| &mut answering.pick, from, cx);
     }
 
     pub(crate) fn submit_audience_person(&mut self, number: u64, cx: &mut Context<Self>) {
@@ -249,14 +254,20 @@ impl Settings {
         form.busy = true;
         form.problem = None;
         cx.notify();
+        // the sheet Add was pressed on, not the one open once the person is
+        // found
+        let from = self.sheet;
         let find = queries::find(cx.host(), typed);
-        cx.land(find, move |view, found, cx| view.found(number, found, cx))
-            .detach();
+        cx.land(find, move |view, found, cx| {
+            view.found(number, from, found, cx)
+        })
+        .detach();
     }
 
     fn found(
         &mut self,
         number: u64,
+        from: Option<Sheet>,
         found: Result<Found, view::host::Error>,
         cx: &mut Context<Self>,
     ) {
@@ -267,7 +278,8 @@ impl Settings {
                 let mut listed = self.listed(number);
                 listed.push(person);
                 let audience = Audience::Accounts(listed);
-                return self.submit_audience(number, audience, |answering| &mut answering.form, cx);
+                let which: fn(&mut Answering) -> &mut Form = |answering| &mut answering.form;
+                return self.submit_audience(number, audience, which, from, cx);
             }
             Ok(Found::Nobody) => Problem::NoSuchAccount,
             Ok(Found::Several) => Problem::SeveralAccounts,
@@ -286,18 +298,29 @@ impl Settings {
         let mut listed = self.listed(number);
         listed.retain(|listed| *listed != person);
         let audience = Audience::Accounts(listed);
-        self.submit_audience(number, audience, |answering| &mut answering.form, cx);
+        let from = self.sheet;
+        self.submit_audience(number, audience, |answering| &mut answering.form, from, cx);
     }
 
-    /// Sends whom an agent answers; `which` of its forms carries the send
-    /// (the choice's, or the person field's).
+    /// Sends whom an agent answers, pressed on sheet `from`; `which` of its
+    /// forms carries the send (the choice's, or the person field's). Every
+    /// change goes through here: one at a time, as dev's one form had it,
+    /// so a Remove pressed while a choice is out cannot undo the choice.
     fn submit_audience(
         &mut self,
         number: u64,
         audience: Audience,
         which: fn(&mut Answering) -> &mut Form,
+        from: Option<Sheet>,
         cx: &mut Context<Self>,
     ) {
+        let answering = self.answering.entry(number).or_default();
+        if answering.busy() {
+            return;
+        }
+        // the last change's problem goes with the next
+        answering.pick.problem = None;
+        answering.form.problem = None;
         let op = identity::Op::SetAudience {
             account: number,
             audience,
@@ -305,6 +328,7 @@ impl Settings {
         self.submit_agent_op(
             op,
             move |v| which(v.answering.entry(number).or_default()),
+            from,
             cx,
         );
     }
@@ -317,7 +341,7 @@ impl Settings {
             return;
         }
         let op = identity::Op::CreateAgent { name };
-        self.submit_agent_op(op, |v| &mut v.create_agent, cx);
+        self.submit_agent_op(op, |v| &mut v.create_agent, self.sheet, cx);
     }
 
     /// The agent's key request: the hex of an `AddKey` whose consent the
@@ -340,22 +364,25 @@ impl Settings {
             cx.notify();
             return;
         };
-        self.submit_agent_op(op, |v| &mut v.agent_key, cx);
+        self.submit_agent_op(op, |v| &mut v.agent_key, self.sheet, cx);
     }
 
     /// Suspends, resumes or revokes an agent: one press. Suspend and
     /// Revoke are confirmed by the host, natively, before the key signs
     /// them, so the view asks nothing of its own.
     pub(crate) fn set_standing(&mut self, op: identity::Op, cx: &mut Context<Self>) {
-        self.submit_agent_op(op, |v| &mut v.agent_standing, cx);
+        self.submit_agent_op(op, |v| &mut v.agent_standing, self.sheet, cx);
     }
 
-    /// Submits `op` from `form`; done, the form clears and the account is
-    /// read again.
+    /// Submits `op` from `form`, pressed on sheet `from`; done, the form
+    /// clears and the account is read again. A landing settles `from` only
+    /// while it is still the sheet open: another opened meanwhile is not
+    /// this op's to move.
     fn submit_agent_op(
         &mut self,
         op: identity::Op,
         form: impl Fn(&mut Settings) -> &mut Form + 'static,
+        from: Option<Sheet>,
         cx: &mut Context<Self>,
     ) {
         if form(self).busy {
@@ -365,9 +392,6 @@ impl Settings {
         pending.busy = true;
         pending.problem = None;
         cx.notify();
-        // the sheet this op was sent from; another opened meanwhile is not
-        // this op's to move
-        let from = self.sheet;
         // whom an agent answers: a change that lands takes the person typed
         // for it (dev's one form; Expo unmounts the field)
         let answered = match &op {
@@ -385,9 +409,7 @@ impl Settings {
                     form.problem = Some(Problem::Refused(refusal.message))
                 }
                 Ok(Submitted::InDoubt { .. }) => {
-                    form.problem = Some(Problem::Refused(
-                        "No answer came back: it may have gone through.".into(),
-                    ))
+                    form.problem = Some(Problem::Refused(words::IN_DOUBT.into()))
                 }
             }
             // a rename that landed closes its field

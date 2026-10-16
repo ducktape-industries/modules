@@ -460,7 +460,7 @@ fn answers(
         .when(busy, |line| {
             line.child(secondary(
                 format!("settings/agents/{number}/answers/saving"),
-                "Saving…",
+                words::SAVING,
                 theme,
             ))
         });
@@ -565,7 +565,9 @@ fn people(
                 words::ADD_PERSON.prompt,
                 &answering.form,
                 theme,
-            );
+            )
+            // a choice out holds the field too, as dev's one form did
+            .disabled(busy);
             let input = match busy {
                 true => input.into_any_element(),
                 false => input.on_submit(submitted).into_any_element(),

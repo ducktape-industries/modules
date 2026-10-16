@@ -21,20 +21,21 @@ use super::parts::{
 };
 use crate::Settings;
 use crate::queries::{Agent, Seat};
-use crate::state::{Choice, Form, Sheet};
+use crate::state::{Answering, Choice, Sheet};
 use crate::ui::shared::{agent_face, audience_choices};
 use crate::words;
 
 // SDK gap: the sheet's inset, swap when feat/phone-kit lands
 /// A sheet's content inset (Expo `src/account/Agents.tsx:24`).
 const SHEET_INSET: Pixels = px(20.);
+// SDK gap: a face at 0.5 when off, swap when the SDK builds it (kit.md §2)
 /// A revoked agent's face, faded (Expo `src/kit/Avatar.tsx:38`).
 const REVOKED_OPACITY: f32 = 0.5;
 /// The new agent's name field.
 const CREATE_NAME: &str = "settings/agents/create/name";
-/// Where the "Who it answers" sheet rests, as fractions of the body: Expo
-/// opens it at 85% (`src/account/Agents.tsx:432`); a drag takes it to full.
-const ANSWERS_DETENTS: [f32; 2] = [0.85, 1.0];
+/// Where the "Who it answers" sheet rests, as a fraction of the body:
+/// Expo's one snap, 85% (`src/account/Agents.tsx:432`).
+const ANSWERS_DETENTS: [f32; 1] = [0.85];
 
 /// The Agents pane: every agent this person manages, then the rows that
 /// open the create and add-key sheets.
@@ -185,6 +186,7 @@ fn standing_badge(agent: &Agent, ladder: &Ladder, theme: &Theme) -> Stateful<Div
     )
 }
 
+// SDK gap: a face at 0.5 when off, swap when the SDK builds it (kit.md §2)
 /// An agent's face, faded once revoked.
 fn agent_avatar(agent: &Agent, face: design::Face, theme: &Theme) -> Div {
     agent_face(agent, face, theme).when(agent.standing() == Standing::Revoked, |face| {
@@ -228,7 +230,8 @@ pub(super) fn sheet(
         // whom it answers can outgrow the screen: a taller sheet, and the
         // body scrolls (Expo `src/account/Agents.tsx:432-433`)
         Sheet::Answers(_) => sheet.detents(ANSWERS_DETENTS),
-        // SDK gap: sheet sized to content, swap when feat/phone-kit lands
+        // SDK gap: a sheet sized to its content, swap when lane WH's wire and
+        // host change lands (kit.md §3)
         Sheet::Actions(_) | Sheet::Rename(_) | Sheet::CreateAgent | Sheet::AddKey => sheet,
     };
     Some(sheet.child(body).into_any_element())
@@ -405,7 +408,6 @@ fn rename(
         label.clone(),
         words::RENAME.prompt,
         problem.as_deref(),
-        cx.listener(move |v: &mut Settings, _: &(), _, cx| v.submit_rename_agent(number, cx)),
     );
     let save = cx
         .listener(move |v: &mut Settings, _: &ClickEvent, _, cx| v.submit_rename_agent(number, cx));
@@ -445,20 +447,21 @@ fn answers_form(
     let number = agent.number;
     let answering = view.answering.get(&number);
     let listing = answering.is_some_and(|answering| answering.listing);
-    // the choice's send and what stopped it; a person's are the field's
-    let saving = answering.is_some_and(|answering| answering.pick.busy);
+    // what stopped the choice; a person's is the field's
     let refused = answering.and_then(|answering| problem_of(&answering.pick, ""));
     let shown = Choice::shown(&agent.audience, listing);
     let people = match (shown, answering) {
-        (Choice::Specific, Some(answering)) => {
-            Some(people(agent, &answering.form, cx, ladder, theme))
-        }
+        (Choice::Specific, Some(answering)) => Some(people(agent, answering, cx, ladder, theme)),
         _ => None,
     };
     let done = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
         v.open_sheet(Sheet::Actions(number), cx)
     });
-    let saving = if saving { " · Saving…" } else { "" };
+    // any write out, as Expo's `useBusy` scope (`src/account/Agents.tsx:362`)
+    let saving = match view.writing() {
+        true => format!(" · {}", words::SAVING),
+        false => String::new(),
+    };
     column(format!("settings/agents/{number}/answering"))
         .gap(design::space::LG)
         // the Expo sheet's inset, a gutter under its last control
@@ -492,14 +495,17 @@ fn answers_form(
 }
 
 /// The people an agent answers under Specific: each with Remove, then the
-/// field that adds one by name or number, and Add.
+/// field that adds one by name or number, and Add. Remove and Add wait
+/// while any change to whom it answers is out (Expo `Agents.tsx:38-43`).
 fn people(
     agent: &Agent,
-    form: &Form,
+    answering: &Answering,
     cx: &mut Context<Settings>,
     ladder: &Ladder,
     theme: &Theme,
 ) -> Stateful<Div> {
+    let form = &answering.form;
+    let busy = answering.busy();
     let problem = problem_of(form, words::ADD_PERSON.empty);
     let number = agent.number;
     let listed: &[u64] = match &agent.audience {
@@ -514,7 +520,6 @@ fn people(
         label.clone(),
         words::ADD_PERSON.prompt,
         problem.as_deref(),
-        cx.listener(move |v: &mut Settings, _: &(), _, cx| v.submit_audience_person(number, cx)),
     )
     .autocorrect(false)
     .autocapitalize(Autocapitalize::None);
@@ -526,7 +531,7 @@ fn people(
         .children(
             listed
                 .iter()
-                .map(|&person| person_row(agent, person, form, cx, ladder, theme)),
+                .map(|&person| person_row(agent, person, busy, cx, ladder, theme)),
         )
         .when(listed.is_empty(), |people| {
             people.child(note(words::NOBODY_LISTED, theme.muted, ladder))
@@ -539,11 +544,11 @@ fn people(
             theme,
         ))
         .child(
-            // SDK gap: the busy button with its spinner, swap when feat/phone-kit lands
+            // SDK gap: the busy button, swap when feat/phone-kit lands (its spinner needs a wire and host change)
             div().flex().child(
                 design::button(
                     format!("settings/agents/{number}/answers/add"),
-                    if form.busy {
+                    if busy {
                         words::ADD_PERSON.busy
                     } else {
                         words::ADD_PERSON.verb
@@ -553,7 +558,7 @@ fn people(
                     add,
                 )
                 .kind(ButtonKind::Outline)
-                .enabled(!form.busy),
+                .enabled(!busy),
             ),
         )
 }
@@ -562,7 +567,7 @@ fn people(
 fn person_row(
     agent: &Agent,
     person: u64,
-    form: &Form,
+    busy: bool,
     cx: &mut Context<Settings>,
     ladder: &Ladder,
     theme: &Theme,
@@ -598,7 +603,7 @@ fn person_row(
                 remove,
             )
             .kind(ButtonKind::Quiet)
-            .enabled(!form.busy),
+            .enabled(!busy),
         )
 }
 
@@ -617,8 +622,9 @@ fn create_agent(
         words::AGENT_NAME,
         words::CREATE_AGENT.prompt,
         problem.as_deref(),
-        cx.listener(|v: &mut Settings, _: &(), _, cx| v.submit_create_agent(cx)),
-    );
+    )
+    // Return creates it (Expo `src/account/Agents.tsx:203`)
+    .on_submit(cx.listener(|v: &mut Settings, _: &(), _, cx| v.submit_create_agent(cx)));
     let create = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_create_agent(cx));
     let cancel = cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.close_sheet(cx));
     add_sheet(
@@ -764,7 +770,7 @@ fn verbs(
             .kind(ButtonKind::Quiet),
         )
         .child(
-            // SDK gap: the busy button with its spinner, swap when feat/phone-kit lands
+            // SDK gap: the busy button, swap when feat/phone-kit lands (its spinner needs a wire and host change)
             div().flex_1().flex().flex_col().child(
                 design::button(
                     format!("{base}/submit"),

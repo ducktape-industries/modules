@@ -56,10 +56,11 @@ pub(super) fn screen(
             quiet("settings/invite/unsupported", NO_INVITES, ladder, theme).into_any_element()
         }
     };
-    // SDK gap: a root page, swap when feat/phone-kit lands
+    // SDK gap: a root page, swap for #406's `Page::root` when it lands
     // the view's first page has no Back of its own: the shell's capsule closes it
     let back: Option<fn(&ClickEvent, &mut Window, &mut App)> = None;
     let page = design::page(PAGE, "Account", back, ladder, theme);
+    // SDK gap: the network caption, swap when the SDK builds it (kit.md §2)
     let page = match words::network(&view.session) {
         Some(network) => page.caption(network.to_owned()),
         None => page,
@@ -346,11 +347,12 @@ fn create_account(
         words::ACCOUNT_NAME,
         words::CREATE_ACCOUNT.prompt,
         problem.as_deref(),
-        cx.listener(|v: &mut Settings, _: &(), _, cx| v.submit_create_account(cx)),
-    );
+    )
+    // Return creates it (Expo `app/account/index.tsx:189`)
+    .on_submit(cx.listener(|v: &mut Settings, _: &(), _, cx| v.submit_create_account(cx)));
     let pressed =
         cx.listener(|v: &mut Settings, _: &ClickEvent, _, cx| v.submit_create_account(cx));
-    // SDK gap: the busy button with its spinner, swap when feat/phone-kit lands
+    // SDK gap: the busy button, swap when feat/phone-kit lands (its spinner needs a wire and host change)
     let create = design::button(
         "settings/account/create/submit",
         if form.busy {
