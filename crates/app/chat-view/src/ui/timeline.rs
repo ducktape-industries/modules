@@ -89,7 +89,7 @@ fn nothing_yet(chat: &Chat, pane: Pane, theme: &Theme) -> Option<AnyElement> {
     }
     if let Some(refusal) = rows.and_then(Loadable::failed) {
         return Some(
-            quiet(refusal.message.clone(), theme)
+            quiet(design::sentence(refusal), theme)
                 .p_4()
                 .into_any_element(),
         );

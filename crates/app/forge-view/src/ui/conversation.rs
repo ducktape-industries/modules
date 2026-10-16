@@ -221,7 +221,7 @@ fn messages(forge: &Forge, theme: &Theme, ladder: &Ladder) -> AnyElement {
             .p_2()
             .bg(theme.danger_soft)
             .text_size(design::text::SECONDARY)
-            .child(refusal.message.clone())
+            .child(design::sentence(refusal))
             .into_any_element(),
         Some(Loadable::Ready(rows) | Loadable::Reloading(rows, _)) if rows.is_empty() => {
             empty_state(

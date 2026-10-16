@@ -108,6 +108,9 @@ pub(crate) const REPLY: &str = "Reply";
 pub(crate) const EDITED_MESSAGE: &str = "Edited message";
 /// Over a refused send's words, put back to try again.
 pub(crate) const UNSENT: &str = "An earlier message wasn’t sent";
+/// What a send's words are about when the direct message it opens first
+/// did not open: the message itself never left.
+pub(crate) const OPENING_DM: &str = "Opening the conversation";
 
 // ---------- a message's actions and the picker ----------
 

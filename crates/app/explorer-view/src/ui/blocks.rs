@@ -56,7 +56,7 @@ pub(super) fn block(
                 )
                 .into_any_element()
             }
-            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme, ladder),
+            Loadable::Failed(refusal) => failed(&design::sentence(refusal), cx, theme, ladder),
             Loadable::Idle
             | Loadable::Loading(_)
             | Loadable::Ready(Some(_))

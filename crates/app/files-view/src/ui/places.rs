@@ -43,7 +43,7 @@ fn home(view: &Files, cx: Cx, k: &Kit) -> Stateful<Div> {
             "files/place/home".into(),
             HOME_GLYPH,
             words::HOME.into(),
-            words::no_home(&why).to_owned(),
+            words::no_home(&why),
             k,
         ),
     }

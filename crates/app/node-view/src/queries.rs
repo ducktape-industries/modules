@@ -76,9 +76,12 @@ pub(crate) async fn nodes(host: Host) -> Result<Vec<Node>, Error> {
     let mut nodes = fold(&validators, members);
     // one row's operator unread is that row's line: the list stands
     for node in &mut nodes {
-        node.operator = operator(&host, &node.key)
-            .await
-            .unwrap_or_else(|refusal| Some(format!("operator unreadable: {}", refusal.message)));
+        node.operator = operator(&host, &node.key).await.unwrap_or_else(|refusal| {
+            Some(format!(
+                "operator unreadable: {}",
+                design::sentence(&refusal)
+            ))
+        });
     }
     Ok(nodes)
 }

@@ -107,7 +107,11 @@ fn rooms(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) ->
         list = list.child(quiet("chat-sidebar-loading", words::LOADING_ROOMS, theme));
     }
     if let Some(refusal) = chat.channels.failed() {
-        list = list.child(quiet("chat-sidebar-failed", refusal.message.clone(), theme));
+        list = list.child(quiet(
+            "chat-sidebar-failed",
+            design::sentence(refusal),
+            theme,
+        ));
     }
     let open = chat.room.as_ref().map(|room| room.id.as_str());
     let room_list = chat.room_list();

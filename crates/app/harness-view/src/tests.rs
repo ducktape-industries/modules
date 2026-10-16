@@ -933,7 +933,7 @@ fn a_refused_commit_resumes_without_a_second_account() {
     cx.simulate_click("create-next");
     cx.run_until_parked();
     assert!(
-        cx.has_text("the file changed since the base snapshot"),
+        cx.has_text("That didn’t go through: the file changed since the base snapshot"),
         "{:?}",
         cx.texts()
     );
@@ -972,7 +972,9 @@ fn a_create_with_no_answer_says_the_account_may_exist() {
     cx.simulate_click("create-next");
     cx.run_until_parked();
     assert!(
-        cx.has_text("No answer came back: the account may have been made. Look for it before you create another."),
+        cx.has_text(
+            "This may have gone through: no answer came back. What you see is read again from the node. Look for the account before you create another."
+        ),
         "{:?}",
         cx.texts()
     );
@@ -1090,7 +1092,11 @@ fn editing_a_configuration_in_another_accounts_home_shows_the_refusal_files_retu
             "Configure agent Scout (account 12)".into()
         )]
     );
-    assert!(cx.has_text(refusal), "{:?}", cx.texts());
+    assert!(
+        cx.has_text(&format!("That didn’t go through: {refusal}")),
+        "{:?}",
+        cx.texts()
+    );
     assert!(cx.host().requests::<Submit<Identity>>().is_empty());
 }
 

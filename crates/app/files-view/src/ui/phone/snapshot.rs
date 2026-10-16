@@ -81,8 +81,9 @@ fn changed(row: &SnapshotRow, changes: &[DiffEntry], k: &Kit) -> AnyElement {
             )
             .min_h(k.ladder.row_tall)
             .child(
-                title_and_caption(data(entry.path.clone(), k).truncate())
-                    .child(row_caption(words::diff_kind(entry.kind), k)),
+                design::row_words(data(entry.path.clone(), k).truncate()).child(
+                    design::row_caption(words::diff_kind(entry.kind), &k.ladder, &k.theme),
+                ),
             )
         }))
         .into_any_element()

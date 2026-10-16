@@ -539,12 +539,10 @@ impl Chat {
                     chat.choose(id, cx);
                     return;
                 }
-                Ok((_, Submitted::Refused { refusal, .. })) | Err(refusal) => {
-                    format!("Couldn’t create this channel: {}", refusal.message)
-                }
-                Ok((_, Submitted::InDoubt { .. })) => {
-                    "No answer came back: it may have gone through.".into()
-                }
+                // why not, in every view's words, under the name (Expo
+                // `new.tsx` `problem={said}`)
+                answer => design::failure(&answer.map(|(_, submitted)| submitted))
+                    .expect("only a landed write has no failure"),
             };
             if let Some(create) = &mut chat.create {
                 create.busy = false;

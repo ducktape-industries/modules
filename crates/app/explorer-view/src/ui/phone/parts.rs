@@ -76,7 +76,8 @@ pub(super) fn over(
     cx: Cx,
     k: &Look,
 ) -> design::Page {
-    let page = design::page(id, title, design::Nav::back(back(cx)), &k.ladder, &k.theme);
+    let nav = design::Nav::back(k.depth, back(cx));
+    let page = design::page(id, title, nav, &k.ladder, &k.theme);
     match note(view, cx, k) {
         Some(note) => page.child(note),
         None => page,
@@ -96,7 +97,9 @@ pub(super) fn gone(
     k: &Look,
 ) -> AnyElement {
     let dismiss = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.dismiss_note(cx));
-    design::page(id, title, design::Nav::back(dismiss), &k.ladder, &k.theme)
+    // over the stack's top page
+    let nav = design::Nav::back(k.depth + 1, dismiss);
+    design::page(id, title, nav, &k.ladder, &k.theme)
         .child(empty(
             "explorer-gone-why",
             icon,

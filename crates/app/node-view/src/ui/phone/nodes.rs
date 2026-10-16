@@ -98,7 +98,7 @@ fn numbers(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
         let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.retry_status(cx));
         return design::refused(
             "nodes-status",
-            refusal.message.clone(),
+            design::sentence(refusal),
             &LADDER,
             theme,
             retry,
@@ -237,7 +237,7 @@ fn epoch_bar(place: &EpochPlace, theme: &Theme) -> Div {
 fn members(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> AnyElement {
     if let Some(refusal) = view.nodes.failed() {
         let retry = cx.listener(|view: &mut Nodes, _: &ClickEvent, _, cx| view.read(cx));
-        return design::refused("nodes", refusal.message.clone(), &LADDER, theme, retry)
+        return design::refused("nodes", design::sentence(refusal), &LADDER, theme, retry)
             .into_any_element();
     }
     let Some(nodes) = view.nodes.ready() else {
@@ -383,7 +383,7 @@ fn waiting(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Vec<AnyEleme
         return vec![
             design::refused(
                 "nodes-motions",
-                refusal.message.clone(),
+                design::sentence(refusal),
                 &LADDER,
                 theme,
                 retry,
@@ -458,7 +458,7 @@ fn scheduled(view: &Nodes, cx: &mut Context<Nodes>, theme: &Theme) -> Vec<AnyEle
         return vec![
             design::refused(
                 "nodes-scheduled",
-                refusal.message.clone(),
+                design::sentence(refusal),
                 &LADDER,
                 theme,
                 retry,

@@ -202,6 +202,7 @@ fn full_interactivity() -> Interactivity {
             delay_ms: 300,
         }),
         on_back: Some(81),
+        page: Some(2),
     }
 }
 

@@ -62,7 +62,7 @@ fn home(view: &Files, cx: Cx, k: &Kit) -> Stateful<Div> {
             "files/place/home",
             HOME_GLYPH,
             words::HOME,
-            words::no_home(&why).to_owned(),
+            words::no_home(&why),
             k,
         ),
     }
@@ -100,7 +100,7 @@ fn history_caption(view: &Files) -> String {
                 None => words::NO_SNAPSHOTS.to_owned(),
             }
         }
-        Loadable::Failed(refusal) => refusal.message.clone(),
+        Loadable::Failed(refusal) => design::sentence(refusal),
         Loadable::Idle | Loadable::Loading(_) => words::READING_HISTORY.to_owned(),
     }
 }

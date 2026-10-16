@@ -91,7 +91,13 @@ fn named(id: &ElementId, part: &str) -> ElementId {
 /// Where a [`page`] sits in its view's stack, said at every [`page`]
 /// call, so a first page cannot be drawn as a child page by leaving
 /// something out. Chosen from the stack's depth:
-/// `match pages.depth() { 0 => Nav::root(reader), _ => Nav::back(pop) }`.
+/// `match pages.depth() { 0 => Nav::root(reader), depth => Nav::back(depth, pop) }`.
+///
+/// Under a finger the depth crosses with the page (the root's is `0`), so
+/// the host moves from one page to the next as the phone does: a deeper
+/// page slides in over the one it was opened from, a shallower one is
+/// uncovered, and a page at the same depth (a tab) is put in place. The
+/// view draws only the page on top and writes nothing for the motion.
 pub enum Nav {
     /// The view's first page and the reader on it (the Expo kit's
     /// `Header` `root={{ name }}`, `Header.tsx:19-23`). Under a finger its
@@ -116,11 +122,16 @@ pub enum Nav {
     /// listener. Under a finger it is the Expo kit's header `Hit` with the
     /// Lucide arrow (`Header.tsx:45`); under a pointer a `‹` at the title
     /// size. The phone's own Back is not this: it is the view root's
-    /// `on_back` (SPEC §9 rule 13), set from the same depth.
-    Back(EventListener<ClickEvent>),
+    /// `on_back` (SPEC §9 rule 13), set from the same depth. The depth is
+    /// the page's place over the root: `1` for a page opened from the
+    /// root, one more for each page over that, a page the view lays over
+    /// its stack (a form, a link's empty page) one more than the stack's
+    /// top.
+    Back(usize, EventListener<ClickEvent>),
     /// A page under another with no Back of its own (the Expo `Header`
     /// with neither `back` nor `root`, `Header.tsx:16`, `:23`): the 17
-    /// title over the hairline.
+    /// title over the hairline. It is on no stack the view moves, so it
+    /// crosses with no depth and the host never slides it.
     Child,
 }
 
@@ -129,9 +140,9 @@ impl Nav {
     pub fn root(reader: impl Into<SharedString>) -> Self {
         Self::Root(reader.into())
     }
-    /// [`Nav::Back`] running `back`.
-    pub fn back(back: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        Self::Back(Box::new(back))
+    /// [`Nav::Back`] at `depth` over the root, running `back`.
+    pub fn back(depth: usize, back: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        Self::Back(depth, Box::new(back))
     }
 }
 
@@ -140,7 +151,7 @@ impl Nav {
 /// avatar by `nav`, what the page adds beside it ([`Page::leading`],
 /// [`Page::caption`], [`Page::trailing`]), over the children, which fill
 /// the rest: `design::page("rooms", top, match pages.depth() { 0 =>
-/// Nav::root(reader), _ => Nav::back(pop) }, &ladder, &theme)`.
+/// Nav::root(reader), depth => Nav::back(depth, pop) }, &ladder, &theme)`.
 ///
 /// Under a finger the row is the Expo kit's `Header` (`Header.tsx:28-73`):
 /// 56 tall, 8 in, 4 between its parts, a hairline under it, the title in
@@ -153,17 +164,23 @@ pub fn page(
     theme: &Theme,
 ) -> Page {
     let id = id.into();
-    let (root, nav) = match nav {
+    let (root, depth, nav) = match nav {
         Nav::Root(reader) => (
             true,
+            Some(0),
             ladder.touch.then(|| account(&id, &reader, ladder, theme)),
         ),
-        Nav::Back(back) => (false, Some(back_control(&id, back, ladder, theme))),
-        Nav::Child => (false, None),
+        Nav::Back(depth, back) => (
+            false,
+            Some(u32::try_from(depth).unwrap_or(u32::MAX)),
+            Some(back_control(&id, back, ladder, theme)),
+        ),
+        Nav::Child => (false, None, None),
     };
     Page {
         id,
         root,
+        depth,
         title: title.into(),
         caption: None,
         nav,
@@ -246,6 +263,8 @@ pub struct Page {
     id: ElementId,
     /// the view's first page ([`Nav::Root`])
     root: bool,
+    /// its place over the root, from its [`Nav`]; none for [`Nav::Child`]
+    depth: Option<u32>,
     title: SharedString,
     caption: Option<SharedString>,
     /// Back, or the reader's avatar on a first page under a finger
@@ -354,20 +373,22 @@ impl IntoElement for Page {
                 false => row.children(self.leading).child(words),
             })
             .children(self.trailing);
-        div()
-            .id(id)
-            .flex()
-            .flex_col()
-            .size_full()
-            .child(title_row)
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .flex_col()
-                    .children(self.body),
-            )
+        let mut page = div().id(id);
+        // under a finger the host moves between pages by their depth; a
+        // pointer's frames carry none and keep their bytes
+        if ladder.touch
+            && let Some(depth) = self.depth
+        {
+            page.interactivity().interactions().page = Some(depth);
+        }
+        page.flex().flex_col().size_full().child(title_row).child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .children(self.body),
+        )
     }
 }
 

@@ -23,7 +23,7 @@ pub(super) fn screen(
     design::page(
         "chat-new-page",
         words::NEW_CHANNEL,
-        design::Nav::back(back),
+        design::Nav::back(chat.pages().depth(), back),
         ladder,
         theme,
     )

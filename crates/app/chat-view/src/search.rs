@@ -52,7 +52,8 @@ impl Chat {
             let (rows, _, next_after) = match result {
                 Ok(page) => page,
                 Err(refusal) => {
-                    chat.notice = format!("Couldn’t search further: {}", refusal.message);
+                    chat.notice =
+                        format!("Couldn’t search further: {}", design::sentence(&refusal));
                     return;
                 }
             };

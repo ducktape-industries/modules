@@ -49,7 +49,6 @@ pub const GONE: &str = "Nothing is at this path any more.";
 pub const NAME_IT: &str = "Name it.";
 pub const ONE_NAME: &str = "A name has no /: rename it afterwards to move it.";
 pub const SAME_PATH: &str = "It is at that path already.";
-pub const IN_DOUBT: &str = "No answer came back: it may have gone through.";
 
 pub const NAME: &str = "Name";
 pub const NEW_PATH: &str = "New path";
@@ -98,12 +97,12 @@ pub fn pin_caption(seq: Option<u64>, owner: String) -> String {
 }
 
 /// Why the reader has no home to open.
-pub fn no_home<'a>(why: &NoHome<'a>) -> &'a str {
+pub fn no_home(why: &NoHome) -> String {
     match why {
-        NoHome::SignedOut => SIGNED_OUT,
-        NoHome::Asking => FINDING_HOME,
-        NoHome::Unnamed => NO_NAME,
-        NoHome::Refused(why) => why,
+        NoHome::SignedOut => SIGNED_OUT.into(),
+        NoHome::Asking => FINDING_HOME.into(),
+        NoHome::Unnamed => NO_NAME.into(),
+        NoHome::Refused(refusal) => view::design::sentence(refusal),
     }
 }
 

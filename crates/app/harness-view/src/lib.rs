@@ -89,14 +89,11 @@ pub(crate) enum State {
 }
 
 /// A write's answer: the program's output once the node predicts it applies, else why not,
-/// in the words shown where the write was made.
+/// in every view's words (`design::failure`), shown where the write was made.
 pub(crate) fn applied(answer: Result<Submitted, Error>) -> Result<Vec<u8>, String> {
     match answer {
         Ok(Submitted::Applied { output, .. }) => Ok(output),
-        Ok(Submitted::Refused { refusal, .. }) | Err(refusal) => Err(refusal.message),
-        Ok(Submitted::InDoubt { .. }) => {
-            Err("No answer came back: it may have gone through.".to_owned())
-        }
+        answer => Err(design::failure(&answer).expect("only a landed write has no failure")),
     }
 }
 
@@ -148,7 +145,10 @@ impl View for Agents {
         cx.follow::<HostRoute>((), |view, route, cx| match route {
             Ok(route) => view.open_route(&route, cx),
             Err(refusal) => {
-                view.notice = Some(format!("Couldn’t follow the link: {}", refusal.message));
+                view.notice = Some(format!(
+                    "Couldn’t follow the link: {}",
+                    design::sentence(&refusal)
+                ));
                 cx.notify();
             }
         })
@@ -247,7 +247,10 @@ impl Agents {
                     view.notice = Some(format!("Agent {agent} has no thread at {place} yet."));
                 }
                 Err(refusal) => {
-                    view.notice = Some(format!("Couldn’t open the link: {}", refusal.message));
+                    view.notice = Some(format!(
+                        "Couldn’t open the link: {}",
+                        design::sentence(&refusal)
+                    ));
                     cx.notify();
                 }
             }

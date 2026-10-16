@@ -78,7 +78,7 @@ pub(super) fn form(form: &Form, cx: Cx, k: &Kit) -> AnyElement {
         .flex()
         .flex_col()
         .gap(space::LG)
-        .p(SHEET_INSET)
+        .p(design::SHEET_INSET)
         .children(removes)
         .children(naming(form, cx, k))
         .children(text(form, k))
@@ -95,7 +95,12 @@ pub(super) fn form(form: &Form, cx: Cx, k: &Kit) -> AnyElement {
                 .overflow_y_scroll()
                 .flex()
                 .flex_col()
-                .child(sheet_title("files/write/head", title, k))
+                .child(design::sheet_title(
+                    "files/write/head",
+                    title,
+                    &k.ladder,
+                    &k.theme,
+                ))
                 .child(body),
         )
         .into_any_element()
@@ -121,30 +126,21 @@ fn naming(form: &Form, cx: Cx, k: &Kit) -> Option<impl IntoElement> {
     )
 }
 
-/// A new file's text, or an edit's: many lines, so Return is a new line
-/// and Commit is the only send.
-fn text(form: &Form, k: &Kit) -> Option<Div> {
+/// A new file's text, or an edit's, in the data face: many lines, so
+/// Return is a new line and Commit is the only send.
+fn text(form: &Form, k: &Kit) -> Option<impl IntoElement> {
     if !form.write.takes_text() {
         return None;
     }
     let area = Textarea::new("files/write/text", &form.text, words::TEXT)
         .w_full()
         .h(TEXT_H)
-        .px(space::LG)
-        .py(space::MD)
-        .border_1()
-        .border_color(k.theme.border_strong)
-        .bg(k.theme.background)
-        .font_family(design::fonts::FAMILY_MONO)
-        .text_type(k.ladder.code)
         .autocapitalize(Autocapitalize::None)
         .autocorrect(false);
     Some(
-        div()
-            .flex()
-            .flex_col()
-            .child(field_label(words::TEXT, k))
-            .child(area),
+        design::field(area, &k.ladder, &k.theme)
+            .label(words::TEXT)
+            .mono(),
     )
 }
 
@@ -163,7 +159,7 @@ fn verbs(form: &Form, cx: Cx, k: &Kit) -> Div {
     let cancel = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.close_sheet(cx));
     let commit = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.submit(cx));
     let verb = words::commit(form.sending);
-    form_verbs(
+    design::form_verbs(
         design::button(
             "files/write/cancel",
             words::CANCEL,

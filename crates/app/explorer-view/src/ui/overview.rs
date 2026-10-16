@@ -191,7 +191,7 @@ fn latest_txs(
         Loadable::Ready(frames) | Loadable::Reloading(frames, _) => {
             latest(view, &frames.list, list, cx, theme)
         }
-        Loadable::Failed(refusal) => failed(&refusal.message, cx, theme, ladder),
+        Loadable::Failed(refusal) => failed(&design::sentence(refusal), cx, theme, ladder),
         Loadable::Idle | Loadable::Loading(_) => {
             quiet("explorer-txs-loading", "Reading transactions…", theme)
         }

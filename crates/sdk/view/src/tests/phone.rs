@@ -38,7 +38,10 @@ impl Render for Phone {
         };
         let nav = match depth {
             0 => Nav::root(self.reader.clone()),
-            _ => Nav::back(cx.listener(move |view, _: &ClickEvent, _, cx| pop(view, cx))),
+            depth => Nav::back(
+                depth,
+                cx.listener(move |view, _: &ClickEvent, _, cx| pop(view, cx)),
+            ),
         };
         let page = design::page("rooms", self.pages.top().clone(), nav, &ladder, &theme)
             .caption(format!("{} deep", depth))
@@ -183,6 +186,28 @@ fn page_draws_back_by_the_ladder_and_clears_the_capsule_under_touch() {
     cx.open::<Phone>();
     cx.simulate_click("Open");
     assert_eq!(height(&cx), Some(design::TOUCH.header.into()));
+}
+
+/// Under a finger a page crosses with its depth, the root's `0`, so the
+/// host can move between pages by it; a pointer's page carries none, and
+/// its frame keeps its bytes.
+#[test]
+fn under_touch_a_page_crosses_with_its_depth() {
+    let mut cx = TestAppContext::new();
+    cx.open::<Phone>();
+    let depth = |cx: &TestAppContext| cx.node("rooms").interactivity().and_then(|i| i.page);
+    assert_eq!(depth(&cx), None, "a pointer's page");
+    cx.simulate_click("Open");
+    assert_eq!(depth(&cx), None, "a pointer's page");
+    cx.simulate_back();
+    cx.simulate_touch(true);
+    assert_eq!(depth(&cx), Some(0));
+    cx.simulate_click("Open");
+    assert_eq!(depth(&cx), Some(1));
+    cx.simulate_click("New");
+    assert_eq!(depth(&cx), Some(2));
+    cx.simulate_back();
+    assert_eq!(depth(&cx), Some(1));
 }
 
 /// A pointer draws a root page as any other: `Nav::Root` changes nothing

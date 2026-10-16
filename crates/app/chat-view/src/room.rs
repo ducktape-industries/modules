@@ -314,7 +314,7 @@ impl Chat {
                     }
                     room.settle();
                 }
-                Err(refusal) => room.older_failed = Some(refusal.message),
+                Err(refusal) => room.older_failed = Some(design::sentence(&refusal)),
             }
         })
         .detach();
@@ -353,11 +353,11 @@ impl Chat {
             let page = match result {
                 Ok(page) => page,
                 Err(refusal) if side == Side::Older => {
-                    room.older_failed = Some(refusal.message);
+                    room.older_failed = Some(design::sentence(&refusal));
                     return;
                 }
                 Err(refusal) => {
-                    chat.notice = words::unreadable_room(&refusal.message);
+                    chat.notice = words::unreadable_room(&design::sentence(&refusal));
                     return;
                 }
             };
@@ -508,7 +508,8 @@ impl Chat {
                     room_of(chat).settle();
                 }
                 Err(refusal) => {
-                    chat.notice = format!("Couldn’t read this thread: {}", refusal.message)
+                    chat.notice =
+                        format!("Couldn’t read this thread: {}", design::sentence(&refusal))
                 }
             }
         })

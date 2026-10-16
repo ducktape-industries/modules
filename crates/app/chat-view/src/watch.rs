@@ -12,7 +12,7 @@ impl Chat {
         cx.follow::<HostSession>((), |chat, props, cx| match props {
             Ok(next) => chat.session_changed(next, cx),
             Err(refusal) => {
-                chat.notice = format!("Couldn’t read the session: {}", refusal.message);
+                chat.notice = format!("Couldn’t read the session: {}", design::sentence(&refusal));
                 cx.notify();
             }
         })
