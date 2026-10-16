@@ -273,9 +273,36 @@ fn valset_badge(seat: valset::Role, ladder: &Ladder, theme: &Theme) -> Stateful<
     design::badge("members-validator", word, ladder, foreground, background)
 }
 
+/// A refused roster read: its sentence, and Retry, which reads it again.
+/// Each tree sets it in its own padding.
+fn refused(
+    refusal: &Error,
+    cx: &mut Context<Members>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let retry = cx.listener(|view, _: &ClickEvent, _, cx| view.read(cx));
+    design::refused("members", refusal.message.clone(), ladder, theme, retry)
+}
+
+/// A press that opens `link` through the host.
+fn opens(link: String) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
+    move |_, _, cx| cx.host().open_link(&link)
+}
+
 /// Account `number`'s page in Explorer.
-fn explorer_link(number: u64) -> String {
+fn explorer_account(number: u64) -> String {
     format!("duck://explorer/account/{number}")
+}
+
+/// The block at `height` in Explorer.
+fn explorer_block(height: u64) -> String {
+    format!("duck://explorer/block/{height}")
+}
+
+/// The frame at `position` in the block at `height`, in Explorer.
+fn explorer_tx(height: u64, position: u32) -> String {
+    format!("duck://explorer/tx/{height}/{position}")
 }
 
 /// The name of account `number` in `rows`.

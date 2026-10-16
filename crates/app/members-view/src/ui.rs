@@ -7,8 +7,8 @@ use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
 use crate::{
-    Group, Members, Roster, Row, explorer_link, name, name_or_number, standing_badge, valset_badge,
-    words,
+    Group, Members, Roster, Row, explorer_account, explorer_tx, name, name_or_number, opens,
+    refused, standing_badge, valset_badge, words,
 };
 use view::design::Ladder;
 
@@ -196,7 +196,9 @@ fn rows(view: &Members, cx: &mut Context<Members>, theme: &Theme, ladder: &Ladde
                 .id("members-loading")
                 .into_any_element();
         }
-        Roster::Refused(refusal) => return refused(refusal, cx, theme, ladder),
+        Roster::Refused(refusal) => {
+            return pad(refused(refusal, cx, ladder, theme)).into_any_element();
+        }
         Roster::Empty(id, title, detail) => {
             return design::empty_state(id, title, detail, theme).into_any_element();
         }
@@ -346,24 +348,6 @@ fn avatar(row: &Row, size: Pixels, dim: bool, theme: &Theme) -> Div {
     }
 }
 
-/// A refused roster read: its sentence, and Retry.
-fn refused(
-    refusal: &Error,
-    cx: &mut Context<Members>,
-    theme: &Theme,
-    ladder: &Ladder,
-) -> AnyElement {
-    let retry = cx.listener(|view, _: &ClickEvent, _, cx| view.read(cx));
-    pad(design::refused(
-        "members",
-        refusal.message.clone(),
-        ladder,
-        theme,
-        retry,
-    ))
-    .into_any_element()
-}
-
 fn pad(inner: impl IntoElement) -> Div {
     div().px(space::BLOCK).py(space::SM).child(inner)
 }
@@ -470,7 +454,7 @@ fn head(
             .when(index < last, |part| part.child("·"))
     });
     let number = row.number;
-    let explorer = explorer_link(number);
+    let explorer = explorer_account(number);
     let dm = view.dm_link(row);
     div()
         .id("members-detail-head")
@@ -582,7 +566,7 @@ fn outline_button(
         .hover(move |style| style.bg(theme.surface))
         .role(Role::Button)
         .focusable()
-        .on_click(move |_: &ClickEvent, _, cx| cx.host().open_link(&link))
+        .on_click(opens(link))
         .child(label)
 }
 
@@ -799,7 +783,7 @@ fn activity(view: &Members, theme: &Theme, ladder: &Ladder) -> impl IntoElement 
                         design::link(
                             format!("members-tx-{index}"),
                             format!("{} · {}", words::block(&place), signed.position),
-                            format!("duck://explorer/tx/{}/{}", signed.height, signed.position),
+                            explorer_tx(signed.height, signed.position),
                             ladder,
                             theme,
                         )

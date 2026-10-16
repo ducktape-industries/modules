@@ -104,7 +104,7 @@ pub(super) fn quiet(
         .into_any_element()
 }
 
-/// A refused roster read: its sentence, and Retry, which reads it again.
+/// A refused roster read (`crate::refused`) in the phone's padding.
 // SDK gap: the kit's `Notice` strip for a refusal, swap when feat/phone-kit
 // lands
 pub(super) fn refused(
@@ -113,16 +113,9 @@ pub(super) fn refused(
     theme: &Theme,
     ladder: &Ladder,
 ) -> AnyElement {
-    let retry = cx.listener(|view, _: &ClickEvent, _, cx| view.read(cx));
     div()
         .px(space::BLOCK)
         .py(space::SM)
-        .child(design::refused(
-            "members",
-            refusal.message.clone(),
-            ladder,
-            theme,
-            retry,
-        ))
+        .child(crate::refused(refusal, cx, ladder, theme))
         .into_any_element()
 }

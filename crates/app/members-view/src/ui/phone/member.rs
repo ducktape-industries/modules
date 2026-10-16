@@ -16,7 +16,8 @@ use super::parts::{
 };
 use crate::activity::Signed;
 use crate::{
-    Device, Group, Members, Row, explorer_link, name_or_number, standing_badge, valset_badge, words,
+    Device, Group, Members, Row, explorer_account, explorer_block, name_or_number, opens,
+    standing_badge, valset_badge, words,
 };
 
 /// A small button is this tall (`theme.ts:76`, `size.small`).
@@ -37,11 +38,8 @@ pub(super) fn page(
     let (Some(rows), Some(row)) = (view.rows.ready(), view.selected_row()) else {
         return missing(view, number, back, cx, theme, ladder);
     };
-    let explorer = explorer_link(number);
-    let open_explorer = {
-        let explorer = explorer.clone();
-        move |_: &ClickEvent, _: &mut Window, cx: &mut App| cx.host().open_link(&explorer)
-    };
+    let explorer = explorer_account(number);
+    let open_explorer = opens(explorer.clone());
     let mut body = div()
         .id("members-detail")
         .flex_1()
@@ -414,8 +412,7 @@ fn signed_row(
     ladder: &Ladder,
 ) -> AnyElement {
     let place = design::grouped(signed.height);
-    let block = format!("duck://explorer/block/{}", signed.height);
-    let open = move |_: &ClickEvent, _: &mut Window, cx: &mut App| cx.host().open_link(&block);
+    let open = opens(explorer_block(signed.height));
     let when = div()
         .flex()
         .items_baseline()
@@ -449,7 +446,6 @@ fn small_button(
     theme: &Theme,
     ladder: &Ladder,
 ) -> Div {
-    let open = move |_: &ClickEvent, _: &mut Window, cx: &mut App| cx.host().open_link(&link);
     div()
         .relative()
         .flex_none()
@@ -469,7 +465,7 @@ fn small_button(
                 .role(Role::Button)
                 .aria_label(label)
                 .focusable()
-                .on_click(open),
+                .on_click(opens(link)),
         )
 }
 
