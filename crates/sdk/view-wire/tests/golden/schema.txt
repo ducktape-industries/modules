@@ -11,6 +11,8 @@ chain.tx None TxAsk -> Option<Located>
 clipboard.read None () -> Clipboard
 clipboard.write None String -> ()
 clock.ticks None i64 -> ()
+file.pick None Pick -> Vec<Picked>
+file.read None ReadFile -> Vec<u8>
 host.badge None i64 -> ()
 host.float None Float -> Placement
 host.id None String -> String
@@ -62,12 +64,13 @@ BlockRef = Enum { tag_width: 1, variants: [(0, "Height", "BlockRef__Height"), (1
 BlockRef__Height = Struct { fields: UnnamedFields(["u64"]) }
 BlockRef__Id = Struct { fields: UnnamedFields(["[u8; 32]"]) }
 CameraDevice = Struct { fields: NamedFields([("id", "String"), ("name", "String"), ("default", "bool"), ("facing", "Facing")]) }
-Capability = Enum { tag_width: 1, variants: [(0, "Chain", "Capability__Chain"), (1, "Program", "Capability__Program"), (2, "Op", "Capability__Op"), (3, "Invite", "Capability__Invite"), (4, "Link", "Capability__Link"), (5, "Blob", "Capability__Blob"), (6, "Host", "Capability__Host"), (7, "Clock", "Capability__Clock"), (8, "Clipboard", "Capability__Clipboard"), (9, "Notify", "Capability__Notify"), (10, "Store", "Capability__Store"), (11, "Web", "Capability__Web"), (12, "Live", "Capability__Live"), (13, "Camera", "Capability__Camera"), (14, "Microphone", "Capability__Microphone")] }
+Capability = Enum { tag_width: 1, variants: [(0, "Chain", "Capability__Chain"), (1, "Program", "Capability__Program"), (2, "Op", "Capability__Op"), (3, "Invite", "Capability__Invite"), (4, "Link", "Capability__Link"), (5, "Blob", "Capability__Blob"), (6, "Host", "Capability__Host"), (7, "Clock", "Capability__Clock"), (8, "Clipboard", "Capability__Clipboard"), (9, "Notify", "Capability__Notify"), (10, "Store", "Capability__Store"), (11, "Web", "Capability__Web"), (12, "Live", "Capability__Live"), (13, "Camera", "Capability__Camera"), (14, "Microphone", "Capability__Microphone"), (15, "File", "Capability__File")] }
 Capability__Blob = Struct { fields: Empty }
 Capability__Camera = Struct { fields: Empty }
 Capability__Chain = Struct { fields: Empty }
 Capability__Clipboard = Struct { fields: Empty }
 Capability__Clock = Struct { fields: Empty }
+Capability__File = Struct { fields: Empty }
 Capability__Host = Struct { fields: Empty }
 Capability__Invite = Struct { fields: Empty }
 Capability__Link = Struct { fields: Empty }
@@ -136,6 +139,8 @@ Outcome = Enum { tag_width: 1, variants: [(0, "Applied", "Outcome__Applied"), (1
 Outcome__Applied = Struct { fields: NamedFields([("output", "Vec<u8>")]) }
 Outcome__Rejected = Struct { fields: UnnamedFields(["Error"]) }
 Peer = Struct { fields: NamedFields([("key", "Vec<u8>"), ("signed", "Option<u64>")]) }
+Pick = Struct { fields: NamedFields([("multiple", "bool")]) }
+Picked = Struct { fields: NamedFields([("name", "String"), ("size", "u64"), ("file", "u64")]) }
 Place = Enum { tag_width: 1, variants: [(0, "Account", "Place__Account"), (1, "CameraSettings", "Place__CameraSettings"), (2, "MicrophoneSettings", "Place__MicrophoneSettings")] }
 Place__Account = Struct { fields: Empty }
 Place__CameraSettings = Struct { fields: Empty }
@@ -148,6 +153,7 @@ Publishing = Enum { tag_width: 1, variants: [(0, "Waiting", "Publishing__Waiting
 Publishing__Cut = Struct { fields: NamedFields([("group", "u64")]) }
 Publishing__Subscribers = Struct { fields: UnnamedFields(["u32"]) }
 Publishing__Waiting = Struct { fields: Empty }
+ReadFile = Struct { fields: NamedFields([("file", "u64"), ("offset", "u64"), ("len", "u64")]) }
 Receipt = Struct { fields: NamedFields([("program", "String"), ("outcome", "Outcome"), ("events", "Vec<Vec<u8>>"), ("nested", "Vec<Receipt>")]) }
 Session = Struct { fields: NamedFields([("connected", "bool"), ("chain_id", "String"), ("signer", "String"), ("account", "Option<u64>"), ("endpoint", "String")]) }
 String = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u8" }
@@ -178,6 +184,7 @@ Vec<Capability> = Sequence { length_width: 4, length_range: 0..=4294967295, elem
 Vec<Error> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Error" }
 Vec<Field> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Field" }
 Vec<Peer> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Peer" }
+Vec<Picked> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Picked" }
 Vec<Receipt> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Receipt" }
 Vec<String> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "String" }
 Vec<Tx> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Tx" }

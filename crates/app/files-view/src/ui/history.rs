@@ -1,7 +1,9 @@
 //! The history: every snapshot newest first, each opening its page, then
 //! the pins that name some of them; and one snapshot's page, who made it
-//! and when, and what it changed against its parent. Reads the history,
-//! the authors' names and the snapshot on screen; writes the route.
+//! and when, and what it changed against its parent. Split, the history
+//! is listed beside the snapshot open, its rows marked. Reads the
+//! history, the authors' names and the snapshot on screen; writes the
+//! route.
 use files::{BlobId, PinRow, SnapshotRow};
 use view::design::{date, grouped};
 use view::{Div, Stateful};
@@ -9,7 +11,8 @@ use view::{Div, Stateful};
 use super::*;
 use crate::state::{History, PIN_GLYPH, SNAPSHOT_GLYPH, Snapshot};
 
-pub(super) fn history(view: &Files, cx: Cx, k: &Kit) -> AnyElement {
+/// The history, the rows of `marked` marked: the snapshot open beside it.
+pub(super) fn history(view: &Files, marked: Option<BlobId>, cx: Cx, k: &Kit) -> AnyElement {
     let history = match &view.history {
         Loadable::Ready(history) | Loadable::Reloading(history, _) => history,
         Loadable::Failed(refusal) => return refused("files-history", refusal, cx, k),
@@ -21,18 +24,24 @@ pub(super) fn history(view: &Files, cx: Cx, k: &Kit) -> AnyElement {
         .id("files-history")
         .flex()
         .flex_col()
-        .child(snapshots(view, history, cx, k))
+        .child(snapshots(view, history, marked, cx, k))
         .child(heading(
             "files/pins-head",
             words::PINS,
             Some(grouped(history.pins.len() as u64)),
             k,
         ))
-        .child(pins(view, history, cx, k))
+        .child(pins(view, history, marked, cx, k))
         .into_any_element()
 }
 
-fn snapshots(view: &Files, history: &History, cx: Cx, k: &Kit) -> AnyElement {
+fn snapshots(
+    view: &Files,
+    history: &History,
+    marked: Option<BlobId>,
+    cx: Cx,
+    k: &Kit,
+) -> AnyElement {
     if history.snapshots.is_empty() {
         return design::empty_state(
             "files-no-snapshots",
@@ -54,12 +63,10 @@ fn snapshots(view: &Files, history: &History, cx: Cx, k: &Kit) -> AnyElement {
         .flex()
         .flex_col()
         .child(heading("files/snapshots-head", words::HISTORY, None, k))
-        .children(
-            history
-                .snapshots
-                .iter()
-                .map(|snapshot| snapshot_row(view, snapshot, cx, k)),
-        )
+        .children(history.snapshots.iter().map(|snapshot| {
+            let row = snapshot_row(view, snapshot, cx, k);
+            mark(row, marked == Some(snapshot.id), k)
+        }))
         .children(older)
         .into_any_element()
 }
@@ -82,7 +89,7 @@ pub(super) fn snapshot_row(view: &Files, snapshot: &SnapshotRow, cx: Cx, k: &Kit
     )
 }
 
-fn pins(view: &Files, history: &History, cx: Cx, k: &Kit) -> AnyElement {
+fn pins(view: &Files, history: &History, marked: Option<BlobId>, cx: Cx, k: &Kit) -> AnyElement {
     if history.pins.is_empty() {
         return design::quiet(words::NO_PINS, &k.theme)
             .id("files-no-pins")
@@ -90,16 +97,19 @@ fn pins(view: &Files, history: &History, cx: Cx, k: &Kit) -> AnyElement {
             .py_3()
             .into_any_element();
     }
-    let rows = history
-        .pins
-        .iter()
-        .map(|pin| pin_row(view, history, pin, cx, k));
+    let rows = history.pins.iter().map(|pin| {
+        mark(
+            pin_row(view, history, pin, cx, k),
+            marked == Some(pin.snapshot),
+            k,
+        )
+    });
     div().flex().flex_col().children(rows).into_any_element()
 }
 
 /// One pin: its name, the snapshot it names and who pinned it; it opens
 /// that snapshot.
-fn pin_row(view: &Files, history: &History, pin: &PinRow, cx: Cx, k: &Kit) -> AnyElement {
+fn pin_row(view: &Files, history: &History, pin: &PinRow, cx: Cx, k: &Kit) -> Stateful<Div> {
     let seq = history.named(pin).map(|named| named.seq);
     let aside = words::pin_caption(seq, words::author(&pin.owner, view.names.ready()));
     let snapshot = pin.snapshot;
@@ -114,7 +124,6 @@ fn pin_row(view: &Files, history: &History, pin: &PinRow, cx: Cx, k: &Kit) -> An
         k,
         open,
     )
-    .into_any_element()
 }
 
 /// One snapshot's page.

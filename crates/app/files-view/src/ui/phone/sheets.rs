@@ -10,6 +10,8 @@ use view::Div;
 use view::design::space;
 
 use super::*;
+use crate::state::file_glyph;
+use crate::upload;
 use crate::write::{Form, Write};
 
 /// Where the list of writes stops when it opens, and how far it may be
@@ -82,6 +84,7 @@ pub(super) fn form(form: &Form, cx: Cx, k: &Kit) -> AnyElement {
         .children(removes)
         .children(naming(form, cx, k))
         .children(text(form, k))
+        .children(picked(form, k))
         .child(message(form, cx, k))
         .children(refused)
         .child(verbs(form, cx, k));
@@ -144,6 +147,33 @@ fn text(form: &Form, k: &Kit) -> Option<impl IntoElement> {
     )
 }
 
+/// An upload's files, each a row: its name over its size, whether it
+/// replaces one there, or why it is left out.
+fn picked(form: &Form, k: &Kit) -> Option<Div> {
+    if form.upload.is_empty() {
+        return None;
+    }
+    let rows = form.upload.iter().enumerate().map(|(index, file)| {
+        let size = words::size(file.size);
+        let caption = match &file.path {
+            Err(why) => why.clone(),
+            Ok(_) if file.replaces => format!("{size} · {}", words::REPLACES),
+            Ok(_) => size,
+        };
+        still_row(
+            ElementId::Name(format!("files/upload/{index}").into()),
+            file_glyph(&file.name),
+            file.name.clone(),
+            caption,
+            k,
+        )
+    });
+    let none = upload::sent(&form.upload)
+        .is_empty()
+        .then(|| quiet("files/upload/none", words::NOTHING_TO_UPLOAD, k));
+    Some(div().flex().flex_col().children(rows).children(none))
+}
+
 /// The commit's message; its placeholder is what it says left empty.
 fn message(form: &Form, cx: Cx, k: &Kit) -> impl IntoElement {
     let submit = cx.listener(|view: &mut Files, _: &(), _, cx| view.submit(cx));
@@ -158,7 +188,7 @@ fn message(form: &Form, cx: Cx, k: &Kit) -> impl IntoElement {
 fn verbs(form: &Form, cx: Cx, k: &Kit) -> Div {
     let cancel = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.close_sheet(cx));
     let commit = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.submit(cx));
-    let verb = words::commit(form.sending);
+    let verb = words::commit(form.sending, upload::progress(&form.upload));
     design::form_verbs(
         design::button(
             "files/write/cancel",
@@ -170,6 +200,6 @@ fn verbs(form: &Form, cx: Cx, k: &Kit) -> Div {
         .kind(design::Kind::Quiet),
         design::button("files/write/submit", verb, &k.ladder, &k.theme, commit)
             .kind(design::Kind::Primary)
-            .enabled(!form.sending),
+            .enabled(form.committable()),
     )
 }

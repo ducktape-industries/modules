@@ -1,9 +1,12 @@
-//! The desktop's pages, under a pointer: a bar with the Places and History
-//! tabs, the path as crumbs over a folder or a file, the line the last
-//! write left, then the page; a write's form opens as a sheet over it.
-//! Square corners, rows split by one-pixel rules, paths and sizes in the
-//! data face, as the Explorer draws. The phone's screens are `phone/`:
-//! both trees read the model, `words` and the SDK, never each other.
+//! The desktop's pages, under a pointer, laid out by the pane's width
+//! ([`Layout`]): narrow, a bar with the Places and History tabs over the
+//! page; wide, the places down the side instead; wider still, a file or a
+//! snapshot opens beside the list it is in. A folder's or a file's path
+//! runs as crumbs over it, the line the last write left over the page,
+//! and a write's form opens as a sheet over it all. Square corners, rows
+//! split by one-pixel rules, paths and sizes in the data face, as the
+//! Explorer draws. The phone's screens are `phone/`: both trees read the
+//! model, `words` and the SDK, never each other.
 use view::design::space;
 use view::prelude::*;
 use view::{Div, Stateful};
@@ -18,6 +21,7 @@ mod form;
 mod history;
 pub(crate) mod phone;
 mod places;
+mod side;
 
 /// The bar's height.
 const BAR_H: Pixels = px(44.);
@@ -25,41 +29,148 @@ const BAR_H: Pixels = px(44.);
 const ROW_H: Pixels = px(40.);
 /// A detail line's label column.
 const LABEL_W: Pixels = px(110.);
-/// How wide a page's text runs at most.
-const PAGE_W: Pixels = px(880.);
+
+/// How a desktop pane lays its pages out, by its width.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Layout {
+    /// the tabs over one page
+    Narrow,
+    /// the places down the side, one page beside them; a folder lists its
+    /// entries in columns
+    Wide,
+    /// as wide, and a file or a snapshot opens beside the list it is in
+    Split,
+}
+
+/// The side's width.
+const SIDE_W: f32 = 220.;
+/// The narrowest a page reads beside the side: a folder's three columns.
+/// With the side, 880: the width forge folds its side panes at.
+const PAGE_KEEPS: f32 = 660.;
+/// The narrowest a list reads beside what opened from it.
+const LIST_KEEPS: f32 = 460.;
+/// The narrowest a file's text or picture reads beside its list.
+const DETAIL_KEEPS: f32 = 520.;
+
+impl Layout {
+    pub(crate) fn of(width: f32) -> Layout {
+        if !design::docks(width, PAGE_KEEPS, SIDE_W) {
+            Layout::Narrow
+        } else if !design::docks(width, SIDE_W + LIST_KEEPS, DETAIL_KEEPS) {
+            Layout::Wide
+        } else {
+            Layout::Split
+        }
+    }
+}
 
 pub(crate) fn render(view: &Files, cx: Cx) -> AnyElement {
     let k = &Kit {
         theme: *cx.global::<Theme>(),
         ladder: design::POINTER,
     };
-    let page = match view.page().clone() {
-        Route::Places => places::places(view, cx, k),
-        Route::Folder(path) => folder::folder(view, &path, cx, k),
-        Route::File(path) => file::file(view, &path, cx, k),
-        Route::History => history::history(view, cx, k),
-        Route::Snapshot(id) => history::snapshot(view, id, cx, k),
-    };
-    let form = form::sheet(view, cx, k);
-    div()
+    let layout = Layout::of(view.width);
+    let files = div()
         .id("files")
         .size_full()
         .flex()
-        .flex_col()
         .bg(k.theme.background)
         .text_color(k.theme.foreground)
-        .text_size(design::text::BODY)
-        .child(bar(view, cx, k))
-        .children(note(view, k))
-        .child(
+        .text_size(design::text::BODY);
+    let files = match layout {
+        Layout::Narrow => files
+            .flex_col()
+            .child(bar(view, cx, k))
+            .children(note(view, k))
+            .child(scrolled("files-page", page(view, layout, cx, k))),
+        Layout::Wide | Layout::Split => files.child(side::side(view, cx, k)).child(
             div()
-                .id("files-page")
+                .id("files-main")
                 .flex_1()
-                .min_h(px(0.))
-                .overflow_y_scroll()
-                .child(div().max_w(PAGE_W).child(page)),
+                .min_w_0()
+                .h_full()
+                .flex()
+                .flex_col()
+                .children(note(view, k))
+                .child(body(view, layout, cx, k)),
+        ),
+    };
+    let form = form::sheet(view, cx, k);
+    files.children(form).into_any_element()
+}
+
+/// The page on top of the stack, alone.
+fn page(view: &Files, layout: Layout, cx: Cx, k: &Kit) -> AnyElement {
+    let columns = layout != Layout::Narrow;
+    match view.page().clone() {
+        Route::Places => places::places(view, cx, k),
+        Route::Folder(path) => folder::folder(view, &path, columns, cx, k),
+        Route::File(path) => file::file(view, &path, cx, k),
+        Route::History => history::history(view, None, cx, k),
+        Route::Snapshot(id) => history::snapshot(view, id, cx, k),
+    }
+}
+
+/// Beside the side: the page on top, or, split, the list it is in (a
+/// folder's, the history) with what opened from it beside the list, or
+/// what would.
+fn body(view: &Files, layout: Layout, cx: Cx, k: &Kit) -> AnyElement {
+    if layout != Layout::Split {
+        return scrolled("files-page", page(view, layout, cx, k)).into_any_element();
+    }
+    let (list, detail) = match view.page().clone() {
+        Route::Places => {
+            return scrolled("files-page", places::places(view, cx, k)).into_any_element();
+        }
+        Route::Folder(path) => (
+            folder::folder(view, &path, true, cx, k),
+            hint(words::PICK_A_FILE, k),
+        ),
+        Route::File(path) => (
+            folder::beside(view, &path, cx, k),
+            file::detail(view, &path, cx, k),
+        ),
+        Route::History => (
+            history::history(view, None, cx, k),
+            hint(words::PICK_A_SNAPSHOT, k),
+        ),
+        Route::Snapshot(id) => (
+            history::history(view, Some(id), cx, k),
+            history::snapshot(view, id, cx, k),
+        ),
+    };
+    div()
+        .id("files-split")
+        .flex_1()
+        .min_h(px(0.))
+        .flex()
+        .child(scrolled("files-list", list).min_w(px(LIST_KEEPS)))
+        .child(
+            scrolled("files-detail", detail)
+                .min_w(px(DETAIL_KEEPS))
+                .border_l_1()
+                .border_color(k.theme.border),
         )
-        .children(form)
+        .into_any_element()
+}
+
+/// A pane that scrolls what it holds, sharing the room it is in.
+fn scrolled(id: &'static str, content: AnyElement) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex_1()
+        .min_w_0()
+        .min_h(px(0.))
+        .overflow_y_scroll()
+        .child(content)
+}
+
+/// What the detail pane says before anything opens in it.
+fn hint(sentence: &'static str, k: &Kit) -> AnyElement {
+    design::quiet(sentence, &k.theme)
+        .id("files-hint")
+        .px_5()
+        .py_4()
         .into_any_element()
 }
 
@@ -253,7 +364,7 @@ fn row_look(
     id: String,
     glyph: &'static str,
     label: String,
-    aside: String,
+    aside: impl IntoElement,
     k: &Kit,
 ) -> Stateful<Div> {
     div()
@@ -281,7 +392,7 @@ fn row(
     id: String,
     glyph: &'static str,
     label: String,
-    aside: String,
+    aside: impl IntoElement,
     k: &Kit,
     press: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
@@ -292,6 +403,14 @@ fn row(
         .role(Role::Button)
         .focusable()
         .on_click(press)
+}
+
+/// A row of what is open beside its list, marked.
+fn mark(row: Stateful<Div>, marked: bool, k: &Kit) -> Stateful<Div> {
+    row.when(marked, |row| {
+        row.bg(k.theme.accent_soft)
+            .aria_current(view::accesskit::AriaCurrent::Page)
+    })
 }
 
 /// One line of a detail: its label, then its value.

@@ -5,6 +5,7 @@ use files::DiffKind;
 use view::testing::sweep;
 
 use super::*;
+use crate::state::Holds;
 use crate::words;
 
 fn tap(cx: &mut TestAppContext, key: &str) {
@@ -50,8 +51,22 @@ fn a_file_screen_shows_what_it_is_and_its_text() {
     tap(&mut cx, "files/place/home");
     tap(&mut cx, "files/entry/notes.txt");
     assert!(cx.has_text(NOTES), "{:?}", cx.texts());
-    assert!(cx.has_text("Text"));
-    assert!(cx.has_text("14 bytes"));
+    assert!(cx.has_text(words::kind(&file(), Holds::Text)));
+    assert!(cx.has_text(&words::size(NOTES.len() as u64)));
+}
+
+#[test]
+fn an_image_screen_shows_its_picture() {
+    let net = seeded();
+    let mut cx = phone(&net);
+    tap(&mut cx, "files/place/shared");
+    tap(&mut cx, "files/entry/dot.png");
+    assert!(
+        cx.has_text(words::kind(&file(), Holds::Picture)),
+        "{:?}",
+        cx.texts()
+    );
+    assert!(cx.find("files-picture").is_some(), "{:?}", cx.texts());
 }
 
 #[test]
@@ -98,6 +113,25 @@ fn a_folder_the_reader_cannot_write_has_no_actions() {
     tap(&mut cx, "files/place/everything");
     assert!(cx.has_text("shared"), "{:?}", cx.texts());
     assert!(cx.find("files/actions").is_none());
+}
+
+#[test]
+fn a_picked_file_is_uploaded_from_its_sheet() {
+    let net = seeded();
+    let mut cx = phone(&net);
+    tap(&mut cx, "files/place/shared");
+    device(&cx, &[("photo.png", &PNG)]);
+    tap(&mut cx, "files/actions");
+    tap(&mut cx, "files/begin/upload");
+    assert!(cx.has_text("photo.png"), "{:?}", cx.texts());
+    tap(&mut cx, "files/write/submit");
+    assert!(
+        cx.has_text("Committed: Upload photo.png"),
+        "{:?}",
+        cx.texts()
+    );
+    tap(&mut cx, "files/entry/photo.png");
+    assert!(cx.find("files-picture").is_some(), "{:?}", cx.texts());
 }
 
 #[test]
@@ -197,6 +231,12 @@ fn every_screen_and_sheet_fits_a_phone() {
         tap(cx, "files/begin/edit");
         cx.simulate_back();
         cx.run_until_parked();
+        cx.simulate_back();
+        cx.run_until_parked();
+        cx.simulate_back();
+        cx.run_until_parked();
+        tap(cx, "files/place/shared");
+        tap(cx, "files/entry/dot.png");
         cx.simulate_back();
         cx.run_until_parked();
         cx.simulate_back();

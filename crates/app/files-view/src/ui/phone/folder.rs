@@ -7,7 +7,7 @@ use files::EntryInfo;
 use view::{Div, Stateful};
 
 use super::*;
-use crate::state::{name_of, node_glyph};
+use crate::state::{entry_glyph, name_of};
 
 pub(super) fn folder(view: &Files, path: &str, cx: Cx, k: &Kit) -> AnyElement {
     let page = page("files-folder", name_of(path).to_owned(), view, cx, k).caption(path.to_owned());
@@ -56,7 +56,7 @@ fn entry_row(entry: &EntryInfo, cx: Cx, k: &Kit) -> Stateful<Div> {
     let name = name_of(&entry.path).to_owned();
     opening_row(
         ElementId::Name(format!("files/entry/{name}").into()),
-        node_glyph(&entry.node),
+        entry_glyph(entry),
         name,
         words::entry_caption(&entry.node),
         k,

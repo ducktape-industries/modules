@@ -1,7 +1,8 @@
 //! The writes `files` takes from this view, each one commit with a
-//! message: a new folder, a new text file, a text file's new text, a rename
-//! or move, a removal. Which of them the page on screen offers is
-//! [`Files::offered`]; a form opens with [`Files::begin`], its change is
+//! message: a new folder, a new text file, files uploaded from the
+//! reader's device (`upload.rs`), a text file's new text, a rename or
+//! move, a removal. Which of them the page on screen offers is
+//! [`Files::offered`]; a form opens with [`Files::begin`], its changes are
 //! built by [`built`] (pure, unit tested), sent by [`Files::submit`] and
 //! settled by `landed`. The app's confirm card is the yes for every op;
 //! nothing here asks again.
@@ -12,6 +13,7 @@ use view::methods::Submitted;
 use view::prelude::*;
 
 use crate::state::{Note, Route, Sheet, child_of};
+use crate::upload::{self, Upload};
 use crate::{Files, words};
 
 /// One write, and what it is made on.
@@ -21,6 +23,8 @@ pub(crate) enum Write {
     NewFolder { folder: String },
     /// a text file made in `folder`
     NewFile { folder: String },
+    /// files picked on the reader's device, put in `folder` by their names
+    Upload { folder: String },
     /// a text file's text replaced; it keeps its mode and metadata
     Edit {
         path: String,
@@ -48,7 +52,7 @@ impl Write {
         match self {
             Write::NewFolder { .. } | Write::NewFile { .. } => Some(Naming::Name),
             Write::Rename { .. } => Some(Naming::Path),
-            Write::Edit { .. } | Write::Remove { .. } => None,
+            Write::Upload { .. } | Write::Edit { .. } | Write::Remove { .. } => None,
         }
     }
 
@@ -62,6 +66,7 @@ impl Write {
         match self {
             Write::NewFolder { .. } => "new-folder",
             Write::NewFile { .. } => "new-file",
+            Write::Upload { .. } => "upload",
             Write::Edit { .. } => "edit",
             Write::Rename { .. } => "rename",
             Write::Remove { .. } => "remove",
@@ -73,6 +78,7 @@ impl Write {
         match self {
             Write::NewFolder { .. } => "folder-plus",
             Write::NewFile { .. } => "file-plus",
+            Write::Upload { .. } => "upload",
             Write::Edit { .. } => "pencil",
             Write::Rename { .. } => "folder-input",
             Write::Remove { .. } => "trash",
@@ -92,6 +98,8 @@ pub(crate) struct Form {
     pub(crate) name: TextField,
     /// a new file's or an edit's text
     pub(crate) text: TextField,
+    /// an upload's files; empty for every other write
+    pub(crate) upload: Vec<Upload>,
     /// the commit's message; left empty, [`words::message`] says it
     pub(crate) message: TextField,
     /// why the name or path is not one `files` takes: the field's own
@@ -104,17 +112,29 @@ pub(crate) struct Form {
 }
 
 impl Form {
+    /// Whether Commit may be pressed: nothing is in flight, and an upload
+    /// has a file to send.
+    pub(crate) fn committable(&self) -> bool {
+        let empty =
+            matches!(self.write, Write::Upload { .. }) && upload::sent(&self.upload).is_empty();
+        !self.sending && !empty
+    }
+
     /// What the message field says while it is empty: the message the
     /// commit would carry.
     pub(crate) fn placeholder(&self) -> String {
+        // an upload is worded by its names, not built for every frame
+        if let Write::Upload { .. } = self.write {
+            return words::uploads(&upload::sent(&self.upload));
+        }
         built(self).map_or_else(|_| words::MESSAGE.to_owned(), |(message, _)| message)
     }
 }
 
-/// A commit in flight: the form it came from, its change and message.
+/// A commit in flight: the form it came from, its changes and message.
 struct Sent {
     form: u64,
-    change: Change,
+    changes: Vec<Change>,
     message: String,
 }
 
@@ -135,6 +155,9 @@ impl Files {
                         folder: path.clone(),
                     });
                     offered.push(Write::NewFile {
+                        folder: path.clone(),
+                    });
+                    offered.push(Write::Upload {
                         folder: path.clone(),
                     });
                 }
@@ -177,8 +200,11 @@ impl Files {
 
     /// Opens the form for `write`, based on the snapshot the page on
     /// screen was read at; a rename starts from the path as it is, an
-    /// edit from the text as it is.
+    /// edit from the text as it is. An upload asks for its files first.
     pub(crate) fn begin(&mut self, write: Write, cx: &mut Context<Self>) {
+        if let Write::Upload { folder } = write {
+            return self.pick(folder, cx);
+        }
         let (base, text) = match self.page() {
             Route::File(path) => {
                 let file = self.file_at(path);
@@ -206,6 +232,31 @@ impl Files {
             base,
             name: TextField::new(name),
             text: TextField::new(text),
+            upload: Vec::new(),
+            message: TextField::default(),
+            problem: None,
+            refused: None,
+            sending: false,
+        }));
+        cx.notify();
+    }
+
+    /// Opens an upload's form over its picked files.
+    pub(crate) fn open_upload(
+        &mut self,
+        write: Write,
+        base: Option<BlobId>,
+        upload: Vec<Upload>,
+        cx: &mut Context<Self>,
+    ) {
+        self.forms += 1;
+        self.sheet = Some(Sheet::Write(Form {
+            id: self.forms,
+            write,
+            base,
+            name: TextField::default(),
+            text: TextField::default(),
+            upload,
             message: TextField::default(),
             problem: None,
             refused: None,
@@ -222,7 +273,18 @@ impl Files {
         if form.sending {
             return;
         }
-        let (message, change) = match built(form) {
+        form.problem = None;
+        form.refused = None;
+        // an upload's files are read, the large ones staged ahead of the
+        // commit, a slice at a time
+        if self.advance(cx) {
+            cx.notify();
+            return;
+        }
+        let Some(Sheet::Write(form)) = &mut self.sheet else {
+            return;
+        };
+        let (message, changes) = match built(form) {
             Ok(built) => built,
             Err(problem) => {
                 form.problem = Some(problem);
@@ -230,17 +292,15 @@ impl Files {
                 return;
             }
         };
-        form.problem = None;
-        form.refused = None;
         form.sending = true;
         let op = files::Op::Commit {
             base: form.base,
             message: message.clone(),
-            changes: vec![change.clone()],
+            changes: changes.clone(),
         };
         let sent = Sent {
             form: form.id,
-            change,
+            changes,
             message,
         };
         let ask = cx.host().ask::<Submit<files::Files>>(op);
@@ -264,13 +324,18 @@ impl Files {
                 if form.is_some() {
                     self.sheet = None;
                 }
-                self.follow(&sent.change);
+                sent.changes.iter().for_each(|change| self.follow(change));
                 self.note = Some(Note::Committed(sent.message));
-                self.read_page(cx);
+                self.read_all(cx);
             }
             (Some(problem), Some(form)) => {
                 form.sending = false;
                 form.refused = Some(problem);
+                // a staged chunk the network dropped: Commit again stages
+                // what it does not hold anew
+                if matches!(form.write, Write::Upload { .. }) && dropped_chunk(&answer) {
+                    self.recheck_staged(sent.form, cx);
+                }
             }
             (Some(problem), None) => self.note = Some(Note::Refused(problem)),
         }
@@ -298,8 +363,9 @@ impl Files {
 }
 
 /// The commit a form builds: its message (the typed one, else the
-/// change's own words) and its one change; or why it builds none.
-pub(crate) fn built(form: &Form) -> Result<(String, Change), String> {
+/// changes' own words) and its changes, one but for an upload's; or why
+/// it builds none.
+pub(crate) fn built(form: &Form) -> Result<(String, Vec<Change>), String> {
     let text = || Content::Inline(form.text.text().into_bytes());
     let change = match &form.write {
         Write::NewFolder { folder } => Change::Mkdir {
@@ -311,6 +377,11 @@ pub(crate) fn built(form: &Form) -> Result<(String, Change), String> {
             meta: BTreeMap::new(),
             content: text(),
         },
+        Write::Upload { .. } => {
+            let puts = upload::puts(&form.upload)?;
+            let said = words::uploads(&upload::sent(&form.upload));
+            return Ok((message(form, said), puts));
+        }
         Write::Edit { path, exec, meta } => Change::Put {
             path: path.clone(),
             exec: *exec,
@@ -330,16 +401,25 @@ pub(crate) fn built(form: &Form) -> Result<(String, Change), String> {
         }
         Write::Remove { path, .. } => Change::Remove { path: path.clone() },
     };
+    Ok((message(form, words::message(&change)), vec![change]))
+}
+
+/// Whether `files` refused a commit for a chunk it does not hold.
+fn dropped_chunk(answer: &Result<Submitted, Error>) -> bool {
+    matches!(answer, Ok(Submitted::Refused { refusal, .. }) if refusal.code == view::wire::code::NOT_FOUND)
+}
+
+/// The typed message, else `said`.
+fn message(form: &Form, said: String) -> String {
     let typed = form.message.text().trim().to_owned();
-    let message = match typed.is_empty() {
-        true => words::message(&change),
+    match typed.is_empty() {
+        true => said,
         false => typed,
-    };
-    Ok((message, change))
+    }
 }
 
 /// `name` inside `folder`, if `name` is one name.
-fn path_in(folder: &str, name: &str) -> Result<String, String> {
+pub(crate) fn path_in(folder: &str, name: &str) -> Result<String, String> {
     let name = name.trim();
     if name.is_empty() {
         return Err(words::NAME_IT.into());

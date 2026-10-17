@@ -14,9 +14,9 @@ impl Files {
             Err(refusal) => cx.log_refused("the session", &refusal),
         })
         .detach();
-        // a commit or a pin, by anyone: the page on screen reads again
+        // a commit or a pin, by anyone: everything on screen reads again
         cx.follow::<Changes<files::Files>>((), |view, change, cx| match change {
-            Ok(_) => view.read_page(cx),
+            Ok(_) => view.read_all(cx),
             Err(refusal) => cx.log_refused("files' live heads", &refusal),
         })
         .detach();

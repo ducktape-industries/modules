@@ -1,10 +1,16 @@
 //! Every sentence, label and status word both designs show, once: the
 //! desktop's pages (`ui/`) and the phone's screens (`ui/phone/`) word
 //! things from here and never type a sentence the other also types.
-use files::{Change, DiffEntry, DiffKind, Node, Principal, SnapshotRow};
+use std::sync::Arc;
+
+use files::{Change, DiffEntry, DiffKind, EntryInfo, Node, Principal, SnapshotRow};
+use view::Image;
 use view::design::{date, grouped, plural};
 
-use crate::state::{Names, NoHome, Note, PREVIEW, Place, name_of};
+use crate::state::{
+    Holds, Names, NoHome, Note, Opened, PREVIEW, Place, SHOW_MOST, holds_by_name, name_of,
+};
+use crate::upload::UPLOAD_MOST;
 use crate::write::{Naming, Write};
 
 pub const TITLE: &str = "Files";
@@ -19,6 +25,8 @@ pub const LATEST: &str = "Latest snapshots";
 pub const CHAIN: &str = "the chain";
 /// What the desktop's tab list is called to assistive tech.
 pub const TABS: &str = "Pages";
+/// What a wide desktop's side is called to assistive tech.
+pub const SIDE: &str = "Places and history";
 /// What a folder's or a file's crumbs are called to assistive tech.
 pub const PATH: &str = "Path";
 
@@ -32,9 +40,17 @@ pub const READING_FOLDER: &str = "Reading the folder…";
 pub const READING_FILE: &str = "Reading the file…";
 pub const READING_HISTORY: &str = "Reading the history…";
 pub const READING_SNAPSHOT: &str = "Reading the snapshot…";
+pub const READING_PICTURE: &str = "Reading the image…";
+/// What an image that does not draw says in its place.
+pub const NOT_DRAWN: &str = "This image does not draw here.";
+
+/// What the detail pane beside a folder's list says before a file opens.
+pub const PICK_A_FILE: &str = "Open a file to see it here.";
+/// What the detail pane beside the history says before a snapshot opens.
+pub const PICK_A_SNAPSHOT: &str = "Open a snapshot to see what it changed.";
 
 pub const EMPTY_FOLDER: &str = "Nothing here yet";
-pub const EMPTY_WRITABLE: &str = "Make a folder or a text file here.";
+pub const EMPTY_WRITABLE: &str = "Make a folder or a text file here, or upload files.";
 pub const EMPTY_READ_ONLY: &str = "Its writers have put nothing here.";
 pub const NO_SNAPSHOTS: &str = "No snapshot yet";
 pub const NO_SNAPSHOTS_DETAIL: &str = "The first commit to files makes one.";
@@ -47,6 +63,18 @@ pub const NOTHING_CHANGED: &str = "It changed nothing.";
 pub const GONE: &str = "Nothing is at this path any more.";
 
 pub const NAME_IT: &str = "Name it.";
+pub const NOTHING_TO_UPLOAD: &str = "None of these files can be uploaded.";
+pub const REPLACES: &str = "Replaces the file there";
+/// A staged chunk the program answered with no id: the program changed
+/// under the view.
+pub const NO_CHUNK_ID: &str = "Files took a chunk and did not say what it holds it as.";
+/// A second picked file of a name already picked.
+pub const PICKED_TWICE: &str = "Picked twice: only the first goes";
+/// The folder an upload was picked for left the screen while the
+/// picker was open.
+pub const FOLDER_LEFT: &str = "The folder closed while you picked: upload again from it.";
+/// An upload's form closed before its commit.
+pub const UPLOAD_STOPPED: &str = "Upload stopped: nothing was committed.";
 pub const ONE_NAME: &str = "A name has no /: rename it afterwards to move it.";
 pub const SAME_PATH: &str = "It is at that path already.";
 
@@ -154,14 +182,49 @@ pub fn entry_caption(node: &Node) -> String {
     }
 }
 
-/// What a file holds, in a word: text, a link, or bytes that are not text.
-pub fn kind(node: &Node, text: bool) -> &'static str {
-    match (node, text) {
+/// What an entry's Size column says: a link has no size of its own.
+pub fn entry_size(node: &Node) -> String {
+    match node {
+        Node::Symlink { .. } => "—".into(),
+        node => entry_caption(node),
+    }
+}
+
+/// What a node holds, in a word: a folder, a link, an image, text, or
+/// bytes that are neither; a file by `holds`.
+pub fn kind(node: &Node, holds: Holds) -> &'static str {
+    match (node, holds) {
         (Node::Symlink { .. }, _) => "Link",
         (Node::Dir { .. }, _) => "Folder",
-        (_, true) => "Text",
-        (_, false) => "Not text",
+        (_, Holds::Picture) => "Image",
+        (_, Holds::Text) => "Text",
+        (_, Holds::Bytes) => "File",
     }
+}
+
+/// What a folder's entry holds, in a word, by its name: a listing
+/// carries no bytes.
+pub fn entry_kind(entry: &EntryInfo) -> &'static str {
+    kind(&entry.node, holds_by_name(name_of(&entry.path)))
+}
+
+/// The picture a file draws, or what shows in its place: it is too large
+/// to be read here, or (a restored view reads it again) still reading.
+pub fn picture(file: &Opened) -> Result<&Arc<Image>, String> {
+    match &file.picture {
+        Some(picture) => Ok(picture),
+        None if file.size() > SHOW_MOST => Err(too_big_to_show(file.size())),
+        None => Err(READING_PICTURE.to_owned()),
+    }
+}
+
+/// What a picture too large to draw here says in its place.
+pub fn too_big_to_show(size: u64) -> String {
+    format!(
+        "An image of {}: only one of {} or less is drawn here.",
+        self::size(size),
+        self::size(SHOW_MOST)
+    )
 }
 
 /// Why only part of a file shows.
@@ -188,6 +251,7 @@ pub fn verb(write: &Write) -> &'static str {
     match write {
         Write::NewFolder { .. } => "New folder",
         Write::NewFile { .. } => "New text file",
+        Write::Upload { .. } => "Upload files",
         Write::Edit { .. } => "Edit text",
         Write::Rename { .. } => "Rename or move",
         Write::Remove { .. } => "Remove",
@@ -200,18 +264,54 @@ pub fn form_title(write: &Write) -> String {
         Write::NewFolder { folder } | Write::NewFile { folder } => {
             format!("{} in {}", verb(write), name_of(folder))
         }
+        Write::Upload { folder } => format!("Upload to {}", name_of(folder)),
         Write::Edit { path, .. } | Write::Rename { path } | Write::Remove { path, .. } => {
             format!("{} {}", verb(write), name_of(path))
         }
     }
 }
 
-/// The commit button: Commit, then, sent, that it waits on its answer.
-pub fn commit(sending: bool) -> &'static str {
-    match sending {
-        true => COMMITTING,
-        false => COMMIT,
+/// The commit button: Commit; an upload's chunks going ahead, how far
+/// they are; then, sent, that it waits on its answer.
+pub fn commit(sending: bool, progress: Option<(u64, u64)>) -> String {
+    match (sending, progress) {
+        (true, Some((staged, all))) if staged < all => {
+            format!("Sending {} of {}…", grouped(staged + 1), grouped(all))
+        }
+        (true, _) => COMMITTING.into(),
+        (false, _) => COMMIT.into(),
     }
+}
+
+/// An upload's commit message: what it sends.
+pub fn uploads(names: &[&str]) -> String {
+    match names {
+        [name] => format!("Upload {name}"),
+        names => format!("Upload {}", plural(names.len() as u64, "file", "files")),
+    }
+}
+
+/// What a file too big to upload says on its row.
+pub fn too_big_to_upload(size: u64) -> String {
+    format!(
+        "{}: only files of {} or less upload here",
+        self::size(size),
+        self::size(UPLOAD_MOST)
+    )
+}
+
+/// Why a picked file is left out: a folder or a link holds its name.
+pub fn held_by(node: &Node) -> String {
+    let what = match node {
+        Node::Dir { .. } => "A folder",
+        _ => "A link",
+    };
+    format!("{what} of this name is here")
+}
+
+/// A picked file read short of the size it was picked at.
+pub fn changed_since_picked(name: &str) -> String {
+    format!("{name} changed since you picked it: pick it again.")
 }
 
 /// What a form's first field is labelled.
