@@ -622,6 +622,13 @@ pub struct Notification {
     /// Unix seconds past which the notice is stale: a carrier drops it
     /// undelivered, and a ring stops. 0: never.
     pub until: u64,
+    /// For a [`NoticeKind::Call`]: a `duck://` link the carrier opens when
+    /// the person ends the call they answered from the system's own call
+    /// screen (iOS CallKit's end button; later Android's ConnectionService).
+    /// Never for a decline, nor for an end made in the app or by the
+    /// program. What that hang-up means is the program's to decide, as
+    /// `link` decides what Answer means. Empty: nothing is opened.
+    pub end_link: String,
 }
 /// What a [`Notification`] is to the app and to a push server that carry
 /// it: they know a call from a notice by this alone, never by its program.
@@ -642,7 +649,8 @@ pub enum NoticeKind {
     /// Shown and logged.
     #[default]
     Notice,
-    /// Someone is calling: it rings, and its `link` answers.
+    /// Someone is calling: it rings, its `link` answers, and its
+    /// `end_link` is opened when the system's call screen ends it.
     Call,
 }
 /// What the host did with a [`Notification`].

@@ -1382,7 +1382,8 @@
       "tag": "room",
       "link": "duck://chat/room",
       "kind": "Notice",
-      "until": 0
+      "until": 0,
+      "end_link": ""
     },
     "reply": "Banner"
   },
@@ -1394,7 +1395,8 @@
       "tag": "room",
       "link": "duck://chat/room",
       "kind": "Notice",
-      "until": 0
+      "until": 0,
+      "end_link": ""
     },
     "reply": "Logged"
   },
@@ -1406,7 +1408,8 @@
       "tag": "room",
       "link": "duck://chat/room",
       "kind": "Notice",
-      "until": 0
+      "until": 0,
+      "end_link": ""
     },
     "reply": "Blocked"
   },
@@ -1418,7 +1421,8 @@
       "tag": "call/c-1",
       "link": "duck://local/huddle/call/c-1",
       "kind": "Call",
-      "until": 1700000045
+      "until": 1700000045,
+      "end_link": "duck://local/huddle/call/c-1/leave"
     },
     "reply": "Banner"
   },

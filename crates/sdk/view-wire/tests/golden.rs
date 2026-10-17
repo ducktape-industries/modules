@@ -614,6 +614,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 link: "duck://local/huddle/call/c-1".into(),
                 kind: NoticeKind::Call,
                 until: 1_700_000_045,
+                end_link: "duck://local/huddle/call/c-1/leave".into(),
             },
             Delivery::Banner,
         ),
@@ -794,6 +795,7 @@ fn notification() -> methods::Notification {
         link: "duck://chat/room".into(),
         kind: methods::NoticeKind::Notice,
         until: 0,
+        end_link: String::new(),
     }
 }
 
