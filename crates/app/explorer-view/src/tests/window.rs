@@ -90,23 +90,37 @@ fn a_pushed_head_reads_only_the_new_blocks() {
 
 /// An archive far longer than the window is read as far as the window, in
 /// one page: the node lists every block it keeps to a page that asks for
-/// them all. (On garage, 52k blocks: that page was 14.6 MB, decoded in one
+/// them all. (On garage, 56k blocks: that page was 14.6 MB, decoded in one
 /// call to keep the newest 1,000, and the view ran out of fuel.)
 #[test]
 fn a_long_archive_is_read_only_as_far_as_the_window() {
     let mut cx = TestAppContext::new();
-    node(&mut cx, Rc::new(RefCell::new(52_000)));
+    let heads = cx.host().stream::<ChainHeads>();
+    let tip = Rc::new(RefCell::new(52_000));
+    node(&mut cx, tip.clone());
     cx.open::<Explorer>();
+    cx.run_until_parked();
+    let window = BlockPage {
+        before: None,
+        limit: WINDOW as u32,
+        most: 0,
+    };
+    assert_eq!(cx.host().requests::<ChainBlocks>(), [window.clone()]);
+    assert!(cx.has_text("52,000"), "the Height stat: {:?}", cx.texts());
+    // back from a long sleep, the head is far past the window: still one
+    // window's worth, not every block since
+    *tip.borrow_mut() = 104_000;
+    heads.send(Head {
+        height: 104_000,
+        time: T0 + 104_000_000,
+        id: [4; 32],
+    });
     cx.run_until_parked();
     assert_eq!(
         cx.host().requests::<ChainBlocks>(),
-        [BlockPage {
-            before: None,
-            limit: WINDOW as u32,
-            most: 0,
-        }]
+        [window.clone(), window]
     );
-    assert!(cx.has_text("52,000"), "the Height stat: {:?}", cx.texts());
+    assert!(cx.has_text("104,000"), "the Height stat: {:?}", cx.texts());
 }
 
 /// A head alone draws nothing: the screen moves once, when the page it

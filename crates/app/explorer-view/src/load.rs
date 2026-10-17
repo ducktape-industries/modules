@@ -152,7 +152,7 @@ impl Explorer {
             .map(|status| status.height.max(self.head));
         // a page asks for the blocks the window lacks, never more: the node
         // lists every block it keeps to a page that asks for them all
-        // (garage's 52k, 14.6 MB decoded in one call to keep the newest
+        // (garage's 56k, 14.6 MB decoded in one call to keep the newest
         // 1,000, ran the view out of fuel)
         let (before, lacking) = match (self.chain.top(), head) {
             (None, _) => (None, WINDOW),
