@@ -631,6 +631,7 @@ fn a_program_whose_view_asks_nothing_counts_none_and_says_so() {
                     min_width: 480,
                     targets: Vec::new(),
                     icon: "icons/chat.svg".into(),
+                    tint: Tint::Blue,
                 }),
             }),
         }))

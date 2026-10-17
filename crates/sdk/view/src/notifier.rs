@@ -268,5 +268,8 @@ mod tests {
         );
         assert_eq!(manifest.targets, ["probe"]);
         assert_eq!(manifest.wire_id, crate::wire::WIRE_ID);
+        // it draws nothing: no tint, written as such
+        assert!(text.ends_with("\nnone"), "{text:?}");
+        assert_eq!(manifest.tint, crate::Tint::None);
     }
 }

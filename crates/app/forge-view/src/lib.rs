@@ -73,6 +73,7 @@ impl View for Forge {
     const DESCRIPTION: &'static str =
         "Repositories, code, commits and the changes waiting on your judgment.";
     const ICON: &'static str = "icons/hammer.svg";
+    const TINT: Tint = Tint::Orange;
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Program,
         Capability::Op,

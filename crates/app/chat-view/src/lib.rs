@@ -74,6 +74,7 @@ impl View for Chat {
     const DESCRIPTION: &'static str =
         "Channels, direct messages, threads, search and the live call of this workspace.";
     const ICON: &'static str = "icons/messages-square.svg";
+    const TINT: Tint = Tint::Blue;
     const CAPABILITIES: &'static [Capability] = &[
         // the heads' time: which day "Today" is
         Capability::Chain,

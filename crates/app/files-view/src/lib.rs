@@ -46,6 +46,7 @@ impl View for Files {
     const DESCRIPTION: &'static str =
         "The network's files: your home, what is shared, and every snapshot.";
     const ICON: &'static str = "icons/folder.svg";
+    const TINT: Tint = Tint::Amber;
     const CAPABILITIES: &'static [Capability] = &[
         // the session: who reads, so which home is theirs
         Capability::Host,

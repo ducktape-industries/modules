@@ -119,7 +119,7 @@ LiveStart__Next = Struct { fields: Empty }
 LiveSubscribe = Struct { fields: NamedFields([("track", "LiveTrack"), ("from", "LiveStart")]) }
 LiveTrack = Struct { fields: NamedFields([("room", "String"), ("name", "String")]) }
 Located = Struct { fields: NamedFields([("height", "u64"), ("position", "u32"), ("time", "u64"), ("tx", "Tx")]) }
-Manifest = Struct { fields: NamedFields([("wire_id", "String"), ("name", "String"), ("description", "String"), ("capabilities", "Vec<Capability>"), ("min_width", "u32"), ("targets", "Vec<String>"), ("icon", "String")]) }
+Manifest = Struct { fields: NamedFields([("wire_id", "String"), ("name", "String"), ("description", "String"), ("capabilities", "Vec<Capability>"), ("min_width", "u32"), ("targets", "Vec<String>"), ("icon", "String"), ("tint", "Tint")]) }
 Manifested = Struct { fields: NamedFields([("size", "u64"), ("view", "Option<CarriedView>")]) }
 NetworkStatus = Struct { fields: NamedFields([("height", "u64"), ("members", "Vec<Peer>")]) }
 NewBlob = Struct { fields: NamedFields([("kind", "String"), ("body", "BlobBody")]) }
@@ -165,6 +165,17 @@ Submitted = Enum { tag_width: 1, variants: [(0, "Applied", "Submitted__Applied")
 Submitted__Applied = Struct { fields: NamedFields([("frame", "[u8; 32]"), ("until", "u64"), ("output", "Vec<u8>")]) }
 Submitted__InDoubt = Struct { fields: NamedFields([("frame", "[u8; 32]"), ("until", "u64")]) }
 Submitted__Refused = Struct { fields: NamedFields([("frame", "[u8; 32]"), ("until", "u64"), ("refusal", "Error")]) }
+Tint = Enum { tag_width: 1, variants: [(0, "None", "Tint__None"), (1, "Blue", "Tint__Blue"), (2, "Teal", "Tint__Teal"), (3, "Green", "Tint__Green"), (4, "Lime", "Tint__Lime"), (5, "Amber", "Tint__Amber"), (6, "Orange", "Tint__Orange"), (7, "Red", "Tint__Red"), (8, "Pink", "Tint__Pink"), (9, "Violet", "Tint__Violet")] }
+Tint__Amber = Struct { fields: Empty }
+Tint__Blue = Struct { fields: Empty }
+Tint__Green = Struct { fields: Empty }
+Tint__Lime = Struct { fields: Empty }
+Tint__None = Struct { fields: Empty }
+Tint__Orange = Struct { fields: Empty }
+Tint__Pink = Struct { fields: Empty }
+Tint__Red = Struct { fields: Empty }
+Tint__Teal = Struct { fields: Empty }
+Tint__Violet = Struct { fields: Empty }
 Tip = Struct { fields: NamedFields([("height", "u64"), ("id", "[u8; 32]")]) }
 Tx = Struct { fields: NamedFields([("hash", "[u8; 32]"), ("signer", "Vec<u8>"), ("anchor", "Tip"), ("target", "String"), ("size", "u32"), ("payload", "Option<Vec<u8>>"), ("receipt", "Option<Receipt>")]) }
 TxAsk = Struct { fields: NamedFields([("tx", "TxRef"), ("most", "u32")]) }
@@ -1721,3 +1732,4 @@ min_width
 wire_id
 targets
 icon
+tint

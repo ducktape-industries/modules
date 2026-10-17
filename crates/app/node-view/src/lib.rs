@@ -121,6 +121,7 @@ impl View for Nodes {
     const NAME: &'static str = "Nodes";
     const DESCRIPTION: &'static str = "The network this app talks to: its height and epoch, every member, with how far each validator's signature is from the tip, and the validators' vote.";
     const ICON: &'static str = "icons/server.svg";
+    const TINT: Tint = Tint::Blue;
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Chain,
         Capability::Program,
