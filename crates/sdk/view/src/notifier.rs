@@ -236,11 +236,13 @@ mod tests {
             link: "duck://local/huddle/call/c-1".into(),
             kind: NoticeKind::Call,
             until: 1_700_000_045,
+            end_link: "duck://local/huddle/call/c-1/leave".into(),
             ..Notification::default()
         }
     }
 
-    /// A ring crosses as it was posted: its kind and its end with it.
+    /// A ring crosses as it was posted: its kind, its end and its hang-up
+    /// link with it.
     #[test]
     fn a_ring_reaches_the_host_with_its_kind_and_its_end() {
         let mut cx = TestNotifier::<Ring>::new();

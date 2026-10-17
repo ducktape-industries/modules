@@ -622,6 +622,12 @@ pub struct Notification {
     /// Unix seconds past which the notice is stale: a carrier drops it
     /// undelivered, and a ring stops. 0: never.
     pub until: u64,
+    /// For a [`NoticeKind::Call`]: a `duck://` link the carrier opens when
+    /// the person ends the answered call from the system's own call screen
+    /// (iOS CallKit's end button; later Android's ConnectionService), so
+    /// the program decides what that hang-up means, as `link` decides what
+    /// Answer means. Empty: nothing is opened.
+    pub end_link: String,
 }
 /// What a [`Notification`] is to the app and to a push server that carry
 /// it: they know a call from a notice by this alone, never by its program.
@@ -642,7 +648,8 @@ pub enum NoticeKind {
     /// Shown and logged.
     #[default]
     Notice,
-    /// Someone is calling: it rings, and its `link` answers.
+    /// Someone is calling: it rings, its `link` answers, and its
+    /// `end_link` hangs up from the system's call screen.
     Call,
 }
 /// What the host did with a [`Notification`].
@@ -1464,6 +1471,22 @@ mod tests {
         for hostile in [&[3][..], &[u8::MAX], &[], &[0, 0]] {
             assert!(HostShow::decode_request(hostile).is_err(), "{hostile:?}");
         }
+    }
+
+    /// A call notice crosses `notify.post` whole, its hang-up link with it.
+    #[test]
+    fn a_calls_end_link_round_trips() {
+        let ring = Notification {
+            title: "alice is calling".into(),
+            tag: "call/c-1".into(),
+            link: "duck://local/huddle/call/c-1".into(),
+            kind: NoticeKind::Call,
+            until: 1_700_000_045,
+            end_link: "duck://local/huddle/call/c-1/leave".into(),
+            ..Notification::default()
+        };
+        let bytes = NotifyPost::encode_request(&ring);
+        assert_eq!(NotifyPost::decode_request(&bytes), Ok(ring));
     }
 
     #[test]
