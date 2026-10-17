@@ -1,17 +1,19 @@
 //! One agent: who it is, its configuration file and what harness resolves from it (the
-//! configuration and its model, or what is wrong), who it answers, its threads by place and
-//! what its turns used. Its manager edits its configuration from here, or takes it back from
-//! harness.
-use harness::{AgentSetup, Configured};
-use identity::Ownership;
+//! configuration and its model, or what is wrong), who it answers, its conversations and what
+//! its turns used. Its manager edits its configuration, starts or forks a conversation, or
+//! takes it back from harness.
+use harness::{AgentSetup, Configured, Thinking};
+use identity::{Ownership, Party};
+use program::Writers;
 use view::FontWeight;
 use view::design::Ladder;
 use view::design::{size, space, text};
 use view::prelude::*;
 
 use super::{
-    agent_state, asking, back, caption, context_words, fact, no_node, panel, place_label,
-    snapshot_words, state_badge, usage_words, waiting, window_words,
+    agent_state, asking, back, began_words, caption, context_words, conversation_label, fact,
+    no_node, panel, snapshot_words, state_badge, thinking_picker, thinking_words, usage_words,
+    waiting, window_words,
 };
 use crate::read::{self, Roster};
 use crate::{Agents, Arm, Screen, State, thread_state};
@@ -132,6 +134,11 @@ fn detail(
         .child(head)
         .children(removing(view, &name, agent, cx, theme, ladder))
         .child(configuration(&setup, detail, roster, &name, theme))
+        .children(
+            manages
+                .then(|| thinking(view, &setup, &name, cx, theme, ladder))
+                .flatten(),
+        )
         .children(setup.configured.model().and_then(|model| {
             no_node(
                 "agent-no-node",
@@ -142,7 +149,15 @@ fn detail(
             )
         }))
         .child(system_prompt(&setup, theme))
-        .child(threads(detail, roster, window.flatten(), cx, theme, ladder))
+        .child(threads(
+            view,
+            detail,
+            roster,
+            window.flatten(),
+            cx,
+            theme,
+            ladder,
+        ))
         .child(
             div()
                 .flex()
@@ -195,7 +210,8 @@ fn configuration(
                 format!("{} tokens", design::grouped(config.max_tokens.into())),
                 theme,
             ))
-            .child(fact("Wait", wait, theme));
+            .child(fact("Wait", wait, theme))
+            .child(fact("Thinking", thinking_words(config.thinking), theme));
     }
     if let Some(model) = setup.configured.model() {
         facts = facts
@@ -241,11 +257,58 @@ fn configuration(
         ))
 }
 
+fn thinking(
+    view: &Agents,
+    setup: &AgentSetup,
+    name: &str,
+    cx: &mut Context<Agents>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Option<impl IntoElement + use<>> {
+    let (_, config) = setup.configured.config()?;
+    let rethinking = view.draft.rethink && view.draft.created == Some(setup.agent);
+    let sending = rethinking && view.draft.sending.is_some();
+    let picked = match sending {
+        true => view.draft.thinking,
+        false => config.thinking,
+    };
+    let problem = view.draft.problem.clone().filter(|_| rethinking);
+    let (setup, name) = (setup.clone(), name.to_owned());
+    let pick = cx.processor(
+        move |view: &mut Agents, thinking: Option<Thinking>, _, cx| {
+            view.rethink(&setup, &name, thinking, cx)
+        },
+    );
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap(space::XS)
+            .child(design::heading("agent-thinking", "Thinking", 2, theme))
+            .child(div().flex().child(thinking_picker(
+                "agent-thinking-level",
+                picked,
+                ladder,
+                theme,
+                pick,
+            )))
+            .children(problem.map(|problem| {
+                panel("agent-thinking-problem", theme.danger_soft, theme).child(problem)
+            }))
+            .child(caption(
+                "A press writes the configuration file again with this level; the next model call reads it.",
+                theme,
+            )),
+    )
+}
+
 fn system_prompt(setup: &AgentSetup, theme: &Theme) -> impl IntoElement + use<> {
     let text = match &setup.configured {
         Configured::Ready { config, .. } | Configured::UnknownModel { config, .. } => {
             match config.system.is_empty() {
-                true => "No system prompt: harness's preamble alone.".to_owned(),
+                true => {
+                    "No system prompt: harness sends its ducktape resource manual alone.".to_owned()
+                }
                 false => config.system.clone(),
             }
         }
@@ -272,42 +335,46 @@ fn answers(ownership: &Ownership, roster: &Roster) -> String {
     match ownership {
         Ownership::Owner => "Its manager only".into(),
         Ownership::Anyone => "Anyone".into(),
-        Ownership::Accounts(numbers) => {
-            let names: Vec<String> = numbers.iter().map(|number| roster.name(*number)).collect();
-            format!("Its manager, {}", names.join(", "))
-        }
+        Ownership::Listed(parties) => format!("Its manager, {}", named_parties(parties, roster)),
     }
 }
 
-fn config_writers(writers: &files::Writers, config: &str, roster: &Roster) -> String {
-    let named = |number: Option<u64>| match number {
-        Some(number) => roster.name(number),
+fn named_parties(parties: &[Party], roster: &Roster) -> String {
+    let names: Vec<String> = parties
+        .iter()
+        .map(|party| party_name(party, roster))
+        .collect();
+    names.join(", ")
+}
+
+fn party_name(party: &Party, roster: &Roster) -> String {
+    match party {
+        Party::Account(number) => roster.name(*number),
+        Party::Program(program) => format!("the {program} program"),
+    }
+}
+
+fn config_writers(writers: &Writers, config: &str, roster: &Roster) -> String {
+    let named = |owner: &Option<Party>| match owner {
+        Some(owner) => party_name(owner, roster),
         None => "no account".into(),
     };
     match writers {
-        files::Writers::Listed {
-            path,
-            creator,
-            write,
-        } => {
-            let who = match write {
-                Ownership::Owner => format!("Only {}", named(*creator)),
-                Ownership::Accounts(numbers) => {
-                    let names: Vec<String> =
-                        numbers.iter().map(|number| roster.name(*number)).collect();
-                    format!("{}, {}", named(*creator), names.join(", "))
+        Writers::Listed { at, owner, list } => {
+            let who = match list {
+                Ownership::Owner => format!("Only {}", named(owner)),
+                Ownership::Listed(parties) => {
+                    format!("{}, {}", named(owner), named_parties(parties, roster))
                 }
-                Ownership::Anyone => "Any account".into(),
+                Ownership::Anyone => "Anyone".into(),
             };
-            let own_list = path == config;
+            let own_list = at == config;
             match own_list {
                 true => who,
-                false => format!("{who}, by the list on {path}"),
+                false => format!("{who}, by the list on {at}"),
             }
         }
-        files::Writers::Home(name) => format!("The account named {name}"),
-        files::Writers::Shared => "Any account".into(),
-        files::Writers::Chain => "The network alone".into(),
+        Writers::Anyone => "Anyone".into(),
     }
 }
 
@@ -355,6 +422,7 @@ fn removing(
 }
 
 fn threads(
+    view: &Agents,
     detail: &crate::read::Detail,
     roster: &Roster,
     window: Option<u64>,
@@ -362,8 +430,11 @@ fn threads(
     theme: &Theme,
     ladder: &Ladder,
 ) -> impl IntoElement + use<> {
+    let current = detail.setup.as_ref().and_then(|setup| setup.current);
     let rows = detail.threads.iter().map(|(thread, usage)| {
         let id = thread.id;
+        let is_current = current == Some(id);
+        let began = began_words(thread, Some(roster));
         let state = match thread.closed {
             true => "Closed".to_owned(),
             false => asking(thread.asking),
@@ -392,9 +463,27 @@ fn threads(
             )
             .child(
                 div()
-                    .w(px(160.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(place_label(thread, Some(roster))),
+                    .w(px(220.))
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(space::XS)
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(conversation_label(thread))
+                            .when(is_current, |label| {
+                                label.child(design::badge(
+                                    SharedString::from(format!("thread-{id}-current")),
+                                    "Current",
+                                    ladder,
+                                    theme.agent,
+                                    theme.agent_soft,
+                                ))
+                            }),
+                    )
+                    .children(began.map(|began| caption(began, &theme))),
             )
             .child(
                 div()
@@ -426,19 +515,53 @@ fn threads(
                 &theme,
             ))
     });
+    let starts = match (&detail.conversation_writers, view.me) {
+        (Some(writers), Some(me)) => writers.allows(&[Party::Account(me)]),
+        _ => false,
+    };
+    let agent = detail.setup.as_ref().map(|setup| setup.agent);
+    let actions = agent.filter(|_| starts).map(|agent| {
+        let renew = cx.listener(move |view: &mut Agents, _: &ClickEvent, _, cx| {
+            view.converse(harness::Op::NewThread { agent }, cx)
+        });
+        let fork = cx.listener(move |view: &mut Agents, _: &ClickEvent, _, cx| {
+            view.converse(harness::Op::ForkThread { agent }, cx)
+        });
+        let idle = view.acting.is_none();
+        div()
+            .flex()
+            .gap(space::SM)
+            .child(
+                design::button("agent-new-thread", "New conversation", ladder, theme, renew)
+                    .enabled(idle),
+            )
+            .child(
+                design::button("agent-fork-thread", "Fork", ladder, theme, fork)
+                    .enabled(idle && current.is_some()),
+            )
+    });
     div()
         .flex()
         .flex_col()
         .gap(space::XS)
-        .child(design::heading("agent-threads", "Threads", 2, theme))
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .justify_between()
+                .gap(space::SM)
+                .child(design::heading("agent-threads", "Conversations", 2, theme))
+                .children(actions),
+        )
         .child(caption(
-            "One thread per place, so each channel has a context of its own.",
+            "One conversation at a time: every person and every place continue the current one, and each reply goes back where its message came from. New conversation starts from nothing; Fork starts from the current one's context. A conversation no longer current closes once it is idle, and stays readable.",
             theme,
         ))
         .children(rows)
         .when(detail.threads.is_empty(), |list| {
             list.child(design::quiet(
-                "No thread yet: a mention or a direct message opens one.",
+                "No conversation yet: a mention or a direct message opens one.",
                 theme,
             ))
         })

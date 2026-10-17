@@ -1,15 +1,16 @@
 //! The create form: the ops a new agent takes, each with how far it got, the configuration
-//! file it writes (where, the model from harness's records, max output, wait, the system
-//! prompt) and who it answers. Editing is the same form, its fields filled from the agent's
+//! file it writes (where, the model from harness's records, max output, wait, thinking, the
+//! system prompt) and who it answers. Editing is the same form, its fields filled from the agent's
 //! file, saved as a new version of it.
 use view::design::Ladder;
 use view::design::{size, space};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
-use super::{back, caption, waiting, window_words};
+use super::{back, caption, thinking_picker, waiting, window_words};
 use crate::create::{Answers, Draft, proposed_path};
 use crate::{Agents, Screen};
+use harness::Thinking;
 
 pub(super) fn render(
     view: &Agents,
@@ -100,10 +101,16 @@ fn steps(draft: &Draft, home: Option<&str>, theme: &Theme) -> impl IntoElement +
             created,
         ),
         (
-            "Write its configuration, which only you may change",
-            "files · Commit, write list: Owner",
+            "Write its configuration",
+            "files · Commit",
             draft.committed,
             committed,
+        ),
+        (
+            "Make it yours alone to change",
+            "access · Set, write list: Owner",
+            draft.kept,
+            None,
         ),
         (
             "Hand it to harness",
@@ -113,7 +120,7 @@ fn steps(draft: &Draft, home: Option<&str>, theme: &Theme) -> impl IntoElement +
         ),
         (
             "Who it answers, if more than you",
-            "identity · SetOwnership",
+            "access · Set, who it answers",
             draft.answered,
             None,
         ),
@@ -193,7 +200,7 @@ fn fields(
     }
     form.child(labelled(
         "Configuration file",
-        "Where in files its configuration lives. The script names this path; harness reads it at each model call. Only your account writes under your home, /home/<your name>/; any account may rewrite a file under /shared/.",
+        "Where in files its configuration lives. The script names this path; harness reads it at each model call. This commit sets the file's write list to your account alone; with no list, any account may rewrite a file.",
         input(
             Input::new("create-path", &draft.path, "Configuration file"),
             theme,
@@ -232,8 +239,23 @@ fn fields(
             ),
     )
     .child(labelled(
+        "Thinking",
+        "How hard the model thinks before it answers. Model's default sends nothing; Off turns thinking off; Low to Max ask for that much effort.",
+        div().flex().child(thinking_picker(
+            "create-thinking",
+            draft.thinking,
+            ladder,
+            theme,
+            cx.processor(|view: &mut Agents, thinking: Option<Thinking>, _, cx| {
+                view.draft.thinking = thinking;
+                cx.notify();
+            }),
+        )),
+        theme,
+    ))
+    .child(labelled(
         "System prompt",
-        "Harness puts its own preamble first (who the agent is, and where people reach it), then this.",
+        "Harness sends each paragraph as its own system block, in order, then its ducktape resource manual (the agent's account, its manager, the conversation).",
         Textarea::new("create-system", &draft.system, "System prompt")
             .min_h(size::CONTROL * 4.)
             .w_full()
@@ -354,7 +376,7 @@ fn answers(
     let choices = [
         (Answers::Manager, "Only me"),
         (Answers::Anyone, "Anyone"),
-        (Answers::Accounts, "These accounts"),
+        (Answers::Listed, "These accounts and programs"),
     ];
     let picked = choices
         .iter()
@@ -384,13 +406,17 @@ fn answers(
             .flex_col()
             .gap(space::XS)
             .child(div().flex().child(segmented))
-            .when(draft.answers == Answers::Accounts, |field| {
+            .when(draft.answers == Answers::Listed, |field| {
                 field.child(
                     input(
-                        Input::new("create-accounts", &draft.accounts, "Account numbers"),
+                        Input::new(
+                            "create-accounts",
+                            &draft.listed,
+                            "Account numbers and programs",
+                        ),
                         theme,
                     )
-                    .placeholder("7, 12"),
+                    .placeholder("7, 12, forge"),
                 )
             }),
         theme,

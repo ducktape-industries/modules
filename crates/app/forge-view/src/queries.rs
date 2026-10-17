@@ -10,6 +10,7 @@ use view::prelude::*;
 
 use crate::api::Ask as Forge;
 use forge::{CommitInfo, PageRequest, PageResponse, Query, Reply};
+use identity::Ownership;
 
 pub(crate) const PAGE: PageRequest = PageRequest {
     after: None,
@@ -67,7 +68,6 @@ pub(crate) async fn log_page(
 fn next_cursor(reply: &Reply) -> Option<&Vec<u8>> {
     match reply {
         Reply::Repos { page, .. } => page.next.as_ref(),
-        Reply::Repo { writers, .. } => writers.next.as_ref(),
         Reply::Refs { page, .. } => page.next.as_ref(),
         Reply::Tree { page, .. } => page.next.as_ref(),
         Reply::Diff { page, .. } => page.next.as_ref(),
@@ -76,6 +76,7 @@ fn next_cursor(reply: &Reply) -> Option<&Vec<u8>> {
         Reply::Judgment { page, .. } => page.next.as_ref(),
         // a log is never read whole: `log_page`
         Reply::Log { .. }
+        | Reply::Repo { .. }
         | Reply::Compare { .. }
         | Reply::Blob { .. }
         | Reply::Activity { .. }
@@ -99,7 +100,6 @@ fn extend(into: &mut Reply, more: Reply) {
     match (into, more) {
         (Reply::Repos { page, .. }, Reply::Repos { page: more, .. }) => absorb(page, more),
         (Reply::Refs { page, .. }, Reply::Refs { page: more, .. }) => absorb(page, more),
-        (Reply::Repo { writers, .. }, Reply::Repo { writers: more, .. }) => absorb(writers, more),
         (Reply::Tree { page, .. }, Reply::Tree { page: more, .. }) => absorb(page, more),
         (Reply::Diff { page, .. }, Reply::Diff { page: more, .. }) => absorb(page, more),
         (Reply::Changes { page, .. }, Reply::Changes { page: more, .. }) => absorb(page, more),
@@ -109,6 +109,14 @@ fn extend(into: &mut Reply, more: Reply) {
         (Reply::Judgment { page, .. }, Reply::Judgment { page: more, .. }) => absorb(page, more),
         _ => {}
     }
+}
+
+pub(crate) async fn writers(host: Host, repo: String) -> Result<Option<Ownership>, Error> {
+    host.query(access::ask::List {
+        program: forge::PROGRAM.to_owned(),
+        key: forge::repo_key(&repo),
+    })
+    .await
 }
 
 /// A change's hidden channel, oldest first.

@@ -1,9 +1,10 @@
 //! What Account follows while it is open: the session, and the live heads
-//! of identity and valset. Every follower says what a refusal means to it;
+//! of identity, valset and access. Every follower says what a refusal means to it;
 //! none ends on one.
 use view::prelude::*;
 
 use crate::Settings;
+use access::Access;
 use identity::Identity;
 use valset::Valset;
 
@@ -28,6 +29,11 @@ impl Settings {
         cx.follow::<Changes<Valset>>((), |view, head, cx| match head {
             Ok(_) => view.refresh_account(cx),
             Err(refusal) => cx.log_refused("valset's live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<Changes<Access>>((), |view, head, cx| match head {
+            Ok(_) => view.refresh_account(cx),
+            Err(refusal) => cx.log_refused("access's live heads", &refusal),
         })
         .detach();
     }

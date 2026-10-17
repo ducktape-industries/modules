@@ -1,8 +1,9 @@
 //! The `identity` program: accounts, and who acts as each. Everything that
 //! acts is an account: a user (the keys they hold), a program account (the
 //! keys its manager, a user, adds, and the script that runs its actions) and
-//! a system account (the one the kernel registers as it admits a program). An agent's
-//! manager also sets whom it answers, an [`Ownership`] whose `Owner` is the manager. The types, rules and [`Identity`] program are
+//! a system account (the one the kernel registers as it admits a program). Who edits an
+//! account is its key's list in the access program, owned by the user, the program account's
+//! manager or the system account itself. The types, rules and [`Identity`] program are
 //! always built; a view links them with `program` off (`view.rs` is what a
 //! view shows of an account). The `program` feature adds its wasm exports.
 //!
@@ -10,18 +11,20 @@
 //! op, queries and replies are the first variants of [`Op`], [`Query`] and
 //! [`Reply`]. Who may do what, op by op: `docs/roles.md` at the repository
 //! root.
+mod migrate;
 mod program;
 mod rules;
 #[cfg(test)]
 mod tests;
 pub mod view;
 
-pub use ::program::{AccountNumber, Ownership};
+pub use ::program::{AccountNumber, Ownership, Party};
 pub use abi::role::identity::{Category, Kind, Profile, Script, Standing};
 pub use program::Identity;
+pub use rules::account_key;
 
 use ::program::{BlobId, ProgramId, Scheme};
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 pub use store::{PageRequest, PageResponse};
 
 /// The name this program runs under.
@@ -29,7 +32,7 @@ pub const PROGRAM: &str = "identity";
 /// What a key signs to consent to a key joining an account ([`Admission`]).
 pub const CONSENT_NAMESPACE: &[u8] = b"ducktape:identity:consent";
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Key {
     pub scheme: Scheme,
     pub key: Vec<u8>,
@@ -38,7 +41,7 @@ pub struct Key {
 }
 
 /// One account: what it shows ([`Card`]) and who acts as it ([`Control`]).
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Account {
     pub number: AccountNumber,
     pub card: Card,
@@ -46,7 +49,7 @@ pub struct Account {
 }
 
 /// What an account shows of itself.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Card {
     pub name: String,
     pub avatar: Option<BlobId>,
@@ -56,7 +59,7 @@ pub struct Card {
 
 /// Who acts as an account, and with which keys. A system account has no
 /// keys to hold; a revoked program account has none left ([`Life`]).
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Control {
     /// A user: their own keys, which they add and remove.
     User { keys: Vec<Key> },
@@ -74,7 +77,7 @@ pub enum Control {
 
 /// Whether a program account acts. Suspended keeps its keys, so resuming
 /// issues none again; revoked is final and keeps none.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Life {
     Active { keys: Vec<Key> },
     Suspended { keys: Vec<Key> },
@@ -140,7 +143,7 @@ impl Account {
 /// signature over the [`Admission`]. For a user, `key` is one already on
 /// the account and the new key signs the frame; for a program account,
 /// `key` is the new key itself and the manager signs the frame.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Consent {
     pub key: Vec<u8>,
     pub account: AccountNumber,
@@ -164,7 +167,7 @@ impl Admission {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Op {
     /// The identity role's op (`abi::role::identity::Op`), first: the
     /// system gives an admitted program its account.
@@ -220,15 +223,18 @@ pub enum Op {
         account: AccountNumber,
         script: Option<Script>,
     },
+    Migrate,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reference {
     Account(AccountNumber),
     Key(Vec<u8>),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask,
+)]
 #[ask(Identity)]
 pub enum Query {
     /// The identity role's queries (`abi::role::identity::Query`), first
@@ -268,7 +274,7 @@ pub enum Query {
     Ownership { number: AccountNumber },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     /// The identity role's replies (`abi::role::identity::Reply`), first
     /// and in its order.
@@ -293,9 +299,12 @@ pub fn describe(op: &Op) -> describe::Description {
     let optional = |text: &Option<String>| Value::Text(text.clone().unwrap_or_else(|| "—".into()));
     let answers = |ownership: &Ownership| match ownership {
         Ownership::Owner => Value::text("its manager"),
-        Ownership::Accounts(numbers) => Value::List(
+        Ownership::Listed(parties) => Value::List(
             std::iter::once(Value::text("its manager"))
-                .chain(numbers.iter().copied().map(Value::Account))
+                .chain(parties.iter().map(|party| match party {
+                    Party::Account(number) => Value::Account(*number),
+                    Party::Program(program) => Value::Program(program.clone()),
+                }))
                 .collect(),
         ),
         Ownership::Anyone => Value::text("anyone"),
@@ -394,6 +403,7 @@ pub fn describe(op: &Op) -> describe::Description {
                 None => vec![account(number), field("script", Value::text("—"))],
             },
         ),
+        Op::Migrate => ("Migrate · who agents answer".into(), vec![]),
     };
     describe::Description { title, fields }
 }
@@ -419,6 +429,7 @@ fn op_variants_only_append() {
             "Revoke",
             "SetOwnership",
             "SetScript",
+            "Migrate",
         ]
     );
 }

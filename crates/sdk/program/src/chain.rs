@@ -31,8 +31,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use crate::awaiting::{self, Answer, Awaiting, Step, Suspended};
 use crate::{
     AccountNumber, Blob, BlobId, Called, Cause, EntryId, Env, Error, ExecCtx, FrameId, HashKind,
-    MessageId, MockHost, Origin, Outcome, Principal, Program, ProgramId, QueryCtx, Resumed, Roles,
-    Ticket, code, identity_role, unauthorized, unexpected_reply,
+    MessageId, MockHost, Need, Origin, Outcome, Principal, Program, ProgramId, QueryCtx, Resumed,
+    Roles, Ticket, code, identity_role, unauthorized, unexpected_reply,
 };
 
 /// How deep messages nest in one frame: a submission runs at depth 0 and
@@ -44,6 +44,7 @@ pub const MAX_DEPTH: u32 = 8;
 /// [`crate::query`] of one `Program`, over the context the chain makes.
 type Entry<Ctx> = Rc<dyn Fn(Ctx, &[u8]) -> Result<(), Error>>;
 type Execute = Rc<dyn Fn(ExecCtx, &[u8]) -> Step>;
+type Lookup = Rc<dyn Fn(QueryCtx, &str) -> Result<(), Error>>;
 type Sender = Result<Option<Principal>, Error>;
 
 /// A program seated on the chain: its host and its entry points, typed away
@@ -53,6 +54,8 @@ struct Seat {
     init: Entry<ExecCtx>,
     execute: Execute,
     query: Entry<QueryCtx>,
+    access: Entry<QueryCtx>,
+    resource: Lookup,
 }
 
 enum Call<'a> {
@@ -294,6 +297,8 @@ impl MockChain {
             init: Rc::new(|ctx, params| M::init(&ctx, params)),
             execute,
             query: Rc::new(|ctx, request| crate::query::<M>(&ctx, request)),
+            access: Rc::new(|ctx, payload| crate::access::<M>(&ctx, payload)),
+            resource: Rc::new(|ctx, key| crate::resource::<M>(&ctx, key)),
         };
         let roster = self.roster.clone();
         if let Some(identity) = self.roles.get(role::IDENTITY) {
@@ -306,15 +311,17 @@ impl MockChain {
         host.borrow_mut()
             .siblings
             .insert(program.clone(), seat.sibling());
+        host.borrow_mut()
+            .owners
+            .insert(program.clone(), seat.owners());
         for (name, other) in &self.seats {
-            other
-                .host
-                .borrow_mut()
-                .siblings
-                .insert(program.clone(), seat.sibling());
-            host.borrow_mut()
-                .siblings
-                .insert(name.clone(), other.sibling());
+            let mut theirs = other.host.borrow_mut();
+            theirs.siblings.insert(program.clone(), seat.sibling());
+            theirs.owners.insert(program.clone(), seat.owners());
+            drop(theirs);
+            let mut mine = host.borrow_mut();
+            mine.siblings.insert(name.clone(), other.sibling());
+            mine.owners.insert(name.clone(), other.owners());
         }
         self.seats.insert(program, seat);
         host
@@ -602,6 +609,13 @@ impl MockChain {
             return Run::finished(Err(Error::new(code::CAPACITY, too_deep)));
         }
         let checkpoint = self.checkpoint();
+        if let Call::Execute(payload) = &call
+            && gated(&env)
+            && let Err(refusal) = self.gate(&env, payload)
+        {
+            self.restore(checkpoint);
+            return Run::finished(Err(refusal));
+        }
         let segment = self.segment(&env, None, call, depth);
         let start = Start {
             frame: None,
@@ -609,6 +623,40 @@ impl MockChain {
             checkpoint,
         };
         self.follow(env, start, segment, depth)
+    }
+
+    fn gate(&self, env: &Env, payload: &[u8]) -> Result<(), Error> {
+        let seat = self.seated(&env.program)?;
+        (seat.access)(seat.host.query(env.clone()), payload)?;
+        let needs: Vec<Need> =
+            abi::decode(&seat.host.take_response()).map_err(crate::kernel::error_from)?;
+        if needs.is_empty() {
+            return Ok(());
+        }
+        let checker = self.role(role::ACCESS)?;
+        let check = abi::role::access::Op::Check {
+            program: env.program.clone(),
+            actor: env.actor(),
+            needs,
+        };
+        let seat = self.seated(&checker)?;
+        let check_env = Env {
+            program: checker.clone(),
+            origin: Origin::Root,
+            sender: Some(Principal::Root),
+            cause: Cause::Direct,
+            ..env.clone()
+        };
+        let step = (seat.execute)(seat.host.exec(check_env), &abi::encode(&check));
+        let sent = !seat.host.take_emissions().is_empty();
+        match (step, sent) {
+            (Step::Done(Err(refusal)), _) => Err(refusal),
+            (Step::Done(Ok(())), false) => Ok(()),
+            (Step::Done(Ok(())), true) | (Step::Parked(_), _) => Err(Error::new(
+                code::UNSUPPORTED,
+                format!("{checker} sends no message while it checks access"),
+            )),
+        }
     }
 
     fn segment(&self, env: &Env, suspended: Option<Suspended>, call: Call, depth: u32) -> Segment {
@@ -984,7 +1032,21 @@ impl MockChain {
     }
 }
 
+fn gated(env: &Env) -> bool {
+    let completes = matches!(env.cause, Cause::Reply { .. });
+    let by_the_chain = env.origin == Origin::Root;
+    !(completes || by_the_chain)
+}
+
 impl Seat {
+    fn owners(&self) -> crate::mock::Owners {
+        let (host, resource) = (self.host.clone(), self.resource.clone());
+        Box::new(move |env, key| {
+            resource(host.query(env), key)?;
+            Ok(host.take_response())
+        })
+    }
+
     /// This program as another one's sibling: asked over its own host.
     fn sibling(&self) -> crate::Sibling {
         let (host, query) = (self.host.clone(), self.query.clone());

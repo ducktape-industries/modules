@@ -1,3 +1,7 @@
+mod conversations;
+mod live_calls;
+mod thinking;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -93,6 +97,7 @@ fn config_of(name: &str) -> Config {
         model: SONNET.into(),
         max_tokens: 4096,
         wait: None,
+        thinking: None,
         system: format!("You are {name}."),
     }
 }
@@ -108,6 +113,7 @@ fn setup(agent: u64, name: &str, manager: u64, window: Window) -> AgentSetup {
             config: config_of(name),
             model: model_row(window),
         },
+        current: None,
     }
 }
 
@@ -117,7 +123,7 @@ fn thread(id: u64, agent: u64, manager: u64, place: &str) -> ThreadRow {
         agent,
         manager,
         place: place.into(),
-        title: place.into(),
+        title: format!("conversation {id}"),
         opened: 8960,
         closed: false,
         frames: 0,
@@ -173,6 +179,7 @@ struct Net {
     partials: Vec<(u64, Partial)>,
     serving: Vec<(String, usize)>,
     services: Vec<egress::ServiceRow>,
+    answers: Vec<(u64, identity::Ownership)>,
 }
 
 impl Default for Net {
@@ -194,8 +201,14 @@ impl Default for Net {
                 agent(ATLAS, "Atlas", ADA, true),
             ],
             setups: vec![
-                setup(SCOUT, "Scout", EDDY, Window::Tokens(200_000)),
-                setup(ATLAS, "Atlas", ADA, Window::Tokens(200_000)),
+                AgentSetup {
+                    current: Some(7),
+                    ..setup(SCOUT, "Scout", EDDY, Window::Tokens(200_000))
+                },
+                AgentSetup {
+                    current: Some(9),
+                    ..setup(ATLAS, "Atlas", ADA, Window::Tokens(200_000))
+                },
             ],
             models: vec![model_row(Window::Tokens(200_000))],
             threads: vec![general, release, thread(9, ATLAS, ADA, "chat/deploys")],
@@ -266,6 +279,7 @@ impl Default for Net {
                 nodes: vec![vec![1], vec![2]],
                 registered: 5,
             }],
+            answers: Vec::new(),
         }
     }
 }
@@ -376,36 +390,50 @@ fn seated(net: Net, me: u64) -> (TestAppContext, Shared) {
         let net = shared.borrow();
         Ok(match query {
             identity::Query::List { .. } => identity::Reply::Accounts(page(net.accounts.clone())),
-            identity::Query::Ownership { .. } => {
-                identity::Reply::Ownership(identity::Ownership::Owner)
-            }
             other => panic!("unexpected query: {other:?}"),
         })
     });
     let shared = net.clone();
-    cx.host().handle::<Query<files::Files>>(move |query| {
+    cx.host().handle::<Query<access::Access>>(move |query| {
         let net = shared.borrow();
         Ok(match query {
-            files::Query::Ownership { path, .. } => {
-                let creator = net
+            access::Query::List { program, key } if program == harness::PROGRAM => {
+                let answers = net
+                    .answers
+                    .iter()
+                    .find(|(agent, _)| harness::agent_key(*agent) == key)
+                    .map(|(_, list)| list.clone());
+                access::Reply::List(answers)
+            }
+            access::Query::Writers { program, key } if program == files::PROGRAM => {
+                let owner = net
                     .setups
                     .iter()
-                    .find(|setup| setup.path == path)
-                    .map(|setup| setup.manager);
-                files::Reply::Ownership(files::PathOwnership {
-                    snapshot: Some(SNAPSHOT),
-                    creator,
-                    write: Some(files::Ownership::Owner),
-                    writers: files::Writers::Listed {
-                        path,
-                        creator,
-                        write: files::Ownership::Owner,
-                    },
+                    .find(|setup| setup.path == key)
+                    .map(|setup| identity::Party::Account(setup.manager));
+                access::Reply::Writers(program::Writers::Listed {
+                    at: key,
+                    owner,
+                    list: identity::Ownership::Owner,
+                })
+            }
+            access::Query::Writers { program, key } if program == harness::PROGRAM => {
+                let owner = net
+                    .setups
+                    .iter()
+                    .find(|setup| harness::conversation_key(setup.agent) == key)
+                    .map(|setup| identity::Party::Account(setup.manager));
+                access::Reply::Writers(program::Writers::Listed {
+                    at: key,
+                    owner,
+                    list: identity::Ownership::Owner,
                 })
             }
             other => panic!("unexpected query: {other:?}"),
         })
     });
+    cx.host()
+        .handle::<Submit<access::Access>>(|_| Ok(applied(Vec::new())));
     let shared = net.clone();
     cx.host().handle::<Query<egress::Egress>>(move |query| {
         let net = shared.borrow();
@@ -440,7 +468,7 @@ fn the_list_shows_each_agent_with_its_state() {
         "Scout",
         "Eddy (you)",
         "Working",
-        "#general · Waiting for the model",
+        "Conversation 7 · Waiting for the model",
         "1 open · 1 closed",
         "Pager",
         "Not handed to harness",
@@ -588,7 +616,7 @@ fn a_thread_shows_its_transcript_calls_and_usage() {
     cx.simulate_click("thread-7");
     cx.run_until_parked();
     for text in [
-        "#general",
+        "Conversation 7",
         "Waiting for the model",
         "Ada mentioned you in chat channel general:\nWhy is payments slow?",
         "Reading the deploy log first.",
@@ -727,7 +755,7 @@ fn close_and_take_back_are_the_managers_alone() {
     assert!(cx.find("agent-edit").is_none());
     cx.simulate_click("thread-7");
     cx.run_until_parked();
-    assert!(cx.has_text("#general"), "{:?}", cx.texts());
+    assert!(cx.has_text("Conversation 7"), "{:?}", cx.texts());
     assert!(cx.find("thread-close").is_none());
 
     let (mut cx, _) = seated(Net::default(), EDDY);
@@ -741,7 +769,7 @@ fn close_and_take_back_are_the_managers_alone() {
     cx.simulate_click("thread-close");
     cx.run_until_parked();
     assert!(
-        cx.has_text("Close this thread? The next mention opens a new thread with fresh context."),
+        cx.has_text("Close this conversation? It is the agent's current one, so the next message to the agent opens a new conversation with fresh context."),
         "{:?}",
         cx.texts()
     );
@@ -822,23 +850,19 @@ fn edit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -
     }
 }
 
-fn commit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -> files::Op {
-    let files::Op::Commit {
-        base,
-        message,
-        mut changes,
-    } = edit_of(path, config, base, message)
-    else {
-        unreachable!()
-    };
-    changes.push(files::Change::SetOwnership {
-        path: path.into(),
-        write: Some(files::Ownership::Owner),
-    });
-    files::Op::Commit {
-        base,
-        message,
-        changes,
+fn kept(path: &str) -> access::Op {
+    access::Op::Set {
+        program: files::PROGRAM.into(),
+        key: path.into(),
+        list: Some(identity::Ownership::Owner),
+    }
+}
+
+fn answering(agent: u64, list: identity::Ownership) -> access::Op {
+    access::Op::Set {
+        program: harness::PROGRAM.into(),
+        key: harness::agent_key(agent),
+        list: Some(list),
     }
 }
 
@@ -853,6 +877,7 @@ fn rover() -> Config {
         model: SONNET.into(),
         max_tokens: 8192,
         wait: None,
+        thinking: None,
         system: "Answer about deploys.".into(),
     }
 }
@@ -877,7 +902,7 @@ fn the_create_flow_sends_its_ops_in_order() {
     cx.run_until_parked();
     assert_eq!(
         cx.host().requests::<Submit<files::Files>>(),
-        [commit_of(
+        [edit_of(
             "/home/Eddy/agents/rover.md",
             &rover(),
             None,
@@ -897,13 +922,42 @@ fn the_create_flow_sends_its_ops_in_order() {
                     config: "/home/Eddy/agents/rover.md".into(),
                 })
             },
-            identity::Op::SetOwnership {
-                account: ROVER,
-                ownership: identity::Ownership::Anyone
-            },
+        ]
+    );
+    assert_eq!(
+        cx.host().requests::<Submit<access::Access>>(),
+        [
+            kept("/home/Eddy/agents/rover.md"),
+            answering(ROVER, identity::Ownership::Anyone),
         ]
     );
     assert!(cx.host().requests::<Submit<harness::Harness>>().is_empty());
+}
+
+#[test]
+fn the_create_flow_lists_accounts_and_programs_it_answers() {
+    let (mut cx, _) = seated(Net::default(), EDDY);
+    identity_takes(&cx);
+    files_take(&cx);
+    cx.simulate_click("agents-create");
+    cx.run_until_parked();
+    cx.simulate_input("create-name", "Rover");
+    fill(&mut cx);
+    cx.simulate_click("create-answers-2");
+    cx.simulate_input("create-accounts", "7, forge");
+    cx.simulate_click("create-next");
+    cx.run_until_parked();
+    let answered = cx.host().requests::<Submit<access::Access>>().pop();
+    assert_eq!(
+        answered,
+        Some(answering(
+            ROVER,
+            identity::Ownership::Listed(vec![
+                identity::Party::Account(7),
+                identity::Party::Program("forge".into()),
+            ])
+        ))
+    );
 }
 
 #[test]
@@ -925,7 +979,7 @@ fn a_path_typed_in_the_form_is_the_one_committed_and_scripted() {
     };
     assert_eq!(
         cx.host().requests::<Submit<files::Files>>(),
-        [commit_of(
+        [edit_of(
             "/home/Eddy/rover.md",
             &waits,
             None,
@@ -941,6 +995,10 @@ fn a_path_typed_in_the_form_is_the_one_committed_and_scripted() {
                 config: "/home/Eddy/rover.md".into(),
             })
         })
+    );
+    assert_eq!(
+        cx.host().requests::<Submit<access::Access>>(),
+        [kept("/home/Eddy/rover.md")]
     );
 }
 
@@ -1055,6 +1113,7 @@ fn edit_commits_a_new_version_of_the_file_and_scripts_only_a_moved_path() {
         )]
     );
     assert!(cx.host().requests::<Submit<Identity>>().is_empty());
+    assert!(cx.host().requests::<Submit<access::Access>>().is_empty());
     assert!(
         cx.has_text("/home/Eddy/agents/scout.md"),
         "{:?}",
@@ -1068,12 +1127,16 @@ fn edit_commits_a_new_version_of_the_file_and_scripts_only_a_moved_path() {
     cx.run_until_parked();
     assert_eq!(
         cx.host().requests::<Submit<files::Files>>().last(),
-        Some(&commit_of(
+        Some(&edit_of(
             "/home/Eddy/scout.md",
             &config_of("Scout"),
             Some(SNAPSHOT),
             "Configure agent Scout (account 12)".into()
         )),
+    );
+    assert_eq!(
+        cx.host().requests::<Submit<access::Access>>(),
+        [kept("/home/Eddy/scout.md")],
         "a moved file gets its own list"
     );
     assert_eq!(
@@ -1165,13 +1228,35 @@ fn the_agent_shows_its_configuration_model_threads_and_usage() {
         "Only Eddy",
         "2 · 1 write as Scout",
         "You are Scout.",
-        "#general",
-        "#release",
+        "began in #general",
+        "began in #release",
         "Closed",
         "input 1,204 · output 312 · cache read 38,410 · cache write 0 · all 39,926",
     ] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
     }
+}
+
+#[test]
+fn an_agent_that_answers_more_than_its_manager_names_whom() {
+    let net = Net {
+        answers: vec![(
+            SCOUT,
+            identity::Ownership::Listed(vec![
+                identity::Party::Account(ADA),
+                identity::Party::Program("forge".into()),
+            ]),
+        )],
+        ..Net::default()
+    };
+    let (mut cx, _) = seated(net, EDDY);
+    cx.simulate_click("agent-12");
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("Its manager, Ada, the forge program"),
+        "{:?}",
+        cx.texts()
+    );
 }
 
 #[test]
@@ -1198,7 +1283,7 @@ fn an_agent_whose_configuration_harness_cannot_run_says_what_is_wrong() {
     assert!(cx.has_text(problem), "{:?}", cx.texts());
     assert!(
         cx.has_text(
-            "thread 7 · opened at block 8,960 · asks no model until its configuration is fixed"
+            "thread 7 · opened at block 8,960 · began in #general · asks no model until its configuration is fixed"
         ),
         "{:?}",
         cx.texts()
@@ -1249,7 +1334,7 @@ fn a_work_link_opens_its_thread() {
         .stream::<HostRoute>()
         .send("12/chat/general".into());
     cx.run_until_parked();
-    assert!(cx.has_text("#general"), "{:?}", cx.texts());
+    assert!(cx.has_text("Conversation 7"), "{:?}", cx.texts());
     assert!(
         cx.has_text("Reading the deploy log first."),
         "{:?}",

@@ -1,7 +1,6 @@
-//! The writes besides a commit: naming a snapshot with a pin, or dropping one.
-use ::program::{
-    BlobId, Error, ExecCtx, Principal, already_exists, invalid, not_found, unauthorized,
-};
+//! The writes besides a commit: naming a snapshot with a pin, or dropping one. Who drops a pin
+//! is its key's list in the access program, its owner alone by default.
+use ::program::{BlobId, Error, ExecCtx, Principal, already_exists, invalid, not_found};
 
 use crate::PinRow;
 use crate::state::{PINS, minted};
@@ -32,13 +31,9 @@ pub(crate) fn pin(
     Ok(())
 }
 
-pub(crate) fn unpin(ctx: &ExecCtx, by: &Principal, name: String) -> Result<(), Error> {
-    let Some(row) = PINS.get(ctx, &name)? else {
+pub(crate) fn unpin(ctx: &ExecCtx, name: String) -> Result<(), Error> {
+    if !PINS.has(ctx, &name) {
         return Err(not_found(format!("no pin named {name}")));
-    };
-    let allowed = row.owner == *by || *by == Principal::Root;
-    if !allowed {
-        return Err(unauthorized(format!("pin {name} is its owner's to remove")));
     }
     PINS.remove(ctx, &name);
     Ok(())

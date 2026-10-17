@@ -12,7 +12,7 @@ fn stream(chain: &MockChain, request: &RequestRow, events: &[Vec<u8>], seqs: &[u
             seq,
             data: events[seq as usize].clone(),
         };
-        node(chain, &egress::Op::Event(event)).unwrap();
+        node(chain, &egress::Op::Events(vec![event])).unwrap();
     }
 }
 
@@ -214,3 +214,5 @@ fn only_the_egress_role_streams_and_only_into_a_thread_waiting_on_its_model() {
         .unwrap_err();
     assert_eq!(idle.code, code::WRONG_STATE);
 }
+
+mod live;

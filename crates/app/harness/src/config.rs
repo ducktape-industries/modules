@@ -1,22 +1,65 @@
 //! An agent's configuration file: Markdown whose TOML front matter, between `+++` lines, names
-//! the model id, `max_tokens` and the blocks egress waits (`wait`), and whose body is the
-//! system prompt. Harness parses it at each model call; harness-view writes it.
+//! the model id, `max_tokens`, the blocks egress waits (`wait`) and how hard the model thinks
+//! (`thinking`), and whose body is the system prompt. Harness parses it at each model call;
+//! harness-view writes it.
 use std::fmt;
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use serde::Deserialize;
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
+use serde::{Deserialize, Serialize};
 
 pub const FENCE: &str = "+++";
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Config {
     pub model: String,
     pub max_tokens: u32,
     pub wait: Option<u64>,
+    pub thinking: Option<Thinking>,
     pub system: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+    Serialize,
+    Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Thinking {
+    Off,
+    Low,
+    Medium,
+    High,
+    Max,
+}
+
+impl Thinking {
+    pub const ALL: &'static [Thinking] = &[
+        Thinking::Off,
+        Thinking::Low,
+        Thinking::Medium,
+        Thinking::High,
+        Thinking::Max,
+    ];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Thinking::Off => "off",
+            Thinking::Low => "low",
+            Thinking::Medium => "medium",
+            Thinking::High => "high",
+            Thinking::Max => "max",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Malformed {
     NotText,
     NoOpeningFence,
@@ -52,6 +95,7 @@ struct FrontMatter {
     model: String,
     max_tokens: u32,
     wait: Option<u64>,
+    thinking: Option<Thinking>,
 }
 
 fn fence(line: &str) -> bool {
@@ -83,8 +127,23 @@ impl Config {
             model: matter.model,
             max_tokens: matter.max_tokens,
             wait: matter.wait,
+            thinking: matter.thinking,
             system: after[close + 1..].concat().trim().to_owned(),
         })
+    }
+
+    pub fn paragraphs(&self) -> Vec<String> {
+        let mut paragraphs = Vec::new();
+        let mut lines: Vec<&str> = Vec::new();
+        for line in self.system.lines().chain([""]) {
+            let blank = line.trim().is_empty();
+            match blank {
+                false => lines.push(line),
+                true if lines.is_empty() => {}
+                true => paragraphs.push(std::mem::take(&mut lines).join("\n")),
+            }
+        }
+        paragraphs
     }
 
     pub fn write(&self) -> String {
@@ -92,6 +151,9 @@ impl Config {
         let mut front = format!("model = {model}\nmax_tokens = {}\n", self.max_tokens);
         if let Some(wait) = self.wait {
             front.push_str(&format!("wait = {wait}\n"));
+        }
+        if let Some(thinking) = self.thinking {
+            front.push_str(&format!("thinking = \"{}\"\n", thinking.word()));
         }
         format!("{FENCE}\n{front}{FENCE}\n{}\n", self.system)
     }

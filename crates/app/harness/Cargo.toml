@@ -16,6 +16,7 @@ program = []
 describe = []
 
 [dependencies]
+access = { workspace = true }
 abi = { workspace = true }
 borsh = { workspace = true }
 describe = { workspace = true }
@@ -33,7 +34,10 @@ serde_json = { workspace = true }
 toml = { workspace = true }
 
 [dev-dependencies]
+blobs = { workspace = true }
 egress = { workspace = true }
+halo = { workspace = true }
+programs = { workspace = true }
 awaits = { workspace = true }
 scheduler = { workspace = true }
 valset = { workspace = true }

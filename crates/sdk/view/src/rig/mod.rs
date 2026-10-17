@@ -183,6 +183,7 @@ impl Network {
         net.seat::<valset::Valset>(valset::PROGRAM);
         net.seat::<programs::Programs>(programs::PROGRAM);
         net.seat::<blobs::Blobs>(blobs::PROGRAM);
+        net.seat::<access::Access>(access::PROGRAM);
         let dev = key_from_seed(DEV_SEED);
         net.0
             .borrow()
@@ -917,6 +918,7 @@ impl Network {
                     programs,
                     views,
                     hooks: state.hooks.iter().map(|hook| hook.name.clone()).collect(),
+                    roles: state.chain.env(programs::PROGRAM).roles,
                 },
             )
             .expect("the programs role founds with the seated programs");

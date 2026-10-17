@@ -1,8 +1,9 @@
 //! `cargo run -p files-view --example live`: Files in the real app over a
 //! fake node with the real `files` program seated. The dev account (named
 //! `dev`) keeps notes and a plan in its home; ada shares a readme, a link
-//! to it and a picture, and keeps a diary in hers; the first snapshot
-//! is pinned `v1`. Dev writes in its home and `/shared`, and reads ada's.
+//! to it and a picture, and keeps a diary in hers, which she lists for
+//! herself alone; the first snapshot is pinned `v1`. Dev writes anywhere
+//! but ada's home, and reads it.
 use files::{Change, Content, Op};
 use view::rig::{self, Network};
 
@@ -33,6 +34,7 @@ const TAPE: &[u8] = include_bytes!("tape.png");
 fn main() {
     rig::run("files", |net| {
         net.seat::<files::Files>(files::PROGRAM);
+        net.seat::<access::Access>(access::PROGRAM);
         let dev = net.me();
         let ada = net.person("ada");
         // each commit is based on the head, so it is stale on nothing
@@ -80,6 +82,12 @@ fn main() {
                 put(net, "/home/ada/diary.txt", b"Dear diary,"),
             ],
         )?;
+        let only_ada = access::Op::Set {
+            program: files::PROGRAM.into(),
+            key: "/home/ada".into(),
+            list: Some(files::Ownership::Owner),
+        };
+        net.submit(ada, access::PROGRAM, &only_ada)?;
         commit(
             dev,
             "Say more in my notes",

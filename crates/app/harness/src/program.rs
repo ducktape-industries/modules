@@ -5,6 +5,7 @@
 use ::program::{Awaiting, Ctx, Error, ExecCtx, Program, QueryCtx};
 
 use crate::agents::{attributed, close, setup};
+use crate::conversations::{fork_thread, new_thread};
 use crate::models::{remove_model, set_model};
 use crate::streams::streamed;
 use crate::{Op, PROGRAM, Query, Reply, attributed_as, queries, tools};
@@ -23,6 +24,14 @@ impl Program for Harness {
         };
         ctx.emit(attribution::PROGRAM, &register, ::program::Reply::None);
         Ok(())
+    }
+
+    fn access(ctx: &QueryCtx, op: &Op) -> Result<Vec<::program::Need>, Error> {
+        crate::gate::needs(ctx, op)
+    }
+
+    fn resource(ctx: &QueryCtx, key: &str) -> Result<::program::Resource, Error> {
+        crate::gate::resource(ctx, key)
     }
 
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
@@ -61,7 +70,10 @@ impl Awaiting for Harness {
                 name,
             } => set_model(&ctx, id, wire, service, name),
             Op::RemoveModel { id } => remove_model(&ctx, id),
-            Op::Streamed { thread, event } => streamed(&ctx, thread, event),
+            Op::Streamed { thread, event } => streamed(&ctx, thread, event).await,
+            Op::NewThread { agent } => new_thread(&ctx, agent),
+            Op::ForkThread { agent } => fork_thread(&ctx, agent),
+            Op::Migrate => crate::migrate::migrate(&ctx),
         }
     }
 }

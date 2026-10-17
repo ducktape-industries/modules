@@ -281,8 +281,6 @@ pub(crate) fn named(names: &Names, account: u64) -> String {
         .unwrap_or_else(|| format!("account {account}"))
 }
 
-/// What a motion does, in words: a programs or halo role's op decoded, another role's op
-/// and a binding by the role's name, never as bytes.
 pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String {
     match motion {
         Motion::Promote { key } => format!("Promote {} to validator", key_words(key)),
@@ -306,6 +304,9 @@ pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String 
             Ok(programs::Op::Revoke(grant)) => {
                 format!("Revoke {} {}", named(names, grant.account), grant.scope)
             }
+            Ok(programs::Op::Migrate) => {
+                "Copy the kernel's role table into the programs role".into()
+            }
             Err(_) => "A program change this screen can't read".into(),
         },
         Motion::Role { role, op } if role == abi::role::HALO => match abi::decode(op) {
@@ -324,14 +325,14 @@ pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String 
             Err(_) => "A lane change this screen can't read".into(),
         },
         Motion::Role { role, .. } => format!("An op for the {role} role"),
-        Motion::Bind {
-            role,
-            program: Some(program),
-        } => format!("Bind the {role} role to {program}"),
-        Motion::Bind {
-            role,
-            program: None,
-        } => format!("Unbind the {role} role"),
+    }
+}
+
+fn params_words(entry: &Entry, roster: &[Entry]) -> &'static str {
+    match roster.iter().find(|now| now.program == entry.program) {
+        Some(now) if now.params == entry.params => "params unchanged",
+        Some(_) => "params changed",
+        None => "a new program",
     }
 }
 
@@ -340,18 +341,25 @@ pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String 
 pub(crate) fn scheduled_words(height: u64, change: &Change, roster: &[Entry]) -> String {
     let at = design::grouped(height);
     match change {
-        Change::Set(entry) => {
-            let params = match roster.iter().find(|now| now.program == entry.program) {
-                Some(now) if now.params == entry.params => "params unchanged",
-                Some(_) => "params changed",
-                None => "a new program",
-            };
-            format!(
-                "Set {} to code {} at block {at} · {params}",
-                entry.program,
-                code_words(&entry.code)
-            )
-        }
+        Change::Set(entry) => format!(
+            "Set {} to code {} at block {at} · {}",
+            entry.program,
+            code_words(&entry.code),
+            params_words(entry, roster)
+        ),
+        Change::Publish { entry, roles } if roles.is_empty() => format!(
+            "Publish {} at code {} at block {at} · {} · no role",
+            entry.program,
+            code_words(&entry.code),
+            params_words(entry, roster)
+        ),
+        Change::Publish { entry, roles } => format!(
+            "Publish {} at code {} at block {at} · {} · fills {}",
+            entry.program,
+            code_words(&entry.code),
+            params_words(entry, roster),
+            roles.join(", ")
+        ),
         change => format!("{} {} at block {at}", change.verb(), change.program()),
     }
 }

@@ -1,9 +1,10 @@
-//! Typed reads of `files` and identity. A folder or a file is read at one
+//! Typed reads of `files`, access and identity. A folder or a file is read at one
 //! snapshot: the first answer names it, and every later page and read of
 //! the same screen asks that snapshot, so a commit landing in between never
 //! mixes two trees on one page.
 use std::sync::Arc;
 
+use abi::role::access::Writers;
 use files::{BlobId, PageRequest};
 use view::prelude::*;
 
@@ -34,28 +35,26 @@ pub(crate) async fn folder(host: Host, path: String) -> Result<Folder, Error> {
     }
     // folders first, each kind by name as `files` keeps a tree
     entries.sort_by_key(|entry| !matches!(entry.node, files::Node::Dir { .. }));
-    let ownership = ownership(&host, &path, snapshot).await?;
+    let writers = writers(&host, &path).await?;
     Ok(Folder {
         path,
         snapshot,
         entries,
-        ownership,
+        writers,
     })
 }
 
 /// Who writes `path`; `/` names nothing a change can, so it has no answer.
-async fn ownership(
-    host: &Host,
-    path: &str,
-    at: Option<BlobId>,
-) -> Result<Option<files::PathOwnership>, Error> {
+async fn writers(host: &Host, path: &str) -> Result<Option<Writers>, Error> {
     if path == ROOT {
         return Ok(None);
     }
-    let path = path.to_owned();
-    host.query(files::ask::Ownership { path, at })
-        .await
-        .map(Some)
+    host.query(access::ask::Writers {
+        program: files::PROGRAM.into(),
+        key: path.to_owned(),
+    })
+    .await
+    .map(Some)
 }
 
 /// What is at `path`, its first [`PREVIEW`] bytes (the whole of a
@@ -93,8 +92,8 @@ pub(crate) async fn file(
             (contents.bytes, contents.eof, picture)
         }
     };
-    let ownership = match entry {
-        Some(_) => ownership(&host, &path, snapshot).await?,
+    let writers = match entry {
+        Some(_) => writers(&host, &path).await?,
         None => None,
     };
     Ok(Opened {
@@ -104,7 +103,7 @@ pub(crate) async fn file(
         bytes,
         whole,
         picture,
-        ownership,
+        writers,
     })
 }
 

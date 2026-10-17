@@ -53,6 +53,7 @@ members = [
     "crates/system/blobs",
     "crates/system/awaits",
     "crates/system/halo",
+    "crates/system/access",
     "crates/system/scheduler",
     "crates/app/chat",
     "crates/app/chat-view",
@@ -90,13 +91,14 @@ view-wire = { path = "crates/sdk/view-wire" }
 describe = { path = "crates/sdk/describe" }
 conformance = { path = "crates/sdk/conformance" }
 view = { path = "crates/sdk/view" }
-gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "eb488ba7fb40ae38cd56c4289f97360c37b2469d", default-features = false }
+gpui = { package = "gpui-pre", git = "https://github.com/ducktape-industries/gpui-pre", rev = "c698ed2c7e8eeed46641e5ea9622ee55b84b1486", default-features = false }
 programs = { path = "crates/system/programs" }
 valset = { path = "crates/system/valset" }
 identity = { path = "crates/system/identity" }
 blobs = { path = "crates/system/blobs" }
 awaits = { path = "crates/system/awaits" }
 halo = { path = "crates/system/halo" }
+access = { path = "crates/system/access" }
 scheduler = { path = "crates/system/scheduler" }
 chat = { path = "crates/app/chat" }
 forge = { path = "crates/app/forge" }
@@ -111,17 +113,18 @@ files = { path = "crates/app/files" }
 # the key schemes it signs with (dev-dependencies only); the probe fixture it seats is a prebuilt wasm binary, `make
 # probe-fixture`, not a Cargo dependency (its `Step` script type is mirrored
 # in the `programs` crate's test, next to the binary it scripts)
-host = { git = "https://github.com/ducktape-industries/ducktape", rev = "8a0151a411c3558453c34bb8272b93dfc428cb74" }
-blob = { git = "https://github.com/ducktape-industries/ducktape", rev = "8a0151a411c3558453c34bb8272b93dfc428cb74" }
-keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "8a0151a411c3558453c34bb8272b93dfc428cb74" }
+host = { git = "https://github.com/ducktape-industries/ducktape", rev = "89f3cf55570df68f7f66f9b31814dcc555673abb" }
+blob = { git = "https://github.com/ducktape-industries/ducktape", rev = "89f3cf55570df68f7f66f9b31814dcc555673abb" }
+keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "89f3cf55570df68f7f66f9b31814dcc555673abb" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"
 
 # ---- external
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# borsh — the one codec the program abi is written in.
-borsh = { version = "1", default-features = false, features = ["derive", "std"] }
+# borsh — the one codec the program abi is written in, with the schemas that describe a
+# program's ops, queries and replies to a reader that has no Rust type for them.
+borsh = { version = "1", default-features = false, features = ["derive", "std", "unstable__schema"] }
 sha1-checked = { version = "0.10", default-features = false }
 sha2 = "0.10"
 tempfile = "3"
@@ -192,5 +195,5 @@ inherits = "release"
 strip = "debuginfo"
 
 [patch.crates-io]
-rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "eb488ba7fb40ae38cd56c4289f97360c37b2469d" }
-gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "eb488ba7fb40ae38cd56c4289f97360c37b2469d" }
+rmp-serde = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "c698ed2c7e8eeed46641e5ea9622ee55b84b1486" }
+gpui-pre-scheduler = { git = "https://github.com/ducktape-industries/gpui-pre", rev = "c698ed2c7e8eeed46641e5ea9622ee55b84b1486" }

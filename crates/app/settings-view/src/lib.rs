@@ -6,8 +6,8 @@
 //! screen is Account. The node's own status is the Nodes view's, and the
 //! app's preferences the host's gear.
 //!
-//! The state is one struct (`state.rs`). Reads are typed asks of identity
-//! and valset (`queries.rs`), re-read on their live heads (`watch.rs`);
+//! The state is one struct (`state.rs`). Reads are typed asks of identity,
+//! valset and access (`queries.rs`), re-read on their live heads (`watch.rs`);
 //! presses land in `actions.rs`; `ui/` (the desktop) and `ui/phone/` (the
 //! phone) draw and never mutate, both worded by `words.rs`.
 mod actions;
@@ -33,7 +33,7 @@ impl View for Settings {
         Capability::Host,
         Capability::Clipboard,
     ];
-    const TARGETS: &'static [&'static str] = &[identity::PROGRAM, valset::PROGRAM];
+    const TARGETS: &'static [&'static str] = &[identity::PROGRAM, valset::PROGRAM, access::PROGRAM];
     // at 480 the Agents page's "Create agent" and "Add key" are cut
     const MIN_WINDOW_WIDTH: u32 = 560;
 

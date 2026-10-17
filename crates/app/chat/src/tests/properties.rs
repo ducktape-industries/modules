@@ -2,7 +2,7 @@
 //! refused op writes nothing and every index agrees with the messages.
 use super::channels::edit;
 use super::*;
-use crate::state::{HEADS, MESSAGES, REACTIONS, TAGS, WORDS};
+use crate::state::{HEADS, MESSAGES, PARTICIPANTS, REACTIONS, TAGS, WORDS};
 use crate::{MsgRow, tokens};
 
 /// xorshift64*: the same seed walks the same way.
@@ -97,6 +97,27 @@ fn in_step(chat: &Chat, seed: u64) {
     let tags = TAGS.all(&chat.reads()).unwrap();
     for (tag, _, _, seq) in &tags {
         assert!(row(*seq).tags.contains(tag), "seed {seed}: a stale tag");
+    }
+    let participants = PARTICIPANTS.all(&chat.reads()).unwrap();
+    for ((_, root, author), first) in &participants {
+        let first_reply = row(*first);
+        let opens_their_part = first_reply.thread == Some(*root) && first_reply.author == *author;
+        assert!(opens_their_part, "seed {seed}: a participant with no reply");
+    }
+    for reply in rows.iter().filter(|row| row.thread.is_some()) {
+        let key = (
+            reply.channel_id.clone(),
+            reply.thread.unwrap(),
+            reply.author.clone(),
+        );
+        let first = participants
+            .iter()
+            .find(|(at, _)| *at == key)
+            .map(|(_, first)| *first);
+        assert!(
+            first.is_some_and(|first| first <= reply.seq),
+            "seed {seed}: a reply whose author takes no part"
+        );
     }
     for row in rows.iter().filter(|row| !row.deleted) {
         let posted = |word: &String| words.iter().any(|(w, _, s)| w == word && *s == row.seq);

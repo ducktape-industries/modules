@@ -103,37 +103,16 @@ fn only_the_owner_and_granted_writers_push() {
     assert_eq!(stranger.unwrap_err().code, code::UNAUTHORIZED);
     assert_eq!(sandbox.blob_count(), 0);
 
-    let grant_by_stranger = act(
-        &sandbox,
-        STRANGER,
-        &Op::Grant {
-            repo: "project".into(),
-            principal: person(WRITER),
-        },
-    );
-    assert_eq!(grant_by_stranger.unwrap_err().code, code::UNAUTHORIZED);
+    let listed_by_stranger = sandbox.list_writers(STRANGER, "project", &[person(WRITER)]);
+    assert_eq!(listed_by_stranger.unwrap_err().code, code::UNAUTHORIZED);
 
-    act(
-        &sandbox,
-        OWNER,
-        &Op::Grant {
-            repo: "project".into(),
-            principal: person(WRITER),
-        },
-    )
-    .unwrap();
+    sandbox
+        .list_writers(OWNER, "project", &[person(WRITER)])
+        .unwrap();
     let writer = push(&sandbox, WRITER, "project", &commands, &pack_bytes).unwrap();
     assert_eq!(writer, ["unpack ok", "ok refs/heads/main"]);
 
-    act(
-        &sandbox,
-        OWNER,
-        &Op::Revoke {
-            repo: "project".into(),
-            principal: person(WRITER),
-        },
-    )
-    .unwrap();
+    sandbox.list_writers(OWNER, "project", &[]).unwrap();
     let revoked = push(&sandbox, WRITER, "project", &commands, &pack_bytes);
     assert_eq!(revoked.unwrap_err().code, code::UNAUTHORIZED);
 }
@@ -354,10 +333,9 @@ fn a_cursor_outlives_empty_blocks_and_a_forge_write_restarts_it() {
     rig.advance();
     let second = page(&rig, first.next.clone());
     assert_eq!(second.items[0].oid, story.root);
-    rig.sandbox.hold(b"ninth", 9);
-    rig.execute(&Op::Grant {
+    rig.execute(&Op::Configure {
         repo: REPO.into(),
-        principal: Principal::Account(9),
+        settings: Settings::default(),
     })
     .unwrap();
     assert_eq!(rig.query(&log(first.next)).unwrap_err().code, code::STALE);
@@ -406,15 +384,14 @@ fn a_forge_write_at_the_answering_height_restarts_the_walk() {
     };
     assert_eq!(page.items[0].oid, story.feature);
     // no advance: the same height the page was answered at
-    rig.sandbox.hold(b"ninth", 9);
     let (actor, height) = (rig.actor.clone(), rig.height);
     signed_op(
         &rig.sandbox,
         &actor,
         height,
-        &Op::Grant {
+        &Op::Configure {
             repo: REPO.into(),
-            principal: Principal::Account(9),
+            settings: Settings::default(),
         },
     )
     .unwrap();
@@ -555,15 +532,9 @@ fn only_the_owner_and_granted_writers_stage() {
     assert_eq!(stranger.unwrap_err().code, code::UNAUTHORIZED);
     assert_eq!(sandbox.blob_count(), 0);
 
-    act(
-        &sandbox,
-        OWNER,
-        &Op::Grant {
-            repo: "project".into(),
-            principal: person(WRITER),
-        },
-    )
-    .unwrap();
+    sandbox
+        .list_writers(OWNER, "project", &[person(WRITER)])
+        .unwrap();
     stage(&sandbox, WRITER, everything).unwrap();
     assert_eq!(sandbox.blob_count(), source.count());
 }

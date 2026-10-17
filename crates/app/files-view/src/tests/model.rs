@@ -3,7 +3,8 @@
 //! its pages out.
 use std::collections::BTreeMap;
 
-use files::{BlobId, Change, Content, EntryInfo, Node, Ownership, PathOwnership, Writers};
+use abi::role::access::Writers;
+use files::{BlobId, Change, Content, EntryInfo, Node, Ownership, Party};
 use view::ImageFormat;
 use view::TextField;
 use view::prelude::Loadable;
@@ -15,7 +16,7 @@ use crate::tests::{PNG, file};
 use crate::ui::Layout;
 use crate::upload::{UPLOAD_MOST, puts, sent, uploads};
 use crate::words;
-use crate::write::{Form, Write, built, files_of};
+use crate::write::{Form, ListChoice, Write, built, files_of, write_list};
 use view::methods::{BlobBody, NewBlob, Picked};
 
 const DEV: u64 = 7;
@@ -33,12 +34,7 @@ fn folder(path: &str, writers: Option<Writers>) -> Folder {
         path: path.into(),
         snapshot: None,
         entries: Vec::new(),
-        ownership: writers.map(|writers| PathOwnership {
-            snapshot: None,
-            creator: None,
-            write: None,
-            writers,
-        }),
+        writers,
     }
 }
 
@@ -51,6 +47,8 @@ fn form(write: Write, name: &str, text: &str, message: &str) -> Form {
         text: TextField::new(text),
         upload: Vec::new(),
         contents: Vec::new(),
+        list: ListChoice::default(),
+        listed: TextField::default(),
         message: TextField::new(message),
         problem: None,
         refused: None,
@@ -81,72 +79,139 @@ fn opened(bytes: &[u8], whole: bool) -> Opened {
         bytes: bytes.to_vec(),
         whole,
         picture: None,
-        ownership: None,
+        writers: None,
     }
 }
 
 #[test]
-fn what_is_made_under_shared_is_anyones_to_write() {
-    for path in ["/shared", "/shared/team/notes"] {
-        let children = folder(path, Some(Writers::Chain)).children();
-        assert_eq!(children, Writers::Shared, "{path}");
-        assert!(dev().writes(&children));
+fn what_is_made_where_no_list_covers_is_anyones_to_write() {
+    for path in [
+        "/",
+        "/shared",
+        "/shared/team/notes",
+        "/home/ada",
+        "/elsewhere",
+    ] {
+        let children = folder(path, Some(Writers::Anyone)).children();
+        assert_eq!(children, Writers::Anyone, "{path}");
+        assert!(dev().writes(&children), "{path}");
     }
+    assert_eq!(folder("/", None).children(), Writers::Anyone);
 }
 
 #[test]
-fn what_is_made_in_a_home_is_its_named_account_alone() {
-    let mine = folder("/home/dev/docs", Some(Writers::Home("dev".into()))).children();
-    let hers = folder("/home/ada", Some(Writers::Chain)).children();
-    assert_eq!(hers, Writers::Home("ada".into()));
-    assert!(dev().writes(&mine));
-    assert!(!dev().writes(&hers));
-}
-
-#[test]
-fn nothing_an_account_makes_goes_at_the_root_or_beside_the_homes() {
-    for path in ["/", "/home", "/elsewhere"] {
-        let children = folder(path, None).children();
-        assert_eq!(children, Writers::Chain, "{path}");
-        assert!(!dev().writes(&children), "{path}");
+fn only_the_folder_of_homes_holds_namespace_roots() {
+    assert!(folder("/home", None).holds_namespace_roots());
+    for path in ["/", "/shared", "/home/ada", "/home/ada/docs"] {
+        assert!(!folder(path, None).holds_namespace_roots(), "{path}");
     }
 }
 
 #[test]
 fn a_write_list_over_a_folder_decides_for_what_is_made_in_it() {
-    let listed = Writers::Listed {
-        path: "/home/ada/team".into(),
-        creator: Some(ADA),
-        write: Ownership::Accounts(vec![DEV]),
+    let team = Writers::Listed {
+        at: "/home/ada/team".into(),
+        owner: Some(Party::Account(ADA)),
+        list: Ownership::Listed(vec![Party::Account(DEV)]),
     };
-    let children = folder("/home/ada/team/plans", Some(listed.clone())).children();
-    assert_eq!(children, listed);
+    let children = folder("/home/ada/team/plans", Some(team.clone())).children();
+    assert_eq!(children, team);
     assert!(
         dev().writes(&children),
         "the list names dev, though the home is ada's"
     );
     let owners_only = Writers::Listed {
-        path: "/shared/ada".into(),
-        creator: Some(ADA),
-        write: Ownership::Owner,
+        at: "/shared/ada".into(),
+        owner: Some(Party::Account(ADA)),
+        list: Ownership::Owner,
     };
     assert!(!dev().writes(&folder("/shared/ada", Some(owners_only)).children()));
+    let a_program = Writers::Listed {
+        at: "/shared/bots".into(),
+        owner: Some(Party::Account(ADA)),
+        list: Ownership::Listed(vec![Party::Program("harness".into())]),
+    };
+    assert!(
+        !dev().writes(&a_program),
+        "a person's signed write is never the program's"
+    );
 }
 
 #[test]
 fn a_reader_signed_out_writes_nothing() {
     let nobody = Reader::default();
-    assert!(!nobody.writes(&Writers::Shared));
+    assert!(!nobody.writes(&Writers::Anyone));
 }
 
 #[test]
-fn a_reader_identity_names_no_way_writes_under_shared_only() {
+fn a_reader_identity_names_no_way_writes_where_anyone_may() {
     let unnamed = Reader {
         account: Some(DEV),
         name: Loadable::Ready(None),
     };
-    assert!(unnamed.writes(&Writers::Shared));
-    assert!(!unnamed.writes(&Writers::Home("dev".into())));
+    assert!(unnamed.writes(&Writers::Anyone));
+}
+
+#[test]
+fn a_new_file_or_folder_sets_the_write_list_picked_once_it_is_made() {
+    let new_file = Write::NewFile {
+        folder: "/shared".into(),
+    };
+    let new_folder = Write::NewFolder {
+        folder: "/shared".into(),
+    };
+    let picked = |write: Write, list: ListChoice, typed: &str| {
+        let mut form = form(write, "x", "", "");
+        form.list = list;
+        form.listed = TextField::new(typed);
+        let (_, changes) = built(&form)?;
+        assert_eq!(changes.len(), 1, "the commit makes the path alone");
+        write_list(&form)
+    };
+    let set = |list: Ownership| access::Op::Set {
+        program: files::PROGRAM.into(),
+        key: "/shared/x".into(),
+        list: Some(list),
+    };
+    assert_eq!(
+        picked(new_file.clone(), ListChoice::AsItsFolder, ""),
+        Ok(None),
+        "no list of its own"
+    );
+    assert_eq!(
+        picked(new_file.clone(), ListChoice::OnlyMe, ""),
+        Ok(Some(set(Ownership::Owner)))
+    );
+    assert_eq!(
+        picked(new_folder.clone(), ListChoice::Anyone, ""),
+        Ok(Some(set(Ownership::Anyone)))
+    );
+    assert_eq!(
+        picked(new_folder.clone(), ListChoice::Listed, " 9, harness 12 "),
+        Ok(Some(set(Ownership::Listed(vec![
+            Party::Account(9),
+            Party::Program("harness".into()),
+            Party::Account(12),
+        ]))))
+    );
+    assert_eq!(
+        picked(new_file, ListChoice::Listed, " , "),
+        Err(words::LIST_SOMEONE.into())
+    );
+    let mut rename = form(
+        Write::Rename {
+            path: "/shared/a".into(),
+        },
+        "/shared/b",
+        "",
+        "",
+    );
+    rename.list = ListChoice::OnlyMe;
+    assert_eq!(
+        write_list(&rename),
+        Ok(None),
+        "only a new path takes a list"
+    );
 }
 
 #[test]

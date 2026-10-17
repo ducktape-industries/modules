@@ -9,8 +9,8 @@ use view::prelude::*;
 use view::{Div, FontWeight};
 
 use super::{
-    asking, back, caption, context_words, meter, no_node, panel, place_label, snapshot_words,
-    state_badge, usage_words, waiting,
+    asking, back, began_words, caption, context_words, conversation_label, meter, no_node, panel,
+    snapshot_words, state_badge, usage_words, waiting,
 };
 use crate::read::{self, Roster, Transcript};
 use crate::{Agents, Arm, Screen, State, links, thread_state};
@@ -98,7 +98,10 @@ fn thread(
         Some(model) => format!("asks {} ({})", model.id, model.name),
         None => "asks no model until its configuration is fixed".to_owned(),
     };
-    let place = place_label(row, roster);
+    let place = conversation_label(row);
+    let began = began_words(row, roster)
+        .map(|began| format!(" · {began}"))
+        .unwrap_or_default();
     let opened = links::place_link(&view.chain, &row.place);
     let arm = cx.listener(move |view: &mut Agents, _: &ClickEvent, _, cx| {
         view.arming = Some(Arm::Close(id));
@@ -118,7 +121,7 @@ fn thread(
                 .child(design::heading("thread-place", place, 1, theme))
                 .child(caption(
                     format!(
-                        "thread {id} · opened at block {} · {asks}",
+                        "thread {id} · opened at block {}{began} · {asks}",
                         design::grouped(row.opened),
                     ),
                     theme,
@@ -140,7 +143,7 @@ fn thread(
         .when(manages && !row.closed, |head| {
             head.child(design::button(
                 "thread-close",
-                "Close thread…",
+                "Close conversation…",
                 ladder,
                 theme,
                 arm,
@@ -269,8 +272,15 @@ fn closing(
         view.arming = None;
         cx.notify();
     });
-    let mut cost =
-        "Close this thread? The next mention opens a new thread with fresh context.".to_owned();
+    let current = shown
+        .setup
+        .as_ref()
+        .is_some_and(|setup| setup.current == Some(id));
+    let mut cost = match current {
+        true => "Close this conversation? It is the agent's current one, so the next message to the agent opens a new conversation with fresh context.",
+        false => "Close this conversation? It is not the agent's current one, so nothing more reaches it.",
+    }
+    .to_owned();
     if shown.thread.held > 0 {
         cost.push_str(&format!(
             " The {} waiting here do not carry over.",
@@ -294,7 +304,7 @@ fn closing(
                     .child(
                         design::button(
                             "thread-close-confirm",
-                            "Close thread",
+                            "Close conversation",
                             ladder,
                             theme,
                             confirm,
@@ -405,7 +415,7 @@ fn transcript(
             shown
                 .partial
                 .as_ref()
-                .map(|partial| partial_row(partial, &agent, theme, ladder)),
+                .map(|partial| partial_row(partial, &shown.calls, &agent, theme, ladder)),
         )
 }
 
@@ -422,6 +432,7 @@ fn flow_words(partial: &Partial) -> String {
 
 fn partial_row(
     partial: &Partial,
+    calls: &[CallRow],
     agent: &str,
     theme: &Theme,
     ladder: &Ladder,
@@ -437,7 +448,7 @@ fn partial_row(
     let blocks = partial.said.iter().enumerate().map(|(index, said)| {
         let key = format!("partial-{index}");
         let still_forming = forming == Some(index);
-        partial_block(key, said, still_forming, theme, ladder)
+        partial_block(key, said, still_forming, calls, theme, ladder)
     });
     div()
         .id("thread-partial")
@@ -470,6 +481,7 @@ fn partial_block(
     key: String,
     said: &Said,
     forming: bool,
+    calls: &[CallRow],
     theme: &Theme,
     ladder: &Ladder,
 ) -> AnyElement {
@@ -486,10 +498,12 @@ fn partial_block(
             .child(div().text_color(theme.muted).child(text.clone()))
             .into_any_element(),
         Said::RedactedThinking(_) => caption("Thinking, redacted", theme).into_any_element(),
-        Said::ToolUse { name, input, .. } => {
-            let (state, foreground, background) = match forming {
-                true => ("Forming", theme.warning, theme.warning_soft),
-                false => ("Formed", theme.muted, theme.surface_raised),
+        Said::ToolUse { id, name, input } => {
+            let call = calls.iter().find(|call| &call.id == id);
+            let (state, foreground, background) = match (call, forming) {
+                (Some(call), _) => call_state(&call.state, theme),
+                (None, true) => ("Forming", theme.warning, theme.warning_soft),
+                (None, false) => ("Formed", theme.muted, theme.surface_raised),
             };
             div()
                 .id(SharedString::from(key.clone()))
@@ -683,6 +697,17 @@ fn said_row(
     }
 }
 
+fn call_state(state: &CallState, theme: &Theme) -> (&'static str, Hsla, Hsla) {
+    match state {
+        CallState::Showing => ("Showing", theme.warning, theme.warning_soft),
+        CallState::Relaying => ("Relaying", theme.muted, theme.surface_raised),
+        CallState::Writing => ("Writing", theme.warning, theme.warning_soft),
+        CallState::Done { failed: false, .. } => ("Done", theme.success, theme.success_soft),
+        CallState::Done { failed: true, .. } => ("Failed", theme.danger, theme.danger_soft),
+        CallState::Voided { .. } => ("Taken back", theme.muted, theme.surface_raised),
+    }
+}
+
 /// A tool call: its name, its input on one line and how far it got; opened, the whole
 /// input and the blocks it ran at.
 fn call_row(
@@ -695,12 +720,9 @@ fn call_row(
 ) -> impl IntoElement + use<> {
     let key = format!("call-{id}");
     let open = view.open.contains(&key);
-    let (state, foreground, background) = match call.map(|call| &call.state) {
+    let (state, foreground, background) = match call {
         None => ("Not placed", theme.muted, theme.surface_raised),
-        Some(CallState::Relaying) => ("Relaying", theme.muted, theme.surface_raised),
-        Some(CallState::Writing) => ("Writing", theme.warning, theme.warning_soft),
-        Some(CallState::Done { failed: false, .. }) => ("Done", theme.success, theme.success_soft),
-        Some(CallState::Done { failed: true, .. }) => ("Failed", theme.danger, theme.danger_soft),
+        Some(call) => call_state(&call.state, theme),
     };
     let toggle = toggler(key.clone(), cx);
     let header = div()
@@ -741,7 +763,12 @@ fn call_row(
             design::grouped(call.made),
             design::grouped(height)
         ),
-        CallState::Relaying | CallState::Writing => {
+        CallState::Voided { height } => format!(
+            "made at block {} · taken back at block {}",
+            design::grouped(call.made),
+            design::grouped(height)
+        ),
+        CallState::Showing | CallState::Relaying | CallState::Writing => {
             format!("made at block {}", design::grouped(call.made))
         }
     });

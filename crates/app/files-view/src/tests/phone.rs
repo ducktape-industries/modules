@@ -112,7 +112,19 @@ fn a_folder_the_reader_cannot_write_has_no_actions() {
     let mut cx = phone(&net);
     tap(&mut cx, "files/place/everything");
     assert!(cx.has_text("shared"), "{:?}", cx.texts());
-    assert!(cx.find("files/actions").is_none());
+    assert!(
+        cx.find("files/actions").is_some(),
+        "no list covers the root"
+    );
+    tap(&mut cx, "files/entry/home");
+    assert!(cx.has_text("ada"), "{:?}", cx.texts());
+    assert!(
+        cx.find("files/actions").is_none(),
+        "what is made in /home is a home, the network's"
+    );
+    tap(&mut cx, "files/entry/ada");
+    assert!(cx.has_text("diary.txt"), "{:?}", cx.texts());
+    assert!(cx.find("files/actions").is_none(), "ada listed her home");
 }
 
 #[test]
@@ -147,6 +159,21 @@ fn a_new_text_file_is_committed_from_its_sheet() {
     assert!(cx.has_text("hello.md"), "{:?}", cx.texts());
     assert!(cx.has_text("Committed: Write hello.md"));
     assert!(cx.find("files/write").is_none());
+}
+
+#[test]
+fn a_new_text_file_from_its_sheet_carries_the_list_picked() {
+    let net = seeded();
+    let mut cx = phone(&net);
+    tap(&mut cx, "files/place/shared");
+    tap(&mut cx, "files/actions");
+    tap(&mut cx, "files/begin/new-file");
+    cx.simulate_input("files/write/name", "open.md");
+    tap(&mut cx, "files/write/list/anyone");
+    tap(&mut cx, "files/write/submit");
+    assert!(cx.find("files/write").is_none());
+    let (list, _) = list_at(&net, "/shared/open.md");
+    assert_eq!(list, Some(files::Ownership::Anyone));
 }
 
 #[test]

@@ -1,6 +1,8 @@
 //! Each wire's streamed reply folded event by event, against the whole reply of the same
 //! content: recorded Anthropic streams of text, thinking with its signature, a tool call whose
 //! input arrives in pieces, and an error part way.
+mod thinking;
+
 use serde_json::{Value, json};
 
 use super::*;

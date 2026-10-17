@@ -155,26 +155,6 @@ impl TreeEdit {
         Ok(())
     }
 
-    pub(crate) fn set_access(
-        &mut self,
-        ctx: &QueryCtx,
-        segments: &[String],
-        access: Access,
-    ) -> Result<(), Error> {
-        let (name, dirs) = split(segments)?;
-        let parent = open_dir(&mut self.root, ctx, dirs, Create::Never)?;
-        if !parent.children.contains_key(name) {
-            return Err(not_found(format!("nothing is at {}", join(segments))));
-        }
-        let recorded = access != Access::default();
-        if !recorded {
-            parent.access.remove(name);
-            return Ok(());
-        }
-        parent.access.insert(name.clone(), access);
-        Ok(())
-    }
-
     pub(crate) fn build(self, ctx: &ExecCtx) -> Result<(BlobId, u64), Error> {
         match self.root {
             Slot::Kept(Node::Dir { tree, .. }) => {

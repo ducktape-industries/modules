@@ -4,8 +4,8 @@
 use ::program::{Error, ExecCtx, Program, QueryCtx, decoded};
 
 use crate::rules::{
-    BY, GRANTS, Roster, SCHEDULE, at, cancel, fold, grant, hooks_at, init, revoke, roster,
-    schedule, views_at,
+    BY, GRANTS, Roster, SCHEDULE, at, cancel, fold, grant, hooks_at, init, revoke, roles_at,
+    roster, schedule, views_at,
 };
 use crate::{Genesis, Grant, Op, PROGRAM, PageResponse, Pending, Query, Reply};
 
@@ -29,6 +29,7 @@ impl Program for Programs {
             Op::Cancel { height, program } => cancel(ctx, height, program),
             Op::Grant(granted) => grant(ctx, granted),
             Op::Revoke(granted) => revoke(ctx, granted),
+            Op::Migrate => crate::migrate::migrate(ctx),
         }
     }
 
@@ -66,7 +67,7 @@ impl Program for Programs {
                     .into_iter()
                     .find(|entry| entry.program == program),
             },
-            Query::Roles => Reply::Roles(ctx.env().roles.clone()),
+            Query::Roles => Reply::Roles(roles_at(ctx, height)?),
             Query::Hooks(height) => Reply::Hooks(hooks_at(ctx, height)?),
             Query::Grants { page } => Reply::Grants(
                 GRANTS

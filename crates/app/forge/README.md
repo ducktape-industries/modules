@@ -67,7 +67,7 @@ and decode a `forge::Reply` from the concatenated `Respond` bytes.
 | Query example | Reply data besides `height` |
 | --- | --- |
 | `Repos { cursor: None, limit: 20 }` | `page<RepoInfo>`: name, hash, owner, settings, ref count, last activity |
-| `Repo { repo: r, cursor: None, limit: 20 }` | repo record, founded bounds, `writers: PageResponse<Principal>` (owner is separate) |
+| `Repo { repo: r }` | repo record (its owner among it) and founded bounds; who else writes is the repository's list in the access program |
 | `Refs { repo: r, cursor: None, limit: 20 }` | `page<RefInfo>`: full ref name and target OID |
 | `Log { repo: r, from: feature, cursor: None, limit: 20 }` | resolved tip, `page<CommitInfo>`: OID, tree, all parents, full message, author and committer with time/timezone |
 | `Tree { repo: r, at: b, path: b"src".to_vec(), cursor: None, limit: 20 }` | resolved tree OID and `page<TreeInfo>`: name, OID, kind/mode; `at` accepts commit or tree |
@@ -112,7 +112,7 @@ by the account, not just its latest review. The newest answered root is returned
 a conversation root. Requested judgment clears when that account submits any verdict
 at the current source head, and returns when the head moves. Read/unread markers
 and dismissals are local view state, not notification records or new operations.
-Authors, reviewers, writers and filters are accounts (`Principal`), never keys:
+Authors, reviewers and filters are accounts (`Principal`), never keys:
 an account acts through any of its keys.
 
 ## Blobs, diffs, and mergeability
@@ -148,8 +148,14 @@ requested changes never block that CAS.
 ## Operations and examples
 
 Authors are always the account the signed frame acts as (`ctx.sender()`), never
-the payload; forge takes signed frames alone. Any account may open/review. Only the author edits title/body/
-review requests; author or repository writer closes; repository writers merge.
+the payload; forge takes every op but the vote's `Migrate` from signed frames alone. Any account may open/review. The author edits title/body/review requests,
+or whoever the change's list at `forge::change_key(repo, n)` in the access
+program allows; the author, or a repository writer, closes; repository writers merge.
+A repository's writers are whoever its list in the access program allows, at
+`forge::repo_key(repo)`: its owner alone unless the owner lists others there
+(`access::Op::Set`). `Push`, `Merge`, `Stage` and a `ChangeClose` by anyone but
+the change's author need that key; `Configure` needs `forge::settings_key(repo)`,
+the owner's alone unless it lists others.
 Reviews remain appendable on closed/merged changes.
 Closing is terminal; there is no reopen operation.
 
@@ -157,8 +163,8 @@ Closing is terminal; there is no reopen operation.
 | --- | --- |
 | `Create { repo: r, hash: HashKind::Sha1 }` | actor owns a new repo; empty output |
 | `Configure { repo: r, settings: Settings::default() }` | owner configures default ref and force/delete policy; empty output |
-| `Grant { repo: r, principal: writer }` | owner grants writes to an account; empty output |
-| `Revoke { repo: r, principal: writer }` | owner revokes writes; empty output |
+| `Grant { repo: r, principal: writer }`, `Revoke { .. }` | always refused: a repository's writers are its list in the access program |
+| `Migrate` | the validators' vote only: the one-time move of an older network, which turns each repository's old writers into its list at `repo_key`; deleted once run |
 | `Push { repo: r, request: receive_pack_commands, pack: Some(pack) }` | Git receive-pack: the ref commands in `request`, the objects in the held `pack`; Git's report |
 | `Stage { repo: r, pack }` | stores the held pack's objects and moves no ref; empty output |
 | `ChangeOpen { repo: r, from: feature, into: b"refs/heads/main".to_vec(), title: "Fix parser".into(), body: "Why this changes".into(), reviewers: vec![reviewer] }` | assigns `n`, stores body, queues channel/opened line; `OpReply::Change { height, n }` |
@@ -181,7 +187,7 @@ A pack may go in parts: each part a `Stage`, then a
 held when the part lands, in that part or already stored, so the parts go in
 the order git's objects reference each other: blobs and trees before the
 commits naming them. A delta may be against an object already stored. The
-owner and its writers push and stage.
+repository's writers push and stage.
 
 A merge requires a nonzero result that advances the target, correct endpoint
 hash kinds, writer authority and matching current heads. It does not validate

@@ -5,7 +5,8 @@ use view::prelude::*;
 use crate::queries::Found;
 use crate::state::{Answering, Choice, Form, Problem, Section, Sheet, TTL};
 use crate::{Settings, queries};
-use identity::{Identity, Ownership};
+use access::Access;
+use identity::{Identity, Ownership, Party};
 
 impl Settings {
     pub(crate) fn session_changed(&mut self, session: Session, cx: &mut Context<Self>) {
@@ -179,11 +180,10 @@ impl Settings {
         }
     }
 
-    fn listed(&self, number: u64) -> Vec<u64> {
-        match self.agent(number).map(|agent| &agent.ownership) {
-            Some(Ownership::Accounts(numbers)) => numbers.clone(),
-            Some(Ownership::Owner | Ownership::Anyone) | None => Vec::new(),
-        }
+    fn listed(&self, number: u64) -> Vec<Party> {
+        self.agent(number)
+            .map(|agent| agent.ownership.listed().to_vec())
+            .unwrap_or_default()
     }
 
     pub(crate) fn pick_ownership(&mut self, number: u64, choice: Choice, cx: &mut Context<Self>) {
@@ -266,10 +266,10 @@ impl Settings {
         let form = &mut self.answering.entry(number).or_default().form;
         form.busy = false;
         let problem = match found {
-            Ok(Found::Account(person)) => {
+            Ok(Found::Party(party)) => {
                 let mut listed = self.listed(number);
-                listed.push(person);
-                let ownership = Ownership::Accounts(listed);
+                listed.push(party);
+                let ownership = Ownership::Listed(listed);
                 return self.submit_ownership(
                     number,
                     ownership,
@@ -293,12 +293,12 @@ impl Settings {
     pub(crate) fn remove_listed_person(
         &mut self,
         number: u64,
-        person: u64,
+        party: &Party,
         cx: &mut Context<Self>,
     ) {
         let mut listed = self.listed(number);
-        listed.retain(|listed| *listed != person);
-        let ownership = Ownership::Accounts(listed);
+        listed.retain(|listed| listed != party);
+        let ownership = Ownership::Listed(listed);
         let from = self.sheet;
         self.submit_ownership(number, ownership, |answering| &mut answering.form, from, cx);
     }
@@ -322,14 +322,20 @@ impl Settings {
         // the last change's problem goes with the next
         answering.pick.problem = None;
         answering.form.problem = None;
-        let op = identity::Op::SetOwnership {
-            account: number,
-            ownership,
+        let list = match ownership {
+            Ownership::Owner => None,
+            Ownership::Listed(_) | Ownership::Anyone => Some(ownership),
         };
-        self.submit_agent_op(
-            op,
+        let op = access::Op::Set {
+            program: harness::PROGRAM.into(),
+            key: harness::agent_key(number),
+            list,
+        };
+        self.land_agent_op(
+            move |host| host.ask::<Submit<Access>>(op),
             move |v| which(v.answering.entry(number).or_default()),
             from,
+            Some(number),
             cx,
         );
     }
@@ -386,6 +392,25 @@ impl Settings {
         from: Option<Sheet>,
         cx: &mut Context<Self>,
     ) {
+        self.land_agent_op(
+            move |host| host.ask::<Submit<Identity>>(op),
+            form,
+            from,
+            None,
+            cx,
+        );
+    }
+
+    fn land_agent_op<Asked>(
+        &mut self,
+        submit: impl FnOnce(&Host) -> Asked,
+        form: impl Fn(&mut Settings) -> &mut Form + 'static,
+        from: Option<Sheet>,
+        answered: Option<u64>,
+        cx: &mut Context<Self>,
+    ) where
+        Asked: Future<Output = Result<Submitted, view::host::Error>> + 'static,
+    {
         if form(self).busy {
             return;
         }
@@ -393,13 +418,7 @@ impl Settings {
         pending.busy = true;
         pending.problem = None;
         cx.notify();
-        // whom an agent answers: a change that lands takes the person typed
-        // for it (dev's one form; Expo unmounts the field)
-        let answered = match &op {
-            identity::Op::SetOwnership { account, .. } => Some(*account),
-            _ => None,
-        };
-        let ask = cx.host().ask::<Submit<Identity>>(op);
+        let ask = submit(&cx.host());
         cx.land(ask, move |view, result, cx| {
             let problem = design::failure(&result);
             let landed = problem.is_none();

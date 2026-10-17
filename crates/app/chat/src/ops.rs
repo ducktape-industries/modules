@@ -4,10 +4,11 @@
 use ::program::{Error, ExecCtx, Origin, already_exists, invalid, unauthorized, wrong_state};
 
 use crate::attributed::report;
+use crate::mentions::resolve_typed;
 use crate::rules;
 use crate::state::{
-    ANSWERED, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS, REPLIES, ROOTS, channel,
-    message, newest_first, replace_message, toggle,
+    ANSWERED, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, PARTICIPANTS, REACTIONS, REPLIES,
+    ROOTS, channel, message, newest_first, replace_message, toggle,
 };
 use crate::{
     AccountNumber, Block, ChannelRow, MemberRow, MsgRow, PostPolicy, Principal, Reaction,
@@ -80,30 +81,18 @@ pub(crate) fn open_dm(
     Ok(())
 }
 
-pub(crate) fn rename(
-    ctx: &ExecCtx,
-    sender: &Principal,
-    id: &str,
-    name: String,
-) -> Result<(), Error> {
+pub(crate) fn rename(ctx: &ExecCtx, id: &str, name: String) -> Result<(), Error> {
     rules::name(&name)?;
     let mut channel = channel(ctx, id)?;
     rules::not_dm(&channel)?;
-    rules::owned(&channel, sender)?;
     channel.name = name;
     CHANNELS.put(ctx, &channel.id, &channel);
     Ok(())
 }
 
-pub(crate) fn set_archived(
-    ctx: &ExecCtx,
-    sender: &Principal,
-    id: &str,
-    archived: bool,
-) -> Result<(), Error> {
+pub(crate) fn set_archived(ctx: &ExecCtx, id: &str, archived: bool) -> Result<(), Error> {
     let mut channel = channel(ctx, id)?;
     rules::not_dm(&channel)?;
-    rules::owned(&channel, sender)?;
     channel.archived = archived;
     CHANNELS.put(ctx, &channel.id, &channel);
     Ok(())
@@ -111,14 +100,12 @@ pub(crate) fn set_archived(
 
 pub(crate) fn set_membership(
     ctx: &ExecCtx,
-    sender: &Principal,
     id: &str,
     principal: Principal,
     member: bool,
 ) -> Result<(), Error> {
     let channel = channel(ctx, id)?;
     rules::not_dm(&channel)?;
-    rules::owned(&channel, sender)?;
     if member {
         seat(ctx, id, principal);
     } else {
@@ -152,6 +139,7 @@ pub(crate) fn post(
     if MESSAGE_IDS.has(ctx, &message_id) {
         return Err(already_exists(format!("message {message_id} exists")));
     }
+    let blocks = resolve_typed(ctx, blocks)?;
     let seq = HEADS.get(ctx, &channel_id)?.unwrap_or(0) + 1;
     let row = MsgRow {
         channel_id: channel_id.clone(),
@@ -166,11 +154,11 @@ pub(crate) fn post(
         ..MsgRow::by(sender.clone())
     };
     match thread {
-        Some(root) => answer(ctx, &channel_id, root, seq)?,
+        Some(root) => answer(ctx, &channel_id, root, seq, sender)?,
         None => ROOTS.insert(ctx, &(channel_id.clone(), newest_first(seq))),
     }
     replace_message(ctx, None, &row);
-    report(ctx, sender, None, &row);
+    report(ctx, sender, None, &row)?;
     MESSAGE_IDS.put(ctx, &message_id, &(channel_id.clone(), seq));
     HEADS.put(ctx, &channel_id, &seq);
     Ok(())
@@ -178,7 +166,13 @@ pub(crate) fn post(
 
 /// Reply `seq` joins the thread under `root`: the root counts it, and its
 /// author's [`ANSWERED`] entry moves to this reply.
-fn answer(ctx: &ExecCtx, channel_id: &str, root: u64, seq: u64) -> Result<(), Error> {
+fn answer(
+    ctx: &ExecCtx,
+    channel_id: &str,
+    root: u64,
+    seq: u64,
+    sender: &Principal,
+) -> Result<(), Error> {
     let mut row = message(ctx, channel_id, root)?;
     if row.thread.is_some() {
         return Err(invalid("a reply cannot be a thread root"));
@@ -188,6 +182,10 @@ fn answer(ctx: &ExecCtx, channel_id: &str, root: u64, seq: u64) -> Result<(), Er
     let answered = (channel_id.clone(), row.author.clone(), newest_first(seq));
     ANSWERED.put(ctx, &answered, &root);
     REPLIES.insert(ctx, &(channel_id.clone(), root, seq));
+    let taking_part = (channel_id.clone(), root, sender.clone());
+    if !PARTICIPANTS.has(ctx, &taking_part) {
+        PARTICIPANTS.put(ctx, &taking_part, &seq);
+    }
     row.reply_count += 1;
     row.last_reply_seq = Some(seq);
     MESSAGES.put(ctx, &(channel_id, root), &row);
@@ -216,7 +214,8 @@ pub(crate) fn edit(
 ) -> Result<(), Error> {
     rules::writable(ctx, &channel(ctx, channel_id)?, sender)?;
     let old = message(ctx, channel_id, seq)?;
-    rules::editable(&old, sender)?;
+    rules::standing(&old)?;
+    let blocks = resolve_typed(ctx, blocks)?;
     let row = MsgRow {
         text: plain_text(&blocks),
         tags: tags(&blocks),
@@ -228,24 +227,18 @@ pub(crate) fn edit(
         ..old.clone()
     };
     replace_message(ctx, Some(&old), &row);
-    report(ctx, sender, Some(&old), &row);
+    report(ctx, sender, Some(&old), &row)?;
     Ok(())
 }
 
-/// The author or the channel's owner deletes. What stays is a tombstone
-/// holding the message's place in its timeline or thread; its body, its
-/// postings and its reactions go.
 pub(crate) fn delete(
     ctx: &ExecCtx,
     sender: &Principal,
     channel_id: &str,
     seq: u64,
 ) -> Result<(), Error> {
-    let channel = channel(ctx, channel_id)?;
+    channel(ctx, channel_id)?;
     let old = message(ctx, channel_id, seq)?;
-    if old.author != *sender && channel.owner != *sender {
-        return Err(unauthorized("only the author or the owner deletes"));
-    }
     if old.deleted {
         return Ok(());
     }
@@ -263,7 +256,7 @@ pub(crate) fn delete(
         ..old.clone()
     };
     replace_message(ctx, Some(&old), &tombstone);
-    report(ctx, sender, Some(&old), &tombstone);
+    report(ctx, sender, Some(&old), &tombstone)?;
     Ok(())
 }
 

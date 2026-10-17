@@ -27,6 +27,8 @@ use crate::{
 /// asked, `origin` the asker, no sender) and the request's bytes.
 pub type Sibling = Box<dyn Fn(Env, &[u8]) -> Result<Vec<u8>, Error>>;
 
+pub type Owners = Box<dyn Fn(Env, &str) -> Result<Vec<u8>, Error>>;
+
 /// The identity role over a fixed roster, for a native test of a program
 /// that names accounts, answered as identity answers any asker: `Account`
 /// and `OfProgram` from the roster's keys and programs ([`Roster`]; refused
@@ -78,10 +80,8 @@ pub struct MockState {
     pub deferred: bool,
     pub resumes: Vec<Resumed>,
     pub siblings: BTreeMap<ProgramId, Sibling>,
+    pub owners: BTreeMap<ProgramId, Owners>,
     pub verifier: Option<Verifier>,
-    /// Each role a frame bound (`ctx.bind`), or unbound with `None`, in
-    /// order: the host's checks passed, the table is the test's to read.
-    pub binds: Vec<(String, Option<ProgramId>)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -108,7 +108,6 @@ pub(crate) struct Written {
     blobs: BTreeMap<BlobId, Blob>,
     sent: (Vec<u8>, Vec<Message>, Vec<Vec<u8>>),
     waits: (Vec<Called>, bool, Vec<Resumed>),
-    binds: Vec<(String, Option<ProgramId>)>,
 }
 
 impl MockHost {
@@ -124,7 +123,18 @@ impl MockHost {
             (role::EGRESS, "egress"),
             (role::HALO, "halo"),
             (role::SCHEDULER, "scheduler"),
+            (role::ACCESS, "access"),
         ])
+    }
+
+    pub fn roles_with(role: &str, program: impl Into<ProgramId>) -> Roles {
+        let program = program.into();
+        MockHost::roles()
+            .iter()
+            .filter(|(filled, _)| *filled != role)
+            .map(|(filled, by)| (filled.to_owned(), by.clone()))
+            .chain([(role.to_owned(), program)])
+            .collect()
     }
 
     #[track_caller]
@@ -168,11 +178,19 @@ impl MockHost {
     /// decoding and the answer through its encoding, as on the host.
     pub fn sibling<M: Program>(&self, program: impl Into<ProgramId>, host: &MockHost) {
         let host = host.clone();
+        let program = program.into();
+        let asked = host.clone();
         let answer: Sibling = Box::new(move |env, request| {
-            crate::query::<M>(&host.query(env), request)?;
+            crate::query::<M>(&asked.query(env), request)?;
+            Ok(asked.take_response())
+        });
+        let owners: Owners = Box::new(move |env, key| {
+            crate::resource::<M>(&host.query(env), key)?;
             Ok(host.take_response())
         });
-        self.borrow_mut().siblings.insert(program.into(), answer);
+        let mut mock = self.borrow_mut();
+        mock.siblings.insert(program.clone(), answer);
+        mock.owners.insert(program, owners);
     }
 
     /// An execute's context over this host.
@@ -225,7 +243,6 @@ impl MockHost {
                 after.waits, before.waits,
                 "a refused write called or resumed"
             );
-            assert_eq!(after.binds, before.binds, "a refused write bound a role");
         }
         result
     }
@@ -248,7 +265,6 @@ impl MockHost {
                 mock.events.clone(),
             ),
             waits: (mock.calls.clone(), mock.deferred, mock.resumes.clone()),
-            binds: mock.binds.clone(),
         }
     }
 
@@ -259,13 +275,30 @@ impl MockHost {
         mock.blobs = written.blobs;
         (mock.output, mock.emissions, mock.events) = written.sent;
         (mock.calls, mock.deferred, mock.resumes) = written.waits;
-        mock.binds = written.binds;
     }
 
     /// One host call from a context whose env is `env`, as the real host
     /// answers it. An emitted message is kept, numbered from 0, for the
     /// test to run.
     pub(crate) fn serve(&self, env: &Env, op: HostOp) -> HostReply {
+        if let HostOp::Resource { program, key } = op {
+            let owners = self.borrow_mut().owners.remove(&program);
+            return HostReply::Query(match owners {
+                Some(owners) => {
+                    let asked = Env {
+                        program: program.clone(),
+                        origin: Origin::Program(env.program.clone()),
+                        sender: None,
+                        cause: Cause::Direct,
+                        ..env.clone()
+                    };
+                    let answer = owners(asked, &key).map_err(crate::kernel::refusal_from);
+                    self.borrow_mut().owners.insert(program, owners);
+                    answer
+                }
+                None => Err(abi::Refusal::new(code::UNKNOWN_PROGRAM, program)),
+            });
+        }
         if let HostOp::Query { program, request } = op {
             // The sibling leaves the map while it answers, so it may use
             // this host itself.
@@ -408,23 +441,7 @@ impl MockHost {
                 });
                 HostReply::Done
             }
-            HostOp::Bind { role, program } => {
-                if env.roles.get(role::VALIDATORS) != Some(&env.program) {
-                    return HostReply::Refused(abi::Refusal::new(
-                        code::UNAUTHORIZED,
-                        "only the validators role binds a role",
-                    ));
-                }
-                if role::REQUIRED.contains(&role.as_str()) {
-                    return HostReply::Refused(abi::Refusal::new(
-                        code::INVALID_INPUT,
-                        format!("the {role} role is bound for the network's life"),
-                    ));
-                }
-                mock.binds.push((role, program));
-                HostReply::Done
-            }
-            HostOp::Query { .. } => unreachable!("answered above"),
+            HostOp::Query { .. } | HostOp::Resource { .. } => unreachable!("answered above"),
         }
     }
 
@@ -438,10 +455,6 @@ impl MockHost {
 
     pub fn take_resumes(&self) -> Vec<Resumed> {
         std::mem::take(&mut self.borrow_mut().resumes)
-    }
-
-    pub fn take_binds(&self) -> Vec<(String, Option<ProgramId>)> {
-        std::mem::take(&mut self.borrow_mut().binds)
     }
 }
 

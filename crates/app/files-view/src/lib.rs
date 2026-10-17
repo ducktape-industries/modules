@@ -2,10 +2,12 @@
 //! program), as a file browser. A folder lists its entries at the newest
 //! snapshot, a file shows its picture or its text (else its size), and
 //! the history lists the snapshots every commit made and the pins that
-//! name some of them. Where `files` lets the reader write (their home,
-//! `/home/<their name>/`, and `/shared/`, unless a write list says other),
-//! they make folders and text files, upload files from their device,
-//! edit text, rename, move and remove, each one commit with a message.
+//! name some of them. Where the access program lets the reader write
+//! (anywhere no write list covers, else where the nearest list allows
+//! them), they make folders and text files, with an optional write list of
+//! their own set in access once the commit lands, upload files from their
+//! device, edit text, rename, move and remove, each one commit with a
+//! message.
 //!
 //! The state is one struct (`state.rs`) and a stack of pages both designs
 //! draw. Reads are typed (`queries.rs`) and loaded in `load.rs`, read again
@@ -57,7 +59,7 @@ impl View for Files {
         // the files an upload sends, as the reader picks them
         Capability::File,
     ];
-    const TARGETS: &'static [&'static str] = &[files::PROGRAM, identity::PROGRAM];
+    const TARGETS: &'static [&'static str] = &[files::PROGRAM, access::PROGRAM, identity::PROGRAM];
     /// The history's rows, a message beside who made it and when, fit
     /// here; a folder's crumbs wrap.
     const MIN_WINDOW_WIDTH: u32 = 480;

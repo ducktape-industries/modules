@@ -102,12 +102,14 @@ fn configure(cx: &mut TestAppContext) {
     cx.host()
         .handle::<Ask<::chat::Chat>>(|query| Ok(chat_reply(query)));
     // the one agent, eddy's own, answers only him
-    cx.host().handle::<Ask<Identity>>(|query| {
+    cx.host().handle::<Ask<access::Access>>(|query| {
         Ok(match query {
-            identity::Query::Ownership { number: 8 } => {
-                identity::Reply::Ownership(identity::Ownership::Owner)
+            access::Query::List { program, key }
+                if program == harness::PROGRAM && key == harness::agent_key(8) =>
+            {
+                access::Reply::List(None)
             }
-            query => panic!("unexpected identity query: {query:?}"),
+            query => panic!("unexpected access query: {query:?}"),
         })
     });
     cx.host()

@@ -53,12 +53,13 @@ pub mod live;
 #[cfg(not(target_arch = "wasm32"))]
 mod mock;
 mod origin;
-mod ownership;
 mod program;
 pub mod refuse;
+pub mod schema;
 
 pub use abi;
 pub use abi::hook;
+pub use abi::role::access::{Action, Need, Ownership, Party, Resource, Writers};
 pub use abi::{
     Blob, BlobHeader, BlobId, CryptoOp, CryptoReply, Entry, HashKind, Message, Root, Scheme,
 };
@@ -72,10 +73,9 @@ pub use kernel::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use mock::{Called, MockHost, MockState, Resumed, Sibling, Verifier, blob_id, identity_role};
-pub use ownership::Ownership;
 #[cfg(target_arch = "wasm32")]
 pub use program::exports;
-pub use program::{Ask, Program, Reads, execute, hook, is_name, query};
+pub use program::{Ask, Program, Reads, access, execute, hook, is_name, query, resource};
 pub use program_derive::Ask;
 pub use refuse::{
     already_exists, capacity, corrupt, decoded, invalid, not_found, stale, unauthorized,

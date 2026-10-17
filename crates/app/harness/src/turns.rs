@@ -1,22 +1,23 @@
 //! The loop consensus runs for a thread: read the agent's configuration and its model's record,
 //! learn the model's context window, summarize the thread when its next answer would not fit,
 //! ask the model in its wire for a streamed reply, build the turn from the streamed events or
-//! the whole answer, run each tool call a block later, ask again.
+//! the whole answer, record the results of calls that ran while it streamed, run the rest, and
+//! ask again once every result is back.
 use ::program::{
     BlobId, Ctx, Error, ExecCtx, HashKind, ProgramId, QueryCtx, Range, all, unexpected_reply,
     wrong_state,
 };
-use abi::role::egress::{self, RELAY, http};
-use serde_json::Value;
+use abi::role::egress::{self, http};
 
-use crate::agents::{Agent, configured, preamble, running, thread};
+use crate::agents::{Agent, configured, hear_again, manual, running, thread};
+use crate::calls::{Placed, place, refusal, run_call, take_back_showing};
+use crate::conversations::retire;
 use crate::models::learned;
-use crate::state::{CALLS, FRAMES, HELD, PARTIALS, SEALED, THREADS, WITHHELD};
-use crate::tools::{self, Run, Seat};
+use crate::state::{FRAMES, HELD, LIVE, Live, PARTIALS, SEALED, SHOWN, THREADS, WITHHELD};
 use crate::wire::{self, Answered, Header, Summarized, Summary};
 use crate::{
-    Asking, Body, CallRow, CallState, Configured, Context, Frame, ModelRow, PART, Partial, Role,
-    Said, Sealed, ThreadRow, Window, Wire, streamed_as,
+    Asking, Body, Configured, Context, Forming, Frame, ModelRow, PART, Partial, Role, Said, Sealed,
+    Stop, ThreadRow, Window, Wire, streamed_as,
 };
 
 struct Asked {
@@ -60,7 +61,7 @@ pub(crate) fn say(ctx: &ExecCtx, thread: &mut ThreadRow, body: Body) {
     thread.held += 1;
 }
 
-fn settle(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<(), Error> {
+pub(crate) fn settle(ctx: &ExecCtx, thread: &mut ThreadRow) -> Result<(), Error> {
     for index in 0..thread.held {
         let key = (thread.id, index);
         if let Some(body) = HELD.get(ctx, &key)? {
@@ -88,7 +89,7 @@ pub(crate) fn bound(ctx: &QueryCtx) -> Result<ProgramId, Error> {
     Ok(program)
 }
 
-fn serves(ctx: &QueryCtx, service: &str) -> Result<bool, Error> {
+pub(crate) fn serves(ctx: &QueryCtx, service: &str) -> Result<bool, Error> {
     let program = bound(ctx)?;
     let asked = egress::Query::Serving {
         service: service.into(),
@@ -99,7 +100,7 @@ fn serves(ctx: &QueryCtx, service: &str) -> Result<bool, Error> {
     }
 }
 
-async fn request(
+pub(crate) async fn request(
     ctx: &Ctx,
     request: egress::Request,
     delivery: egress::Delivery,
@@ -350,6 +351,9 @@ pub(crate) async fn converse(ctx: &Ctx, id: u64) {
     if let Err(error) = drive(ctx, id).await {
         stall(ctx, id, &error);
     }
+    if let Err(error) = retire(ctx, id) {
+        stall(ctx, id, &error);
+    }
 }
 
 async fn drive(ctx: &Ctx, id: u64) -> Result<(), Error> {
@@ -428,14 +432,12 @@ fn plan(ctx: &ExecCtx, thread: &mut ThreadRow, agent: &Agent) -> Result<Option<S
         Window::Tokens(tokens) => Some(tokens),
     };
     reseal(ctx, thread, model.wire)?;
-    let mut system = preamble(agent, &thread.title);
-    if !config.system.is_empty() {
-        system.push_str("\n\n");
-        system.push_str(&config.system);
-    }
+    let mut system = config.paragraphs();
+    system.push(manual(agent, &thread.title));
     let header = Header {
         name: &model.name,
         max_tokens: config.max_tokens,
+        thinking: config.thinking,
         system: &system,
     };
     let header = put_part(ctx, wire::header(model.wire, &header))?;
@@ -603,15 +605,22 @@ async fn ask(
     let answer = call_model(ctx, &asked, head, parts, delivery).await;
     let partial = PARTIALS.get(ctx, &id)?;
     PARTIALS.remove(ctx, &id);
-    let answered = answer.map(|response| read_answer(asked.wire, &response, partial));
-    let calls = turned(ctx, id, upto, asked.config, answered)?;
-    let runs = calls.into_iter().map(|call| run_call(ctx, id, call));
+    let mut settled = take_back_showing(ctx, id).await?;
+    let answered = answer.map(|response| read_answer(asked.wire, &response, partial.clone()));
+    let calls = turned(ctx, id, upto, asked.config, answered, partial)?;
+    let runs = calls
+        .into_iter()
+        .map(|(index, call)| run_call(ctx, id, index, call));
     for ran in all(runs).await {
-        ran?;
+        settled = settled.and(ran?);
     }
     let mut thread = thread(ctx, id)?;
-    settle(ctx, &mut thread)?;
-    THREADS.put(ctx, &id, &thread);
+    let finished = thread.asking == Asking::Running && thread.open_calls == 0;
+    if finished {
+        settle(ctx, &mut thread)?;
+        THREADS.put(ctx, &id, &thread);
+    }
+    hear_again(ctx, settled.hearings);
     Ok(())
 }
 
@@ -624,27 +633,86 @@ fn read_answer(wire: Wire, response: &http::Response, partial: Option<Partial>) 
     }
 }
 
+enum Ending {
+    Closed,
+    Reply(wire::Reply),
+    Overflow,
+    Failed(String),
+}
+
+fn ending(closed: bool, answered: Result<Answered, String>) -> Ending {
+    match (closed, answered) {
+        (true, _) => Ending::Closed,
+        (false, Ok(Answered::Reply(reply))) => Ending::Reply(reply),
+        (false, Ok(Answered::Overflow)) => Ending::Overflow,
+        (false, Ok(Answered::Failed(text)) | Err(text)) => Ending::Failed(text),
+    }
+}
+
+fn whole_blocks(partial: Partial) -> wire::Reply {
+    let mut said = partial.said;
+    if let Forming::Kept { .. } = partial.forming {
+        said.pop();
+    }
+    wire::Reply {
+        model: partial.model,
+        said,
+        stop: partial.stop.unwrap_or(Stop::ToolUse),
+        usage: partial.usage,
+    }
+}
+
+fn dispatched(
+    ctx: &ExecCtx,
+    id: u64,
+    partial: Option<Partial>,
+) -> Result<Option<wire::Reply>, Error> {
+    let any = !LIVE.scan(ctx, LIVE.prefix_of(&id))?.is_empty();
+    Ok(partial.filter(|_| any).map(whole_blocks))
+}
+
 fn turned(
     ctx: &ExecCtx,
     id: u64,
     upto: u64,
     config: BlobId,
     answered: Result<Answered, String>,
-) -> Result<Vec<String>, Error> {
+    partial: Option<Partial>,
+) -> Result<Vec<(u64, String)>, Error> {
     let mut thread = thread(ctx, id)?;
     thread.asking = Asking::Running;
-    let calls = match (thread.closed, answered) {
-        (true, _) => Vec::new(),
-        (false, Ok(Answered::Reply(reply))) => record(ctx, &mut thread, upto, config, reply)?,
-        (false, Ok(Answered::Overflow)) => {
+    let calls = match ending(thread.closed, answered) {
+        Ending::Closed => match dispatched(ctx, id, partial)? {
+            Some(reply) => record(ctx, &mut thread, upto, config, reply)?,
+            None => Vec::new(),
+        },
+        Ending::Reply(reply) => record(ctx, &mut thread, upto, config, reply)?,
+        Ending::Overflow => {
+            let calls = match dispatched(ctx, id, partial)? {
+                Some(reply) => record(ctx, &mut thread, upto, config, reply)?,
+                None => Vec::new(),
+            };
             thread.context = Context::Overflowed;
-            Vec::new()
+            calls
         }
-        (false, Ok(Answered::Failed(text)) | Err(text)) => {
-            give_up(ctx, &mut thread, text);
-            Vec::new()
-        }
+        Ending::Failed(text) => match dispatched(ctx, id, partial)? {
+            Some(reply) => {
+                let calls = record(ctx, &mut thread, upto, config, reply)?;
+                append(ctx, &mut thread, Body::Notice { text });
+                calls
+            }
+            None => {
+                give_up(ctx, &mut thread, text);
+                Vec::new()
+            }
+        },
     };
+    for (key, live) in LIVE.scan(ctx, LIVE.prefix_of(&id))? {
+        if live.outcome.is_some() {
+            SHOWN.remove(ctx, &(id, live.call));
+        }
+        LIVE.remove(ctx, &key);
+    }
     THREADS.put(ctx, &id, &thread);
     Ok(calls)
 }
@@ -670,17 +738,18 @@ fn record(
     upto: u64,
     config: BlobId,
     reply: wire::Reply,
-) -> Result<Vec<String>, Error> {
+) -> Result<Vec<(u64, String)>, Error> {
     thread.seen = upto;
     thread.last_stop = Some(reply.stop);
     let usage = reply.usage;
     let tokens = usage.input + usage.cache_read + usage.cache_write + usage.output;
     thread.context = Context::Measured(tokens);
-    let asked: Vec<(String, String, String)> = reply
-        .said
-        .iter()
-        .filter_map(|said| match said {
-            Said::ToolUse { id, name, input } => Some((id.clone(), name.clone(), input.clone())),
+    let asked: Vec<(u64, String, String, String)> = (0u64..)
+        .zip(&reply.said)
+        .filter_map(|(index, said)| match said {
+            Said::ToolUse { id, name, input } => {
+                Some((index, id.clone(), name.clone(), input.clone()))
+            }
             Said::Text(_) | Said::Thinking { .. } | Said::RedactedThinking(_) => None,
         })
         .collect();
@@ -693,159 +762,18 @@ fn record(
     };
     append(ctx, thread, turn);
     let mut calls = Vec::new();
-    for (call, tool, input) in asked {
-        if let Some(placed) = place(ctx, thread, call, tool, input)? {
-            calls.push(placed);
+    for (index, call, tool, input) in asked {
+        match LIVE.get(ctx, &(thread.id, index))? {
+            Some(Live {
+                outcome: Some(body),
+                ..
+            }) => append(ctx, thread, body),
+            Some(Live { outcome: None, .. }) => {}
+            None => match place(ctx, thread, &call, &tool, &input)? {
+                Placed::Refused(body) => append(ctx, thread, body),
+                Placed::Relaying => calls.push((index, call)),
+            },
         }
     }
     Ok(calls)
-}
-
-fn call_id_fits(call: &str) -> bool {
-    !call.is_empty()
-        && call
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
-}
-
-fn planned(
-    ctx: &ExecCtx,
-    thread: &ThreadRow,
-    call: &str,
-    tool: &str,
-    input: &str,
-) -> Result<(), String> {
-    if !call_id_fits(call) {
-        return Err("a call id is letters, digits, _ and -".to_owned());
-    }
-    if CALLS.has(ctx, &(thread.id, call.to_owned())) {
-        return Err(format!("call {call} was made before"));
-    }
-    let entry = tools::find(tool).ok_or_else(|| format!("there is no tool named {tool}"))?;
-    let input: Value =
-        serde_json::from_str(input).map_err(|error| format!("the input is not JSON: {error}"))?;
-    (entry.check)(&input)?;
-    let relaying = serves(ctx, RELAY).map_err(|error| error.message)?;
-    if !relaying {
-        return Err(format!(
-            "no member node serves {RELAY}, so no tool call can run"
-        ));
-    }
-    Ok(())
-}
-
-fn place(
-    ctx: &ExecCtx,
-    thread: &mut ThreadRow,
-    call: String,
-    tool: String,
-    input: String,
-) -> Result<Option<String>, Error> {
-    if let Err(problem) = planned(ctx, thread, &call, &tool, &input) {
-        append(
-            ctx,
-            thread,
-            Body::Refused {
-                call,
-                tool,
-                problem,
-            },
-        );
-        return Ok(None);
-    }
-    let row = CallRow {
-        thread: thread.id,
-        id: call.clone(),
-        tool,
-        input,
-        made: ctx.env().height,
-        state: CallState::Relaying,
-    };
-    CALLS.put(ctx, &(thread.id, call.clone()), &row);
-    thread.open_calls += 1;
-    Ok(Some(call))
-}
-
-fn mark(ctx: &ExecCtx, id: u64, call: &str, state: CallState) -> Result<(), Error> {
-    let key = (id, call.to_owned());
-    if let Some(mut row) = CALLS.get(ctx, &key)? {
-        row.state = state;
-        CALLS.put(ctx, &key, &row);
-    }
-    Ok(())
-}
-
-async fn run_call(ctx: &Ctx, id: u64, call: String) -> Result<(), Error> {
-    let note = call.as_bytes().to_vec();
-    let relay = egress::Request::Relay { note };
-    let relayed = request(ctx, relay, egress::Delivery::Whole, None).await;
-    let (text, failed) = match relayed {
-        Ok(_) => perform(ctx, id, &call).await?,
-        Err(error) => (format!("the relay failed: {}", refusal(&error)), true),
-    };
-    finish(ctx, id, &call, text, failed)
-}
-
-fn refusal(error: &Error) -> String {
-    format!("{}: {}", error.code, error.message)
-}
-
-async fn perform(ctx: &Ctx, id: u64, call: &str) -> Result<(String, bool), Error> {
-    let thread = thread(ctx, id)?;
-    let Some(row) = CALLS.get(ctx, &(id, call.to_owned()))? else {
-        return Ok((format!("call {call} is not open"), true));
-    };
-    let runs = running(ctx, thread.agent)?.is_some();
-    let entry = match (thread.closed, runs, tools::find(&row.tool)) {
-        (true, _, _) => return Ok(("the thread closed before the call ran".to_owned(), true)),
-        (false, false, _) => {
-            return Ok((
-                "the agent stopped running here before the call ran: its script no longer calls harness, or it is not active".to_owned(),
-                true,
-            ));
-        }
-        (false, true, None) => return Ok((format!("there is no tool named {}", row.tool), true)),
-        (false, true, Some(entry)) => entry,
-    };
-    let input: Value = serde_json::from_str(&row.input).unwrap_or(Value::Null);
-    let seat = Seat {
-        thread: id,
-        agent: thread.agent,
-        call,
-    };
-    match (entry.run)(ctx, &seat, input) {
-        Ok(Run::Done(value)) => Ok((value.to_string(), false)),
-        Ok(Run::Write { target, payload }) => {
-            mark(ctx, id, call, CallState::Writing)?;
-            let written = ctx.call_raw_as(thread.agent, target, payload).await;
-            Ok(match written {
-                Ok(output) => ((entry.render)(&output).to_string(), false),
-                Err(error) => (refusal(&error), true),
-            })
-        }
-        Err(error) => Ok((refusal(&error), true)),
-    }
-}
-
-fn finish(ctx: &ExecCtx, id: u64, call: &str, text: String, failed: bool) -> Result<(), Error> {
-    let mut thread = thread(ctx, id)?;
-    let key = (id, call.to_owned());
-    let Some(mut row) = CALLS.get(ctx, &key)? else {
-        return Ok(());
-    };
-    let result = Body::Result {
-        call: row.id.clone(),
-        tool: row.tool.clone(),
-        text,
-        failed,
-    };
-    append(ctx, &mut thread, result);
-    row.state = CallState::Done {
-        height: ctx.env().height,
-        failed,
-    };
-    thread.open_calls = thread.open_calls.saturating_sub(1);
-    CALLS.put(ctx, &key, &row);
-    THREADS.put(ctx, &id, &thread);
-    Ok(())
 }

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use chat::view::Names;
 use chat::{Category, Kind, Principal, Standing};
-use identity::Ownership;
+use identity::{Ownership, Party};
 
 /// Autocomplete candidates: every user and program account that acts
 /// ([`Names::people`]), then the room's other such members, labelled
@@ -45,10 +45,6 @@ pub fn mentioned(token: &str) -> Option<u64> {
     token.strip_prefix("<@")?.strip_suffix('>')?.parse().ok()
 }
 
-/// Why `agent` would give `reader` no answer, by the rule harness answers
-/// by: an active agent's manager always gets one, anyone else as its
-/// `Ownership` in identity says. None when it answers them, for anyone not
-/// an active agent, and while its `Ownership` is unread.
 pub fn unanswered(
     names: &Names,
     ownerships: &BTreeMap<u64, Ownership>,
@@ -69,8 +65,10 @@ pub fn unanswered(
     }
     match ownerships.get(&agent.account()?)? {
         Ownership::Owner => Some("its manager only"),
-        Ownership::Accounts(listed) if !listed.contains(&reader) => Some("listed people only"),
-        Ownership::Accounts(_) | Ownership::Anyone => None,
+        Ownership::Listed(listed) if !listed.contains(&Party::Account(reader)) => {
+            Some("listed people only")
+        }
+        Ownership::Listed(_) | Ownership::Anyone => None,
     }
 }
 
@@ -79,10 +77,13 @@ pub fn unanswered(
 pub fn answers(names: &Names, ownership: &Ownership) -> String {
     match ownership {
         Ownership::Owner => "Answers its manager only".into(),
-        Ownership::Accounts(listed) => {
+        Ownership::Listed(listed) => {
             let listed: Vec<String> = listed
                 .iter()
-                .map(|number| names.member(&Principal::Account(*number)))
+                .map(|party| match party {
+                    Party::Account(number) => names.member(&Principal::Account(*number)),
+                    Party::Program(program) => format!("the {program} program"),
+                })
                 .collect();
             format!("Answers its manager and {}", listed.join(", "))
         }
@@ -221,11 +222,9 @@ mod tests {
         };
         assert_eq!(heard(Ownership::Owner, 1), None, "its manager");
         assert_eq!(heard(Ownership::Owner, 4), Some("its manager only"));
-        assert_eq!(heard(Ownership::Accounts(vec![4]), 4), None);
-        assert_eq!(
-            heard(Ownership::Accounts(vec![4]), 9),
-            Some("listed people only")
-        );
+        let bo = Ownership::Listed(vec![Party::Account(4), Party::Program("forge".into())]);
+        assert_eq!(heard(bo.clone(), 4), None);
+        assert_eq!(heard(bo, 9), Some("listed people only"));
         assert_eq!(heard(Ownership::Anyone, 9), None);
         let none = BTreeMap::new();
         assert_eq!(unanswered(&names, &none, &scout, 4), None, "unread");
@@ -237,8 +236,15 @@ mod tests {
             );
         }
         assert_eq!(
-            answers(&names, &Ownership::Accounts(vec![4, 9])),
-            "Answers its manager and bo, account 9"
+            answers(
+                &names,
+                &Ownership::Listed(vec![
+                    Party::Account(4),
+                    Party::Account(9),
+                    Party::Program("forge".into())
+                ])
+            ),
+            "Answers its manager and bo, account 9, the forge program"
         );
     }
 }

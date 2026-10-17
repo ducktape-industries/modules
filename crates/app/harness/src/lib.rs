@@ -1,15 +1,21 @@
 //! The `harness` program: agents that consensus runs. An agent is a program account whose
 //! script calls harness; its script's `config` is the path of its configuration in `files`
-//! (`config.rs`), which harness reads at each model call. A mention or a direct message about
-//! the agent reaches harness through `attribution`; the model is a record harness keeps
+//! (`config.rs`), which harness reads at each model call. A mention, a direct message or a reply
+//! in a chat thread the agent took part in reaches harness through `attribution`; the model is a record harness keeps
 //! (`SetModel`), reached through the egress role in the wire it speaks (`wire/`), which streams
 //! a turn's reply back one event at a time (`Streamed`, folded into a [`Partial`]). Every tool
 //! call runs in a later block, as the agent.
 mod agents;
+mod calls;
+mod codec;
 pub mod config;
+mod conversations;
+mod gate;
+mod migrate;
 mod models;
 mod program;
 mod queries;
+mod schema;
 mod state;
 mod streams;
 #[cfg(test)]
@@ -22,16 +28,18 @@ pub use ::program::{BlobId, Principal};
 pub use abi::role::egress::Event;
 pub use abi::role::identity::{AccountNumber, Standing};
 pub use attribution::Change;
-pub use config::{Config, Malformed};
+pub use config::{Config, Malformed, Thinking};
 pub use program::Harness;
 pub use store::{PageRequest, PageResponse};
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
+
+pub use gate::{agent_key, conversation_key, model_key, thread_key};
 
 pub const PROGRAM: &str = "harness";
 pub const PART: &str = "part";
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Op {
     Close {
         thread: u64,
@@ -50,9 +58,16 @@ pub enum Op {
         thread: u64,
         event: Event,
     },
+    NewThread {
+        agent: AccountNumber,
+    },
+    ForkThread {
+        agent: AccountNumber,
+    },
+    Migrate,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Wire {
     AnthropicMessages,
 }
@@ -67,7 +82,7 @@ impl Wire {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Window {
     Unasked,
     Unreported,
@@ -83,7 +98,7 @@ impl Window {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct ModelRow {
     pub id: String,
     pub owner: AccountNumber,
@@ -93,16 +108,17 @@ pub struct ModelRow {
     pub window: Window,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct AgentSetup {
     pub agent: AccountNumber,
     pub manager: AccountNumber,
     pub standing: Standing,
     pub path: String,
     pub configured: Configured,
+    pub current: Option<u64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Configured {
     Unreadable {
         reason: String,
@@ -159,7 +175,7 @@ impl Configured {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Frame {
     pub seq: u64,
     pub height: u64,
@@ -167,7 +183,7 @@ pub struct Frame {
     pub body: Body,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Body {
     Post {
         author: Principal,
@@ -241,7 +257,7 @@ impl Said {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Said {
     Text(String),
     Thinking {
@@ -256,7 +272,7 @@ pub enum Said {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Stop {
     EndTurn,
     ToolUse,
@@ -266,7 +282,9 @@ pub enum Stop {
     Refusal,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema,
+)]
 pub struct Usage {
     pub input: u64,
     pub output: u64,
@@ -274,7 +292,7 @@ pub struct Usage {
     pub cache_write: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Partial {
     pub wire: Wire,
     pub model: String,
@@ -301,14 +319,14 @@ impl Partial {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Forming {
     Nothing,
     Kept { index: u64 },
     Skipped { index: u64 },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Flow {
     Open,
     Ended,
@@ -317,7 +335,7 @@ pub enum Flow {
     Failed { text: String },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Asking {
     Idle,
     Learning,
@@ -326,7 +344,7 @@ pub enum Asking {
     Running,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct ThreadRow {
     pub id: u64,
     pub agent: AccountNumber,
@@ -360,7 +378,7 @@ pub struct Sealed {
     pub part: BlobId,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Context {
     Measured(u64),
     Overflowed,
@@ -374,20 +392,22 @@ impl ThreadRow {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct WithheldFrame {
     pub seq: u64,
     pub size: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum CallState {
     Relaying,
     Writing,
     Done { height: u64, failed: bool },
+    Showing,
+    Voided { height: u64 },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct CallRow {
     pub thread: u64,
     pub id: String,
@@ -397,7 +417,7 @@ pub struct CallRow {
     pub state: CallState,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct ToolInfo {
     pub name: String,
     pub description: String,
@@ -405,7 +425,9 @@ pub struct ToolInfo {
     pub writes: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask,
+)]
 #[ask(Harness)]
 pub enum Query {
     #[ask(Reply::Agent(Option<AgentSetup>))]
@@ -447,7 +469,7 @@ pub enum Query {
     Partial { thread: u64 },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     Agent(Option<AgentSetup>),
     Thread(Option<ThreadRow>),
@@ -498,10 +520,19 @@ pub fn describe(op: &Op) -> describe::Description {
             format!("Remove model · {id}"),
             vec![field("model", Value::text(id))],
         ),
+        Op::NewThread { agent } => (
+            format!("Start a new conversation with agent {agent}"),
+            vec![field("agent", Value::count(*agent))],
+        ),
+        Op::ForkThread { agent } => (
+            format!("Fork agent {agent}'s conversation"),
+            vec![field("agent", Value::count(*agent))],
+        ),
         Op::Streamed { thread, event } => (
             format!("Event {} of thread {thread}'s model reply", event.seq),
             vec![field("data", Value::count(event.data.len() as u64))],
         ),
+        Op::Migrate => ("Migrate · whom agents answer".to_owned(), Vec::new()),
     };
     describe::Description { title, fields }
 }
@@ -512,7 +543,16 @@ describe::export!(Op, describe);
 fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
-        ["Close", "Attributed", "SetModel", "RemoveModel", "Streamed"]
+        [
+            "Close",
+            "Attributed",
+            "SetModel",
+            "RemoveModel",
+            "Streamed",
+            "NewThread",
+            "ForkThread",
+            "Migrate"
+        ]
     );
 }
 

@@ -1,29 +1,27 @@
 //! The agents harness runs: program accounts of the agent category whose script calls harness.
 //! An agent's setup is what identity says of it, its configuration file in `files` read at the
-//! head, and the model record that file names. A mention or a direct message it answers opens
-//! or continues its thread for that place, and its manager closes a thread.
+//! head, and the model record that file names. A mention, a direct message or a reply in a chat
+//! thread it took part in, from someone it answers, continues its one current thread, from any
+//! place, and its manager closes a thread.
+//! Whom an agent answers is its key's list in the access program, its manager alone by default.
 use ::program::{
-    BlobId, Ctx, Error, ExecCtx, Principal, QueryCtx, not_found, unauthorized, unexpected_reply,
+    BlobId, Ctx, Error, ExecCtx, Ownership, Party, Principal, QueryCtx, not_found, unauthorized,
+    unexpected_reply,
 };
 use abi::role::identity::{AccountNumber, Category, Kind, Profile, Standing};
 use attribution::{Actor, Change, Kind as Changed, Reason, Source};
 
-use crate::state::{BY_AGENT, COUNT, LAST, MODELS, PLACES, THREADS, newest_first};
+use crate::calls::deferred_while_shown;
+use crate::conversations::{conversation, current};
+use crate::state::{LAST, MODELS, PLACES, THREADS};
 use crate::turns::{converse, say};
-use crate::{AgentSetup, Asking, Body, Config, Configured, Context, PROGRAM, ThreadRow};
+use crate::{AgentSetup, Body, Config, Configured, Op, PROGRAM, ThreadRow};
 
 pub(crate) struct Agent {
     pub number: AccountNumber,
     pub name: String,
     pub manager: AccountNumber,
     pub path: String,
-}
-
-fn acting(ctx: &ExecCtx) -> Result<AccountNumber, Error> {
-    match ctx.sender()? {
-        Principal::Account(number) => Ok(number),
-        Principal::Root => Err(unauthorized("a thread is closed by its agent's manager")),
-    }
 }
 
 fn profile(ctx: &QueryCtx, number: AccountNumber) -> Result<Option<Profile>, Error> {
@@ -127,27 +125,69 @@ pub(crate) fn setup(ctx: &QueryCtx, number: AccountNumber) -> Result<Option<Agen
         return Ok(None);
     };
     let configured = configured(ctx, &agent.path)?;
+    let current = current(ctx, agent.number)?.map(|thread| thread.id);
     Ok(Some(AgentSetup {
         agent: agent.number,
         manager: agent.manager,
         standing,
         path: agent.path,
         configured,
+        current,
     }))
 }
 
-fn ownership(ctx: &QueryCtx, agent: AccountNumber) -> Result<identity::Ownership, Error> {
-    let identity = &ctx.env().role(abi::role::IDENTITY)?.clone();
-    let asked = identity::Query::Ownership { number: agent };
-    match ctx.query::<identity::Query, identity::Reply>(identity, &asked)? {
-        identity::Reply::Ownership(ownership) => Ok(ownership),
-        other => Err(unexpected_reply(identity, "Ownership", &other)),
+pub(crate) fn harnessed_agent(
+    ctx: &QueryCtx,
+    number: AccountNumber,
+) -> Result<Option<Agent>, Error> {
+    Ok(profile(ctx, number)?
+        .as_ref()
+        .and_then(harnessed)
+        .map(|(agent, _)| agent))
+}
+
+pub(crate) fn managed(ctx: &ExecCtx, number: AccountNumber) -> Result<Agent, Error> {
+    let Principal::Account(_) = ctx.sender()? else {
+        return Err(unauthorized(
+            "an agent's conversation is started by an account",
+        ));
+    };
+    harnessed_agent(ctx, number)?.ok_or_else(|| {
+        not_found(format!(
+            "account {number} is no agent whose script calls harness"
+        ))
+    })
+}
+
+fn listed(ctx: &QueryCtx, agent: AccountNumber) -> Result<Option<Ownership>, Error> {
+    let checker = &ctx.env().role(abi::role::ACCESS)?.clone();
+    let asked = access::Query::List {
+        program: PROGRAM.into(),
+        key: crate::agent_key(agent),
+    };
+    match ctx.query::<access::Query, access::Reply>(checker, &asked)? {
+        access::Reply::List(list) => Ok(list),
+        other => Err(unexpected_reply(checker, "List", &other)),
     }
 }
 
 fn answers(ctx: &QueryCtx, agent: &Agent, actor: AccountNumber) -> Result<bool, Error> {
     let by_manager = actor == agent.manager;
-    Ok(by_manager || ownership(ctx, agent.number)?.allows(Some(agent.manager), actor))
+    if by_manager {
+        return Ok(true);
+    }
+    let list = listed(ctx, agent.number)?.unwrap_or_default();
+    let manager = Party::Account(agent.manager);
+    Ok(list.allows(Some(&manager), &caller(ctx, actor)?))
+}
+
+fn caller(ctx: &QueryCtx, actor: AccountNumber) -> Result<Vec<Party>, Error> {
+    let account = Party::Account(actor);
+    let program = profile(ctx, actor)?.and_then(|profile| match profile.kind {
+        Kind::System(program) => Some(Party::Program(program)),
+        Kind::User | Kind::Program { .. } => None,
+    });
+    Ok(std::iter::once(account).chain(program).collect())
 }
 
 pub(crate) fn thread(ctx: &QueryCtx, id: u64) -> Result<ThreadRow, Error> {
@@ -158,72 +198,34 @@ pub(crate) fn thread(ctx: &QueryCtx, id: u64) -> Result<ThreadRow, Error> {
 
 pub(crate) fn close(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
     let mut thread = thread(ctx, id)?;
-    if acting(ctx)? != thread.manager {
-        return Err(unauthorized(format!(
-            "thread {id} is closed by its agent's manager"
-        )));
-    }
     thread.closed = true;
     THREADS.put(ctx, &id, &thread);
     Ok(())
 }
 
-pub(crate) fn preamble(agent: &Agent, title: &str) -> String {
+pub(crate) fn manual(agent: &Agent, title: &str) -> String {
     format!(
-        "You are {name}, an agent on a ducktape network: account {number}, managed by account \
-         {manager}. People reach you by mentioning you or by writing to you directly in chat; \
-         each such message arrives here, naming who wrote it and where. This conversation is \
-         {title}. Answer with chat_post in the same channel, with reply_to set when the \
-         message was in a thread. Everything you write is written as your account, and the \
-         network allows you only what it allows that account. Every tool call runs in a later \
-         block, and its result comes back before you are asked again.",
+        "ducktape resource manual\n\
+         - Account: {name}, account {number}, managed by account {manager}.\n\
+         - Conversation: {title}. It is your one conversation: every message to you, from \
+         every person and every place (channels, direct messages, threads), arrives here and \
+         names who wrote it and where. Answer each where it came from: chat_post to its \
+         channel, with reply_to for its thread.\n\
+         - Writes: everything written here is written as account {number}, sent by harness, \
+         and the network allows only what it allows that account or harness.\n\
+         - Tools: each tool call runs in a later block, and its result arrives before the next \
+         model call.\n\
+         - Chat: chat_post posts to a channel; reply_to puts the post in a thread.\n\
+         - Programs: network_schema gives any program's op, query and reply shapes; \
+         network_query asks it a query and network_call sends it an op as account {number}.",
         name = agent.name,
         number = agent.number,
         manager = agent.manager,
     )
 }
 
-fn opened(ctx: &ExecCtx, agent: &Agent, place: String, title: String) -> Result<ThreadRow, Error> {
-    if let Some(id) = PLACES.get(ctx, &(agent.number, place.clone()))? {
-        let existing = thread(ctx, id)?;
-        if !existing.closed {
-            return Ok(existing);
-        }
-    }
-    let id = COUNT.get(ctx)?.unwrap_or(0) + 1;
-    let row = ThreadRow {
-        id,
-        agent: agent.number,
-        manager: agent.manager,
-        place: place.clone(),
-        title,
-        opened: ctx.env().height,
-        closed: false,
-        frames: 0,
-        last_input: 0,
-        seen: 0,
-        last_stop: None,
-        asking: Asking::Idle,
-        open_calls: 0,
-        held: 0,
-        sealed: 0,
-        base: 1,
-        tail_from: 1,
-        summary: None,
-        context: Context::Measured(0),
-        compact_before: None,
-        last_height: 0,
-        last_time: 0,
-    };
-    COUNT.put(ctx, &id);
-    BY_AGENT.insert(ctx, &(agent.number, newest_first(id)));
-    PLACES.put(ctx, &(agent.number, place), &id);
-    Ok(row)
-}
-
 struct Designation {
     place: String,
-    title: String,
     text: String,
 }
 
@@ -234,10 +236,34 @@ fn name_of(ctx: &QueryCtx, number: AccountNumber) -> String {
     }
 }
 
+enum Heard {
+    Mention,
+    Direct,
+    Thread,
+}
+
+fn heard_as(reason: &Reason) -> Option<Heard> {
+    match reason {
+        Reason::Mention => Some(Heard::Mention),
+        Reason::Defined(name) => match name.as_str() {
+            chat::attributed::DIRECT => Some(Heard::Direct),
+            chat::attributed::THREAD => Some(Heard::Thread),
+            _ => None,
+        },
+        Reason::Authorship
+        | Reason::Ownership
+        | Reason::Assignment
+        | Reason::Credit
+        | Reason::Result
+        | Reason::Report => None,
+    }
+}
+
 fn designation(
     ctx: &QueryCtx,
     change: &Change,
     actor: AccountNumber,
+    heard: Heard,
 ) -> Result<Designation, Error> {
     let who = name_of(ctx, actor);
     let from_chat = change.source.program == chat::PROGRAM
@@ -261,15 +287,12 @@ fn designation(
             "{who} related you to {program}'s {} {} ({:?}).",
             object.kind, object.id, change.reason
         );
-        return Ok(Designation {
-            title: place.clone(),
-            place,
-            text,
-        });
+        return Ok(Designation { place, text });
     };
-    let verb = match &change.reason {
-        Reason::Mention => "mentioned you",
-        _ => "wrote to you directly",
+    let verb = match heard {
+        Heard::Mention => "mentioned you",
+        Heard::Direct => "wrote to you directly",
+        Heard::Thread => "continued a thread with you",
     };
     let in_thread = match row.thread {
         Some(root) => format!(", in the thread of message {root} (reply_to {root})"),
@@ -283,17 +306,8 @@ fn designation(
     );
     Ok(Designation {
         place: format!("{}/{}", chat::PROGRAM, row.channel_id),
-        title: format!("chat channel {}", row.channel_id),
         text,
     })
-}
-
-fn designates(reason: &Reason) -> bool {
-    match reason {
-        Reason::Mention => true,
-        Reason::Defined(name) => name == chat::attributed::DIRECT,
-        _ => false,
-    }
 }
 
 pub(crate) async fn attributed(ctx: Ctx, change: Change) -> Result<(), Error> {
@@ -304,17 +318,36 @@ pub(crate) async fn attributed(ctx: Ctx, change: Change) -> Result<(), Error> {
     Ok(())
 }
 
+pub(crate) fn hear_again(ctx: &ExecCtx, changes: Vec<Change>) {
+    for change in changes {
+        let resent = Op::Attributed(Box::new(change));
+        ctx.emit(PROGRAM, &resent, ::program::Reply::None);
+    }
+}
+
 fn heard(ctx: &ExecCtx, change: Change) -> Result<Option<u64>, Error> {
-    ctx.env().sent_by(attribution::PROGRAM)?;
+    let from_attribution = ctx.env().sent_by(attribution::PROGRAM).is_ok();
+    let held_back_by_harness = ctx.env().sent_by(PROGRAM).is_ok();
+    if !(from_attribution || held_back_by_harness) {
+        return Err(unauthorized(
+            "only attribution delivers a change, and harness one it held back",
+        ));
+    }
     let added = change.kind == Changed::Added;
     let Actor::Account(actor) = change.actor else {
+        return Ok(None);
+    };
+    let Some(why) = heard_as(&change.reason) else {
         return Ok(None);
     };
     let by_another = actor != change.recipient;
     let told_already =
         LAST.get(ctx, &change.recipient)? == Some((change.source.clone(), change.revision));
-    let heeded = added && designates(&change.reason) && by_another && !told_already;
+    let heeded = added && by_another && !told_already;
     if !heeded {
+        return Ok(None);
+    }
+    if deferred_while_shown(ctx, &change)? {
         return Ok(None);
     }
     let Some(agent) = running(ctx, change.recipient)? else {
@@ -328,8 +361,9 @@ fn heard(ctx: &ExecCtx, change: Change) -> Result<Option<u64>, Error> {
         &agent.number,
         &(change.source.clone(), change.revision),
     );
-    let Designation { place, title, text } = designation(ctx, &change, actor)?;
-    let mut thread = opened(ctx, &agent, place, title)?;
+    let Designation { place, text } = designation(ctx, &change, actor, why)?;
+    let mut thread = conversation(ctx, &agent, &place)?;
+    PLACES.put(ctx, &(agent.number, place), &thread.id);
     let author = Principal::Account(actor);
     say(ctx, &mut thread, Body::Post { author, text });
     THREADS.put(ctx, &thread.id, &thread);

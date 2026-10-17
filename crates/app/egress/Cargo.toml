@@ -24,6 +24,7 @@ program = { workspace = true }
 store = { workspace = true }
 
 [dev-dependencies]
+access = { workspace = true }
 awaits = { workspace = true }
 identity = { workspace = true }
 scheduler = { workspace = true }

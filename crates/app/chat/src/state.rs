@@ -28,6 +28,7 @@ pub const REPLIES: Set<(ChannelId, Seq, Seq)> = Set::new("reply/");
 /// Each author's answered threads, newest answer first:
 /// `(channel, root author, newest_first(last reply))` → the root's seq.
 pub const ANSWERED: Map<(ChannelId, Principal, Seq), Seq> = Map::new("answered/");
+pub const PARTICIPANTS: Map<(ChannelId, Seq, Principal), Seq> = Map::new("participant/");
 /// Search postings: `(word, channel, seq)`.
 pub const WORDS: Set<(String, ChannelId, Seq)> = Set::new("word/");
 /// Tag postings, newest first: `(tag, newest_first(time), channel, seq)`.

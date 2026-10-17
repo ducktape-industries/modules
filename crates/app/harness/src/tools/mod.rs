@@ -1,10 +1,15 @@
-//! The tools a thread's model may call, each over one program of the network: its schema,
-//! the check a call's input passes when the model makes it, and the run in a later block.
+//! The tools a thread's model may call, each over one program of the network: its schema, the
+//! check a call's input passes, the run once its input is whole, and for a streamable tool what
+//! it shows while its input arrives and how it takes that back.
 mod chat;
 mod files;
 mod forge;
+mod interface;
 mod network;
+pub(crate) mod prefix;
 mod thread;
+
+pub(crate) use chat::shown_by;
 
 use ::program::{BlobId, Error, ExecCtx, Principal, ProgramId, invalid, unexpected_reply};
 use abi::role::identity::AccountNumber;
@@ -13,27 +18,53 @@ use serde_json::{Value, json};
 use store::PageRequest;
 
 use crate::ToolInfo;
+use prefix::Prefix;
 
 pub(crate) struct Seat<'a> {
     pub thread: u64,
     pub agent: AccountNumber,
     pub call: &'a str,
+    pub shown: Option<&'a Value>,
+}
+
+pub(crate) struct Write {
+    pub target: ProgramId,
+    pub payload: Vec<u8>,
 }
 
 pub(crate) enum Run {
     Done(Value),
-    Write { target: ProgramId, payload: Vec<u8> },
+    Write(Vec<Write>),
+}
+
+pub(crate) fn write(target: impl Into<ProgramId>, payload: Vec<u8>) -> Run {
+    Run::Write(vec![Write {
+        target: target.into(),
+        payload,
+    }])
+}
+
+pub(crate) enum Show {
+    Wait,
+    Write { writes: Vec<Write>, shown: Value },
 }
 
 pub(crate) trait Tool {
     const NAME: &'static str;
     const DESCRIPTION: &'static str;
     const WRITES: bool = false;
+    const STREAMS: bool = false;
     type Args: DeserializeOwned;
     fn schema() -> Value;
     fn run(ctx: &ExecCtx, seat: &Seat, args: Self::Args) -> Result<Run, Error>;
     fn render(_output: &[u8]) -> Value {
         json!({ "ok": true })
+    }
+    fn show(_ctx: &ExecCtx, _seat: &Seat, _input: &Prefix) -> Result<Show, Error> {
+        Ok(Show::Wait)
+    }
+    fn void(_ctx: &ExecCtx, _seat: &Seat) -> Result<Vec<Write>, Error> {
+        Ok(Vec::new())
     }
 }
 
@@ -41,10 +72,13 @@ pub(crate) struct Entry {
     pub name: &'static str,
     pub description: &'static str,
     pub writes: bool,
+    pub streams: bool,
     pub schema: fn() -> Value,
     pub check: fn(&Value) -> Result<(), String>,
     pub run: fn(&ExecCtx, &Seat, Value) -> Result<Run, Error>,
     pub render: fn(&[u8]) -> Value,
+    pub show: fn(&ExecCtx, &Seat, &Prefix) -> Result<Show, Error>,
+    pub void: fn(&ExecCtx, &Seat) -> Result<Vec<Write>, Error>,
 }
 
 fn check<T: Tool>(input: &Value) -> Result<(), String> {
@@ -63,10 +97,13 @@ const fn entry<T: Tool>() -> Entry {
         name: T::NAME,
         description: T::DESCRIPTION,
         writes: T::WRITES,
+        streams: T::STREAMS,
         schema: T::schema,
         check: check::<T>,
         run: run::<T>,
         render: T::render,
+        show: T::show,
+        void: T::void,
     }
 }
 
@@ -77,6 +114,7 @@ pub(crate) const CATALOG: &[Entry] = &[
     entry::<files::Grep>(),
     entry::<files::History>(),
     entry::<files::Write>(),
+    entry::<files::SetList>(),
     entry::<files::Remove>(),
     entry::<files::Move>(),
     entry::<chat::Channels>(),
@@ -94,6 +132,9 @@ pub(crate) const CATALOG: &[Entry] = &[
     entry::<network::Accounts>(),
     entry::<network::Account>(),
     entry::<network::Activity>(),
+    entry::<interface::Schema>(),
+    entry::<interface::Query>(),
+    entry::<interface::Call>(),
     entry::<thread::Search>(),
     entry::<thread::Read>(),
 ];

@@ -11,23 +11,27 @@ pub use ::program::{AccountNumber, Cause, ProgramId};
 pub use program::Attribution;
 pub use store::{PageRequest, PageResponse};
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
 pub const PROGRAM: &str = "attribution";
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, BorshSerialize, BorshDeserialize, BorshSchema,
+)]
 pub struct Object {
     pub kind: String,
     pub id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, BorshSerialize, BorshDeserialize, BorshSchema,
+)]
 pub struct Source {
     pub program: ProgramId,
     pub object: Object,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Actor {
     Account(AccountNumber),
     Key(Vec<u8>),
@@ -35,7 +39,9 @@ pub enum Actor {
     System,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, BorshSerialize, BorshDeserialize, BorshSchema,
+)]
 pub enum Reason {
     Mention,
     Authorship,
@@ -47,21 +53,21 @@ pub enum Reason {
     Defined(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Relation {
     pub recipient: AccountNumber,
     pub reason: Reason,
     pub detail: Vec<u8>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Transfer {
     pub reason: Reason,
     pub from: AccountNumber,
     pub to: AccountNumber,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Update {
     pub object: Object,
     pub revision: u64,
@@ -70,7 +76,7 @@ pub struct Update {
     pub transfers: Vec<Transfer>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Kind {
     Added,
     Withdrawn,
@@ -78,7 +84,7 @@ pub enum Kind {
     TransferredOut { to: AccountNumber },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Change {
     pub seq: u64,
     pub source: Source,
@@ -92,21 +98,23 @@ pub struct Change {
     pub height: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Relations {
     pub source: Source,
     pub revision: u64,
     pub relations: Vec<Relation>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Op {
     Attribute(Update),
     AttributeBatch { updates: Vec<Update> },
     Register { deliver: Vec<u8> },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask,
+)]
 #[ask(Attribution)]
 pub enum Query {
     #[ask(Reply::Relations(Option<Relations>))]
@@ -129,7 +137,7 @@ pub enum Query {
     Registered,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     Relations(Option<Relations>),
     Changes(PageResponse<Change>),

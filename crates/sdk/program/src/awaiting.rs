@@ -248,7 +248,7 @@ pub mod exports {
     use abi::{Invocation, ProgramCall, ProgramReply, Refusal, reason};
 
     use super::{Awaiting, Step, Suspended, resume, start};
-    use crate::{Error, ExecCtx, QueryCtx, code, hook, query};
+    use crate::{Error, ExecCtx, QueryCtx, access, code, hook, query, resource};
 
     #[link(wasm_import_module = "ducktape")]
     unsafe extern "C" {
@@ -281,6 +281,8 @@ pub mod exports {
                 }
             }
             ProgramCall::Query(request) => query::<A>(&QueryCtx::new(env), &request),
+            ProgramCall::Access(payload) => access::<A>(&QueryCtx::new(env), &payload),
+            ProgramCall::Resource(key) => resource::<A>(&QueryCtx::new(env), &key),
             ProgramCall::Hook(record) => hook::<A>(&ExecCtx::new(env), record),
         };
         reply.map_err(crate::kernel::refusal_from)

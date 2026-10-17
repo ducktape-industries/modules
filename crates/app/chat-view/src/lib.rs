@@ -86,7 +86,7 @@ impl View for Chat {
         Capability::Notify,
         Capability::Store,
     ];
-    const TARGETS: &'static [&'static str] = &[chat::PROGRAM, identity::PROGRAM];
+    const TARGETS: &'static [&'static str] = &[chat::PROGRAM, identity::PROGRAM, access::PROGRAM];
     // at 480 an agent message's head line is cut at the room's edge
     const MIN_WINDOW_WIDTH: u32 = 560;
 

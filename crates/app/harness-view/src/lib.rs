@@ -3,7 +3,7 @@
 //! resolves from it, its threads and what its turns used; a thread shows its transcript, read
 //! only; the models page lists harness's model records and sets one. People talk to an agent
 //! in chat; the writes here are a manager's (create, edit its configuration, take it back from
-//! harness, close a thread) and a model record's owner's.
+//! harness, start, fork or close a conversation) and a model record's owner's.
 //!
 //! - `read`: every read the screens make; `links`: the links in and out.
 //! - `create`: the create form and the ops it sends in order; `models`: the models form.
@@ -123,6 +123,7 @@ impl View for Agents {
         identity::PROGRAM,
         egress::PROGRAM,
         files::PROGRAM,
+        access::PROGRAM,
     ];
     const MIN_WINDOW_WIDTH: u32 = 480;
 
@@ -172,6 +173,11 @@ impl View for Agents {
         cx.follow::<Changes<files::Files>>((), |view, change, cx| match change {
             Ok(_) => view.refresh(cx),
             Err(refusal) => cx.log_refused("files's live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<Changes<access::Access>>((), |view, change, cx| match change {
+            Ok(_) => view.refresh(cx),
+            Err(refusal) => cx.log_refused("access's live heads", &refusal),
         })
         .detach();
         self.refresh(cx);
@@ -282,6 +288,23 @@ impl Agents {
         cx.notify();
     }
 
+    pub(crate) fn converse(&mut self, op: harness::Op, cx: &mut Context<Self>) {
+        if self.acting.is_some() {
+            return;
+        }
+        let submit = cx.host().ask::<Submit<harness::Harness>>(op);
+        self.acting = Some(cx.land(submit, |view, answer, cx| {
+            view.acting = None;
+            match applied(answer) {
+                Ok(_) => view.read_screen(cx),
+                Err(problem) => view.notice = Some(problem),
+            }
+            view.read_roster(cx);
+            cx.notify();
+        }));
+        cx.notify();
+    }
+
     fn acted(&mut self, arm: Arm, answer: Result<Submitted, Error>, cx: &mut Context<Self>) {
         self.acting = None;
         self.arming = None;
@@ -314,7 +337,7 @@ impl Agents {
                 Some(Some(shown)) => format!(
                     "{} · {}",
                     name(shown.thread.agent),
-                    ui::place_label(&shown.thread, roster)
+                    ui::conversation_label(&shown.thread)
                 ),
                 _ => format!("Thread {id}"),
             },

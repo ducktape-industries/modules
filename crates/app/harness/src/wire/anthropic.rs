@@ -6,7 +6,7 @@ use abi::role::egress::http::{Head, Method, Response};
 use serde_json::{Map, Value, json};
 
 use super::{Answered, Header, Reply, Summarized, Summary};
-use crate::{Body, Flow, Forming, Frame, Partial, Role, Said, Stop, Usage, tools};
+use crate::{Body, Flow, Forming, Frame, Partial, Role, Said, Stop, Thinking, Usage, tools};
 
 pub(crate) const VERSION: &str = "2023-06-01";
 pub(crate) const COMPACTION_BETA: &str = "compact-2026-09-04";
@@ -44,11 +44,15 @@ fn definitions() -> Vec<Value> {
     tools::CATALOG
         .iter()
         .map(|entry| {
-            json!({
+            let mut definition = json!({
                 "name": entry.name,
                 "description": entry.description,
                 "input_schema": (entry.schema)(),
-            })
+            });
+            if entry.streams {
+                definition["eager_input_streaming"] = json!(true);
+            }
+            definition
         })
         .collect()
 }
@@ -61,17 +65,37 @@ pub(crate) fn header(header: &Header) -> String {
     let mut request = Map::new();
     request.insert("model".into(), json!(header.name));
     request.insert("max_tokens".into(), json!(header.max_tokens));
+    if let Some(thinking) = header.thinking {
+        thought(&mut request, thinking);
+    }
     request.insert("tools".into(), Value::Array(tools));
-    if !header.system.is_empty() {
-        request.insert(
-            "system".into(),
-            json!([{ "type": "text", "text": header.system, "cache_control": cached() }]),
-        );
+    let mut system: Vec<Value> = header
+        .system
+        .iter()
+        .map(|text| json!({ "type": "text", "text": text }))
+        .collect();
+    if let Some(Value::Object(last)) = system.last_mut() {
+        last.insert("cache_control".into(), cached());
+    }
+    if !system.is_empty() {
+        request.insert("system".into(), Value::Array(system));
     }
     let mut text = Value::Object(request).to_string();
     text.pop();
     text.push_str(",\"messages\":[");
     text
+}
+
+fn thought(request: &mut Map<String, Value>, thinking: Thinking) {
+    let effort = match thinking {
+        Thinking::Off => {
+            request.insert("thinking".into(), json!({ "type": "disabled" }));
+            return;
+        }
+        Thinking::Low | Thinking::Medium | Thinking::High | Thinking::Max => thinking.word(),
+    };
+    request.insert("thinking".into(), json!({ "type": "adaptive" }));
+    request.insert("output_config".into(), json!({ "effort": effort }));
 }
 
 fn blocks(body: &Body) -> Vec<Value> {

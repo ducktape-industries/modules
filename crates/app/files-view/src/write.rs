@@ -10,11 +10,11 @@
 //! app's confirm card is the yes for every op; nothing here asks again.
 use std::collections::BTreeMap;
 
-use files::{BlobId, Change, Content, Node};
+use files::{BlobId, Change, Content, Node, Ownership, Party};
 use view::methods::{BlobBody, NewBlob, OpPut, PutBlobs, Submitted};
 use view::prelude::*;
 
-use crate::state::{Note, Route, Sheet, child_of};
+use crate::state::{Note, Route, Sheet, child_of, is_namespace_root};
 use crate::upload::{self, Upload};
 use crate::{Files, words};
 
@@ -39,6 +39,33 @@ pub(crate) enum Write {
     Remove { path: String, folder: bool },
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ListChoice {
+    #[default]
+    AsItsFolder,
+    OnlyMe,
+    Listed,
+    Anyone,
+}
+
+impl ListChoice {
+    pub(crate) const ALL: [ListChoice; 4] = [
+        ListChoice::AsItsFolder,
+        ListChoice::OnlyMe,
+        ListChoice::Listed,
+        ListChoice::Anyone,
+    ];
+
+    pub(crate) fn slug(self) -> &'static str {
+        match self {
+            ListChoice::AsItsFolder => "folder",
+            ListChoice::OnlyMe => "me",
+            ListChoice::Listed => "listed",
+            ListChoice::Anyone => "anyone",
+        }
+    }
+}
+
 /// What a form's first field holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Naming {
@@ -56,6 +83,10 @@ impl Write {
             Write::Rename { .. } => Some(Naming::Path),
             Write::Upload { .. } | Write::Edit { .. } | Write::Remove { .. } => None,
         }
+    }
+
+    pub(crate) fn takes_list(&self) -> bool {
+        matches!(self, Write::NewFolder { .. } | Write::NewFile { .. })
     }
 
     /// Whether its form takes a file's text.
@@ -105,6 +136,8 @@ pub(crate) struct Form {
     /// the content each file the commit puts has on the network, in the
     /// order [`files_of`] lists them, as each is put
     pub(crate) contents: Vec<Content>,
+    pub(crate) list: ListChoice,
+    pub(crate) listed: TextField,
     /// the commit's message; left empty, [`words::message`] says it
     pub(crate) message: TextField,
     /// why the name or path is not one `files` takes: the field's own
@@ -196,6 +229,7 @@ struct Sent {
     form: u64,
     changes: Vec<Change>,
     message: String,
+    list: Option<access::Op>,
 }
 
 impl Files {
@@ -210,7 +244,8 @@ impl Files {
                 let Some(folder) = self.folder_at(path) else {
                     return offered;
                 };
-                if self.reader.writes(&folder.children()) {
+                let makes = self.reader.writes(&folder.children());
+                if makes && !folder.holds_namespace_roots() {
                     offered.push(Write::NewFolder {
                         folder: path.clone(),
                     });
@@ -221,8 +256,9 @@ impl Files {
                         folder: path.clone(),
                     });
                 }
-                let own = folder.ownership.as_ref();
-                if own.is_some_and(|own| self.reader.writes(&own.writers)) {
+                let own = folder.writers.as_ref();
+                let moves = own.is_some_and(|own| self.reader.writes(own));
+                if moves && !is_namespace_root(path) {
                     offered.push(Write::Rename { path: path.clone() });
                     offered.push(Write::Remove {
                         path: path.clone(),
@@ -234,10 +270,11 @@ impl Files {
                 let Some(file) = self.file_at(path) else {
                     return offered;
                 };
-                let (Some(entry), Some(own)) = (file.file(), &file.ownership) else {
+                let (Some(entry), Some(own)) = (file.file(), &file.writers) else {
                     return offered;
                 };
-                if !self.reader.writes(&own.writers) {
+                let writes = self.reader.writes(own);
+                if !writes || is_namespace_root(path) {
                     return offered;
                 }
                 if let (Node::File { exec, .. }, true) = (&entry.node, file.editable()) {
@@ -294,11 +331,21 @@ impl Files {
             text: TextField::new(text),
             upload: Vec::new(),
             contents: Vec::new(),
+            list: ListChoice::default(),
+            listed: TextField::default(),
             message: TextField::default(),
             problem: None,
             refused: None,
             sending: false,
         })));
+        cx.notify();
+    }
+
+    pub(crate) fn pick_list(&mut self, choice: ListChoice, cx: &mut Context<Self>) {
+        let Some(Sheet::Write(form)) = &mut self.sheet else {
+            return;
+        };
+        form.list = choice;
         cx.notify();
     }
 
@@ -319,6 +366,8 @@ impl Files {
             text: TextField::default(),
             upload,
             contents: Vec::new(),
+            list: ListChoice::default(),
+            listed: TextField::default(),
             message: TextField::default(),
             problem: None,
             refused: None,
@@ -342,7 +391,7 @@ impl Files {
         if form.write.takes_text() {
             form.contents.clear();
         }
-        if let Err(problem) = built(form) {
+        if let Err(problem) = built(form).and_then(|_| write_list(form)) {
             form.problem = Some(problem);
             cx.notify();
             return;
@@ -374,8 +423,10 @@ impl Files {
             cx.notify();
             return;
         }
-        let (message, changes) = match built(form) {
-            Ok(built) => built,
+        let made =
+            built(form).and_then(|(message, changes)| Ok((message, changes, write_list(form)?)));
+        let (message, changes, list) = match made {
+            Ok(made) => made,
             Err(problem) => {
                 form.sending = false;
                 form.problem = Some(problem);
@@ -392,6 +443,7 @@ impl Files {
             form: form.id,
             changes,
             message,
+            list,
         };
         let ask = cx.host().ask::<Submit<files::Files>>(op);
         cx.land(ask, move |view, answer, cx| view.landed(sent, answer, cx))
@@ -454,12 +506,29 @@ impl Files {
                 sent.changes.iter().for_each(|change| self.follow(change));
                 self.note = Some(Note::Committed(sent.message));
                 self.read_all(cx);
+                if let Some(op) = sent.list {
+                    self.set_list(op, cx);
+                }
             }
             (Some(problem), Some(form)) => {
                 form.sending = false;
                 form.refused = Some(problem);
             }
             (Some(problem), None) => self.note = Some(Note::Refused(problem)),
+        }
+        cx.notify();
+    }
+
+    fn set_list(&mut self, op: access::Op, cx: &mut Context<Self>) {
+        let ask = cx.host().ask::<Submit<access::Access>>(op);
+        cx.land(ask, |view, answer, cx| view.list_set(answer, cx))
+            .detach();
+    }
+
+    fn list_set(&mut self, answer: Result<Submitted, Error>, cx: &mut Context<Self>) {
+        match design::failure(&answer) {
+            None => self.read_all(cx),
+            Some(problem) => self.note = Some(Note::Refused(problem)),
         }
         cx.notify();
     }
@@ -524,6 +593,43 @@ pub(crate) fn built(form: &Form) -> Result<(String, Vec<Change>), String> {
         Write::Remove { path, .. } => Change::Remove { path: path.clone() },
     };
     Ok((message(form, words::message(&change)), vec![change]))
+}
+
+pub(crate) fn write_list(form: &Form) -> Result<Option<access::Op>, String> {
+    let folder = match &form.write {
+        Write::NewFolder { folder } | Write::NewFile { folder } => folder,
+        Write::Upload { .. } | Write::Edit { .. } | Write::Rename { .. } | Write::Remove { .. } => {
+            return Ok(None);
+        }
+    };
+    let list = match form.list {
+        ListChoice::AsItsFolder => return Ok(None),
+        ListChoice::OnlyMe => Ownership::Owner,
+        ListChoice::Anyone => Ownership::Anyone,
+        ListChoice::Listed => {
+            let parties = parties(&form.listed.text());
+            if parties.is_empty() {
+                return Err(words::LIST_SOMEONE.into());
+            }
+            Ownership::Listed(parties)
+        }
+    };
+    Ok(Some(access::Op::Set {
+        program: files::PROGRAM.into(),
+        key: path_in(folder, &form.name.text())?,
+        list: Some(list),
+    }))
+}
+
+pub(crate) fn parties(typed: &str) -> Vec<Party> {
+    typed
+        .split([',', ' '])
+        .filter(|word| !word.is_empty())
+        .map(|word| match word.parse::<u64>() {
+            Ok(number) => Party::Account(number),
+            Err(_) => Party::Program(word.to_owned()),
+        })
+        .collect()
 }
 
 /// The typed message, else `said`.

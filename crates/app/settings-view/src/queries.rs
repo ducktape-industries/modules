@@ -1,8 +1,8 @@
-//! Typed reads: who the seated key is and whom each of its agents answers
-//! (identity), the account a typed name or number is, and whether each of
-//! its keys validates (valset). Rows keep what the programs said; they are
+//! Typed reads: who the seated key is (identity) and whom each of its
+//! agents answers (access), the account a typed name or number is, and
+//! whether each of its keys validates (valset). Rows keep what the programs said; they are
 //! worded only when drawn.
-use identity::{Control, Kind, Ownership, PageRequest, Reference, Standing};
+use identity::{Control, Kind, Ownership, PageRequest, Party, Reference, Standing};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use view::host::malformed;
@@ -70,12 +70,13 @@ impl Agent {
         }
     }
 
-    /// A person this agent answers, by name, or `#number` while identity
-    /// names nobody by it.
-    pub fn person_name(&self, person: u64) -> String {
-        match self.names.get(&person) {
-            Some(name) => name.clone(),
-            None => format!("#{person}"),
+    pub fn party_name(&self, party: &Party) -> String {
+        match party {
+            Party::Account(person) => match self.names.get(person) {
+                Some(name) => name.clone(),
+                None => format!("#{person}"),
+            },
+            Party::Program(program) => program.clone(),
         }
     }
 }
@@ -165,7 +166,13 @@ async fn agents(host: &Host, manager: u64) -> Result<Vec<Agent>, Error> {
             )));
         };
         let number = agent.number;
-        let ownership = host.query(identity::ask::Ownership { number }).await?;
+        let ownership = host
+            .query(access::ask::List {
+                program: harness::PROGRAM.into(),
+                key: harness::agent_key(number),
+            })
+            .await?
+            .unwrap_or(Ownership::Owner);
         let names = names(host, &ownership).await?;
         agents.push(Agent {
             number,
@@ -180,11 +187,8 @@ async fn agents(host: &Host, manager: u64) -> Result<Vec<Agent>, Error> {
 }
 
 async fn names(host: &Host, ownership: &Ownership) -> Result<BTreeMap<u64, String>, Error> {
-    let Ownership::Accounts(numbers) = ownership else {
-        return Ok(BTreeMap::new());
-    };
     let mut names = BTreeMap::new();
-    for &number in numbers {
+    for number in ownership.accounts() {
         if let Some(profile) = host.query(identity::ask::Profile { number }).await? {
             names.insert(number, profile.name);
         }
@@ -193,7 +197,7 @@ async fn names(host: &Host, ownership: &Ownership) -> Result<BTreeMap<u64, Strin
 }
 
 pub(crate) enum Found {
-    Account(u64),
+    Party(Party),
     Nobody,
     Several,
 }
@@ -204,7 +208,7 @@ pub(crate) async fn find(host: Host, typed: String) -> Result<Found, Error> {
         let references = vec![Reference::Account(number)];
         let resolved = host.query(identity::ask::Resolve { references }).await?;
         return Ok(match resolved.into_iter().next().flatten() {
-            Some(number) => Found::Account(number),
+            Some(number) => Found::Party(Party::Account(number)),
             None => Found::Nobody,
         });
     }
@@ -215,16 +219,19 @@ pub(crate) async fn find(host: Host, typed: String) -> Result<Found, Error> {
         let (profiles, next) = host
             .query(identity::ask::Profiles { after, limit: 100 })
             .await?;
-        let named = profiles.into_iter().filter(|profile| {
-            let system = matches!(profile.kind, Kind::System(_));
-            !system && profile.name.to_lowercase() == wanted
-        });
-        matched.extend(named.map(|profile| profile.number));
+        let named = profiles
+            .into_iter()
+            .filter(|profile| profile.name.to_lowercase() == wanted)
+            .map(|profile| match profile.kind {
+                Kind::System(program) => Party::Program(program),
+                Kind::User | Kind::Program { .. } => Party::Account(profile.number),
+            });
+        matched.extend(named);
         let Some(next) = next else { break };
         after = Some(next);
     }
     Ok(match matched.as_slice() {
-        [number] => Found::Account(*number),
+        [party] => Found::Party(party.clone()),
         [] => Found::Nobody,
         _ => Found::Several,
     })

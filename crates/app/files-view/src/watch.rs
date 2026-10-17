@@ -1,5 +1,5 @@
 //! What Files follows while it is open: the session (who reads), and every
-//! block that wrote to `files` or identity. Every follower says what a
+//! block that wrote to `files`, access or identity. Every follower says what a
 //! refusal means to it; none ends on one.
 use identity::Identity;
 use view::prelude::*;
@@ -18,6 +18,11 @@ impl Files {
         cx.follow::<Changes<files::Files>>((), |view, change, cx| match change {
             Ok(_) => view.read_all(cx),
             Err(refusal) => cx.log_refused("files' live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<Changes<access::Access>>((), |view, change, cx| match change {
+            Ok(_) => view.read_all(cx),
+            Err(refusal) => cx.log_refused("access's live heads", &refusal),
         })
         .detach();
         // an account named or renamed: its home and its snapshots' author

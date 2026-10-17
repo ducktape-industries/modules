@@ -74,11 +74,14 @@ impl Chat {
             };
         }
         room.landed = land > 0;
-        room.opened_at_message = land > 0;
         room.target = land;
         room.at_tail = land == 0;
         room.older_loading = false;
         room.newer_loading = false;
+        room.read_to = 0;
+        // a re-read still out is the old window's: wherever it lands, its
+        // rows go over the new window or the read for it
+        room.rereading = None;
         // the room is entered, or entered again at another row: the rows
         // and the roster shown go, and both read as loading
         room.messages = Loadable::Idle;
@@ -367,9 +370,30 @@ impl Chat {
             let at_head = side == Side::Newer && page.is_empty();
             if at_head {
                 chat.reached_head(cx);
-            } else {
-                room.extend(side, page);
+                return;
             }
+            let last = page.last().map_or(at, |row| row.seq);
+            if side == Side::Newer {
+                // replies alone draw no row: the list does not move, so the
+                // host reports nothing new and the reader is still at the
+                // foot. The window keeps them out and reads on.
+                if page.iter().all(|row| row.thread.is_some()) {
+                    room.read_to = last;
+                    chat.page_landed(side, cx);
+                    return;
+                }
+                // roots past a run of replies longer than the window: it
+                // cannot hold them beside its newest root, the rows the
+                // reader is on, so the room stays a landing
+                let newest_root = room
+                    .messages
+                    .ready()
+                    .and_then(|rows| rows.iter().rev().find(|row| row.thread.is_none()));
+                if newest_root.is_some_and(|root| last - root.seq >= SPAN as u64) {
+                    return;
+                }
+            }
+            room.extend(side, page);
         })
         .detach();
     }
@@ -715,7 +739,12 @@ impl Room {
                 let Some(first) = rows.first().map(|row| row.seq) else {
                     return;
                 };
+                let held = rows.len();
                 rows.retain(|row| row.seq - first < SPAN as u64);
+                // the newer end let go: newer pages read it again
+                if rows.len() < held {
+                    self.read_to = 0;
+                }
             }
             Side::Newer => {
                 rows.extend(page);
@@ -743,11 +772,10 @@ impl Room {
 
 fn edge(room: &Room, side: Side) -> Option<u64> {
     let rows = room.messages.ready()?;
-    let row = match side {
-        Side::Older => rows.first(),
-        Side::Newer => rows.last(),
-    };
-    row.map(|row| row.seq)
+    match side {
+        Side::Older => rows.first().map(|row| row.seq),
+        Side::Newer => rows.last().map(|row| row.seq.max(room.read_to)),
+    }
 }
 
 pub(crate) fn room_of(chat: &mut Chat) -> &mut Room {

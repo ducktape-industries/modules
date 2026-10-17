@@ -4,12 +4,13 @@
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
-use crate::Forge;
+use crate::select::Writer;
 use crate::state::{Menu, SettingsForm};
 use crate::ui::changes::people_picker;
 use crate::ui::components::{button, dropdown, id, ref_label};
-use crate::ui::{PAGE_X, pending, scroller, staged};
+use crate::ui::{PAGE_X, pending, reading, scroller, staged};
 use crate::words;
+use crate::{Forge, Stage};
 use forge::Reply;
 use view::design::Ladder;
 
@@ -41,7 +42,7 @@ pub(crate) fn render(
         Ok(reply) => reply,
         Err(state) => return column.child(state).into_any_element(),
     };
-    let Reply::Repo { repo, writers, .. } = reply else {
+    let Reply::Repo { repo, .. } = reply else {
         return column.into_any_element();
     };
     let Some(form) = forge.repo_settings.clone() else {
@@ -78,7 +79,7 @@ pub(crate) fn render(
             None,
             theme,
         ))
-        .children(writer_rows(forge, &writers.items, cx, theme))
+        .children(writers(forge, cx, theme, ladder))
         .child(grant_field(forge, &form, cx, theme, ladder));
     column.child(rows).into_any_element()
 }
@@ -294,10 +295,43 @@ fn grant_field(
         })
 }
 
+fn writers(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Vec<AnyElement> {
+    match forge.writers_stage() {
+        Stage::Ready(list) => writer_rows(forge, &Writer::rows(list), cx, theme)
+            .into_iter()
+            .map(IntoElement::into_any_element)
+            .collect(),
+        Stage::Loading => vec![reading(
+            "forge-settings-writers",
+            words::READING_WRITERS,
+            theme,
+        )],
+        Stage::Failed(refusal) => {
+            let retry = cx.listener(|forge, _: &ClickEvent, _, cx| forge.retry_writers(cx));
+            vec![
+                view::design::refused(
+                    "forge-settings-writers",
+                    design::sentence(refusal),
+                    ladder,
+                    theme,
+                    retry,
+                )
+                .m_2()
+                .into_any_element(),
+            ]
+        }
+    }
+}
+
 /// One row per writer with its Revoke.
 fn writer_rows(
     forge: &Forge,
-    writers: &[forge::Principal],
+    writers: &[Writer],
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> Vec<Stateful<Div>> {
@@ -311,7 +345,7 @@ fn writer_rows(
             let owns = forge.owns_repo();
             let danger = theme.danger;
             let action = div()
-                .id(id(format!("forge-settings-revoke-{}", principal_id(key))))
+                .id(id(format!("forge-settings-revoke-{}", key.key())))
                 .px(design::space::SM)
                 .py(design::space::XXS)
                 .text_size(design::text::SECONDARY)
@@ -326,20 +360,12 @@ fn writer_rows(
                 })
                 .child("Revoke");
             access_row(
-                &principal_id(key),
-                forge.principal_name(key),
+                &key.key(),
+                forge.writer_name(key),
                 words::CAN_WRITE,
                 Some(action.into_any_element()),
                 theme,
             )
         })
         .collect()
-}
-
-/// A writer's element id: `acct-<n>` for an account.
-fn principal_id(principal: &forge::Principal) -> String {
-    match principal {
-        forge::Principal::Account(number) => format!("acct-{number}"),
-        forge::Principal::Root => "system".into(),
-    }
 }

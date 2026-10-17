@@ -1,4 +1,5 @@
 use crate::Settings;
+use access::Access;
 use identity::Identity;
 use valset::Valset;
 use view::methods::{Change, Changes, ClipboardWrite, Query};
@@ -81,12 +82,13 @@ fn scout_is(cx: &TestAppContext, life: identity::Life) {
                     next: None,
                 })
             }
-            identity::Query::Ownership { number: 12 } => {
-                identity::Reply::Ownership(identity::Ownership::Owner)
-            }
             q => panic!("unexpected query: {q:?}"),
         })
     });
+}
+
+fn is_scout(program: &str, key: &str) -> bool {
+    program == harness::PROGRAM && key == harness::agent_key(12)
 }
 
 fn respond(cx: &TestAppContext) {
@@ -103,8 +105,13 @@ fn respond(cx: &TestAppContext) {
                     next: None,
                 })
             }
-            identity::Query::Ownership { number: 12 } => {
-                identity::Reply::Ownership(identity::Ownership::Owner)
+            q => panic!("unexpected query: {q:?}"),
+        })
+    });
+    cx.host().handle::<Query<Access>>(|q| {
+        Ok(match q {
+            access::Query::List { program, key } if is_scout(&program, &key) => {
+                access::Reply::List(None)
             }
             q => panic!("unexpected query: {q:?}"),
         })
@@ -746,9 +753,6 @@ fn an_identity_head_re_reads_the_account_in_place() {
                     next: None,
                 })
             }
-            identity::Query::Ownership { number: 12 } => {
-                identity::Reply::Ownership(identity::Ownership::Owner)
-            }
             q => panic!("unexpected query: {q:?}"),
         })
     });
@@ -778,6 +782,16 @@ fn person(number: u64, name: &str) -> identity::Profile {
 
 type Answers = std::rc::Rc<std::cell::RefCell<identity::Ownership>>;
 
+fn listed(numbers: &[u64]) -> identity::Ownership {
+    identity::Ownership::Listed(
+        numbers
+            .iter()
+            .copied()
+            .map(identity::Party::Account)
+            .collect(),
+    )
+}
+
 fn answering(ownership: identity::Ownership) -> (TestAppContext, Answers) {
     let mut cx = fixture("ready", false);
     let answers: Answers = std::rc::Rc::new(std::cell::RefCell::new(ownership));
@@ -788,7 +802,7 @@ fn answering(ownership: identity::Ownership) -> (TestAppContext, Answers) {
         person(9, "Eve"),
         person(10, "Sam"),
         person(11, "sam"),
-        profile(3, "Bob", identity::Kind::System("bob".into())),
+        profile(3, "forge", identity::Kind::System("forge".into())),
     ];
     cx.host().handle::<Query<Identity>>(move |q| {
         Ok(match q {
@@ -801,9 +815,6 @@ fn answering(ownership: identity::Ownership) -> (TestAppContext, Answers) {
                     items: vec![scout()],
                     next: None,
                 })
-            }
-            identity::Query::Ownership { number: 12 } => {
-                identity::Reply::Ownership(read.borrow().clone())
             }
             identity::Query::Profile { number } => {
                 identity::Reply::Profile(directory.iter().find(|p| p.number == number).cloned())
@@ -830,16 +841,22 @@ fn answering(ownership: identity::Ownership) -> (TestAppContext, Answers) {
             q => panic!("unexpected query: {q:?}"),
         })
     });
+    cx.host().handle::<Query<Access>>(move |q| {
+        Ok(match q {
+            access::Query::List { program, key } if is_scout(&program, &key) => {
+                let list = read.borrow().clone();
+                access::Reply::List(Some(list).filter(|list| *list != identity::Ownership::Owner))
+            }
+            q => panic!("unexpected query: {q:?}"),
+        })
+    });
     let landed = answers.clone();
-    cx.host().handle::<Submit<Identity>>(move |op| {
-        let identity::Op::SetOwnership {
-            account: 12,
-            ownership,
-        } = op
-        else {
+    cx.host().handle::<Submit<Access>>(move |op| {
+        let access::Op::Set { program, key, list } = op else {
             panic!("unexpected op: {op:?}");
         };
-        *landed.borrow_mut() = ownership;
+        assert!(is_scout(&program, &key), "{program} {key}");
+        *landed.borrow_mut() = list.unwrap_or(identity::Ownership::Owner);
         Ok(view::testing::applied(Vec::new()))
     });
     let heads = cx.host().stream::<Changes<Identity>>();
@@ -866,6 +883,18 @@ fn sent(cx: &TestAppContext) -> Vec<identity::Op> {
     cx.host().requests::<Submit<Identity>>()
 }
 
+fn answers_sent(cx: &TestAppContext) -> Vec<access::Op> {
+    cx.host().requests::<Submit<Access>>()
+}
+
+fn scout_answers(list: Option<identity::Ownership>) -> access::Op {
+    access::Op::Set {
+        program: harness::PROGRAM.into(),
+        key: harness::agent_key(12),
+        list,
+    }
+}
+
 const WARNING: &str = "Anyone on the network can tell this agent what to do.";
 
 #[test]
@@ -876,13 +905,27 @@ fn an_agent_reads_as_answering_its_manager_some_people_or_anyone() {
     assert!(!cx.has_text(WARNING));
     assert!(cx.find("settings/agents/12/answers/people").is_none());
 
-    let (cx, _) = answering(identity::Ownership::Accounts(vec![8, 9]));
+    let (cx, _) = answering(listed(&[8, 9]));
     assert_eq!(picked(&cx), ["specific"]);
     for text in ["Bob", "account 8", "Eve", "account 9", "Add someone"] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
     }
     assert!(cx.find("settings/agents/12/answers/8/remove").is_some());
     assert!(!cx.has_text(WARNING));
+
+    let with_forge = identity::Ownership::Listed(vec![
+        identity::Party::Account(8),
+        identity::Party::Program("forge".into()),
+    ]);
+    let (cx, _) = answering(with_forge);
+    assert_eq!(picked(&cx), ["specific"]);
+    for text in ["Bob", "forge", "program"] {
+        assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
+    }
+    assert!(
+        cx.find("settings/agents/12/answers/program-forge/remove")
+            .is_some()
+    );
 
     let (cx, _) = answering(identity::Ownership::Anyone);
     assert_eq!(picked(&cx), ["anyone"]);
@@ -906,16 +949,10 @@ fn only_me_and_anyone_each_take_one_press() {
     cx.simulate_click("settings/agents/12/answers/manager");
     cx.run_until_parked();
     assert_eq!(
-        sent(&cx),
+        answers_sent(&cx),
         [
-            identity::Op::SetOwnership {
-                account: 12,
-                ownership: identity::Ownership::Anyone,
-            },
-            identity::Op::SetOwnership {
-                account: 12,
-                ownership: identity::Ownership::Owner,
-            },
+            scout_answers(Some(identity::Ownership::Anyone)),
+            scout_answers(None),
         ],
         "the choice it already has sends nothing"
     );
@@ -927,33 +964,46 @@ fn specific_people_are_added_by_name_or_number_and_removed() {
     cx.simulate_click("settings/agents/12/answers/specific");
     cx.run_until_parked();
     assert_eq!(picked(&cx), ["specific"]);
-    assert!(cx.has_text("Add people by name or account number."));
-    assert!(sent(&cx).is_empty(), "nobody is on the list yet");
+    assert!(cx.has_text("Add people by name or account number, or a program by its name."));
+    assert!(answers_sent(&cx).is_empty(), "nobody is on the list yet");
 
     cx.simulate_input("settings/agents/12/answers/name", " bob ");
     cx.simulate_click("settings/agents/12/answers/add");
     cx.run_until_parked();
+    assert_eq!(*answers.borrow(), listed(&[8]));
+    assert!(cx.has_text("account 8"), "{:?}", cx.texts());
+
+    cx.simulate_input("settings/agents/12/answers/name", "Forge");
+    cx.simulate_click("settings/agents/12/answers/add");
+    cx.run_until_parked();
+    let forge = identity::Party::Program("forge".into());
     assert_eq!(
         *answers.borrow(),
-        identity::Ownership::Accounts(vec![8]),
-        "a program named Bob is not a person"
+        identity::Ownership::Listed(vec![identity::Party::Account(8), forge.clone()]),
+        "a program's own account adds the program"
     );
-    assert!(cx.has_text("account 8"), "{:?}", cx.texts());
 
     cx.simulate_input("settings/agents/12/answers/name", "#9");
     cx.simulate_submit("settings/agents/12/answers/name");
     cx.run_until_parked();
-    assert_eq!(*answers.borrow(), identity::Ownership::Accounts(vec![8, 9]));
+    assert_eq!(
+        *answers.borrow(),
+        identity::Ownership::Listed(vec![
+            identity::Party::Account(8),
+            forge.clone(),
+            identity::Party::Account(9)
+        ])
+    );
     assert!(cx.has_text("Eve"), "{:?}", cx.texts());
 
     for (typed, problem) in [
-        ("Nobody", "No account has that name or number."),
-        ("#99", "No account has that name or number."),
+        ("Nobody", "No account or program has that name or number."),
+        ("#99", "No account or program has that name or number."),
         (
             "Sam",
             "More than one account has that name. Add it by its number.",
         ),
-        ("", "Enter a name or an account number."),
+        ("", "Enter a name, an account number or a program."),
     ] {
         cx.simulate_input("settings/agents/12/answers/name", typed);
         cx.simulate_click("settings/agents/12/answers/add");
@@ -961,11 +1011,17 @@ fn specific_people_are_added_by_name_or_number_and_removed() {
         assert!(cx.has_text(problem), "{typed}: {:?}", cx.texts());
         assert!(cx.find("settings/agents/12/answers/refused").is_some());
     }
-    assert_eq!(sent(&cx).len(), 2);
+    assert_eq!(answers_sent(&cx).len(), 3);
 
     cx.simulate_click("settings/agents/12/answers/8/remove");
     cx.run_until_parked();
-    assert_eq!(*answers.borrow(), identity::Ownership::Accounts(vec![9]));
+    assert_eq!(
+        *answers.borrow(),
+        identity::Ownership::Listed(vec![forge.clone(), identity::Party::Account(9)])
+    );
+    cx.simulate_click("settings/agents/12/answers/program-forge/remove");
+    cx.run_until_parked();
+    assert_eq!(*answers.borrow(), listed(&[9]));
     assert!(!cx.has_text("account 8"), "{:?}", cx.texts());
     assert!(cx.find("settings/agents/12/answers/refused").is_none());
 }
@@ -981,7 +1037,7 @@ fn typed(cx: &TestAppContext) -> &str {
 /// through one that is refused (one form for both on dev).
 #[test]
 fn a_person_typed_goes_with_a_choice_that_lands() {
-    let (mut cx, _) = answering(identity::Ownership::Accounts(vec![8]));
+    let (mut cx, _) = answering(listed(&[8]));
     cx.simulate_click("settings/agents/12/answers/add");
     cx.simulate_input("settings/agents/12/answers/name", "Sam");
     cx.simulate_click("settings/agents/12/answers/anyone");
@@ -991,7 +1047,7 @@ fn a_person_typed_goes_with_a_choice_that_lands() {
 
     cx.simulate_input("settings/agents/12/answers/name", "Eve");
     cx.host()
-        .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
+        .refuse::<Submit<Access>>("unauthorized", "account 7 does not manage account 12");
     cx.simulate_click("settings/agents/12/answers/manager");
     cx.run_until_parked();
     cx.simulate_click("settings/agents/12/answers/specific");
@@ -1001,7 +1057,7 @@ fn a_person_typed_goes_with_a_choice_that_lands() {
 /// The person field and Add wait while a choice is out (dev's one form).
 #[test]
 fn the_person_field_waits_for_a_choice_that_is_out() {
-    let (mut cx, _) = answering(identity::Ownership::Accounts(vec![8]));
+    let (mut cx, _) = answering(listed(&[8]));
     cx.simulate_click("settings/agents/12/answers/add");
     let anyone = press(&cx, "settings/agents/12/answers/anyone");
     cx.tick(vec![anyone]);
@@ -1019,15 +1075,15 @@ fn the_person_field_waits_for_a_choice_that_is_out() {
 /// A Remove that lands takes a refused choice's sentence with it.
 #[test]
 fn a_landed_remove_takes_a_refused_choices_sentence() {
-    let (mut cx, _) = answering(identity::Ownership::Accounts(vec![8, 9]));
+    let (mut cx, _) = answering(listed(&[8, 9]));
     cx.host()
-        .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
+        .refuse::<Submit<Access>>("unauthorized", "account 7 does not manage account 12");
     cx.simulate_click("settings/agents/12/answers/anyone");
     cx.run_until_parked();
     let refused = "That didn’t go through: account 7 does not manage account 12";
     assert!(cx.has_text(refused));
     cx.host()
-        .handle::<Submit<Identity>>(|_| Ok(view::testing::applied(Vec::new())));
+        .handle::<Submit<Access>>(|_| Ok(view::testing::applied(Vec::new())));
     cx.simulate_click("settings/agents/12/answers/8/remove");
     cx.run_until_parked();
     assert!(!cx.has_text(refused), "{:?}", cx.texts());
@@ -1037,7 +1093,7 @@ fn a_landed_remove_takes_a_refused_choices_sentence() {
 fn a_refused_choice_shows_in_its_agents_row() {
     let (mut cx, answers) = answering(identity::Ownership::Owner);
     cx.host()
-        .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
+        .refuse::<Submit<Access>>("unauthorized", "account 7 does not manage account 12");
     cx.simulate_click("settings/agents/12/answers/anyone");
     cx.run_until_parked();
     assert_eq!(*answers.borrow(), identity::Ownership::Owner);

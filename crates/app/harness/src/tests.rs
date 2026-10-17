@@ -1,11 +1,15 @@
 //! The agents on a `MockChain` with identity, attribution, awaits, scheduler, chat, files, egress
 //! and valset seated: an agent is a program account whose script calls harness and names its
-//! configuration in files; a mention or a direct message reaches it, the node serving its model's
-//! egress service answers as the model would, whole or one streamed event at a time, and every
-//! tool call runs once its relay comes back, as the agent.
+//! configuration in files; a mention, a direct message or a reply in a chat thread it took part
+//! in reaches it, the node serving its model's egress service answers as the model would, whole
+//! or one streamed event at a time, and every tool call runs once its relay comes back, as the
+//! agent.
 mod config;
+mod conversations;
 mod models;
+mod network;
 mod streams;
+mod thinking;
 
 use ::program::{Error, MockChain, Origin, Principal, code};
 use egress::{Answer, Egress, RELAY, Request, RequestRow, http};
@@ -55,6 +59,7 @@ fn scout() -> Config {
         model: MODEL.into(),
         max_tokens: 1024,
         wait: None,
+        thinking: None,
         system: "Keep notes in /shared.".into(),
     }
 }
@@ -84,6 +89,41 @@ fn commit(chain: &MockChain, key: &[u8], path: &str, text: &str) -> BlobId {
     abi::decode(&chain.submit(signed(key), files::PROGRAM, &commit).unwrap()).unwrap()
 }
 
+fn set_list(chain: &MockChain, key: &[u8], program: &str, at: String, list: ::program::Ownership) {
+    let set = access::Op::Set {
+        program: program.into(),
+        key: at,
+        list: Some(list),
+    };
+    chain.submit(signed(key), "access", &set).unwrap();
+}
+
+fn list(chain: &MockChain, key: &[u8], path: &str, write: ::program::Ownership) {
+    set_list(chain, key, files::PROGRAM, path.into(), write);
+}
+
+fn listed(
+    chain: &MockChain,
+    path: &str,
+) -> (Option<::program::Party>, Option<::program::Ownership>) {
+    let ask = |query| chain.query::<_, access::Reply>("access", &query).unwrap();
+    let owner = match ask(access::Query::Resource {
+        program: files::PROGRAM.into(),
+        key: path.into(),
+    }) {
+        access::Reply::Resource(resource) => resource.owner,
+        other => panic!("{other:?}"),
+    };
+    let list = match ask(access::Query::List {
+        program: files::PROGRAM.into(),
+        key: path.into(),
+    }) {
+        access::Reply::List(list) => list,
+        other => panic!("{other:?}"),
+    };
+    (owner, list)
+}
+
 fn scripted(chain: &MockChain, agent: AccountNumber, path: &str) {
     let script = identity::Op::SetScript {
         account: agent,
@@ -106,7 +146,9 @@ fn world() -> World {
     chain.seat_awaiting::<Harness>(PROGRAM);
     chain.seat::<files::Files>(files::PROGRAM);
     chain.seat::<chat::Chat>(chat::PROGRAM);
+    chain.seat::<access::Access>("access");
     for program in [
+        "access",
         "valset",
         egress::PROGRAM,
         attribution::PROGRAM,
@@ -164,6 +206,7 @@ fn world() -> World {
         .submit(signed(ADA), PROGRAM, &set_model(MODEL, MODEL))
         .unwrap();
     commit(&chain, ADA, CONFIG, &scout().write());
+    list(&chain, ADA, CONFIG, ::program::Ownership::Owner);
     scripted(&chain, agent, CONFIG);
     let general = chat::Op::CreateChannel {
         channel_id: "general".into(),
@@ -356,7 +399,7 @@ fn tool_use(id: &str, name: &str, input: Value) -> Value {
 }
 
 #[test]
-fn a_mention_by_its_manager_asks_the_model_in_the_agents_thread_for_that_channel() {
+fn a_mention_by_its_manager_asks_the_model_in_the_agents_conversation() {
     let world = world();
     let chain = &world.chain;
     let thread = world.opened("m1", "note that the network is up", Some(WINDOW));
@@ -368,15 +411,19 @@ fn a_mention_by_its_manager_asks_the_model_in_the_agents_thread_for_that_channel
     head.check_path().unwrap();
     let sent = body(chain, &request);
     assert_eq!(sent["model"], "claude-test");
-    let system = sent["system"][0]["text"].as_str().unwrap();
+    let system = sent["system"].as_array().unwrap();
+    assert_eq!(system.len(), 2, "{system:?}");
+    assert_eq!(system[0]["text"], "Keep notes in /shared.");
+    assert!(system[0].get("cache_control").is_none(), "{system:?}");
+    let manual = system[1]["text"].as_str().unwrap();
     assert!(
-        system.starts_with(&format!(
-            "You are Scout, an agent on a ducktape network: account {}",
-            world.agent
+        manual.starts_with(&format!(
+            "ducktape resource manual\n- Account: Scout, account {}, managed by account {}.",
+            world.agent, world.ada
         )),
-        "{system}"
+        "{manual}"
     );
-    assert!(system.ends_with("Keep notes in /shared."), "{system}");
+    assert_eq!(system[1]["cache_control"]["type"], "ephemeral");
     assert_eq!(
         sent["tools"].as_array().unwrap().len(),
         tools::CATALOG.len()
@@ -397,7 +444,7 @@ fn a_mention_by_its_manager_asks_the_model_in_the_agents_thread_for_that_channel
     );
 
     world.mention("m2", "still there?");
-    assert_eq!(world.threads().len(), 1, "one thread per channel");
+    assert_eq!(world.threads().len(), 1, "one conversation");
     assert_eq!(
         assigned(chain, SERVICE).len(),
         1,
@@ -459,13 +506,134 @@ fn a_direct_message_reaches_the_agent_and_only_those_it_answers_are_heard() {
     );
     assert!(posts[0].contains("mentioned you"), "{}", posts[0]);
 
-    let ownership = identity::Op::SetOwnership {
-        account: world.agent,
-        ownership: identity::Ownership::Accounts(vec![world.bo]),
-    };
-    identity_op(chain, ADA, ownership).unwrap();
+    set_list(
+        chain,
+        ADA,
+        PROGRAM,
+        crate::agent_key(world.agent),
+        ::program::Ownership::Listed(vec![::program::Party::Account(world.bo)]),
+    );
     world.post(BO, "general", "b2", &format!("<@{}> now?", world.agent));
-    assert_eq!(world.threads().len(), 2);
+    let [same] = world.threads().try_into().unwrap();
+    assert_eq!(
+        same.id, thread.id,
+        "another person continues the one conversation"
+    );
+    let bo = format!(
+        "Bo (account {}) mentioned you in chat channel general",
+        world.bo
+    );
+    assert!(
+        frames(chain, thread.id)
+            .into_iter()
+            .chain(held(chain, thread.id))
+            .any(|body| matches!(body, Body::Post { text, .. } if text.starts_with(&bo))),
+        "{bo}"
+    );
+}
+
+#[test]
+fn a_reply_in_a_thread_the_agent_took_part_in_reaches_it_unmentioned_and_is_answered_there() {
+    let world = world();
+    let chain = &world.chain;
+    let thread = world.opened("m1", "start a thread", Some(WINDOW));
+    let in_thread = |id: &str, text: &str| {
+        tool_use(
+            id,
+            "chat_post",
+            json!({ "channel": "general", "text": text, "reply_to": 1 }),
+        )
+    };
+    chain.at(3, 0);
+    model_says(chain, json!([in_thread("toolu_a", "on it")]), "tool_use");
+    chain.at(4, 0);
+    relay_back(chain, "toolu_a");
+    chain.at(5, 0);
+    model_says(
+        chain,
+        json!([{ "type": "text", "text": "Posted." }]),
+        "end_turn",
+    );
+    chain.at(6, 0);
+    let follow_up = chat::Op::PostMessage {
+        channel_id: "general".into(),
+        message_id: "a3".into(),
+        blocks: chat::parse_message("and the second part?"),
+        thread: Some(1),
+    };
+    chain
+        .submit(signed(ADA), chat::PROGRAM, &follow_up)
+        .unwrap();
+    assert_eq!(
+        world.threads().len(),
+        1,
+        "the agent's one conversation continues"
+    );
+    let posts: Vec<String> = frames(chain, thread)
+        .into_iter()
+        .filter_map(|body| match body {
+            Body::Post { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect();
+    let [_, heard] = &posts[..] else {
+        panic!("{posts:?}")
+    };
+    assert!(
+        heard.starts_with(&format!(
+            "Ada (account {}) continued a thread with you in chat channel general, message 3, \
+             in the thread of message 1 (reply_to 1):",
+            world.ada
+        )),
+        "{heard}"
+    );
+    assert!(heard.ends_with("and the second part?"), "{heard}");
+    chain.at(7, 0);
+    model_says(
+        chain,
+        json!([in_thread("toolu_b", "the second part")]),
+        "tool_use",
+    );
+    chain.at(8, 0);
+    relay_back(chain, "toolu_b");
+    let asked = chat::Query::MessageById {
+        message_id: format!("harness-{thread}-toolu_b"),
+    };
+    let chat::Reply::Message(Some(answered)) = chain.query(chat::PROGRAM, &asked).unwrap() else {
+        panic!()
+    };
+    assert_eq!(
+        (answered.author, answered.thread),
+        (Principal::Account(world.agent), Some(1))
+    );
+}
+
+#[test]
+fn an_agent_that_answers_a_program_hears_what_that_program_posts_as_itself() {
+    let world = world();
+    let chain = &world.chain;
+    let post = |id: &str| chat::Op::PostMessage {
+        channel_id: "general".into(),
+        message_id: id.into(),
+        blocks: chat::parse_message(&format!("<@{}> from egress", world.agent)),
+        thread: None,
+    };
+    let by_egress = Origin::Program(egress::PROGRAM.into());
+    chain
+        .submit(by_egress.clone(), chat::PROGRAM, &post("e1"))
+        .unwrap();
+    assert!(world.threads().is_empty(), "Scout answers its manager only");
+    set_list(
+        chain,
+        ADA,
+        PROGRAM,
+        crate::agent_key(world.agent),
+        ::program::Ownership::Listed(vec![::program::Party::Program(egress::PROGRAM.into())]),
+    );
+    world.post(BO, "general", "b1", &format!("<@{}> me too?", world.agent));
+    assert!(world.threads().is_empty(), "a listed program is not Bo");
+    chain.submit(by_egress, chat::PROGRAM, &post("e2")).unwrap();
+    assert_eq!(world.threads().len(), 1);
 }
 
 #[test]
@@ -715,17 +883,26 @@ fn a_write_is_the_agents_and_reaches_only_where_the_agent_may_write() {
             "files_write",
             json!({ "path": CONFIG, "content": "x" })
         ),
+        tool_use(
+            "toolu_r",
+            "files_write",
+            json!({ "path": "/home/Ada", "content": "x" })
+        ),
     ]);
     model_says(chain, calls, "tool_use");
     chain.at(4, 0);
-    for call in ["toolu_p", "toolu_c", "toolu_e", "toolu_h", "toolu_m"] {
+    for call in [
+        "toolu_p", "toolu_c", "toolu_e", "toolu_h", "toolu_m", "toolu_r",
+    ] {
         relay_back(chain, call);
     }
     assert!(!result_of(chain, thread, "toolu_p").1);
     let (closed, failed) = result_of(chain, thread, "toolu_c");
     assert!(failed && closed.starts_with(code::UNAUTHORIZED), "{closed}");
     let (etc, failed) = result_of(chain, thread, "toolu_e");
-    assert!(failed && etc.starts_with(code::UNAUTHORIZED), "{etc}");
+    assert!(!failed, "a path no list covers is anyone's: {etc}");
+    let (root, failed) = result_of(chain, thread, "toolu_r");
+    assert!(failed && root.starts_with(code::UNAUTHORIZED), "{root}");
     let (home, failed) = result_of(chain, thread, "toolu_h");
     assert!(!failed, "{home}");
     let (manager, failed) = result_of(chain, thread, "toolu_m");
@@ -758,6 +935,81 @@ fn a_write_is_the_agents_and_reaches_only_where_the_agent_may_write() {
     relay_back(chain, "toolu_q");
     let (taken, failed) = result_of(chain, thread, "toolu_q");
     assert!(failed && taken.contains("stopped running here"), "{taken}");
+}
+
+#[test]
+fn an_agent_writes_a_file_and_lists_who_else_writes_it() {
+    let world = world();
+    let chain = &world.chain;
+    let thread = world.opened("m1", "write", Some(WINDOW));
+    chain.at(3, 0);
+    let calls = json!([
+        tool_use(
+            "toolu_o",
+            "files_write",
+            json!({ "path": "/shared/mine.md", "content": "a" })
+        ),
+        tool_use(
+            "toolu_p",
+            "files_set_list",
+            json!({ "path": "/shared/mine.md", "write": { "who": "creator" } })
+        ),
+        tool_use(
+            "toolu_h",
+            "files_write",
+            json!({ "path": "/shared/agents.md", "content": "b" })
+        ),
+        tool_use(
+            "toolu_i",
+            "files_set_list",
+            json!({
+                "path": "/shared/agents.md",
+                "write": { "who": "listed", "accounts": [world.bo], "programs": [PROGRAM] }
+            })
+        ),
+        tool_use(
+            "toolu_m",
+            "files_set_list",
+            json!({ "path": CONFIG, "write": { "who": "anyone" } })
+        ),
+    ]);
+    model_says(chain, calls, "tool_use");
+    chain.at(4, 0);
+    for call in ["toolu_o", "toolu_p", "toolu_h", "toolu_i", "toolu_m"] {
+        relay_back(chain, call);
+    }
+    for call in ["toolu_o", "toolu_p", "toolu_h", "toolu_i"] {
+        let (text, failed) = result_of(chain, thread, call);
+        assert!(!failed, "{call}: {text}");
+    }
+    let (manager, failed) = result_of(chain, thread, "toolu_m");
+    assert!(
+        failed && manager.starts_with(code::UNAUTHORIZED),
+        "{manager}"
+    );
+    assert_eq!(
+        listed(chain, "/shared/mine.md"),
+        (
+            Some(::program::Party::Account(world.agent)),
+            Some(::program::Ownership::Owner)
+        )
+    );
+    assert_eq!(
+        listed(chain, "/shared/agents.md").1,
+        Some(::program::Ownership::Listed(vec![
+            ::program::Party::Account(world.bo),
+            ::program::Party::Program(PROGRAM.into()),
+        ]))
+    );
+    let by_ada = files::Op::Commit {
+        base: None,
+        message: "ada".into(),
+        changes: vec![files::Change::Remove {
+            path: "/shared/mine.md".into(),
+        }],
+    };
+    let refused = chain.submit(signed(ADA), files::PROGRAM, &by_ada);
+    assert_eq!(refused.unwrap_err().code, code::UNAUTHORIZED);
 }
 
 fn notices(chain: &MockChain, thread: u64) -> Vec<String> {
@@ -1384,4 +1636,37 @@ fn every_tool_schema_is_an_object_and_names_its_required_fields() {
         assert_eq!(empty.is_ok(), required.is_empty(), "{}", entry.name);
         assert!(entry.name.len() <= 64 && !entry.description.is_empty());
     }
+}
+
+#[test]
+fn the_votes_migrate_copies_whom_each_agent_answers_from_identity_into_access() {
+    let world = world();
+    let chain = &world.chain;
+    #[derive(borsh::BorshSerialize, borsh::BorshDeserialize)]
+    enum Stored {
+        #[allow(dead_code)]
+        Owner,
+        Accounts(Vec<AccountNumber>),
+    }
+    let old: store::Map<AccountNumber, Stored> = store::Map::new("u/");
+    let ctx = chain
+        .host(identity::PROGRAM)
+        .exec(::program::MockHost::env(identity::PROGRAM));
+    let bo = ::program::Ownership::Listed(vec![::program::Party::Account(world.bo)]);
+    old.put(&ctx, &world.agent, &Stored::Accounts(vec![world.bo]));
+    world.post(BO, "general", "b1", &format!("<@{}> before?", world.agent));
+    assert!(world.threads().is_empty(), "the old list is no longer read");
+    let migrate = chain.submit(signed(ADA), PROGRAM, &Op::Migrate);
+    assert_eq!(migrate.unwrap_err().code, code::UNAUTHORIZED);
+    chain
+        .submit(Origin::Program("valset".into()), PROGRAM, &Op::Migrate)
+        .unwrap();
+    let asked = access::Query::List {
+        program: PROGRAM.into(),
+        key: crate::agent_key(world.agent),
+    };
+    let listed: access::Reply = chain.query("access", &asked).unwrap();
+    assert_eq!(listed, access::Reply::List(Some(bo)));
+    world.post(BO, "general", "b2", &format!("<@{}> now?", world.agent));
+    assert_eq!(world.threads().len(), 1);
 }

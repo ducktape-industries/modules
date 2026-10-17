@@ -4,7 +4,8 @@
 //! [`Scope`], whose change lands at least [`NOTICE`] blocks after it is
 //! made, so the vote can cancel it first.
 //! It fills the kernel's programs role: each block the kernel asks
-//! `Query::At(height)` and runs what it answers. A client asks
+//! `Query::At(height)` and runs what it answers, and on a roster change
+//! `Query::Roles`, the role table the published programs declare. A client asks
 //! `Query::Roster`: what runs and is listed at the query's own height. An
 //! update is a `Change::Set` of held code under a running id: the
 //! kernel swaps the code and keeps the program's state and account; `init`
@@ -12,6 +13,7 @@
 //!
 //! The types, rules and [`Programs`] program are always built; a view links
 //! them with `program` off. The `program` feature adds its wasm exports.
+mod migrate;
 mod program;
 mod rules;
 #[cfg(test)]
@@ -23,7 +25,7 @@ pub use store::{PageRequest, PageResponse};
 
 use ::program::{AccountNumber, ProgramId, Roles};
 use abi::role::identity::{Kind, Profile};
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
 pub use abi::role::programs::{Entry, Genesis, View};
 
@@ -39,7 +41,7 @@ pub const NOTICE: u64 = 60;
 
 /// The names a grant covers: one id, which may run nothing yet (how a team
 /// adds a new program), or every id but those bound to a role the kernel calls.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Scope {
     Program(ProgramId),
     All,
@@ -65,7 +67,7 @@ impl std::fmt::Display for Scope {
 
 /// An account made a maintainer of `scope` by the validators' vote: its
 /// signed frames schedule and cancel changes to the names in it.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Grant {
     pub scope: Scope,
     pub account: AccountNumber,
@@ -73,20 +75,15 @@ pub struct Grant {
 
 /// A change waiting in the schedule, and the account whose grant made it;
 /// `None`: the validators' vote made it.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Pending {
     pub height: u64,
     pub change: Change,
     pub by: Option<AccountNumber>,
 }
 
-/// Whether `program` fills a role the kernel calls by its genesis binding:
-/// only the vote changes it.
 pub fn role_bound(roles: &Roles, program: &str) -> bool {
-    abi::role::REQUIRED
-        .iter()
-        .filter_map(|role| roles.get(role))
-        .any(|bound| bound == program)
+    roles.iter().any(|(_, filled)| filled == program)
 }
 
 /// Whether `grants` make `account` a maintainer of `program`: it holds
@@ -124,7 +121,7 @@ pub fn grant_refused(grant: &Grant, roles: &Roles, profile: Option<&Profile>) ->
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Change {
     Set(Entry),
     Remove(ProgramId),
@@ -133,6 +130,10 @@ pub enum Change {
     RemoveView(ProgramId),
     SetHook(ProgramId),
     RemoveHook(ProgramId),
+    Publish {
+        entry: Entry,
+        roles: Vec<String>,
+    },
 }
 
 impl Change {
@@ -145,13 +146,14 @@ impl Change {
             Change::RemoveView(_) => "Remove view",
             Change::SetHook(_) => "Set hook",
             Change::RemoveHook(_) => "Remove hook",
+            Change::Publish { .. } => "Publish",
         }
     }
 
     /// The code a set lands; a removal has none.
     pub fn code(&self) -> Option<abi::BlobId> {
         match self {
-            Change::Set(entry) => Some(entry.code),
+            Change::Set(entry) | Change::Publish { entry, .. } => Some(entry.code),
             Change::SetView(view) => Some(view.view),
             Change::Remove(_)
             | Change::RemoveView(_)
@@ -162,7 +164,7 @@ impl Change {
 
     pub fn program(&self) -> &str {
         match self {
-            Change::Set(entry) => &entry.program,
+            Change::Set(entry) | Change::Publish { entry, .. } => &entry.program,
             Change::SetView(view) => &view.name,
             Change::Remove(program)
             | Change::RemoveView(program)
@@ -172,13 +174,13 @@ impl Change {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Scheduled {
     pub height: u64,
     pub change: Change,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Op {
     Schedule(Scheduled),
     Cancel {
@@ -189,9 +191,12 @@ pub enum Op {
     Grant(Grant),
     /// The vote, or the holder stepping down from its own grant.
     Revoke(Grant),
+    Migrate,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask,
+)]
 #[ask(Programs)]
 pub enum Query {
     #[ask(Reply::Programs(Vec<Entry>))]
@@ -203,8 +208,6 @@ pub enum Query {
     /// The view-only entries at a height, by name.
     #[ask(Reply::Views(Vec<View>))]
     Views(u64),
-    /// The programs genesis bound to the roles the kernel calls, as the
-    /// kernel hands them to this program (`Env::roles`).
     #[ask(Reply::Roles(abi::Roles))]
     Roles,
     #[ask(Reply::Hooks(Vec<ProgramId>))]
@@ -219,7 +222,7 @@ pub enum Query {
     Roster,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     Programs(Vec<Entry>),
     Scheduled(PageResponse<Pending>),
@@ -255,8 +258,20 @@ pub fn describe(op: &Op) -> describe::Description {
                     .code()
                     .map(|code| field("code", Value::Hash(code.digest().to_vec()))),
             );
-            if let Change::Set(entry) = change {
-                fields.push(field("params", Value::bytes(&entry.params)));
+            match change {
+                Change::Set(entry) => fields.push(field("params", Value::bytes(&entry.params))),
+                Change::Publish { entry, roles } => {
+                    fields.push(field("params", Value::bytes(&entry.params)));
+                    fields.push(field(
+                        "roles",
+                        Value::List(roles.iter().map(Value::text).collect()),
+                    ));
+                }
+                Change::Remove(_)
+                | Change::SetView(_)
+                | Change::RemoveView(_)
+                | Change::SetHook(_)
+                | Change::RemoveHook(_) => {}
             }
             (format!("Schedule · {}", change.program()), fields)
         }
@@ -272,6 +287,7 @@ pub fn describe(op: &Op) -> describe::Description {
         ),
         Op::Grant(grant) => (format!("Grant · {}", grant.scope), granted(grant)),
         Op::Revoke(grant) => (format!("Revoke · {}", grant.scope), granted(grant)),
+        Op::Migrate => ("Migrate · roles".to_owned(), vec![]),
     };
     describe::Description { title, fields }
 }
@@ -296,6 +312,6 @@ describe::export!(Op, describe);
 fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
-        ["Schedule", "Cancel", "Grant", "Revoke"]
+        ["Schedule", "Cancel", "Grant", "Revoke", "Migrate"]
     );
 }

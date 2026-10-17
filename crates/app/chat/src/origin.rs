@@ -1,6 +1,6 @@
 //! What the identity role says about who is asking: the role's profiles as
-//! chat's views read them. The sender itself is the host's, read first thing in
-//! [`Chat::execute`](crate::Chat).
+//! chat's views read them and as a typed `@name` is resolved. The sender
+//! itself is the host's, read first thing in [`Chat::execute`](crate::Chat).
 use ::program::{Error, QueryCtx, invalid, unexpected_reply};
 use abi::role::identity as role;
 use store::{PageRequest, PageResponse};
@@ -32,4 +32,17 @@ pub(crate) fn accounts(ctx: &QueryCtx, page: PageRequest) -> Result<PageResponse
         items: profiles,
         next: next.map(|number| number.to_be_bytes().to_vec()),
     })
+}
+
+pub(crate) fn roster(ctx: &QueryCtx) -> Result<Vec<Profile>, Error> {
+    let mut profiles = Vec::new();
+    let mut after = None;
+    loop {
+        let page = accounts(ctx, PageRequest { after, limit: None })?;
+        profiles.extend(page.items);
+        let Some(next) = page.next else {
+            return Ok(profiles);
+        };
+        after = Some(next);
+    }
 }

@@ -76,16 +76,6 @@ pub(crate) fn writable(
     Ok(())
 }
 
-pub(crate) fn owned(channel: &ChannelRow, principal: &Principal) -> Result<(), Error> {
-    if channel.owner != *principal {
-        return Err(unauthorized(format!(
-            "only the owner of {} may",
-            channel.id
-        )));
-    }
-    Ok(())
-}
-
 /// A dm belongs to its two peers alike: no one seats a third, removes
 /// either, renames or archives it, the peer who opened it included.
 pub(crate) fn not_dm(channel: &ChannelRow) -> Result<(), Error> {
@@ -98,11 +88,7 @@ pub(crate) fn not_dm(channel: &ChannelRow) -> Result<(), Error> {
     Ok(())
 }
 
-/// A message only its author edits, and only while it stands.
-pub(crate) fn editable(row: &MsgRow, principal: &Principal) -> Result<(), Error> {
-    if row.author != *principal {
-        return Err(unauthorized("only the author edits"));
-    }
+pub(crate) fn standing(row: &MsgRow) -> Result<(), Error> {
     if row.deleted {
         return Err(wrong_state("the message is deleted"));
     }

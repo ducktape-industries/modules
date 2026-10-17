@@ -258,7 +258,7 @@ fn search_asks_on_the_search_key_and_a_hit_opens_its_room_over_the_page() {
 }
 
 #[test]
-fn a_landed_room_keeps_latest_until_pressed_and_latest_reads_the_tail() {
+fn a_landed_room_offers_latest_until_it_reaches_the_newest_and_latest_reads_the_tail() {
     let (mut cx, view) = phone();
     cx.host().handle::<Ask<::chat::Chat>>(|query| {
         Ok(match query {
@@ -268,31 +268,28 @@ fn a_landed_room_keeps_latest_until_pressed_and_latest_reads_the_tail() {
             query => chat_reply(query),
         })
     });
+    let land = |cx: &mut TestAppContext| {
+        cx.simulate_click("chat-search-hit-general-1");
+        cx.run_until_parked();
+        assert!(cx.find("chat-jump-latest-button").is_some(), "landed");
+    };
     cx.simulate_click("Search");
     cx.simulate_input("search", "hello");
     cx.simulate_submit("search");
     cx.run_until_parked();
-    cx.simulate_click("chat-search-hit-general-1");
-    cx.run_until_parked();
-    assert!(cx.find("chat-jump-latest-button").is_some());
-    // the window reaching the head ends the landing, not the way back
-    cx.update(&view, |chat, _, cx| {
-        let room = chat.room.as_mut().expect("a room is open");
-        room.landed = false;
-        room.at_tail = true;
-        cx.notify();
-    });
-    cx.run_until_parked();
-    assert!(
-        cx.find("chat-jump-latest-button").is_some(),
-        "Latest stays up"
-    );
+    land(&mut cx);
+    // the reader at the newest message: nothing newer, Latest goes
+    cx.simulate_range("chat-timeline", 0..3);
+    assert!(cx.find("chat-jump-latest-button").is_none());
+    view.read(|chat| assert!(!chat.room.as_ref().unwrap().landed));
+    cx.simulate_back();
+    land(&mut cx);
     cx.simulate_click("chat-jump-latest-button");
     cx.run_until_parked();
     assert!(cx.find("chat-jump-latest-button").is_none());
     view.read(|chat| {
         let room = chat.room.as_ref().expect("the room stays open");
-        assert!(!room.opened_at_message && room.messages.ready().is_some());
+        assert!(!room.landed && room.messages.ready().is_some());
     });
 }
 

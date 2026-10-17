@@ -10,7 +10,7 @@
 //! through its submit (`submit_create_agent`, `submit_agent_key`,
 //! `submit_rename_agent`, `set_standing`, `pick_ownership`,
 //! `submit_listed_person`, `remove_listed_person`).
-use identity::{Ownership, Standing};
+use identity::{Ownership, Party, Standing};
 use view::design::{Kind as ButtonKind, Ladder, SHEET_INSET};
 use view::prelude::*;
 use view::{Div, Stateful};
@@ -489,10 +489,7 @@ fn people(
     let busy = writing;
     let problem = problem_of(form, words::ADD_PERSON.empty);
     let number = agent.number;
-    let listed: &[u64] = match &agent.ownership {
-        Ownership::Accounts(numbers) => numbers,
-        Ownership::Owner | Ownership::Anyone => &[],
-    };
+    let listed = agent.ownership.listed();
     let label = words::person_field(&agent.name);
     // a name or a number: nothing to correct, nothing to capitalise
     let input = name_input(
@@ -511,7 +508,7 @@ fn people(
         .children(
             listed
                 .iter()
-                .map(|&person| person_row(agent, person, busy, cx, ladder, theme)),
+                .map(|party| person_row(agent, party, busy, cx, ladder, theme)),
         )
         .when(listed.is_empty(), |people| {
             people.child(note(words::NOBODY_LISTED, theme.muted, ladder))
@@ -540,21 +537,22 @@ fn people(
         )
 }
 
-/// One person an agent answers: their name over their number, and Remove.
 fn person_row(
     agent: &Agent,
-    person: u64,
+    party: &Party,
     busy: bool,
     cx: &mut Context<Settings>,
     ladder: &Ladder,
     theme: &Theme,
 ) -> Stateful<Div> {
     let number = agent.number;
+    let id = words::party_id(party);
+    let removed = party.clone();
     let remove = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
-        v.remove_listed_person(number, person, cx)
+        v.remove_listed_person(number, &removed, cx)
     });
     div()
-        .id(format!("settings/agents/{number}/answers/{person}"))
+        .id(format!("settings/agents/{number}/answers/{id}"))
         .flex()
         .items_center()
         .gap(design::space::SM)
@@ -563,16 +561,12 @@ fn person_row(
                 .flex_1()
                 .flex()
                 .flex_col()
-                .child(
-                    div()
-                        .text_type(ladder.body)
-                        .child(agent.person_name(person)),
-                )
-                .child(mono(words::account(person), ladder, theme)),
+                .child(div().text_type(ladder.body).child(agent.party_name(party)))
+                .child(mono(words::party(party), ladder, theme)),
         )
         .child(
             design::button(
-                format!("settings/agents/{number}/answers/{person}/remove"),
+                format!("settings/agents/{number}/answers/{id}/remove"),
                 words::REMOVE,
                 ladder,
                 theme,

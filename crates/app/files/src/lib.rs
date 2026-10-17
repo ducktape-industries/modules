@@ -1,8 +1,11 @@
 //! The `files` program: duckfs, the network's versioned filesystem. Its wire types live
-//! here; `program.rs` dispatches them, `ops.rs`/`commit.rs` write, `queries.rs` reads, and
-//! `paths.rs` decides who writes a path, by its write list or the home and `/shared/` rule.
+//! here; `program.rs` dispatches them, `ops.rs`/`commit.rs` write and `queries.rs` reads. Who
+//! writes a path is its nearest write list in the access program, else anyone; `gate.rs`
+//! answers what each op needs there and who owns each path.
 mod commit;
 mod cursor;
+mod gate;
+mod migrate;
 mod objects;
 mod ops;
 pub mod paths;
@@ -15,9 +18,10 @@ mod tree;
 
 use std::collections::BTreeMap;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
-pub use ::program::{AccountNumber, BlobId, Ownership, Principal};
+pub use ::program::{AccountNumber, BlobId, Ownership, Party, Principal};
+pub use gate::pin_key;
 pub use objects::{Access, CHUNK, FILE, FileObj, SNAPSHOT, SnapshotObj, TREE, Tree};
 pub use program::Files;
 pub use store::{PageRequest, PageResponse};
@@ -26,7 +30,7 @@ pub const PROGRAM: &str = "files";
 
 pub const CHUNK_SIZE: u64 = 1 << 20;
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Op {
     /// Retired: file bytes never ride in a transaction ([`carried`]), so
     /// it is always refused. It stays so the ops of older blocks still read
@@ -46,9 +50,10 @@ pub enum Op {
     Unpin {
         name: String,
     },
+    Migrate,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Change {
     Put {
         path: String,
@@ -89,7 +94,7 @@ impl Change {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Content {
     /// Retired as [`Op::Stage`] is: always refused, kept so older commits
     /// still read.
@@ -109,7 +114,7 @@ pub(crate) fn carried() -> ::program::Error {
     )
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Node {
     File { file: BlobId, size: u64, exec: bool },
     Dir { tree: BlobId, entries: u64 },
@@ -126,14 +131,14 @@ impl Node {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct EntryInfo {
     pub path: String,
     pub node: Node,
     pub meta: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct SnapshotRow {
     pub id: BlobId,
     pub seq: u64,
@@ -145,7 +150,7 @@ pub struct SnapshotRow {
     pub message: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct PinRow {
     pub name: String,
     pub snapshot: BlobId,
@@ -153,7 +158,7 @@ pub struct PinRow {
     pub height: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Contents {
     pub snapshot: BlobId,
     pub size: u64,
@@ -162,47 +167,29 @@ pub struct Contents {
     pub eof: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Hit {
     pub path: String,
     pub line: u64,
     pub text: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum DiffKind {
     Added,
     Removed,
     Modified,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct DiffEntry {
     pub path: String,
     pub kind: DiffKind,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub enum Writers {
-    Listed {
-        path: String,
-        creator: Option<AccountNumber>,
-        write: Ownership,
-    },
-    Home(String),
-    Shared,
-    Chain,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct PathOwnership {
-    pub snapshot: Option<BlobId>,
-    pub creator: Option<AccountNumber>,
-    pub write: Option<Ownership>,
-    pub writers: Writers,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask,
+)]
 #[ask(Files)]
 pub enum Query {
     #[ask(Reply::Head(Option<SnapshotRow>))]
@@ -260,12 +247,9 @@ pub enum Query {
     #[ask(Reply::Pin(Option<PinRow>))]
     #[reads(state::PINS)]
     Pin { name: String },
-    #[ask(Reply::Ownership(crate::PathOwnership))]
-    #[reads(state::HEAD, state::HISTORY, state::SNAPSHOTS)]
-    Ownership { path: String, at: Option<BlobId> },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     Head(Option<SnapshotRow>),
     Snapshot(Option<SnapshotRow>),
@@ -286,7 +270,6 @@ pub enum Reply {
     Diff(Vec<DiffEntry>),
     Pins(PageResponse<PinRow>),
     Pin(Option<PinRow>),
-    Ownership(PathOwnership),
 }
 
 pub fn describe(op: &Op) -> describe::Description {
@@ -322,6 +305,7 @@ pub fn describe(op: &Op) -> describe::Description {
             vec![field("snapshot", hash(snapshot))],
         ),
         Op::Unpin { name } => (format!("Unpin {name}"), Vec::new()),
+        Op::Migrate => ("Migrate · write lists".to_owned(), Vec::new()),
     };
     describe::Description { title, fields }
 }
@@ -335,17 +319,24 @@ fn write_list(change: &Change) -> Option<describe::Field> {
     let who = match write {
         None => Value::text("no list"),
         Some(Ownership::Owner) => creator(),
-        Some(Ownership::Accounts(listed)) => Value::List(
+        Some(Ownership::Listed(listed)) => Value::List(
             std::iter::once(creator())
-                .chain(listed.iter().copied().map(Value::Account))
+                .chain(listed.iter().map(party))
                 .collect(),
         ),
-        Some(Ownership::Anyone) => Value::text("any account"),
+        Some(Ownership::Anyone) => Value::text("anyone"),
     };
     Some(field(
         "write list",
         Value::List(vec![Value::text(path), who]),
     ))
+}
+
+fn party(party: &Party) -> describe::Value {
+    match party {
+        Party::Account(number) => describe::Value::Account(*number),
+        Party::Program(program) => describe::Value::Program(program.clone()),
+    }
 }
 
 describe::export!(Op, describe);
@@ -354,6 +345,6 @@ describe::export!(Op, describe);
 fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
-        ["Stage", "Commit", "Pin", "Unpin"]
+        ["Stage", "Commit", "Pin", "Unpin", "Migrate"]
     );
 }

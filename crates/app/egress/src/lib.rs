@@ -18,13 +18,16 @@ pub use abi::role::egress::{
 };
 pub use abi::role::identity::AccountNumber;
 pub use program::Egress;
+pub use rules::service_key;
 pub use store::{PageRequest, PageResponse};
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
 pub const PROGRAM: &str = "egress";
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask,
+)]
 #[ask(Egress)]
 pub enum Query {
     #[ask(Reply::Requests(Vec<RequestRow>))]
@@ -50,7 +53,7 @@ pub enum Query {
     Services { page: PageRequest },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     Requests(Vec<RequestRow>),
     Node(Option<NodeRow>),
@@ -110,10 +113,19 @@ pub fn describe(op: &Op) -> describe::Description {
             };
             (format!("Answer request {id}"), vec![field])
         }
-        Op::Event(Event { id, seq, data }) => (
-            format!("Event {seq} of request {id}"),
-            vec![field("data", Value::count(data.len() as u64))],
-        ),
+        Op::Events(events) => {
+            let requests: std::collections::BTreeSet<u64> =
+                events.iter().map(|event| event.id).collect();
+            let named: Vec<String> = requests.iter().map(u64::to_string).collect();
+            let data: usize = events.iter().map(|event| event.data.len()).sum();
+            (
+                format!("{} streamed events", events.len()),
+                vec![
+                    field("requests", Value::text(named.join(", "))),
+                    field("data", Value::count(data as u64)),
+                ],
+            )
+        }
         Op::EndStream { id, events, end } => {
             let end = match end {
                 StreamEnd::Complete { status, .. } => {
@@ -180,8 +192,6 @@ fn the_roles_queries_lead_and_encode_as_the_role_asks() {
 }
 
 /// `Op` is core's egress role op: this order is the role's, so a change here is a role change.
-/// Core put `Event` and `EndStream` before `Expire`, so an `Expire` scheduled by an older egress
-/// no longer decodes: swap egress in place with no request open.
 #[test]
 fn op_variants_follow_the_roles_order() {
     assert_eq!(
@@ -192,7 +202,7 @@ fn op_variants_follow_the_roles_order() {
             "Serve",
             "Request",
             "Answer",
-            "Event",
+            "Events",
             "EndStream",
             "Expire"
         ]

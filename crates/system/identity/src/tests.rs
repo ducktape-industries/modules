@@ -6,7 +6,7 @@ use store::PageRequest;
 
 use crate::{
     Account, Admission, CONSENT_NAMESPACE, Category, Consent, Control, Identity, Kind, Life, Op,
-    Ownership, Query, Reply, Script, Standing,
+    Ownership, Party, Query, Reply, Script, Standing,
 };
 
 const ALICE: &[u8] = b"alice-key";
@@ -153,6 +153,17 @@ fn agent_key(agent: u64, key: &[u8], generation: u64) -> Op {
 }
 
 /// An agent's keys, whatever its life.
+fn owner_of(store: &MockHost, number: u64) -> Option<Party> {
+    let ctx = store.query(env(Origin::Root, None, 100));
+    Identity::resource(&ctx, &crate::account_key(number))
+        .unwrap()
+        .owner
+}
+
+fn needs(store: &MockHost, op: &Op) -> Vec<::program::Need> {
+    Identity::access(&store.query(env(Origin::Root, None, 100)), op).unwrap()
+}
+
 fn keys_of(account: &Account) -> Vec<Vec<u8>> {
     account.keys().iter().map(|key| key.key.clone()).collect()
 }
@@ -331,27 +342,21 @@ fn a_card_is_edited_by_its_user_its_manager_or_its_program() {
     run(&store, &forge, rename(forge_account, "Forge")).unwrap();
     run(&store, &forge, bio(forge_account, "the forge")).unwrap();
     assert_eq!(get(&store, forge_account).card.name, "Forge");
-    for (by, account) in [
-        (signed(&store, BOB), 1),
-        (signed(&store, BOB), agent),
-        (signed(&store, BOT), 1),
-        // the agent does not edit its own card: its manager answers for it
-        (signed(&store, BOT), agent),
-        (forge.clone(), 1),
-        (forge, agent),
-        (signed(&store, ALICE), forge_account),
-        (signed(&store, BOT), forge_account),
-    ] {
-        let why = format!("{:?} on {account}", by.origin);
+    assert_eq!(owner_of(&store, 1), Some(Party::Account(1)));
+    assert_eq!(owner_of(&store, agent), Some(Party::Account(1)));
+    assert_eq!(
+        owner_of(&store, forge_account),
+        Some(Party::Account(forge_account))
+    );
+    for account in [1, agent, forge_account] {
+        let key = crate::account_key(account);
         assert_eq!(
-            refused(&store, &by, bio(account, "not yours")).code,
-            code::UNAUTHORIZED,
-            "{why}"
+            needs(&store, &bio(account, "x")),
+            [::program::Need::write(key.clone())]
         );
         assert_eq!(
-            refused(&store, &by, rename(account, "not yours")).code,
-            code::UNAUTHORIZED,
-            "{why}"
+            needs(&store, &rename(account, "x")),
+            [::program::Need::write(key)]
         );
     }
 }
@@ -360,7 +365,7 @@ fn a_card_is_edited_by_its_user_its_manager_or_its_program() {
 /// revoked, it is done for good: its keys are gone, its every op refused,
 /// and its manager's list still names it.
 #[test]
-fn an_agent_is_suspended_resumed_or_revoked_by_its_manager_alone() {
+fn an_agent_is_suspended_resumed_or_revoked_and_its_manager_owns_it() {
     let store = memory();
     create(&store, ALICE, "Alice");
     create(&store, BOB, "Bob");
@@ -370,18 +375,12 @@ fn an_agent_is_suspended_resumed_or_revoked_by_its_manager_alone() {
     let resume = || Op::Resume { account: agent };
     let revoke = || Op::Revoke { account: agent };
     for op in [suspend(), resume(), revoke()] {
-        let why = format!("{op:?}");
         assert_eq!(
-            refused(&store, &signed(&store, BOT), op.clone()).code,
-            code::UNAUTHORIZED,
-            "by itself: {why}"
-        );
-        assert_eq!(
-            refused(&store, &signed(&store, BOB), op).code,
-            code::UNAUTHORIZED,
-            "by a stranger: {why}"
+            needs(&store, &op),
+            [::program::Need::write(crate::account_key(agent))]
         );
     }
+    assert_eq!(owner_of(&store, agent), Some(Party::Account(1)));
     let already = refused(&store, &signed(&store, ALICE), resume());
     assert_eq!(already.code, code::WRONG_STATE);
 
@@ -653,18 +652,6 @@ fn an_agents_key_consent_expires_and_is_not_replayed() {
     assert!(get(&store, agent).holds(BOT));
 }
 
-fn ownership_of(store: &MockHost, number: u64) -> Result<Ownership, ::program::Error> {
-    let asked = Query::Ownership { number };
-    match Identity::query(&store.query(env(Origin::Root, None, 100)), asked)? {
-        Reply::Ownership(ownership) => Ok(ownership),
-        other => panic!("{other:?}"),
-    }
-}
-
-fn answers(account: u64, ownership: Ownership) -> Op {
-    Op::SetOwnership { account, ownership }
-}
-
 fn ownership_rows(store: &MockHost) -> usize {
     let state = store.borrow();
     state
@@ -675,122 +662,40 @@ fn ownership_rows(store: &MockHost) -> usize {
 }
 
 #[test]
-fn an_agent_answers_its_manager_until_its_manager_says_otherwise() {
+fn set_ownership_is_retired_and_the_votes_migrate_drops_the_old_lists() {
     let store = memory();
     create(&store, ALICE, "Alice");
     let bob = create(&store, BOB, "Bob");
     let agent = create_agent(&store, ALICE, "Scout");
-    assert_eq!(ownership_of(&store, agent), Ok(Ownership::Owner));
+    let listed = Ownership::Listed(vec![Party::Account(bob)]);
+    let retired = Op::SetOwnership {
+        account: agent,
+        ownership: listed.clone(),
+    };
     assert_eq!(
-        ownership_rows(&store),
-        0,
-        "no row until the manager sets one"
+        refused(&store, &signed(&store, ALICE), retired).code,
+        code::UNAUTHORIZED
     );
-
-    let alice = signed(&store, ALICE);
-    run(&store, &alice, answers(agent, Ownership::Anyone)).unwrap();
-    assert_eq!(ownership_of(&store, agent), Ok(Ownership::Anyone));
-
-    let listed = Ownership::Accounts(vec![agent, bob, 1, bob]);
-    run(&store, &alice, answers(agent, listed)).unwrap();
+    crate::migrate::OWNERSHIPS.put(
+        &store.exec(root()),
+        &agent,
+        &crate::migrate::Stored::Accounts(vec![bob]),
+    );
+    let asked = Query::Ownership { number: agent };
+    assert_eq!(query(&store, asked.clone()), Reply::Ownership(listed));
     assert_eq!(
-        ownership_of(&store, agent),
-        Ok(Ownership::Accounts(vec![bob, agent])),
-        "sorted, once each, its manager implied"
+        refused(&store, &signed(&store, ALICE), Op::Migrate).code,
+        code::UNAUTHORIZED
     );
-
-    run(&store, &alice, answers(agent, Ownership::Accounts(vec![1]))).unwrap();
-    assert_eq!(ownership_of(&store, agent), Ok(Ownership::Owner));
-    assert_eq!(ownership_rows(&store), 0, "its manager alone keeps no row");
-
-    run(&store, &alice, answers(agent, Ownership::Anyone)).unwrap();
-    run(&store, &alice, answers(agent, Ownership::Owner)).unwrap();
-    assert_eq!(ownership_of(&store, agent), Ok(Ownership::Owner));
+    let vote = env(
+        Origin::Program(MockHost::role(abi::role::VALIDATORS)),
+        None,
+        100,
+    );
+    run(&store, &vote, Op::Migrate).unwrap();
+    run(&store, &vote, Op::Migrate).unwrap();
     assert_eq!(ownership_rows(&store), 0);
-
-    run(&store, &alice, Op::Suspend { account: agent }).unwrap();
-    run(&store, &alice, answers(agent, Ownership::Anyone)).unwrap();
-    assert_eq!(
-        ownership_of(&store, agent),
-        Ok(Ownership::Anyone),
-        "a suspended agent's manager still sets it"
-    );
-}
-
-#[test]
-fn only_its_manager_sets_whom_an_agent_answers() {
-    let store = memory();
-    create(&store, ALICE, "Alice");
-    create(&store, BOB, "Bob");
-    let agent = create_agent(&store, ALICE, "Scout");
-    add_agent_key(&store, ALICE, agent, BOT).unwrap();
-    for by in [signed(&store, BOB), signed(&store, BOT), root()] {
-        let why = format!("{:?}", by.origin);
-        let refusal = refused(&store, &by, answers(agent, Ownership::Anyone));
-        assert_eq!(refusal.code, code::UNAUTHORIZED, "{why}");
-    }
-    assert_eq!(ownership_of(&store, agent), Ok(Ownership::Owner));
-}
-
-#[test]
-fn only_a_live_agent_has_an_ownership() {
-    let store = memory();
-    create(&store, ALICE, "Alice");
-    run(
-        &store,
-        &root(),
-        Op::RegisterProgram {
-            program: "chat".into(),
-        },
-    )
-    .unwrap();
-    let agent = create_agent(&store, ALICE, "Scout");
-    let alice = signed(&store, ALICE);
-    for number in [1, 2] {
-        let refusal = refused(&store, &alice, answers(number, Ownership::Anyone));
-        assert_eq!(refusal.code, code::WRONG_STATE, "account {number}");
-        let asked = ownership_of(&store, number).unwrap_err();
-        assert_eq!(asked.code, code::WRONG_STATE, "account {number}");
-    }
-    let nobody = refused(&store, &alice, answers(99, Ownership::Anyone));
-    assert_eq!(nobody.code, code::NOT_FOUND);
-    assert_eq!(ownership_of(&store, 99).unwrap_err().code, code::NOT_FOUND);
-    let unknown = refused(
-        &store,
-        &alice,
-        answers(agent, Ownership::Accounts(vec![99])),
-    );
-    assert_eq!(unknown.code, code::NOT_FOUND);
-
-    run(&store, &alice, answers(agent, Ownership::Anyone)).unwrap();
-    run(&store, &alice, Op::Revoke { account: agent }).unwrap();
-    assert_eq!(
-        ownership_of(&store, agent),
-        Ok(Ownership::Owner),
-        "revoking drops its ownership"
-    );
-    assert_eq!(ownership_rows(&store), 0);
-    let revoked = refused(&store, &alice, answers(agent, Ownership::Anyone));
-    assert_eq!(revoked.code, code::WRONG_STATE);
-}
-
-#[test]
-fn an_ownership_list_keeps_each_account_once_and_never_the_manager() {
-    let store = memory();
-    create(&store, ALICE, "Alice");
-    let agent = create_agent(&store, ALICE, "Scout");
-    let people: Vec<u64> = (0..3u8)
-        .map(|i| create(&store, &[i], &format!("p{i}")))
-        .collect();
-    let alice = signed(&store, ALICE);
-    let mut named = people.clone();
-    named.extend([1, people[0]]);
-    run(&store, &alice, answers(agent, Ownership::Accounts(named))).unwrap();
-    assert_eq!(
-        ownership_of(&store, agent),
-        Ok(Ownership::Accounts(people)),
-        "duplicates and the manager do not count"
-    );
+    assert_eq!(query(&store, asked), Reply::Ownership(Ownership::Owner));
 }
 
 fn runs(store: &MockHost, program: &str, account: u64) -> Result<Option<u64>, ::program::Error> {
@@ -843,8 +748,10 @@ fn a_manager_hands_an_agent_to_a_program_that_then_alone_runs_it() {
         run_by(agent, Some("nobody")),
     );
     assert_eq!(unknown.code, code::NOT_FOUND);
-    let stranger = refused(&store, &signed(&store, BOB), run_by(agent, Some("harness")));
-    assert_eq!(stranger.code, code::UNAUTHORIZED);
+    assert_eq!(
+        needs(&store, &run_by(agent, Some("harness"))),
+        [::program::Need::write(crate::account_key(agent))]
+    );
     let user = refused(
         &store,
         &signed(&store, ALICE),

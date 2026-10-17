@@ -10,7 +10,7 @@ use view::design::space;
 use super::*;
 use crate::state::file_glyph;
 use crate::upload;
-use crate::write::{Form, Write};
+use crate::write::{Form, ListChoice, Write};
 
 /// How tall the text field starts.
 const TEXT_H: Pixels = px(220.);
@@ -49,6 +49,7 @@ pub(super) fn sheet(view: &Files, cx: Cx, k: &Kit) -> Option<AnyElement> {
                     .children(removes)
                     .children(naming(form, cx, k))
                     .children(text(form, k))
+                    .children(list(form, cx, k))
                     .children(picked(form, k))
                     .child(message(form, cx, k))
                     .children(refused)
@@ -116,6 +117,33 @@ fn text(form: &Form, k: &Kit) -> Option<Div> {
         .font_family(design::fonts::FAMILY_MONO)
         .text_size(design::text::MONO);
     Some(labelled(words::TEXT, area, k))
+}
+
+fn list(form: &Form, cx: Cx, k: &Kit) -> Option<Div> {
+    if !form.write.takes_list() {
+        return None;
+    }
+    let choices = div().flex().child(super::list_choices(form, cx, k));
+    let below = match form.list {
+        ListChoice::Listed => {
+            Some(design::field(super::listed_input(form), &k.ladder, &k.theme).into_any_element())
+        }
+        ListChoice::AsItsFolder => Some(
+            div()
+                .text_size(design::text::SECONDARY)
+                .text_color(k.theme.muted)
+                .child(words::AS_ITS_FOLDER_NOTE)
+                .into_any_element(),
+        ),
+        ListChoice::OnlyMe | ListChoice::Anyone => None,
+    };
+    let field = div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(choices)
+        .children(below);
+    Some(labelled(words::WHO_WRITES, field, k))
 }
 
 /// An upload's files: each one's name and size, whether it replaces one

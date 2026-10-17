@@ -60,7 +60,7 @@ fn refuse_writes(cx: &mut TestAppContext) {
 
 /// The settings of `project` as the phone shows them.
 fn shown_settings(view: &Entity<Forge>) -> forge::Settings {
-    view.read(|forge| forge.repo().map(|(info, _, _)| info.repo.settings.clone()))
+    view.read(|forge| forge.repo().map(|(info, _)| info.repo.settings.clone()))
         .expect("the repository is read")
 }
 
@@ -921,10 +921,7 @@ fn revoke_takes_a_writer_away() {
     let mut cx = repository("default");
     press(&mut cx, "forge-tab-settings");
     press(&mut cx, "forge-revoke-Wren");
-    assert!(submitted(&cx).iter().any(|op| matches!(
-        op,
-        forge::Op::Revoke { principal, .. } if *principal == forge::Principal::Account(9)
-    )));
+    assert_eq!(set_lists(&cx), [None]);
 }
 
 /// Grant opens the people sheet without the owner and those who write;
@@ -939,10 +936,7 @@ fn grant_picks_a_member_on_the_people_sheet() {
     assert!(cx.find("forge-grant-sheet-9").is_none(), "not a writer");
     press(&mut cx, "forge-grant-sheet-2");
     assert!(cx.find("forge-grant-sheet").is_none());
-    assert!(submitted(&cx).iter().any(|op| matches!(
-        op,
-        forge::Op::Grant { principal, .. } if *principal == forge::Principal::Account(2)
-    )));
+    assert_eq!(set_lists(&cx), [listed(&[9, 2])]);
 }
 
 // ------------------------------------------------------------------ Changes and Refs

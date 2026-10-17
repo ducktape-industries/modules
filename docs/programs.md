@@ -17,12 +17,13 @@ make new-program NAME=poll
 
 writes `crates/app/poll/` in valset's shape, registers it (`PROGRAMS` and
 `VIEW_LINKABLE` in the Makefile, the workspace members and dependencies in
-`Cargo.toml`) and prints what to do next. The files, in reading order:
+`Cargo.toml`, its schema in `crates/sdk/founding/src/schema.rs`) and prints
+what to do next. The files, in reading order:
 
 | File | What |
 |---|---|
 | `src/lib.rs` | the types on the wire (`Op`, `Query`, `Reply`, the rows they carry), `PROGRAM`, `describe()` and `describe::export!` |
-| `src/program.rs` | `pub struct Poll; impl program::Program for Poll` (`NAME`, `Op`, `Query`, `Reply`: what the program is to a view, which names it `Query<poll::Poll>`) and `impl program::Program for Poll`: one match over every op, one over every query, `reply` if it emits with a reply wanted; `program::export!` behind `program` |
+| `src/program.rs` | `pub struct Poll; impl program::Program for Poll` (`NAME`, `Op`, `Query`, `Reply`: what the program is to a view, which names it `Query<poll::Poll>`) and `impl program::Program for Poll`: one match over every op, one over every query, `access` and `resource` (what each op needs of the access program and who owns a key, section 5), `reply` if it emits with a reply wanted; `program::export!` behind `program` |
 | `src/rules.rs` | the tables (`store`), and what each op checks and writes |
 | `src/tests.rs` | the program natively over `MockHost` (add a `MockChain` test once it talks to another program) |
 
@@ -47,14 +48,14 @@ All three are borsh enums in `lib.rs`; the same types a view and a sibling
 program link. A write is an `Op`, a read a `Query` answered by a `Reply`.
 
 ```rust
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Op {
     Open { poll_id: String, channel: String, question: String, options: Vec<String> },
     Vote { poll_id: String, option: u32 },
     Close { poll_id: String },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask)]
 #[ask(Poll)]
 pub enum Query {
     #[ask(Reply::Poll(Option<PollRow>))]
@@ -65,7 +66,7 @@ pub enum Query {
     Tally { poll_id: String },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     Poll(Option<PollRow>),
     Polls(PageResponse<PollRow>),
@@ -73,6 +74,15 @@ pub enum Reply {
     Tally(Vec<u64>),
 }
 ```
+
+**Each type on the wire has a schema.** `Op`, `Query`, `Reply` and every
+type they carry derive `BorshSchema`, and a type with a hand-written borsh
+encoding writes its schema by hand to match. `crates/sdk/founding/src/schema.rs`
+names the program's interface (`program::schema::interface::<poll::Poll>()`),
+`make wasm-schemas` writes it as `poll.schema`, and a founding packs it as the
+`ducktape.schema` section of the program's code. An agent reads it there:
+harness's `network_schema`, `network_query` and `network_call` speak any
+program's ops and queries as JSON through it.
 
 **The append-only rule.** Borsh encodes a variant by its index, and a host
 describes an op that landed at any height with the program's *current*
@@ -252,18 +262,38 @@ belong to the program the prefix names, checked on the origin.
 The **identity role** answers who an account is. `ctx.require_user_or_program_account(n)`
 asks it (`Profile(n)`) and refuses an absent account, a system account, or a
 program account that is suspended or revoked: poll's voters, chat's dm counterpart,
-forge's reviewers. Ask a role at the program genesis bound to it,
+forge's reviewers. Ask a role at the program that fills it,
 `ctx.env().role(abi::role::IDENTITY)?`, never by a name you assume. The profiles
 themselves (`abi::role::identity::{Profile, Kind, Standing}`) are what a
 view shows beside a name.
 
-A rule of who may act on something an account owns is a `program::Ownership`:
-`Owner` (the owner alone), `Accounts(numbers)` (the owner and the account
-numbers listed) or `Anyone`. `allows(owner, account)` decides, and
-`settled(owner)` keeps each listed number once and never the owner, an empty
-list being `Owner`. identity keeps one per agent for whom it answers; files
-keeps one per path for who writes under it. A list holds account numbers,
-never names, so renaming an account changes nothing it allows.
+Who may write something an account owns is the access program's to decide
+([roles.md](roles.md), "Who may write a key"); a program answers it two
+questions. `Program::access(ctx, op)` names what an op needs: a
+`Need::write(key)` or a `Need::delete(key)` for each key the op changes,
+where a key is a `/`-separated string the program chooses (files uses the
+path, chat `chat::message_key(channel, seq)`). `Program::resource(ctx, key)`
+answers who owns a key and which list holds when no one has set one,
+`Resource { owner, default }`, from what the program already stores. Before
+the op runs, the kernel asks `access`; with any need, the access program
+checks each against the actor (`env.actor()`: the sender's account and, for
+a message, the program that sent it), and its refusal refuses the op. A
+program with nothing to gate answers `Ok(Vec::new())` and
+`Ok(Resource::default())`, as `crates/sdk/program/examples/counter.rs`
+does.
+
+A list is a `program::Ownership`: `Owner` (the owner alone),
+`Listed(parties)` (the owner and the parties listed, each a
+`Party::Account(number)` or a `Party::Program(id)`) or `Anyone`.
+`allows(owner, actor)` decides; `settled(owner)` keeps each party once and
+never the owner, an empty list being `Owner`. The lists live in the access
+program, never in the program whose keys they cover: a key's owner, or the
+program itself, sets one with `access::Op::Set`, and a program never copies
+an owner into it. A list holds account numbers and program ids, never
+names, so renaming an account changes nothing it allows. A program that
+reads a list for a rule of its own asks the access program (harness asks
+`access::Query::List` at `harness::agent_key(agent)` for whom an agent
+answers).
 
 `Env::authority()` admits only a message from the program bound to the
 validators role, which sends one when its validators' vote passes a
@@ -535,11 +565,14 @@ let reply: Reply = chain.query(PROGRAM, &Query::Poll { poll_id: "lunch".into() }
 
 With no identity program seated, the chain's roster answers as the role
 would (`hold`, `register`, `profile` for a program account and its standing); seat
-`identity::Identity` where genesis binds the identity role
+`identity::Identity` under the id that fills the identity role
 (`MockHost::roles()`, or the roles given `MockChain::founded(roles)`) and
 the chain asks it instead, and the roster's edits do nothing (identity's own ops seat keys
 then). `chain.init(program, &params)` runs `init` as the kernel admits a
-program: one frame, what it emits run after it, a refusal undoing it all;
+program: one frame, what it emits run after it, a refusal undoing it all.
+Before each op the chain asks the program's `access` as the kernel does, and
+when it answers needs, runs the access role's `Check` on the program seated
+there (seat `access::Access` under `"access"`);
 `chain.at(height, time)` moves the chain to another block. The two tests that matter
 for poll: the announcement lands in the frame that opened the poll, and a
 room that refuses the line still gets its poll while a refused closing
@@ -548,7 +581,7 @@ line fails the close whole.
 `crates/app/forge/tests/common/sandbox.rs` is a larger harness on the same
 chain (forge and chat, agents, heights).
 
-**`conformance`: a role.** A program bound to `programs`, `validators`,
+**`conformance`: a role.** A program that fills `programs`, `validators`,
 `identity`, `awaits` or `halo` at genesis speaks that role's bytes: the role's `Op`, `Query`
 and `Reply` variants are your enums' first, in order, with the same
 fields. Take `conformance` as a dev-dependency, implement the role's
@@ -580,13 +613,13 @@ them for the crates a view may link).
 first `make dev`. Where a view's bytes go: `make wasm-why V=poll-view`
 (`twiggy top` over a build that keeps its names; `cargo install twiggy`).
 
-`make wasm-modules` builds every program, its describe module and every
+`make wasm-modules` builds every program, its describe module and schema and every
 view under `$CARGO_TARGET_DIR/wasm32-unknown-unknown/release/`, unpacked;
 nothing built is committed.
 
 ## 10. Founding
 
-`crates/sdk/founding` packs each program with its view and describe module,
+`crates/sdk/founding` packs each program with its view, describe module and schema,
 and `make wasm-publish` releases the result as `founding.tar.gz`, which
 `ducktape init` founds once its `founding.toml` is filled. To add poll to it:
 
@@ -594,7 +627,8 @@ and `make wasm-publish` releases the result as `founding.tar.gz`, which
    or `"poll"` in `UNVIEWED` for a program with no screen of its own.
 2. `crates/sdk/founding/founding.toml`: a `[[programs]]` entry,
    `id = "poll"`, `code = "poll.wasm"` (and `params = …` if `init` takes
-   any). The `[roles]` stay bound as they are.
+   any). poll fills no role, so its entry names no `roles`; a program that
+   fills one names it there (`roles = ["scheduler"]`).
 3. qa's `founding.toml`: the same entry with `code = "@PROGRAMS@/poll.wasm"`.
    `kit up NAME` founds a fresh network with the program admitted at
    genesis and its account registered with identity.
@@ -605,3 +639,5 @@ A hook is also named in both files' top-level `hooks = [...]`, as
 A program added to a running network goes through the programs role instead
 (`ducktape blob put --kind program --wait`, then `Schedule` at a height; [roles.md](roles.md), "Updating a
 program"): its `init` runs with the scheduled params when the height comes.
+A program that fills a role is scheduled as `Change::Publish` with its
+roles, which only the validators' vote may do.

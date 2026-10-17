@@ -11,13 +11,13 @@ pub use program::Activity;
 pub use store::{PageRequest, PageResponse};
 
 use ::program::{AccountNumber, ProgramId};
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
 pub const PROGRAM: &str = "activity";
 
 pub type Op = ();
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Frame {
     pub height: u64,
     pub position: u32,
@@ -27,14 +27,16 @@ pub struct Frame {
     pub applied: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Used {
     pub account: AccountNumber,
     pub program: ProgramId,
     pub frames: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask,
+)]
 #[ask(Activity)]
 pub enum Query {
     #[ask(Reply::Frames(PageResponse<Frame>))]
@@ -50,7 +52,7 @@ pub enum Query {
     Frames { page: PageRequest },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     Frames(PageResponse<Frame>),
     Used(PageResponse<Used>),

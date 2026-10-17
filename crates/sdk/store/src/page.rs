@@ -1,7 +1,7 @@
 //! Bounded, resumable query pages over `program`'s `Range`: the one paging
 //! vocabulary every program's queries speak.
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 use program::{Error, QueryCtx};
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +29,7 @@ pub struct Cursor {
     Eq,
     BorshSerialize,
     BorshDeserialize,
+    BorshSchema,
     Serialize,
     Deserialize,
 )]
@@ -192,7 +193,17 @@ impl Listing {
 
 /// A bounded query result. Resume with `next` as `PageRequest::after` on the same query.
 /// Height identifies the answering state; pagination does not pin a snapshot.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+    Serialize,
+    Deserialize,
+)]
 pub struct PageResponse<T> {
     pub height: u64,
     pub items: Vec<T>,

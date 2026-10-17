@@ -14,6 +14,8 @@
 //! - `origin.rs`: the identity role's roster
 //! - `queries.rs`: one short function per question
 //! - `text.rs`: what search and tags read out of a message
+//! - `mentions.rs`: a typed `@name` made the mention of the one account
+//!   that holds the name, as a message is posted or edited
 //! - `view.rs`: the reads a view makes of chat, folded into [`view::Names`]
 //! - `description.rs`: [`describe()`], an op in a person's words
 //!
@@ -22,7 +24,10 @@
 //! its wasm exports.
 pub mod attributed;
 mod description;
+mod gate;
+mod mentions;
 pub mod message;
+mod migrate;
 mod ops;
 mod origin;
 mod program;
@@ -34,13 +39,14 @@ mod tests;
 mod text;
 pub mod view;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 pub use ::program::{AccountNumber, Principal};
 pub use abi::hex;
 pub use abi::role::identity::{Category, Kind, Profile, Standing};
 pub use description::describe;
+pub use gate::message_key;
 pub use message::{Block, ListMarker, Mark, Span, list_item, parse_message};
 pub use program::Chat;
 pub use queries::roots_below;
@@ -51,8 +57,8 @@ pub use text::{plain_text, tags, tokens};
 /// of `program.changes` plays back in a test to say which a block touched.
 pub mod tables {
     pub use crate::state::{
-        ANSWERED, CHANNEL_TAGS, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS,
-        REPLIES, ROOTS, TAGS, WORDS,
+        ANSWERED, CHANNEL_TAGS, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, PARTICIPANTS,
+        REACTIONS, REPLIES, ROOTS, TAGS, WORDS,
     };
 }
 
@@ -60,7 +66,7 @@ pub mod tables {
 pub const PROGRAM: &str = "chat";
 
 /// A write. The enum only grows at its end (see `op_variants_only_append`).
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, BorshSchema, Debug, Clone, PartialEq, Eq)]
 pub enum Op {
     CreateChannel {
         channel_id: String,
@@ -115,6 +121,7 @@ pub enum Op {
         principal: Principal,
         member: bool,
     },
+    Migrate,
 }
 
 /// A read. `viewer` is the reader's principals: they decide
@@ -124,7 +131,9 @@ pub enum Op {
 /// `program.changes` re-reads it only for a block that wrote to one of them;
 /// a read of message rows follows `REACTIONS` too, since the viewer's own
 /// reactions are read onto the rows.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ::program::Ask)]
+#[derive(
+    BorshSerialize, BorshDeserialize, BorshSchema, Debug, Clone, PartialEq, Eq, ::program::Ask,
+)]
 #[ask(Chat)]
 pub enum Query {
     #[ask(Reply::Channels(PageResponse<ChannelInfo>))]
@@ -201,7 +210,7 @@ pub enum Query {
     Accounts { page: PageRequest },
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, BorshSchema, Debug, Clone, PartialEq, Eq)]
 pub enum Reply {
     Channels(PageResponse<ChannelInfo>),
     Channel(Option<ChannelInfo>),
@@ -220,14 +229,33 @@ pub enum Reply {
 }
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
 )]
 pub enum PostPolicy {
     Open,
     MembersOnly,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+)]
 pub struct ChannelRow {
     pub id: String,
     pub name: String,
@@ -251,20 +279,50 @@ impl ChannelRow {
 }
 
 /// A channel and the seq of its newest message.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+)]
 pub struct ChannelInfo {
     pub channel: ChannelRow,
     pub head_seq: u64,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+)]
 pub struct MemberRow {
     pub principal: Principal,
     pub height: u64,
     pub time: u64,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+)]
 pub struct MsgRow {
     pub channel_id: String,
     pub seq: u64,
@@ -317,7 +375,17 @@ impl MsgRow {
 }
 
 /// One emoji on a message: how many principals chose it.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+)]
 pub struct Reaction {
     pub emoji: String,
     pub count: u64,
@@ -325,7 +393,17 @@ pub struct Reaction {
     pub reacted_by_me: bool,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+)]
 pub struct MessageHits {
     pub hits: Vec<MsgRow>,
     pub capped: bool,
@@ -398,6 +476,7 @@ fn op_variants_only_append() {
             "AddReaction",
             "RemoveReaction",
             "SetMembership",
+            "Migrate",
         ]
     );
 }
