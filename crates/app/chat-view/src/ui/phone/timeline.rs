@@ -91,10 +91,9 @@ pub(super) fn list(
             },
         )
         .child(rows(chat, pane, cx, theme, ladder))
-        .when(
-            timeline && (room.opened_at_message || !room.at_tail),
-            |frame| frame.child(latest(room.id.clone(), cx, theme, ladder)),
-        )
+        .when(timeline && (room.landed || !room.at_tail), |frame| {
+            frame.child(latest(room.id.clone(), cx, theme, ladder))
+        })
         .into_any_element()
 }
 

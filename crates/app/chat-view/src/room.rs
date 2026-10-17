@@ -74,11 +74,13 @@ impl Chat {
             };
         }
         room.landed = land > 0;
-        room.opened_at_message = land > 0;
         room.target = land;
         room.at_tail = land == 0;
         room.older_loading = false;
         room.newer_loading = false;
+        // a re-read still out is the old window's: landing after the new
+        // one, it would put the old rows back
+        room.rereading = None;
         // the room is entered, or entered again at another row: the rows
         // and the roster shown go, and both read as loading
         room.messages = Loadable::Idle;
@@ -367,8 +369,14 @@ impl Chat {
             let at_head = side == Side::Newer && page.is_empty();
             if at_head {
                 chat.reached_head(cx);
-            } else {
-                room.extend(side, page);
+                return;
+            }
+            // replies alone draw no row: the list does not move, so the host
+            // reports nothing new and the reader is still at this end
+            let drawn = page.iter().any(|row| row.thread.is_none());
+            room.extend(side, page);
+            if !drawn {
+                chat.page_landed(side, cx);
             }
         })
         .detach();

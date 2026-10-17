@@ -494,6 +494,76 @@ fn at_its_head(cx: &TestAppContext, view: &Entity<Chat>) {
     assert!(cx.find("chat-jump-latest").is_none());
 }
 
+/// #general's roots 1..=`roots`, then replies to the last of them up to
+/// `head`, the room list saying so. Seated, not opened.
+fn threaded_room(roots: u64, head: u64) -> (TestAppContext, Entity<Chat>) {
+    let message = move |seq: u64| MsgRow {
+        thread: (seq > roots).then_some(roots),
+        height: seq,
+        ..row(seq, 7 + seq % 2, &format!("row {seq}"))
+    };
+    let mut cx = TestAppContext::new();
+    configure(&mut cx);
+    cx.host().handle::<Ask<::chat::Chat>>(move |query| {
+        Ok(match query {
+            Query::Accounts { .. } => Reply::Accounts(page(Vec::new())),
+            Query::Channels { .. } => {
+                Reply::Channels(page(vec![channel("general", "General", head)]))
+            }
+            Query::MessagesAround { seq, page, .. } => {
+                let half = page.limit() / 2;
+                let lo = seq.saturating_sub(half).max(1);
+                let hi = seq.saturating_add(half).min(head);
+                Reply::Messages((lo..=hi).map(message).collect())
+            }
+            Query::Roots { .. } => Reply::Roots(::chat::PageResponse {
+                height: 1,
+                items: (1..=roots).map(message).collect(),
+                next: None,
+            }),
+            Query::Members { .. } => Reply::Members(page(Vec::new())),
+            query => panic!("unexpected chat query: {query:?}"),
+        })
+    });
+    let view = cx.open::<Chat>();
+    seat(&mut cx);
+    (cx, view)
+}
+
+/// A link far above the newest message, every message past its window a
+/// reply in one thread: a newer page the reader reads at the foot draws no
+/// row, so the list does not move and the host reports nothing new. The
+/// room reads on to its head all the same, and nothing offers to jump.
+#[test]
+fn newer_pages_of_replies_alone_read_on_to_the_head() {
+    let (mut cx, view) = threaded_room(100, 200);
+    open_link(&mut cx, 60);
+    view.read(|chat| assert!(chat.room.as_ref().unwrap().landed));
+    let wire::Node::List { item_count, .. } = timeline(&cx) else {
+        unreachable!()
+    };
+    cx.simulate_range("chat-message-list", item_count - 10..item_count);
+    at_its_head(&cx, &view);
+    assert_eq!(seqs(&view).1, 200);
+}
+
+/// A block lands as a link to the room's newest message, a reply, opens
+/// the room on screen. The re-read of the room's tail the block set off is
+/// not the landed window's, and the window around the message holds the
+/// head: the room opens at it.
+#[test]
+fn a_link_opened_as_a_block_lands_opens_the_room_at_its_head() {
+    let (mut cx, view) = threaded_room(100, 120);
+    cx.simulate_click("chat-sidebar-channel-general");
+    cx.run_until_parked();
+    cx.host()
+        .stream::<Changes<::chat::Chat>>()
+        .send(block(4, posted("general")));
+    open_link(&mut cx, 120);
+    at_its_head(&cx, &view);
+    assert_eq!(seqs(&view), (56, 120, 65), "the window around 120");
+}
+
 #[test]
 #[ignore = "measurement: prints a hover's render time over a full room, asserts nothing of it"]
 fn a_hover_over_a_full_room_measured() {
