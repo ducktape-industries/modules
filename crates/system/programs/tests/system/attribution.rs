@@ -1,6 +1,6 @@
 //! attribution founded beside chat on ducktape's host: a mention, picked or typed as a name,
-//! and a direct message are recorded in the frame that posts them, and a post stands where
-//! nothing is recorded.
+//! a direct message and a reply in a thread are recorded in the frame that posts them, and a
+//! post stands where nothing is recorded.
 use super::*;
 
 use attribution::{Kind, Object, Query, Reason, Reply, Source};
@@ -26,16 +26,20 @@ fn message(id: &str) -> Source {
 }
 
 fn post(channel: &str, id: &str, text: &str) -> chat::Op {
+    reply(channel, id, text, None)
+}
+
+fn reply(channel: &str, id: &str, text: &str, thread: Option<u64>) -> chat::Op {
     chat::Op::PostMessage {
         channel_id: channel.into(),
         message_id: id.into(),
         blocks: chat::parse_message(text),
-        thread: None,
+        thread,
     }
 }
 
 #[test]
-fn chat_reports_mentions_and_direct_messages_to_attribution_as_they_are_posted() {
+fn chat_reports_mentions_direct_messages_and_thread_replies_to_attribution_as_they_are_posted() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
         let mut net = Net::found_with(context, dir.path(), apps(), Vec::new(), MEMBER_CAP).await;
@@ -73,6 +77,12 @@ fn chat_reports_mentions_and_direct_messages_to_attribution_as_they_are_posted()
             &post("general", "m3", "thanks @bo."),
         )
         .await;
+        net.apply(
+            &public(BO),
+            chat::PROGRAM,
+            &reply("general", "t1", "an answer", Some(2)),
+        )
+        .await;
         let dm = chat::Op::CreateDmChannel {
             counterpart: bo,
             name: "us".into(),
@@ -105,6 +115,8 @@ fn chat_reports_mentions_and_direct_messages_to_attribution_as_they_are_posted()
         assert_eq!(held(message("m1")).await, Some(vec![(bo, Reason::Mention)]));
         assert_eq!(held(message("m2")).await, None);
         assert_eq!(held(message("m3")).await, Some(vec![(bo, Reason::Mention)]));
+        let in_thread = Reason::Defined(chat::attributed::THREAD.into());
+        assert_eq!(held(message("t1")).await, Some(vec![(ada, in_thread)]));
         let direct = Reason::Defined(chat::attributed::DIRECT.into());
         assert_eq!(held(message("d1")).await, Some(vec![(ada, direct)]));
         let asked = Query::ChangesTo {

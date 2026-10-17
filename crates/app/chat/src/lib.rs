@@ -54,8 +54,8 @@ pub use text::{plain_text, tags, tokens};
 /// of `program.changes` plays back in a test to say which a block touched.
 pub mod tables {
     pub use crate::state::{
-        ANSWERED, CHANNEL_TAGS, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS,
-        REPLIES, ROOTS, TAGS, WORDS,
+        ANSWERED, CHANNEL_TAGS, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, PARTICIPANTS,
+        REACTIONS, REPLIES, ROOTS, TAGS, WORDS,
     };
 }
 

@@ -1,7 +1,8 @@
 //! The agents harness runs: program accounts of the agent category whose script calls harness.
 //! An agent's setup is what identity says of it, its configuration file in `files` read at the
-//! head, and the model record that file names. A mention or a direct message it answers
-//! continues its one current thread, from any place, and its manager closes a thread.
+//! head, and the model record that file names. A mention, a direct message or a reply in a chat
+//! thread it took part in, from someone it answers, continues its one current thread, from any
+//! place, and its manager closes a thread.
 use ::program::{
     BlobId, Ctx, Error, ExecCtx, Principal, QueryCtx, not_found, unauthorized, unexpected_reply,
 };
@@ -231,10 +232,34 @@ fn name_of(ctx: &QueryCtx, number: AccountNumber) -> String {
     }
 }
 
+enum Heard {
+    Mention,
+    Direct,
+    Thread,
+}
+
+fn heard_as(reason: &Reason) -> Option<Heard> {
+    match reason {
+        Reason::Mention => Some(Heard::Mention),
+        Reason::Defined(name) => match name.as_str() {
+            chat::attributed::DIRECT => Some(Heard::Direct),
+            chat::attributed::THREAD => Some(Heard::Thread),
+            _ => None,
+        },
+        Reason::Authorship
+        | Reason::Ownership
+        | Reason::Assignment
+        | Reason::Credit
+        | Reason::Result
+        | Reason::Report => None,
+    }
+}
+
 fn designation(
     ctx: &QueryCtx,
     change: &Change,
     actor: AccountNumber,
+    heard: Heard,
 ) -> Result<Designation, Error> {
     let who = name_of(ctx, actor);
     let from_chat = change.source.program == chat::PROGRAM
@@ -260,9 +285,10 @@ fn designation(
         );
         return Ok(Designation { place, text });
     };
-    let verb = match &change.reason {
-        Reason::Mention => "mentioned you",
-        _ => "wrote to you directly",
+    let verb = match heard {
+        Heard::Mention => "mentioned you",
+        Heard::Direct => "wrote to you directly",
+        Heard::Thread => "continued a thread with you",
     };
     let in_thread = match row.thread {
         Some(root) => format!(", in the thread of message {root} (reply_to {root})"),
@@ -280,14 +306,6 @@ fn designation(
     })
 }
 
-fn designates(reason: &Reason) -> bool {
-    match reason {
-        Reason::Mention => true,
-        Reason::Defined(name) => name == chat::attributed::DIRECT,
-        _ => false,
-    }
-}
-
 pub(crate) async fn attributed(ctx: Ctx, change: Change) -> Result<(), Error> {
     let Some(thread) = heard(&ctx, change)? else {
         return Ok(());
@@ -302,10 +320,13 @@ fn heard(ctx: &ExecCtx, change: Change) -> Result<Option<u64>, Error> {
     let Actor::Account(actor) = change.actor else {
         return Ok(None);
     };
+    let Some(why) = heard_as(&change.reason) else {
+        return Ok(None);
+    };
     let by_another = actor != change.recipient;
     let told_already =
         LAST.get(ctx, &change.recipient)? == Some((change.source.clone(), change.revision));
-    let heeded = added && designates(&change.reason) && by_another && !told_already;
+    let heeded = added && by_another && !told_already;
     if !heeded {
         return Ok(None);
     }
@@ -320,7 +341,7 @@ fn heard(ctx: &ExecCtx, change: Change) -> Result<Option<u64>, Error> {
         &agent.number,
         &(change.source.clone(), change.revision),
     );
-    let Designation { place, text } = designation(ctx, &change, actor)?;
+    let Designation { place, text } = designation(ctx, &change, actor, why)?;
     let mut thread = conversation(ctx, &agent, &place)?;
     PLACES.put(ctx, &(agent.number, place), &thread.id);
     let author = Principal::Account(actor);

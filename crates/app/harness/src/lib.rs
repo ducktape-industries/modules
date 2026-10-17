@@ -1,7 +1,7 @@
 //! The `harness` program: agents that consensus runs. An agent is a program account whose
 //! script calls harness; its script's `config` is the path of its configuration in `files`
-//! (`config.rs`), which harness reads at each model call. A mention or a direct message about
-//! the agent reaches harness through `attribution`; the model is a record harness keeps
+//! (`config.rs`), which harness reads at each model call. A mention, a direct message or a reply
+//! in a chat thread the agent took part in reaches harness through `attribution`; the model is a record harness keeps
 //! (`SetModel`), reached through the egress role in the wire it speaks (`wire/`), which streams
 //! a turn's reply back one event at a time (`Streamed`, folded into a [`Partial`]). Every tool
 //! call runs in a later block, as the agent.

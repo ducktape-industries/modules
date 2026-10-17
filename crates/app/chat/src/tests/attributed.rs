@@ -1,5 +1,6 @@
 //! What chat tells attribution, with attribution seated beside it on a `MockChain`: each
-//! message's mentions, and a direct message's counterpart.
+//! message's mentions, a direct message's counterpart, and who took part in a thread before
+//! a reply.
 use ::program::{MockChain, Origin};
 use abi::role::identity::{Kind, Profile};
 use attribution::{
@@ -7,10 +8,11 @@ use attribution::{
     Source,
 };
 
-use crate::attributed::{DIRECT, MESSAGE};
+use crate::attributed::{DIRECT, MESSAGE, THREAD};
 
 const ADA: &[u8] = b"ada-key";
 const BO: &[u8] = b"bo-key";
+const CY: &[u8] = b"cy-key";
 
 fn chain() -> MockChain {
     let mut chain = MockChain::default();
@@ -18,7 +20,7 @@ fn chain() -> MockChain {
     chain.seat::<crate::Chat>(crate::PROGRAM);
     chain.register(attribution::PROGRAM, 900);
     chain.register(crate::PROGRAM, 901);
-    for (key, number, name) in [(ADA, 1, "Ada"), (BO, 2, "Bo")] {
+    for (key, number, name) in [(ADA, 1, "Ada"), (BO, 2, "Bo"), (CY, 3, "Cy")] {
         chain.hold(key.to_vec(), number);
         chain.profile(Profile {
             number,
@@ -84,17 +86,32 @@ fn changes_to(chain: &MockChain, recipient: u64) -> Vec<(String, Reason, Changed
 }
 
 fn post(chain: &MockChain, key: &[u8], channel: &str, id: &str, text: &str) {
+    post_in(chain, key, channel, id, text, None);
+}
+
+fn post_in(
+    chain: &MockChain,
+    key: &[u8],
+    channel: &str,
+    id: &str,
+    text: &str,
+    thread: Option<u64>,
+) {
     let op = crate::Op::PostMessage {
         channel_id: channel.into(),
         message_id: id.into(),
         blocks: crate::parse_message(text),
-        thread: None,
+        thread,
     };
     chain.submit(signed(key), crate::PROGRAM, &op).unwrap();
 }
 
 fn direct() -> Reason {
     Reason::Defined(DIRECT.into())
+}
+
+fn in_thread() -> Reason {
+    Reason::Defined(THREAD.into())
 }
 
 fn open_general(chain: &MockChain) {
@@ -183,6 +200,39 @@ fn a_typed_name_reaches_attribution_as_a_picked_mention_does() {
     };
     chain.submit(signed(ADA), crate::PROGRAM, &edit).unwrap();
     assert_eq!(held(&chain, chat_source("unknown")), [(2, Reason::Mention)]);
+}
+
+#[test]
+fn a_thread_reply_relates_everyone_who_took_part_before_it() {
+    let chain = chain();
+    open_general(&chain);
+    post(&chain, ADA, "general", "root", "a question");
+    assert_eq!(relations(&chain, chat_source("root")), None);
+    post_in(&chain, BO, "general", "b1", "an answer", Some(1));
+    assert_eq!(held(&chain, chat_source("b1")), [(1, in_thread())]);
+    post_in(&chain, CY, "general", "c1", "another", Some(1));
+    assert_eq!(
+        held(&chain, chat_source("c1")),
+        [(1, in_thread()), (2, in_thread())]
+    );
+    post_in(&chain, BO, "general", "b2", "and <@1>", Some(1));
+    assert_eq!(
+        held(&chain, chat_source("b2")),
+        [(1, Reason::Mention), (1, in_thread()), (3, in_thread())]
+    );
+    let edit = crate::Op::EditMessage {
+        channel_id: "general".into(),
+        seq: 3,
+        blocks: crate::parse_message("another, edited"),
+        base_rev: Some(0),
+    };
+    chain.submit(signed(CY), crate::PROGRAM, &edit).unwrap();
+    assert_eq!(
+        held(&chain, chat_source("c1")),
+        [(1, in_thread()), (2, in_thread())]
+    );
+    post(&chain, CY, "general", "elsewhere", "a new topic");
+    assert_eq!(relations(&chain, chat_source("elsewhere")), None);
 }
 
 #[test]

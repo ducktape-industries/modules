@@ -1,14 +1,17 @@
 //! What chat tells attribution as a message is posted, edited or deleted: the accounts it
-//! mentions, and in a direct message the counterpart it is written to.
+//! mentions, in a direct message the counterpart it is written to, and in a thread reply the
+//! accounts that took part in the thread before it.
 use std::collections::BTreeSet;
 
-use ::program::{ExecCtx, Reply};
+use ::program::{Error, ExecCtx, QueryCtx, Reply};
 use attribution::{Actor, Object, Reason, Relation, Update};
 
+use crate::state::{PARTICIPANTS, message};
 use crate::{AccountNumber, Block, Mark, MsgRow, Principal, dm_peers};
 
 pub const MESSAGE: &str = "message";
 pub const DIRECT: &str = "direct";
+pub const THREAD: &str = "thread";
 
 fn mentioned(blocks: &[Block]) -> impl Iterator<Item = AccountNumber> + '_ {
     blocks
@@ -24,11 +27,31 @@ fn mentioned(blocks: &[Block]) -> impl Iterator<Item = AccountNumber> + '_ {
         })
 }
 
-pub fn relations(row: &MsgRow) -> Vec<Relation> {
+fn thread_before(ctx: &QueryCtx, row: &MsgRow) -> Result<Vec<AccountNumber>, Error> {
+    let Some(root) = row.thread else {
+        return Ok(Vec::new());
+    };
+    let starter = message(ctx, &row.channel_id, root)?.author;
+    let scope = PARTICIPANTS.prefix_of(&(row.channel_id.clone(), root));
+    let repliers = PARTICIPANTS
+        .scan(ctx, scope)?
+        .into_iter()
+        .filter(|(_, first)| *first < row.seq)
+        .map(|((_, _, author), _)| author);
+    Ok(std::iter::once(starter)
+        .chain(repliers)
+        .filter_map(|principal| principal.account())
+        .collect())
+}
+
+pub fn relations(row: &MsgRow, thread: &[AccountNumber]) -> Vec<Relation> {
     if row.deleted {
         return Vec::new();
     }
     let mut held = BTreeSet::new();
+    for number in thread {
+        held.insert((*number, Reason::Defined(THREAD.into())));
+    }
     for number in mentioned(&row.blocks) {
         held.insert((number, Reason::Mention));
     }
@@ -51,11 +74,17 @@ pub fn revision(row: &MsgRow) -> u64 {
     2 * u64::from(row.rev) + u64::from(row.deleted)
 }
 
-pub(crate) fn report(ctx: &ExecCtx, sender: &Principal, old: Option<&MsgRow>, row: &MsgRow) {
-    let after = relations(row);
-    let unrelated = after.is_empty() && old.is_none_or(|old| relations(old).is_empty());
+pub(crate) fn report(
+    ctx: &ExecCtx,
+    sender: &Principal,
+    old: Option<&MsgRow>,
+    row: &MsgRow,
+) -> Result<(), Error> {
+    let thread = thread_before(ctx, row)?;
+    let after = relations(row, &thread);
+    let unrelated = after.is_empty() && old.is_none_or(|old| relations(old, &thread).is_empty());
     if unrelated {
-        return;
+        return Ok(());
     }
     let actor = match sender {
         Principal::Account(number) => Actor::Account(*number),
@@ -76,4 +105,5 @@ pub(crate) fn report(ctx: &ExecCtx, sender: &Principal, old: Option<&MsgRow>, ro
         &attribution::Op::Attribute(update),
         Reply::Wanted,
     );
+    Ok(())
 }

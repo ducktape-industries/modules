@@ -1,8 +1,9 @@
 //! The agents on a `MockChain` with identity, attribution, awaits, scheduler, chat, files, egress
 //! and valset seated: an agent is a program account whose script calls harness and names its
-//! configuration in files; a mention or a direct message reaches it, the node serving its model's
-//! egress service answers as the model would, whole or one streamed event at a time, and every
-//! tool call runs once its relay comes back, as the agent.
+//! configuration in files; a mention, a direct message or a reply in a chat thread it took part
+//! in reaches it, the node serving its model's egress service answers as the model would, whole
+//! or one streamed event at a time, and every tool call runs once its relay comes back, as the
+//! agent.
 mod config;
 mod conversations;
 mod models;
@@ -512,6 +513,78 @@ fn a_direct_message_reaches_the_agent_and_only_those_it_answers_are_heard() {
             .chain(held(chain, thread.id))
             .any(|body| matches!(body, Body::Post { text, .. } if text.starts_with(&bo))),
         "{bo}"
+    );
+}
+
+#[test]
+fn a_reply_in_a_thread_the_agent_took_part_in_reaches_it_unmentioned_and_is_answered_there() {
+    let world = world();
+    let chain = &world.chain;
+    let thread = world.opened("m1", "start a thread", Some(WINDOW));
+    let in_thread = |id: &str, text: &str| {
+        tool_use(
+            id,
+            "chat_post",
+            json!({ "channel": "general", "text": text, "reply_to": 1 }),
+        )
+    };
+    chain.at(3, 0);
+    model_says(chain, json!([in_thread("toolu_a", "on it")]), "tool_use");
+    chain.at(4, 0);
+    relay_back(chain, "toolu_a");
+    chain.at(5, 0);
+    model_says(
+        chain,
+        json!([{ "type": "text", "text": "Posted." }]),
+        "end_turn",
+    );
+    chain.at(6, 0);
+    let follow_up = chat::Op::PostMessage {
+        channel_id: "general".into(),
+        message_id: "a3".into(),
+        blocks: chat::parse_message("and the second part?"),
+        thread: Some(1),
+    };
+    chain
+        .submit(signed(ADA), chat::PROGRAM, &follow_up)
+        .unwrap();
+    assert_eq!(world.threads().len(), 1, "the agent's one conversation continues");
+    let posts: Vec<String> = frames(chain, thread)
+        .into_iter()
+        .filter_map(|body| match body {
+            Body::Post { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect();
+    let [_, heard] = &posts[..] else {
+        panic!("{posts:?}")
+    };
+    assert!(
+        heard.starts_with(&format!(
+            "Ada (account {}) continued a thread with you in chat channel general, message 3, \
+             in the thread of message 1 (reply_to 1):",
+            world.ada
+        )),
+        "{heard}"
+    );
+    assert!(heard.ends_with("and the second part?"), "{heard}");
+    chain.at(7, 0);
+    model_says(
+        chain,
+        json!([in_thread("toolu_b", "the second part")]),
+        "tool_use",
+    );
+    chain.at(8, 0);
+    relay_back(chain, "toolu_b");
+    let asked = chat::Query::MessageById {
+        message_id: format!("harness-{thread}-toolu_b"),
+    };
+    let chat::Reply::Message(Some(answered)) = chain.query(chat::PROGRAM, &asked).unwrap() else {
+        panic!()
+    };
+    assert_eq!(
+        (answered.author, answered.thread),
+        (Principal::Account(world.agent), Some(1))
     );
 }
 
