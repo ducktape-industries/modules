@@ -86,6 +86,7 @@ fn page(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) 
         Page::Folder => code::folder(forge, nav, cx, ladder, theme),
         Page::Blob => code::render(forge, nav, cx, ladder, theme),
         Page::Missing => code::missing(forge, nav, cx, ladder, theme),
+        Page::Landing => code::landing(forge, nav, cx, ladder, theme),
     }
 }
 

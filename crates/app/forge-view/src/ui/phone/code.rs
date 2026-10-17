@@ -6,7 +6,8 @@
 //! Source for markdown) over its lines, or the markdown rendered; why a
 //! file that is not text shows nothing.
 //!
-//! Reads the open folder (`Nav::folder`) and blob (`Nav::blob`); writes
+//! Reads the open folder (`Nav::folder`), blob (`Nav::blob`) and the
+//! path a link is landing on (`Nav::goto`); writes
 //! the clipboard, the page's wrap and source toggles, and the folder a
 //! crumb goes back to.
 use view::Div;
@@ -64,6 +65,50 @@ pub(super) fn missing(
         ladder,
         theme,
     ))
+    .into_any_element()
+}
+
+/// A path a link named while its folder's tree is read: a file's head
+/// over the read, as Expo's `code/[...path].tsx` shows before it knows
+/// the entry ("Resolving the ref…" before the ref names a tree to read).
+pub(super) fn landing(
+    forge: &Forge,
+    nav: Nav,
+    cx: &mut Context<Forge>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> AnyElement {
+    let path = forge.nav().goto.clone().unwrap_or_default();
+    let dir = forge.nav().folder.clone().unwrap_or_default();
+    let reading = match forge.tree_query(dir) {
+        Some(tree) => parts::stage(
+            forge,
+            &tree,
+            "forge-landing",
+            words::READING_TREE,
+            cx,
+            (ladder, theme),
+        )
+        .err(),
+        None => Some(
+            parts::quiet(
+                id("forge-landing-resolving"),
+                words::RESOLVING_REF,
+                ladder,
+                theme,
+            )
+            .into_any_element(),
+        ),
+    };
+    file_page(
+        "forge-page-landing",
+        &path_text(&path),
+        forge,
+        nav,
+        cx,
+        (ladder, theme),
+    )
+    .children(reading)
     .into_any_element()
 }
 
