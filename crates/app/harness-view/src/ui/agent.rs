@@ -245,7 +245,9 @@ fn system_prompt(setup: &AgentSetup, theme: &Theme) -> impl IntoElement + use<> 
     let text = match &setup.configured {
         Configured::Ready { config, .. } | Configured::UnknownModel { config, .. } => {
             match config.system.is_empty() {
-                true => "No system prompt: harness's preamble alone.".to_owned(),
+                true => {
+                    "No system prompt: harness sends its ducktape resource manual alone.".to_owned()
+                }
                 false => config.system.clone(),
             }
         }

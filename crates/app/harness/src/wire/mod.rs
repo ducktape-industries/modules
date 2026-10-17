@@ -12,7 +12,7 @@ use crate::{Flow, Frame, Partial, Role, Said, Stop, Usage, Wire};
 pub(crate) struct Header<'a> {
     pub name: &'a str,
     pub max_tokens: u32,
-    pub system: &'a str,
+    pub system: &'a [String],
 }
 
 #[derive(Debug, PartialEq)]
