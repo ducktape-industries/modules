@@ -4,14 +4,26 @@
 //! to it and a picture, and keeps a diary in hers; the first snapshot
 //! is pinned `v1`. Dev writes in its home and `/shared`, and reads ada's.
 use files::{Change, Content, Op};
-use view::rig;
+use view::rig::{self, Network};
 
-fn put(path: &str, bytes: &[u8]) -> Change {
+/// `bytes` put at `path`, its chunks put on `net` first, as a node's blob
+/// upload puts them.
+fn put(net: &Network, path: &str, bytes: &[u8]) -> Change {
+    let chunks = bytes
+        .chunks(files::CHUNK_SIZE as usize)
+        .map(|chunk| {
+            net.put_blob(files::CHUNK, chunk.to_vec())
+                .expect("a chunk blob")
+        })
+        .collect();
     Change::Put {
         path: path.into(),
         exec: false,
         meta: Default::default(),
-        content: Content::Inline(bytes.to_vec()),
+        content: Content::Chunks {
+            size: bytes.len() as u64,
+            chunks,
+        },
     }
 }
 
@@ -40,10 +52,12 @@ fn main() {
             "Start my notes",
             vec![
                 put(
+                    net,
                     "/home/dev/notes.txt",
                     b"Ship files-view.\nAsk ada about the readme.",
                 ),
                 put(
+                    net,
                     "/home/dev/docs/plan.md",
                     b"# Plan\n\n1. Browse\n2. Write\n3. History",
                 ),
@@ -54,21 +68,23 @@ fn main() {
             "Share the readme",
             vec![
                 put(
+                    net,
                     "/shared/readme.txt",
                     b"Everything under /shared is anyone's to write.",
                 ),
-                put("/shared/tape.png", TAPE),
+                put(net, "/shared/tape.png", TAPE),
                 Change::Symlink {
                     path: "/shared/latest".into(),
                     target: "/shared/readme.txt".into(),
                 },
-                put("/home/ada/diary.txt", b"Dear diary,"),
+                put(net, "/home/ada/diary.txt", b"Dear diary,"),
             ],
         )?;
         commit(
             dev,
             "Say more in my notes",
             vec![put(
+                net,
                 "/home/dev/notes.txt",
                 b"Ship files-view.\nAsk ada about the readme.\nPin the release.",
             )],

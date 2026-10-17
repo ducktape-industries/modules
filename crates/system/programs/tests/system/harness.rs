@@ -122,13 +122,13 @@ fn model_reply(content: Value, stop: &str) -> Vec<u8> {
     })
 }
 
-fn configured(config: &harness::Config) -> Vec<files::Change> {
+async fn configured(net: &mut Net, config: &harness::Config) -> Vec<files::Change> {
     vec![
         files::Change::Put {
             path: CONFIG.into(),
             exec: false,
             meta: Default::default(),
-            content: files::Content::Inline(config.write().into_bytes()),
+            content: net.chunks(config.write().as_bytes()).await,
         },
         files::Change::SetOwnership {
             path: CONFIG.into(),
@@ -167,13 +167,10 @@ fn an_agents_configuration_is_its_managers_to_change_whoever_takes_the_managers_
             message: "configure Scout".into(),
             changes,
         };
+        let changes = configured(&mut net, &config).await;
         let first: BlobId = abi::decode(
-            &net.apply(
-                &public(ADA),
-                files::PROGRAM,
-                &commit(None, configured(&config)),
-            )
-            .await,
+            &net.apply(&public(ADA), files::PROGRAM, &commit(None, changes))
+                .await,
         )
         .unwrap();
         let asked = files::Query::Ownership {
@@ -200,25 +197,23 @@ fn an_agents_configuration_is_its_managers_to_change_whoever_takes_the_managers_
             .await;
         net.apply(&public(BO), identity::PROGRAM, &rename(bo, "Ada"))
             .await;
+        let theirs = net.chunks(b"theirs").await;
         let theirs = commit(
             Some(first),
             vec![files::Change::Put {
                 path: CONFIG.into(),
                 exec: false,
                 meta: Default::default(),
-                content: files::Content::Inline(b"theirs".to_vec()),
+                content: theirs,
             }],
         );
         assert_eq!(
             net.refuse(&public(BO), files::PROGRAM, &theirs).await,
             reason::UNAUTHORIZED
         );
-        net.apply(
-            &public(ADA),
-            files::PROGRAM,
-            &commit(Some(first), configured(&config)),
-        )
-        .await;
+        let changes = configured(&mut net, &config).await;
+        net.apply(&public(ADA), files::PROGRAM, &commit(Some(first), changes))
+            .await;
     });
 }
 
@@ -270,7 +265,7 @@ fn a_mentioned_agent_answers_through_elected_nodes_and_writes_as_itself() {
         let commit = files::Op::Commit {
             base: None,
             message: "configure Scout".into(),
-            changes: configured(&config),
+            changes: configured(&mut net, &config).await,
         };
         let snapshot: BlobId =
             abi::decode(&net.apply(&public(ADA), files::PROGRAM, &commit).await).unwrap();

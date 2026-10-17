@@ -3,9 +3,9 @@
 use ::program::{Error, ExecCtx, Program, QueryCtx};
 
 use crate::commit::commit;
-use crate::ops::{pin, stage, unpin};
+use crate::ops::{pin, unpin};
 use crate::queries;
-use crate::{Op, Query, Reply};
+use crate::{Op, Query, Reply, carried};
 
 pub struct Files;
 
@@ -18,7 +18,7 @@ impl Program for Files {
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
         let writer = ctx.sender()?;
         match op {
-            Op::Stage { bytes } => stage(ctx, &bytes),
+            Op::Stage { .. } => Err(carried()),
             Op::Commit {
                 base,
                 message,
@@ -72,7 +72,6 @@ impl Program for Files {
             }
             Query::Pins { page } => Ok(Reply::Pins(queries::pins(ctx, &page)?)),
             Query::Pin { name } => Ok(Reply::Pin(queries::pin(ctx, &name)?)),
-            Query::Held { chunks } => Ok(Reply::Held(queries::held(ctx, &chunks))),
             Query::Ownership { path, at } => Ok(Reply::Ownership(queries::ownership(
                 ctx,
                 &path,

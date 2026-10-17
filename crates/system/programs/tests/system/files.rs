@@ -1,6 +1,6 @@
-//! files founded on ducktape's host: chunks staged as kernel blobs, referenced by a
-//! later frame of the same block, read back, and dropped with a refused commit; an
-//! account writes its own home, named after it in identity, and is refused another's;
+//! files founded on ducktape's host: chunks held through the blobs role (stored, put,
+//! receipted), named by a commit and read back; file bytes in a transaction refused;
+//! an account writes its own home, named after it in identity, and is refused another's;
 //! a write list set on a folder decides who writes under it.
 use super::*;
 
@@ -14,12 +14,12 @@ fn apps() -> Vec<Founding> {
     vec![founding(files::PROGRAM, &program("files"))]
 }
 
-fn put(path: &str, bytes: &[u8]) -> Change {
+fn put(path: &str, content: Content) -> Change {
     Change::Put {
         path: path.into(),
         exec: false,
         meta: Default::default(),
-        content: Content::Inline(bytes.to_vec()),
+        content,
     }
 }
 
@@ -47,7 +47,7 @@ impl Net {
 }
 
 #[test]
-fn files_keeps_its_bytes_as_kernel_blobs_and_its_refs_in_state() {
+fn files_names_held_chunks_and_never_takes_bytes_in_a_transaction() {
     deterministic::Runner::default().start(|context| async move {
         let dir = tempfile::tempdir().unwrap();
         let mut net = Net::found_with(context, dir.path(), apps(), Vec::new(), MEMBER_CAP).await;
@@ -58,43 +58,19 @@ fn files_keeps_its_bytes_as_kernel_blobs_and_its_refs_in_state() {
         };
         net.apply(&ada, identity::PROGRAM, &create).await;
 
-        let full = vec![b'a'; CHUNK_SIZE as usize];
-        let first: BlobId = abi::decode(
-            &net.apply(&ada, files::PROGRAM, &Op::Stage { bytes: full })
-                .await,
-        )
-        .unwrap();
-        let tail = Op::Stage {
-            bytes: b"tail".to_vec(),
-        };
-        let chunks_change = |last: BlobId| Change::Put {
-            path: "/shared/big".into(),
-            exec: false,
-            meta: Default::default(),
-            content: Content::Chunks {
-                size: CHUNK_SIZE + 4,
-                chunks: vec![first, last],
-            },
-        };
-        let last = program::blob_id(abi::HashKind::Sha256, files::CHUNK, b"tail").unwrap();
-        let same_block = vec![
-            net.submission(&ada, files::PROGRAM, abi::encode(&tail)),
-            net.submission(
+        let mut big = vec![b'a'; CHUNK_SIZE as usize];
+        big.extend_from_slice(b"tail");
+        let big = net.chunks(&big).await;
+        let hello = net.chunks(b"hello").await;
+        let snapshot: BlobId = abi::decode(
+            &net.apply(
                 &ada,
                 files::PROGRAM,
-                abi::encode(&commit(
-                    None,
-                    vec![chunks_change(last), put("/shared/a", b"hello")],
-                )),
-            ),
-        ];
-        let applied = net.block(same_block).await;
-        let snapshot: BlobId = abi::decode(output_of(&applied.submissions[1])).unwrap();
-        assert_eq!(
-            abi::decode::<BlobId>(output_of(&applied.submissions[0])).unwrap(),
-            last
-        );
-
+                &commit(None, vec![put("/shared/big", big), put("/shared/a", hello)]),
+            )
+            .await,
+        )
+        .unwrap();
         let across = net.read("/shared/big", CHUNK_SIZE - 2, 10).await;
         assert_eq!(
             (across.bytes.as_slice(), across.eof),
@@ -102,50 +78,68 @@ fn files_keeps_its_bytes_as_kernel_blobs_and_its_refs_in_state() {
         );
         assert_eq!(across.snapshot, snapshot);
         assert_eq!(net.read("/shared/a", 0, 100).await.bytes, b"hello");
-        assert!(net.blob(&first).await.is_some());
 
-        let doomed = b"never stored".to_vec();
-        let doomed_id = program::blob_id(abi::HashKind::Sha256, files::CHUNK, &doomed).unwrap();
-        let refused = commit(
-            Some(snapshot),
-            vec![
-                put("/shared/new", &doomed),
-                put("/shared/a/under-a-file", b"x"),
-            ],
-        );
+        // a chunk nobody put is not on the network
+        let unheld = Content::Chunks {
+            size: 5,
+            chunks: vec![program::blob_id(abi::HashKind::Sha256, files::CHUNK, b"never").unwrap()],
+        };
+        let refused = commit(Some(snapshot), vec![put("/shared/new", unheld)]);
         assert_eq!(
             net.refuse(&ada, files::PROGRAM, &refused).await,
+            reason::NOT_FOUND
+        );
+        // file bytes in a transaction, either way
+        let staged = Op::Stage {
+            bytes: b"bytes".to_vec(),
+        };
+        let inline = commit(
+            Some(snapshot),
+            vec![put("/shared/new", Content::Inline(b"bytes".to_vec()))],
+        );
+        for op in [staged, inline] {
+            assert_eq!(
+                net.refuse(&ada, files::PROGRAM, &op).await,
+                reason::INVALID_INPUT
+            );
+        }
+        let x = net.chunks(b"x").await;
+        let under_a_file = commit(Some(snapshot), vec![put("/shared/a/under-a-file", x)]);
+        assert_eq!(
+            net.refuse(&ada, files::PROGRAM, &under_a_file).await,
             reason::WRONG_STATE
         );
-        assert_eq!(net.blob(&doomed_id).await, None);
         let Reply::Head(Some(head)) = net.ask(files::PROGRAM, &Query::Head).await else {
             panic!()
         };
         assert_eq!((head.id, head.seq), (snapshot, 1));
 
         let stranger = public(99);
+        let s = net.chunks(b"s").await;
         assert_eq!(
             net.refuse(
                 &stranger,
                 files::PROGRAM,
-                &commit(None, vec![put("/shared/s", b"s")])
+                &commit(None, vec![put("/shared/s", s)])
             )
             .await,
             reason::UNAUTHORIZED
         );
 
+        let mine = net.chunks(b"mine").await;
         net.apply(
             &ada,
             files::PROGRAM,
-            &commit(Some(snapshot), vec![put("/home/Ada/notes", b"mine")]),
+            &commit(Some(snapshot), vec![put("/home/Ada/notes", mine)]),
         )
         .await;
         assert_eq!(net.read("/home/Ada/notes", 0, 100).await.bytes, b"mine");
+        let theirs = net.chunks(b"theirs").await;
         assert_eq!(
             net.refuse(
                 &ada,
                 files::PROGRAM,
-                &commit(None, vec![put("/home/Bo/notes", b"theirs")])
+                &commit(None, vec![put("/home/Bo/notes", theirs)])
             )
             .await,
             reason::UNAUTHORIZED
@@ -173,11 +167,12 @@ fn a_write_list_on_a_shared_folder_lets_its_creator_and_the_listed_accounts_writ
             path: "/shared/team".into(),
             write: Some(Ownership::Accounts(vec![bo])),
         };
+        let plan = net.chunks(b"ada").await;
         let first: BlobId = abi::decode(
             &net.apply(
                 &public(ADA_KEY),
                 files::PROGRAM,
-                &commit(None, vec![put("/shared/team/plan", b"ada"), team]),
+                &commit(None, vec![put("/shared/team/plan", plan), team]),
             )
             .await,
         )
@@ -198,18 +193,20 @@ fn a_write_list_on_a_shared_folder_lets_its_creator_and_the_listed_accounts_writ
                 write: Ownership::Accounts(vec![bo]),
             }
         );
+        let bo_plan = net.chunks(b"bo").await;
         net.apply(
             &public(BO_KEY),
             files::PROGRAM,
-            &commit(Some(first), vec![put("/shared/team/plan", b"bo")]),
+            &commit(Some(first), vec![put("/shared/team/plan", bo_plan)]),
         )
         .await;
         assert_eq!(net.read("/shared/team/plan", 0, 100).await.bytes, b"bo");
+        let cy = net.chunks(b"cy").await;
         assert_eq!(
             net.refuse(
                 &public(CY_KEY),
                 files::PROGRAM,
-                &commit(None, vec![put("/shared/team/cy", b"cy")])
+                &commit(None, vec![put("/shared/team/cy", cy)])
             )
             .await,
             reason::UNAUTHORIZED

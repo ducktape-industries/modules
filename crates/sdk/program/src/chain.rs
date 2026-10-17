@@ -30,9 +30,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::awaiting::{self, Answer, Awaiting, Step, Suspended};
 use crate::{
-    AccountNumber, Called, Cause, EntryId, Env, Error, ExecCtx, FrameId, MessageId, MockHost,
-    Origin, Outcome, Principal, Program, ProgramId, QueryCtx, Resumed, Roles, Ticket, code,
-    identity_role, unauthorized, unexpected_reply,
+    AccountNumber, Blob, BlobId, Called, Cause, EntryId, Env, Error, ExecCtx, FrameId, HashKind,
+    MessageId, MockHost, Origin, Outcome, Principal, Program, ProgramId, QueryCtx, Resumed, Roles,
+    Ticket, code, identity_role, unauthorized, unexpected_reply,
 };
 
 /// How deep messages nest in one frame: a submission runs at depth 0 and
@@ -225,6 +225,8 @@ pub struct MockChain {
     parked: RefCell<BTreeMap<FrameId, Parked>>,
     /// The block every run is in: height and time.
     clock: Cell<(u64, u64)>,
+    /// The blobs [`MockChain::put_blob`] put: the network holds them.
+    held: RefCell<BTreeMap<BlobId, Blob>>,
 }
 
 impl Default for MockChain {
@@ -252,6 +254,7 @@ impl MockChain {
             next_frame: Cell::new(0),
             parked: RefCell::default(),
             clock: Cell::new((1, 0)),
+            held: RefCell::default(),
         }
     }
 
@@ -267,6 +270,17 @@ impl MockChain {
     pub fn seat_awaiting<A: Awaiting>(&mut self, program: impl Into<ProgramId>) -> MockHost {
         let execute = Rc::new(|ctx, payload: &[u8]| awaiting::start::<A>(ctx, payload));
         self.seat_with::<A>(program.into(), execute)
+    }
+
+    /// Puts `body` as a blob of `kind` the way the node's blob upload does,
+    /// apart from any frame: the network holds it, so every program, seated
+    /// now or later (at its next run or query), reads it.
+    pub fn put_blob(&self, kind: &str, body: Vec<u8>) -> Result<BlobId, Error> {
+        let id = crate::blob_id(HashKind::Sha256, kind, &body)?;
+        let kind = kind.to_owned();
+        self.held.borrow_mut().insert(id, Blob { kind, body });
+        self.share_blobs();
+        Ok(id)
     }
 
     pub fn frames(&self) -> usize {
@@ -940,7 +954,7 @@ impl MockChain {
     }
 
     fn share_blobs(&self) {
-        let mut every = BTreeMap::new();
+        let mut every = self.held.borrow().clone();
         for seat in self.seats.values() {
             every.extend(seat.host.borrow().blobs.clone());
         }

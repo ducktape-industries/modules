@@ -65,16 +65,13 @@ pub const GONE: &str = "Nothing is at this path any more.";
 pub const NAME_IT: &str = "Name it.";
 pub const NOTHING_TO_UPLOAD: &str = "None of these files can be uploaded.";
 pub const REPLACES: &str = "Replaces the file there";
-/// A staged chunk the program answered with no id: the program changed
-/// under the view.
-pub const NO_CHUNK_ID: &str = "Files took a chunk and did not say what it holds it as.";
 /// A second picked file of a name already picked.
 pub const PICKED_TWICE: &str = "Picked twice: only the first goes";
 /// The folder an upload was picked for left the screen while the
 /// picker was open.
 pub const FOLDER_LEFT: &str = "The folder closed while you picked: upload again from it.";
-/// An upload's form closed before its commit.
-pub const UPLOAD_STOPPED: &str = "Upload stopped: nothing was committed.";
+/// A form closed while its files went to the network, before its commit.
+pub const STOPPED: &str = "Stopped before the commit: nothing was committed.";
 pub const ONE_NAME: &str = "A name has no /: rename it afterwards to move it.";
 pub const SAME_PATH: &str = "It is at that path already.";
 
@@ -271,12 +268,12 @@ pub fn form_title(write: &Write) -> String {
     }
 }
 
-/// The commit button: Commit; an upload's chunks going ahead, how far
-/// they are; then, sent, that it waits on its answer.
+/// The commit button: Commit; an upload's files going to the network,
+/// how far they are; then, sent, that it waits on its answer.
 pub fn commit(sending: bool, progress: Option<(u64, u64)>) -> String {
     match (sending, progress) {
-        (true, Some((staged, all))) if staged < all => {
-            format!("Sending {} of {}…", grouped(staged + 1), grouped(all))
+        (true, Some((held, all))) if held < all => {
+            format!("Sending {} of {}…", grouped(held + 1), grouped(all))
         }
         (true, _) => COMMITTING.into(),
         (false, _) => COMMIT.into(),
@@ -307,11 +304,6 @@ pub fn held_by(node: &Node) -> String {
         _ => "A link",
     };
     format!("{what} of this name is here")
-}
-
-/// A picked file read short of the size it was picked at.
-pub fn changed_since_picked(name: &str) -> String {
-    format!("{name} changed since you picked it: pick it again.")
 }
 
 /// What a form's first field is labelled.

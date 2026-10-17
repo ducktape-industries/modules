@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use ::program::{BlobId, Error, QueryCtx, invalid, not_found};
 
 use crate::cursor::Walk;
-use crate::objects::{CHUNK, digest, file, read as read_file, tree};
+use crate::objects::{digest, file, read as read_file, tree};
 use crate::paths::{Act, change_path, is_namespace_root, join, segments, writers};
 use crate::state::{HEAD, HISTORY, PINS, SNAPSHOTS, newest_first, resolve};
 use crate::tree::{TreeEdit, node_at};
@@ -61,16 +61,6 @@ pub(crate) fn ownership(
         write: own.write,
         writers: writers(&segments, &along, Act::Write),
     })
-}
-
-pub(crate) fn held(ctx: &QueryCtx, chunks: &[BlobId]) -> Vec<bool> {
-    chunks
-        .iter()
-        .map(|id| {
-            ctx.blob_stat(*id)
-                .is_some_and(|header| header.kind == CHUNK)
-        })
-        .collect()
 }
 
 fn info(ctx: &QueryCtx, path: String, node: Node) -> Result<EntryInfo, Error> {

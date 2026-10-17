@@ -188,7 +188,7 @@ fn message(form: &Form, cx: Cx, k: &Kit) -> impl IntoElement {
 fn verbs(form: &Form, cx: Cx, k: &Kit) -> Div {
     let cancel = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.close_sheet(cx));
     let commit = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.submit(cx));
-    let verb = words::commit(form.sending, upload::progress(&form.upload));
+    let verb = words::commit(form.sending, form.progress());
     design::form_verbs(
         design::button(
             "files/write/cancel",

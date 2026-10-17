@@ -4,12 +4,15 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use files::{BlobId, DiffKind, Node};
-use view::methods::{FilePick, FileRead, Picked, Query as Ask, Submit, Submitted};
+use view::methods::{
+    self, BlobBody, FilePick, Method, NewBlob, OpPut, PutBlobs, Query as Ask, Submit,
+};
 use view::prelude::Error;
 use view::wire;
 
 use super::*;
 use crate::state::{Holds, SHOW_MOST};
+use crate::upload::UPLOAD_MOST;
 use crate::words;
 
 /// The place in the texts on screen of the first text containing `part`.
@@ -261,7 +264,7 @@ fn a_commit_refused_as_stale_says_why_in_its_form() {
         &net,
         net.me(),
         "Elsewhere",
-        vec![put("/home/dev/x.txt", b"first")],
+        vec![put(&net, "/home/dev/x.txt", b"first")],
     );
     cx.run_until_parked();
     cx.simulate_input("files/write/name", "x.txt");
@@ -508,7 +511,7 @@ fn a_pin_made_while_a_folder_is_open_joins_the_side() {
         &net,
         net.me(),
         "More notes",
-        vec![put("/home/dev/more.txt", b"more")],
+        vec![put(&net, "/home/dev/more.txt", b"more")],
     );
     let pin = Op::Pin {
         name: "v2".into(),
@@ -531,7 +534,7 @@ fn a_restored_view_reads_what_landed_while_it_was_away() {
         &net,
         net.me(),
         "Share more",
-        vec![put("/shared/more.txt", b"more")],
+        vec![put(&net, "/shared/more.txt", b"more")],
     );
     let pin = Op::Pin {
         name: "v2".into(),
@@ -585,7 +588,7 @@ fn picture_page(size: usize) -> (TestAppContext, Network, Reads) {
         &net,
         net.me(),
         "A big picture",
-        vec![put("/shared/big.png", &bytes)],
+        vec![put(&net, "/shared/big.png", &bytes)],
     );
     let mut cx = desktop(&net);
     let reads = Reads::default();
@@ -630,7 +633,7 @@ fn a_picture_on_screen_is_not_read_again_by_a_commit_that_leaves_it() {
         &net,
         net.me(),
         "Another file",
-        vec![put("/shared/other.txt", b"other")],
+        vec![put(&net, "/shared/other.txt", b"other")],
     );
     cx.run_until_parked();
     assert_eq!(reads.borrow().len(), 4, "its first bytes again, no more");
@@ -650,7 +653,7 @@ fn a_picture_read_short_of_its_size_says_so() {
         &net,
         net.me(),
         "A big picture",
-        vec![put("/shared/big.png", &bytes)],
+        vec![put(&net, "/shared/big.png", &bytes)],
     );
     let mut cx = desktop(&net);
     let chain = net.clone();
@@ -711,37 +714,60 @@ fn film(size: usize) -> Vec<u8> {
     (0..size).map(|at| (at % 251) as u8).collect()
 }
 
-/// What `files` answers `op` with on `net`, as the node predicts it.
-fn predicted(net: &Network, op: &files::Op) -> Result<Submitted, Error> {
-    Ok(match net.submit(net.me(), files::PROGRAM, op) {
-        Ok(output) => Submitted::Applied {
-            frame: [0; 32],
-            until: 0,
-            output,
-        },
-        Err(refusal) => Submitted::Refused {
-            frame: [0; 32],
-            until: 0,
-            refusal,
-        },
-    })
+/// Every `op.put` the view asks, by its blobs, answered by `answer` (by
+/// the ask's count from 1, then the blobs); and every op it submits to
+/// `files`, run on `net`.
+struct Sends {
+    puts: Rc<RefCell<Vec<Vec<NewBlob>>>>,
+    ops: Rc<RefCell<Vec<files::Op>>>,
 }
 
-/// Counts every `Stage` the view sends; `answer` answers each, by its
-/// count from 1.
-fn stages(
+fn sends(
     cx: &TestAppContext,
-    answer: impl Fn(u32, &files::Op) -> Result<Submitted, Error> + 'static,
-) -> Rc<Cell<u32>> {
-    let stages = Rc::new(Cell::new(0));
-    let counted = stages.clone();
-    cx.host().handle::<Submit<files::Files>>(move |op| {
-        if matches!(op, files::Op::Stage { .. }) {
-            counted.set(counted.get() + 1);
+    net: &Network,
+    answer: impl Fn(usize, &PutBlobs) -> Option<Error> + 'static,
+) -> Sends {
+    let puts = Rc::new(RefCell::new(Vec::new()));
+    let asked = puts.clone();
+    let chain = net.clone();
+    cx.host().handle::<OpPut>(move |ask| {
+        asked.borrow_mut().push(ask.blobs.clone());
+        if let Some(refusal) = answer(asked.borrow().len(), &ask) {
+            return Err(refusal);
         }
-        answer(counted.get(), &op)
+        let reply = chain.answer("op.put", None, &methods::encode(&ask))?;
+        Ok(methods::decode(&reply).expect("op.put answers its ids"))
     });
-    stages
+    let ops = Rc::new(RefCell::new(Vec::new()));
+    let sent = ops.clone();
+    let chain = net.clone();
+    cx.host().handle::<Submit<files::Files>>(move |op| {
+        sent.borrow_mut().push(op.clone());
+        let reply = chain.answer(
+            "op.submit",
+            Some(files::PROGRAM),
+            &Submit::<files::Files>::encode_request(&op),
+        )?;
+        Ok(methods::decode(&reply).expect("op.submit answers its outcome"))
+    });
+    Sends { puts, ops }
+}
+
+/// Whether any op the view sent carries a file's bytes: none may.
+fn carries_bytes(op: &files::Op) -> bool {
+    match op {
+        files::Op::Stage { .. } => true,
+        files::Op::Commit { changes, .. } => changes.iter().any(|change| {
+            matches!(
+                change,
+                Change::Put {
+                    content: Content::Inline(_),
+                    ..
+                }
+            )
+        }),
+        files::Op::Pin { .. } | files::Op::Unpin { .. } => false,
+    }
 }
 
 #[test]
@@ -749,7 +775,7 @@ fn an_uploaded_picture_is_committed_and_opens_as_itself() {
     let net = seeded();
     let mut cx = desktop(&net);
     open_home(&mut cx);
-    device(&cx, &[("dot.png", &PNG)]);
+    net.device(&[("dot.png", &PNG)]);
     begin(&mut cx, "upload");
     assert!(cx.has_text("dot.png"), "{:?}", cx.texts());
     commit_form(&mut cx);
@@ -765,31 +791,35 @@ fn an_uploaded_picture_is_committed_and_opens_as_itself() {
 }
 
 #[test]
-fn a_large_upload_is_read_and_staged_a_chunk_at_a_time_then_committed() {
+fn an_upload_puts_each_file_from_the_device_then_commits_only_their_ids() {
     let net = seeded();
     let mut cx = desktop(&net);
     open_home(&mut cx);
     let big = film(2 * files::CHUNK_SIZE as usize + 3);
-    device(&cx, &[("film.mov", &big), ("note.txt", b"hi")]);
-    let reads = Rc::new(RefCell::new(Vec::new()));
-    let asked = reads.clone();
-    let held_on_device = [big.clone(), b"hi".to_vec()];
-    cx.host().handle::<FileRead>(move |ask| {
-        asked.borrow_mut().push(ask.len);
-        let bytes = &held_on_device[ask.file as usize - 1];
-        let start = ask.offset as usize;
-        Ok(bytes[start..start + ask.len as usize].to_vec())
-    });
-    let chain = net.clone();
-    let stages = stages(&cx, move |_, op| predicted(&chain, op));
+    net.device(&[("film.mov", &big), ("note.txt", b"hi")]);
+    let sends = sends(&cx, &net, |_, _| None);
     begin(&mut cx, "upload");
     commit_form(&mut cx);
-    assert_eq!(stages.get(), 3, "the big file's three chunks");
+    let picked = |file, offset, len| NewBlob {
+        kind: files::CHUNK.into(),
+        body: BlobBody::Picked { file, offset, len },
+    };
+    let chunk = files::CHUNK_SIZE;
     assert_eq!(
-        *reads.borrow(),
-        [files::CHUNK_SIZE, files::CHUNK_SIZE, 3, 2],
-        "a chunk read before each is staged; the small file whole"
+        *sends.puts.borrow(),
+        [
+            vec![
+                picked(1, 0, chunk),
+                picked(1, chunk, chunk),
+                picked(1, 2 * chunk, 3)
+            ],
+            vec![picked(2, 0, 2)],
+        ],
+        "a put per file, its chunks read by the host, never by the view"
     );
+    let ops = sends.ops.borrow();
+    assert_eq!(ops.len(), 1, "one commit");
+    assert!(!ops.iter().any(carries_bytes), "{ops:?}");
     assert!(
         shows(&cx, &words::uploads(&["film.mov", "note.txt"])),
         "{:?}",
@@ -800,75 +830,68 @@ fn a_large_upload_is_read_and_staged_a_chunk_at_a_time_then_committed() {
 }
 
 #[test]
-fn a_refused_chunk_stops_the_upload_and_commit_again_goes_on_from_it() {
+fn a_refused_put_stops_the_upload_and_commit_again_goes_on_from_it() {
     let net = seeded();
     let mut cx = desktop(&net);
     open_home(&mut cx);
-    let big = film(2 * files::CHUNK_SIZE as usize + 3);
-    device(&cx, &[("film.mov", &big)]);
-    let chain = net.clone();
-    let stages = stages(&cx, move |count, op| match count {
-        2 => Err(Error::new("unavailable", "the node is away")),
-        _ => predicted(&chain, op),
+    let big = film(files::CHUNK_SIZE as usize + 3);
+    net.device(&[("film.mov", &big), ("note.txt", b"hi")]);
+    let sends = sends(&cx, &net, |count, _| {
+        (count == 2).then(|| Error::new("unavailable", "the node is away"))
     });
     begin(&mut cx, "upload");
     commit_form(&mut cx);
     assert!(shows(&cx, "the node is away"), "{:?}", cx.texts());
-    assert_eq!(stages.get(), 2);
+    assert!(sends.ops.borrow().is_empty(), "no commit before every put");
     commit_form(&mut cx);
-    assert_eq!(stages.get(), 4, "the second chunk again, then the third");
+    let puts = sends.puts.borrow();
+    assert_eq!(puts.len(), 3, "the film once, the note twice");
+    assert_eq!(puts[1], puts[2], "the note again, not the film");
     assert_eq!(held(&net, "/home/dev/film.mov"), big);
+    assert_eq!(held(&net, "/home/dev/note.txt"), b"hi");
 }
 
 #[test]
-fn a_chunk_the_network_dropped_is_staged_anew() {
+fn a_text_file_goes_up_as_a_chunk_and_its_commit_names_it() {
     let net = seeded();
     let mut cx = desktop(&net);
     open_home(&mut cx);
-    let big = film(2 * files::CHUNK_SIZE as usize + 3);
-    device(&cx, &[("film.mov", &big)]);
-    // the second chunk is predicted, then dropped: a network that never
-    // ran it answers what it would hold it as
-    let elsewhere = Network::new();
-    elsewhere.seat::<files::Files>(files::PROGRAM);
-    let chain = net.clone();
-    let stages = stages(&cx, move |count, op| match count {
-        2 => predicted(&elsewhere, op),
-        _ => predicted(&chain, op),
-    });
-    begin(&mut cx, "upload");
-    commit_form(&mut cx);
-    assert!(
-        cx.find("files/write").is_some(),
-        "the commit was refused: {:?}",
-        cx.texts()
-    );
+    let sends = sends(&cx, &net, |_, _| None);
+    begin(&mut cx, "new-file");
+    cx.simulate_input("files/write/name", "todo.txt");
+    cx.simulate_input("files/write/text", "buy milk");
     commit_form(&mut cx);
     assert_eq!(
-        stages.get(),
-        5,
-        "the dropped chunk and every one after it, staged anew"
+        *sends.puts.borrow(),
+        [vec![NewBlob {
+            kind: files::CHUNK.into(),
+            body: BlobBody::Bytes(b"buy milk".to_vec()),
+        }]]
     );
-    assert_eq!(held(&net, "/home/dev/film.mov"), big);
+    // the id the network holds those bytes by
+    let chunk = net.put_blob(files::CHUNK, b"buy milk".to_vec()).unwrap();
+    let ops = sends.ops.borrow();
+    let [files::Op::Commit { changes, .. }] = ops.as_slice() else {
+        panic!("one commit: {ops:?}");
+    };
+    assert!(
+        matches!(&changes[..], [Change::Put { content: Content::Chunks { size: 8, chunks }, .. }] if *chunks == [chunk]),
+        "{changes:?}"
+    );
+    assert_eq!(held(&net, "/home/dev/todo.txt"), b"buy milk");
 }
 
 #[test]
-fn a_file_read_short_of_its_picked_size_says_it_changed() {
+fn an_empty_text_file_puts_nothing_and_commits_no_chunks() {
     let net = seeded();
     let mut cx = desktop(&net);
     open_home(&mut cx);
-    let big = film(2 * files::CHUNK_SIZE as usize);
-    device(&cx, &[("film.mov", &big)]);
-    // the file was cut on the device since it was picked
-    cx.host()
-        .handle::<FileRead>(move |ask| Ok(vec![0; ask.len as usize - 1]));
-    begin(&mut cx, "upload");
+    let sends = sends(&cx, &net, |_, _| None);
+    begin(&mut cx, "new-file");
+    cx.simulate_input("files/write/name", "empty.txt");
     commit_form(&mut cx);
-    assert!(
-        cx.has_text(&words::changed_since_picked("film.mov")),
-        "{:?}",
-        cx.texts()
-    );
+    assert!(sends.puts.borrow().is_empty(), "no blob to put");
+    assert_eq!(held(&net, "/home/dev/empty.txt"), b"");
 }
 
 #[test]
@@ -876,23 +899,11 @@ fn a_file_too_big_is_left_out_and_said_why() {
     let net = seeded();
     let mut cx = desktop(&net);
     open_home(&mut cx);
-    device(&cx, &[("notes.txt", b"new")]);
-    let picked = vec![
-        Picked {
-            name: "huge.iso".into(),
-            size: 1 << 32,
-            file: 9,
-        },
-        Picked {
-            name: "notes.txt".into(),
-            size: 3,
-            file: 1,
-        },
-    ];
-    cx.host().handle::<FilePick>(move |_| Ok(picked.clone()));
+    let huge = vec![0; UPLOAD_MOST as usize + 1];
+    net.device(&[("huge.iso", &huge), ("notes.txt", b"new")]);
     begin(&mut cx, "upload");
     assert!(
-        shows(&cx, &words::too_big_to_upload(1 << 32)),
+        shows(&cx, &words::too_big_to_upload(UPLOAD_MOST + 1)),
         "{:?}",
         cx.texts()
     );
@@ -906,7 +917,7 @@ fn a_pick_with_nothing_to_send_offers_no_commit() {
     let net = seeded();
     let mut cx = desktop(&net);
     open_home(&mut cx);
-    device(&cx, &[("docs", b"not a folder")]);
+    net.device(&[("docs", b"not a folder")]);
     begin(&mut cx, "upload");
     assert!(
         shows(
@@ -931,7 +942,7 @@ fn a_cancel_opens_nothing_and_a_refused_pick_says_why() {
     let net = seeded();
     let mut cx = desktop(&net);
     open_home(&mut cx);
-    device(&cx, &[]);
+    net.device(&[]);
     begin(&mut cx, "upload");
     assert!(cx.find("files/write").is_none(), "cancelled: no form");
     cx.host()

@@ -70,17 +70,6 @@ fn get<T: BorshDeserialize>(ctx: &QueryCtx, kind: &str, id: &BlobId) -> Result<T
     abi::decode(&blob.body).map_err(|refusal| corrupt(kind, id.digest(), refusal.sentence))
 }
 
-pub(crate) fn put_chunk(ctx: &ExecCtx, bytes: &[u8]) -> Result<BlobId, Error> {
-    ctx.blob_put(HashKind::Sha256, CHUNK, bytes.to_vec())
-}
-
-pub(crate) fn put_bytes(ctx: &ExecCtx, bytes: &[u8]) -> Result<Vec<BlobId>, Error> {
-    bytes
-        .chunks(CHUNK_SIZE as usize)
-        .map(|chunk| put_chunk(ctx, chunk))
-        .collect()
-}
-
 pub(crate) fn put_file(ctx: &ExecCtx, file: &FileObj) -> Result<BlobId, Error> {
     put(ctx, FILE, file)
 }
@@ -122,7 +111,7 @@ pub(crate) fn check_chunks(ctx: &QueryCtx, size: u64, chunks: &[BlobId]) -> Resu
         digest(id)?;
         let Some(header) = ctx.blob_stat(*id) else {
             return Err(::program::not_found(format!(
-                "chunk {} is not on the network: stage it first",
+                "chunk {} is not on the network: put it through the blob upload first",
                 abi::hex(id.digest())
             )));
         };

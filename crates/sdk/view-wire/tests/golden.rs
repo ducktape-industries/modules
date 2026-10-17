@@ -566,13 +566,24 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             ],
         ),
         exchange::<FilePick>(Pick { multiple: false }, Vec::new()),
-        exchange::<FileRead>(
-            ReadFile {
-                file: 1,
-                offset: 0,
-                len: FILE_READ_MOST,
+        exchange::<OpPut>(
+            PutBlobs {
+                blobs: vec![
+                    NewBlob {
+                        kind: "chunk".into(),
+                        body: BlobBody::Picked {
+                            file: 1,
+                            offset: 0,
+                            len: BLOB_MOST,
+                        },
+                    },
+                    NewBlob {
+                        kind: "chunk".into(),
+                        body: BlobBody::Bytes(b"tape".to_vec()),
+                    },
+                ],
             },
-            vec![0x89, b'P', b'N'],
+            vec![[0x11; 32], [0x22; 32]],
         ),
         exchange::<LinkOpen>("duck://chat/room".into(), ()),
         exchange::<HostRoute>((), "tx/00ff".into()),

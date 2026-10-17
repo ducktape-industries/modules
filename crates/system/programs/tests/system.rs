@@ -311,6 +311,19 @@ impl Net {
         id
     }
 
+    /// `bytes` as the network holds a file's: `chunk` blobs put through the
+    /// blobs role and held, apart from any commit.
+    async fn chunks(&mut self, bytes: &[u8]) -> files::Content {
+        let mut chunks = Vec::new();
+        for chunk in bytes.chunks(files::CHUNK_SIZE as usize) {
+            chunks.push(self.hold(files::CHUNK, chunk).await);
+        }
+        files::Content::Chunks {
+            size: bytes.len() as u64,
+            chunks,
+        }
+    }
+
     async fn blob(&self, id: &BlobId) -> Option<Vec<u8>> {
         self.host.blob(id, self.time()).await.unwrap()
     }

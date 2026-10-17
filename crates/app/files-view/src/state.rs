@@ -416,7 +416,7 @@ pub enum Sheet {
     /// buttons (a desktop draws them on the page and never opens this)
     Actions,
     /// one write being filled in
-    Write(Form),
+    Write(Box<Form>),
 }
 
 #[derive(Serialize, Deserialize)]

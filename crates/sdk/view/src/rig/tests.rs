@@ -417,3 +417,49 @@ fn the_dev_validator_opens_the_door_alone_and_a_person_enrolls_as_a_resident() {
 fn the_rig_speaks_the_node_contract_core_speaks() {
     assert_eq!(wire::NODE_CONTRACT, 9);
 }
+
+/// A pick gives handles no pick gave before, one file unless `multiple`,
+/// and a cancelled pick keeps the latest; `op.put` reads only the latest
+/// pick's files, and what it put `blob.get` reads at once: it answers once
+/// the network holds it.
+#[test]
+fn a_put_reads_the_latest_pick_and_its_blob_is_held_at_once() {
+    use crate::methods::{BlobBody, NewBlob, Pick, Picked, PutBlobs};
+    let net = Network::new();
+    net.device(&[("a.txt", b"first"), ("b.txt", b"second")]);
+    let pick = |multiple| -> Vec<u64> {
+        let picked = net
+            .answer("file.pick", None, &methods::encode(&Pick { multiple }))
+            .unwrap();
+        let picked: Vec<Picked> = methods::decode(&picked).unwrap();
+        picked.into_iter().map(|picked| picked.file).collect()
+    };
+    let put = |file, len| {
+        let body = BlobBody::Picked {
+            file,
+            offset: 0,
+            len,
+        };
+        let kind = "chunk".to_owned();
+        let ask = PutBlobs {
+            blobs: vec![NewBlob { kind, body }],
+        };
+        net.answer("op.put", None, &methods::encode(&ask))
+    };
+    assert_eq!(pick(false), [1]);
+    assert_eq!(pick(true), [2, 3]);
+    net.device(&[]);
+    assert!(pick(true).is_empty(), "cancelled");
+    let refused = put(1, 5).unwrap_err();
+    assert_eq!(
+        refused.code,
+        methods::refusal::MALFORMED_REQUEST,
+        "an older pick's"
+    );
+    let ids: Vec<[u8; 32]> = methods::decode(&put(3, 6).unwrap()).unwrap();
+    let hex: String = ids[0].iter().map(|byte| format!("{byte:02x}")).collect();
+    let id = methods::encode(&format!("sha256:{hex}"));
+    let got: Option<Vec<u8>> =
+        methods::decode(&net.answer("blob.get", None, &id).unwrap()).unwrap();
+    assert_eq!(got.as_deref(), Some(&b"second"[..]));
+}

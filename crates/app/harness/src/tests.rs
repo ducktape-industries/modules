@@ -71,7 +71,14 @@ fn commit(chain: &MockChain, key: &[u8], path: &str, text: &str) -> BlobId {
             path: path.into(),
             exec: false,
             meta: Default::default(),
-            content: files::Content::Inline(text.as_bytes().to_vec()),
+            content: files::Content::Chunks {
+                size: text.len() as u64,
+                chunks: vec![
+                    chain
+                        .put_blob(files::CHUNK, text.as_bytes().to_vec())
+                        .unwrap(),
+                ],
+            },
         }],
     };
     abi::decode(&chain.submit(signed(key), files::PROGRAM, &commit).unwrap()).unwrap()

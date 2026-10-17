@@ -8,20 +8,19 @@ use ::program::{
     stale, unexpected_reply,
 };
 
-use crate::objects::{
-    Access, FileObj, SnapshotObj, check_chunks, digest, put_bytes, put_file, put_snapshot,
-};
+use crate::objects::{Access, FileObj, SnapshotObj, check_chunks, digest, put_file, put_snapshot};
 use crate::paths::{Act, change_path, join, writable, writer};
 use crate::state::{COUNT, HEAD, HISTORY, SNAPSHOTS, minted, newest_first};
 use crate::tree::{TreeEdit, node_at};
-use crate::{Change, Content, Node, SnapshotRow};
+use crate::{Change, Content, Node, SnapshotRow, carried};
 
 enum Step {
     Put {
         segments: Vec<String>,
         exec: bool,
         meta: BTreeMap<String, String>,
-        content: Content,
+        size: u64,
+        chunks: Vec<BlobId>,
     },
     Mkdir(Vec<String>),
     Remove(Vec<String>),
@@ -137,14 +136,16 @@ fn plan(ctx: &QueryCtx, changes: Vec<Change>) -> Result<Vec<Step>, Error> {
                 let segments = change_path(&path)?;
                 touch(&segments)?;
                 check_meta(&meta)?;
-                if let Content::Chunks { size, chunks } = &content {
-                    check_chunks(ctx, *size, chunks)?;
-                }
+                let Content::Chunks { size, chunks } = content else {
+                    return Err(carried());
+                };
+                check_chunks(ctx, size, &chunks)?;
                 Step::Put {
                     segments,
                     exec,
                     meta,
-                    content,
+                    size,
+                    chunks,
                 }
             }
             Change::Mkdir { path } => {
@@ -240,12 +241,9 @@ fn apply(
             segments,
             exec,
             meta,
-            content,
+            size,
+            chunks,
         } => {
-            let (size, chunks) = match content {
-                Content::Inline(bytes) => (bytes.len() as u64, put_bytes(ctx, &bytes)?),
-                Content::Chunks { size, chunks } => (size, chunks),
-            };
             let file = put_file(ctx, &FileObj { size, chunks, meta })?;
             edit.put(ctx, &segments, Node::File { file, size, exec }, by)
         }

@@ -2,7 +2,7 @@
 //! commits the agent makes, which files allows where it allows the agent's account.
 use std::collections::BTreeMap;
 
-use ::program::{BlobId, Error, ExecCtx, invalid};
+use ::program::{BlobId, Error, ExecCtx, HashKind, invalid};
 use files::{Change, Content, EntryInfo, Node, Query, Reply};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -327,6 +327,19 @@ pub(crate) struct WriteArgs {
 
 pub(crate) struct Write;
 
+/// `bytes` as `files` keeps a file's: `chunk` blobs this program puts,
+/// which the commit names; its bytes never ride in the commit.
+fn chunked(ctx: &ExecCtx, bytes: &[u8]) -> Result<Content, Error> {
+    let chunks = bytes
+        .chunks(files::CHUNK_SIZE as usize)
+        .map(|chunk| ctx.blob_put(HashKind::Sha256, files::CHUNK, chunk))
+        .collect::<Result<_, _>>()?;
+    Ok(Content::Chunks {
+        size: bytes.len() as u64,
+        chunks,
+    })
+}
+
 impl Tool for Write {
     const NAME: &'static str = "files_write";
     const DESCRIPTION: &'static str = "Write a text file to the network's filesystem, creating its directories, in one commit. Your account writes only under /shared/ and its own home, /home/<your name>/ with your name exactly as the network shows it; every other home is its own account's. Where the path or a folder above it carries a write list, the nearest list decides instead: its creator alone, its creator and the accounts it lists, or anyone; a refusal names the list and whom it allows.";
@@ -351,7 +364,7 @@ impl Tool for Write {
             path: args.path,
             exec: args.executable.unwrap_or(false),
             meta: BTreeMap::new(),
-            content: Content::Inline(args.content.into_bytes()),
+            content: chunked(ctx, args.content.as_bytes())?,
         };
         commit(ctx, seat, &args.base, args.message, vec![change])
     }
