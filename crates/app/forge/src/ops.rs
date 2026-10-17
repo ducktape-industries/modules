@@ -119,8 +119,7 @@ pub(crate) fn needs(ctx: &QueryCtx, op: &Op) -> Result<Vec<Need>, Error> {
         | Op::Grant { .. }
         | Op::Revoke { .. }
         | Op::ChangeOpen { .. }
-        | Op::ReviewSubmit { .. }
-        | Op::Migrate => Vec::new(),
+        | Op::ReviewSubmit { .. } => Vec::new(),
     };
     Ok(needs)
 }

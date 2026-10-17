@@ -119,12 +119,11 @@ pub enum Op {
         repo: String,
         pack: BlobId,
     },
-    Migrate,
 }
 
 impl Op {
-    pub fn repo(&self) -> Option<&str> {
-        let repo = match self {
+    pub fn repo(&self) -> &str {
+        match self {
             Op::Create { repo, .. }
             | Op::Configure { repo, .. }
             | Op::Grant { repo, .. }
@@ -136,9 +135,7 @@ impl Op {
             | Op::ChangeClose { repo, .. }
             | Op::ReviewSubmit { repo, .. }
             | Op::Stage { repo, .. } => repo,
-            Op::Migrate => return None,
-        };
-        Some(repo)
+        }
     }
 }
 

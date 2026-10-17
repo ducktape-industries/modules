@@ -813,7 +813,7 @@ fn carries_bytes(op: &files::Op) -> bool {
                 }
             )
         }),
-        files::Op::Pin { .. } | files::Op::Unpin { .. } | files::Op::Migrate => false,
+        files::Op::Pin { .. } | files::Op::Unpin { .. } => false,
     }
 }
 
