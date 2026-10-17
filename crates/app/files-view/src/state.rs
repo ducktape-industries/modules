@@ -4,7 +4,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use files::{BlobId, DiffEntry, EntryInfo, Node, PathOwnership, PinRow, SnapshotRow, Writers};
+use files::{
+    BlobId, DiffEntry, EntryInfo, Node, Party, PathOwnership, PinRow, SnapshotRow, Writers,
+};
 use serde::{Deserialize, Serialize};
 use view::borsh_bytes;
 use view::design::Pages;
@@ -12,7 +14,6 @@ use view::prelude::*;
 
 use crate::write::Form;
 
-/// Everything under `/shared/`: any account writes there.
 pub const SHARED_PATH: &str = "/shared";
 /// The whole tree.
 pub const ROOT: &str = "/";
@@ -164,9 +165,6 @@ impl Route {
     }
 }
 
-/// Who reads: the session's account, and the name identity gives it,
-/// which names its home (`/home/<name>`); `None` when identity names the
-/// account no way, so it writes under `/shared/` only.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Reader {
     pub account: Option<u64>,
@@ -199,18 +197,15 @@ impl Reader {
         }
     }
 
-    /// Whether `files` lets the reader write a path whose writers are
-    /// `writers` (its `Ownership` answer): the write list's accounts, the
-    /// home's own account, anyone under `/shared/`, else only the chain.
     pub fn writes(&self, writers: &Writers) -> bool {
         let Some(account) = self.account else {
             return false;
         };
         match writers {
-            Writers::Listed { creator, write, .. } => write.allows(*creator, account),
-            Writers::Home(home) => matches!(self.name.ready(), Some(Some(name)) if name == home),
-            Writers::Shared => true,
-            Writers::Chain => false,
+            Writers::Listed { creator, write, .. } => {
+                write.allows(*creator, &[Party::Account(account)])
+            }
+            Writers::Anyone => true,
         }
     }
 }
@@ -233,24 +228,14 @@ pub struct Folder {
 }
 
 impl Folder {
-    /// Who writes what is made, moved or removed in this folder: the write
-    /// list at or above it, else the rule `files` applies to a child with
-    /// no list of its own (`files::paths::made_in`).
     pub fn children(&self) -> Writers {
-        if let Some(PathOwnership {
-            writers: listed @ Writers::Listed { .. },
-            ..
-        }) = &self.ownership
-        {
-            return listed.clone();
-        }
-        let segments: Vec<String> = self
-            .path
-            .split('/')
-            .filter(|segment| !segment.is_empty())
-            .map(str::to_owned)
-            .collect();
-        files::paths::made_in(&segments)
+        self.ownership
+            .as_ref()
+            .map_or(Writers::Anyone, |own| own.writers.clone())
+    }
+
+    pub fn holds_namespace_roots(&self) -> bool {
+        files::paths::holds_namespace_roots(&segments_of(&self.path))
     }
 }
 
@@ -526,4 +511,15 @@ pub fn child_of(folder: &str, name: &str) -> String {
         ROOT => format!("/{name}"),
         folder => format!("{folder}/{name}"),
     }
+}
+
+pub fn segments_of(path: &str) -> Vec<String> {
+    path.split('/')
+        .filter(|segment| !segment.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+pub fn is_namespace_root(path: &str) -> bool {
+    files::paths::is_namespace_root(&segments_of(path))
 }

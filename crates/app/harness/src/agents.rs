@@ -147,7 +147,20 @@ fn ownership(ctx: &QueryCtx, agent: AccountNumber) -> Result<identity::Ownership
 
 fn answers(ctx: &QueryCtx, agent: &Agent, actor: AccountNumber) -> Result<bool, Error> {
     let by_manager = actor == agent.manager;
-    Ok(by_manager || ownership(ctx, agent.number)?.allows(Some(agent.manager), actor))
+    if by_manager {
+        return Ok(true);
+    }
+    let ownership = ownership(ctx, agent.number)?;
+    Ok(ownership.allows(Some(agent.manager), &caller(ctx, actor)?))
+}
+
+fn caller(ctx: &QueryCtx, actor: AccountNumber) -> Result<Vec<identity::Party>, Error> {
+    let account = identity::Party::Account(actor);
+    let program = profile(ctx, actor)?.and_then(|profile| match profile.kind {
+        Kind::System(program) => Some(identity::Party::Program(program)),
+        Kind::User | Kind::Program { .. } => None,
+    });
+    Ok(std::iter::once(account).chain(program).collect())
 }
 
 pub(crate) fn thread(ctx: &QueryCtx, id: u64) -> Result<ThreadRow, Error> {
@@ -174,8 +187,8 @@ pub(crate) fn manual(agent: &Agent, title: &str) -> String {
          - Account: {name}, account {number}, managed by account {manager}.\n\
          - Conversation: {title}. Each message that reaches this conversation names who wrote \
          it and where.\n\
-         - Writes: everything written here is written as account {number}, and the network \
-         allows only what it allows that account.\n\
+         - Writes: everything written here is written as account {number}, sent by harness, \
+         and the network allows only what it allows that account or harness.\n\
          - Tools: each tool call runs in a later block, and its result arrives before the next \
          model call.\n\
          - Chat: chat_post posts to a channel; reply_to puts the post in a thread.\n\

@@ -1,9 +1,9 @@
 //! Tools over `files`, the network's filesystem: reads at the head or at a snapshot, and
-//! commits the agent makes, which files allows where it allows the agent's account.
+//! commits the agent makes, which files allows where it allows the agent's account or harness.
 use std::collections::BTreeMap;
 
 use ::program::{BlobId, Error, ExecCtx, HashKind, invalid};
-use files::{Change, Content, EntryInfo, Node, Query, Reply};
+use files::{Change, Content, EntryInfo, Node, Ownership, Party, Query, Reply};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -321,8 +321,55 @@ pub(crate) struct WriteArgs {
     path: String,
     content: String,
     executable: Option<bool>,
+    write: Option<WriteList>,
     base: Option<String>,
     message: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "who", rename_all = "snake_case")]
+pub(crate) enum WriteList {
+    Creator,
+    Listed {
+        #[serde(default)]
+        accounts: Vec<u64>,
+        #[serde(default)]
+        programs: Vec<String>,
+    },
+    Anyone,
+}
+
+impl From<WriteList> for Ownership {
+    fn from(list: WriteList) -> Ownership {
+        match list {
+            WriteList::Creator => Ownership::Owner,
+            WriteList::Listed { accounts, programs } => Ownership::Listed(
+                accounts
+                    .into_iter()
+                    .map(Party::Account)
+                    .chain(programs.into_iter().map(Party::Program))
+                    .collect(),
+            ),
+            WriteList::Anyone => Ownership::Anyone,
+        }
+    }
+}
+
+fn write_list_schema() -> Value {
+    json!({
+        "type": "object",
+        "description": "who may write the file from this commit on, set in the same commit. Only the file's creator sets it, so give it for a new file, or for one your account made. Omitted, the file keeps the list it has, if any",
+        "properties": {
+            "who": {
+                "type": "string",
+                "enum": ["creator", "listed", "anyone"],
+                "description": "creator: its creator alone; listed: its creator and the accounts and programs listed; anyone: everyone"
+            },
+            "accounts": { "type": "array", "items": { "type": "integer", "minimum": 1 }, "description": "with listed: account numbers that may write it" },
+            "programs": { "type": "array", "items": { "type": "string" }, "description": "with listed: programs, by id, whose writes may change it, whatever account they act as" },
+        },
+        "required": ["who"],
+    })
 }
 
 pub(crate) struct Write;
@@ -342,7 +389,7 @@ fn chunked(ctx: &ExecCtx, bytes: &[u8]) -> Result<Content, Error> {
 
 impl Tool for Write {
     const NAME: &'static str = "files_write";
-    const DESCRIPTION: &'static str = "Write a text file to the network's filesystem, creating its directories, in one commit. Your account writes only under /shared/ and its own home, /home/<your name>/ with your name exactly as the network shows it; every other home is its own account's. Where the path or a folder above it carries a write list, the nearest list decides instead: its creator alone, its creator and the accounts it lists, or anyone; a refusal names the list and whom it allows.";
+    const DESCRIPTION: &'static str = "Write a text file to the network's filesystem, creating its directories, in one commit. Anyone writes a path that no write list covers; where the path or a folder above it carries a write list, the nearest list decides: its creator alone, its creator and the accounts and programs it lists, or anyone. A program on a list allows every write harness makes, for any agent. A refusal names the list and whom it allows. /home, /shared and each /home/<name> folder itself are the network's; write inside them. Pass `write` to set the file's own list in the same commit.";
     const WRITES: bool = true;
     type Args = WriteArgs;
 
@@ -352,6 +399,7 @@ impl Tool for Write {
                 "path": { "type": "string", "description": "an absolute file path" },
                 "content": { "type": "string", "description": "the whole file" },
                 "executable": { "type": "boolean" },
+                "write": write_list_schema(),
                 "base": base_schema(),
                 "message": message_schema(),
             }),
@@ -360,13 +408,18 @@ impl Tool for Write {
     }
 
     fn run(ctx: &ExecCtx, seat: &Seat, args: WriteArgs) -> Result<Run, Error> {
-        let change = Change::Put {
-            path: args.path,
+        let put = Change::Put {
+            path: args.path.clone(),
             exec: args.executable.unwrap_or(false),
             meta: BTreeMap::new(),
             content: chunked(ctx, args.content.as_bytes())?,
         };
-        commit(ctx, seat, &args.base, args.message, vec![change])
+        let listed = args.write.map(|write| Change::SetOwnership {
+            path: args.path,
+            write: Some(write.into()),
+        });
+        let changes = std::iter::once(put).chain(listed).collect();
+        commit(ctx, seat, &args.base, args.message, changes)
     }
 
     fn render(output: &[u8]) -> Value {
@@ -385,7 +438,7 @@ pub(crate) struct Remove;
 
 impl Tool for Remove {
     const NAME: &'static str = "files_remove";
-    const DESCRIPTION: &'static str = "Remove a file or a whole directory from the network's filesystem, in one commit. Your account removes under /shared/ and its own home, /home/<your name>/, unless a write list on the path or a folder above it says otherwise; the nearest list decides.";
+    const DESCRIPTION: &'static str = "Remove a file or a whole directory from the network's filesystem, in one commit. Anyone removes a path that no write list covers; a write list on the path or a folder above it decides otherwise, the nearest list first.";
     const WRITES: bool = true;
     type Args = RemoveArgs;
 
@@ -422,7 +475,7 @@ pub(crate) struct Move;
 
 impl Tool for Move {
     const NAME: &'static str = "files_move";
-    const DESCRIPTION: &'static str = "Move or rename a file or directory of the network's filesystem, in one commit. The destination must not exist. Both paths are under /shared/ or your own home, /home/<your name>/, unless a write list on a path or a folder above it says otherwise; the nearest list decides. A moved path keeps its creator and its list.";
+    const DESCRIPTION: &'static str = "Move or rename a file or directory of the network's filesystem, in one commit. The destination must not exist. Anyone writes a path that no write list covers; a write list on either path or a folder above it decides otherwise, the nearest list first. A moved path keeps its creator and its list.";
     const WRITES: bool = true;
     type Args = MoveArgs;
 

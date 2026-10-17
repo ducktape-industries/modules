@@ -268,12 +268,16 @@ themselves (`abi::role::identity::{Profile, Kind, Standing}`) are what a
 view shows beside a name.
 
 A rule of who may act on something an account owns is a `program::Ownership`:
-`Owner` (the owner alone), `Accounts(numbers)` (the owner and the account
-numbers listed) or `Anyone`. `allows(owner, account)` decides, and
-`settled(owner)` keeps each listed number once and never the owner, an empty
-list being `Owner`. identity keeps one per agent for whom it answers; files
-keeps one per path for who writes under it. A list holds account numbers,
-never names, so renaming an account changes nothing it allows.
+`Owner` (the owner alone), `Listed(parties)` (the owner and the parties
+listed, each a `Party::Account(number)` or a `Party::Program(id)`) or
+`Anyone`. `allows(owner, caller)` decides, where `caller` is every party the
+actor is: files passes the sender's account and, for a message, the program
+that sent it; harness passes the author's account and, for a program's own
+system account, that program. `settled(owner)` keeps each party once and
+never the owner's account, an empty list being `Owner`. identity keeps one
+per agent for whom it answers; files keeps one per path for who writes under
+it. A list holds account numbers and program ids, never names, so renaming
+an account changes nothing it allows.
 
 `Env::authority()` admits only a message from the program bound to the
 validators role, which sends one when its validators' vote passes a

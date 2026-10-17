@@ -135,7 +135,7 @@ impl Choice {
 
     pub(crate) fn shown(ownership: &identity::Ownership, listing: bool) -> Self {
         match (ownership, listing) {
-            (identity::Ownership::Accounts(_), _) | (_, true) => Self::Specific,
+            (identity::Ownership::Listed(_), _) | (_, true) => Self::Specific,
             (identity::Ownership::Owner, false) => Self::Manager,
             (identity::Ownership::Anyone, false) => Self::Anyone,
         }

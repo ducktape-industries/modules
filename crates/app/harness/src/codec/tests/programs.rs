@@ -1,5 +1,5 @@
 use ::program::schema::interface;
-use ::program::{BlobId, Cause, MessageId, Outcome, Ownership, Principal, Scheme};
+use ::program::{BlobId, Cause, MessageId, Outcome, Ownership, Party, Principal, Scheme};
 use abi::role::identity::{Category, Kind, Profile, Script, Standing};
 use serde_json::json;
 use store::{PageRequest, PageResponse};
@@ -97,7 +97,10 @@ fn files_round_trips() {
             },
             files::Change::SetOwnership {
                 path: "/shared".into(),
-                write: Some(Ownership::Accounts(vec![2, 3])),
+                write: Some(Ownership::Listed(vec![
+                    Party::Account(2),
+                    Party::Program("harness".into()),
+                ])),
             },
             files::Change::Remove {
                 path: "/tmp".into(),
@@ -111,6 +114,10 @@ fn files_round_trips() {
     assert_eq!(
         commit["Commit"]["changes"][0]["Put"]["meta"],
         json!([["mime", "text/markdown"]])
+    );
+    assert_eq!(
+        commit["Commit"]["changes"][1]["SetOwnership"]["write"],
+        json!({ "Listed": [{ "Account": 2 }, { "Program": "harness" }] })
     );
     files.op(&files::Op::Unpin { name: "v1".into() });
     files.query(&files::Query::Read {

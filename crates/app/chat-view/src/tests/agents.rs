@@ -55,7 +55,7 @@ fn agents() -> (TestAppContext, Entity<Chat>) {
         Ok(match query {
             identity::Query::Ownership { number } => identity::Reply::Ownership(match number {
                 11 => Ownership::Owner,
-                12 => Ownership::Accounts(vec![14]),
+                12 => Ownership::Listed(vec![identity::Party::Account(14)]),
                 13 => Ownership::Anyone,
                 number => panic!("account {number} is no agent"),
             }),

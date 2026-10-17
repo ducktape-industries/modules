@@ -200,20 +200,28 @@ fn an_empty_filesystem_lists_its_roots_and_has_nothing_to_read() {
 }
 
 #[test]
-fn an_account_writes_only_under_its_own_home_or_shared_and_a_refusal_leaves_nothing() {
+fn an_account_writes_anywhere_but_the_namespace_roots_and_a_refusal_leaves_nothing() {
     let host = host();
-    for path in ["/etc/passwd", "/home/ada", "/shared", "/home/bo/notes"] {
+    commit(
+        &host,
+        ada(),
+        None,
+        vec![
+            put(&host, "/etc/passwd", "x"),
+            put(&host, "/home/bo/notes", "x"),
+        ],
+    )
+    .unwrap();
+    let before = head(&host);
+    for path in ["/home", "/home/ada", "/shared"] {
         let op = Op::Commit {
             base: None,
             message: String::new(),
-            changes: vec![put(&host, path, "x")],
+            changes: vec![put(&host, "/shared/ok", "x"), put(&host, path, "x")],
         };
-        let error = refused(&host, ada(), op);
-        assert!(
-            [code::UNAUTHORIZED, code::INVALID_INPUT].contains(&error.code.as_str()),
-            "{path}: {error:?}"
-        );
+        assert_eq!(refused(&host, ada(), op).code, code::UNAUTHORIZED, "{path}");
     }
+    assert_eq!(head(&host), before);
     let nobody = Env {
         sender: None,
         ..ada()

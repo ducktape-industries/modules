@@ -1,10 +1,10 @@
 //! files founded on ducktape's host: chunks held through the blobs role (stored, put,
 //! receipted), named by a commit and read back; file bytes in a transaction refused;
-//! an account writes its own home, named after it in identity, and is refused another's;
-//! a write list set on a folder decides who writes under it.
+//! an account writes anywhere no write list covers, another's home too, but never a namespace
+//! root itself; a write list set on a folder decides who writes under it.
 use super::*;
 
-use files::{BlobId, CHUNK_SIZE, Change, Content, Op, Ownership, Query, Reply, Writers};
+use files::{BlobId, CHUNK_SIZE, Change, Content, Op, Ownership, Party, Query, Reply, Writers};
 
 const ADA_KEY: u64 = 11;
 const BO_KEY: u64 = 12;
@@ -135,11 +135,19 @@ fn files_names_held_chunks_and_never_takes_bytes_in_a_transaction() {
         .await;
         assert_eq!(net.read("/home/Ada/notes", 0, 100).await.bytes, b"mine");
         let theirs = net.chunks(b"theirs").await;
+        net.apply(
+            &ada,
+            files::PROGRAM,
+            &commit(None, vec![put("/home/Bo/notes", theirs)]),
+        )
+        .await;
+        assert_eq!(net.read("/home/Bo/notes", 0, 100).await.bytes, b"theirs");
+        let root = net.chunks(b"root").await;
         assert_eq!(
             net.refuse(
                 &ada,
                 files::PROGRAM,
-                &commit(None, vec![put("/home/Bo/notes", theirs)])
+                &commit(None, vec![put("/home/Bo", root)])
             )
             .await,
             reason::UNAUTHORIZED
@@ -165,7 +173,7 @@ fn a_write_list_on_a_shared_folder_lets_its_creator_and_the_listed_accounts_writ
         let [ada, bo, _] = numbers[..] else { panic!() };
         let team = Change::SetOwnership {
             path: "/shared/team".into(),
-            write: Some(Ownership::Accounts(vec![bo])),
+            write: Some(Ownership::Listed(vec![Party::Account(bo)])),
         };
         let plan = net.chunks(b"ada").await;
         let first: BlobId = abi::decode(
@@ -190,7 +198,7 @@ fn a_write_list_on_a_shared_folder_lets_its_creator_and_the_listed_accounts_writ
             Writers::Listed {
                 path: "/shared/team".into(),
                 creator: Some(ada),
-                write: Ownership::Accounts(vec![bo]),
+                write: Ownership::Listed(vec![Party::Account(bo)]),
             }
         );
         let bo_plan = net.chunks(b"bo").await;

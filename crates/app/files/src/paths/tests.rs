@@ -28,7 +28,16 @@ fn a_path_is_absolute_and_composed() {
 fn named(number: AccountNumber, label: &str) -> Writer {
     Writer::Account {
         number,
+        caller: vec![Party::Account(number)],
         label: Some(label.to_owned()),
+    }
+}
+
+fn through(number: AccountNumber, program: &str) -> Writer {
+    Writer::Account {
+        number,
+        caller: caller(number, &Origin::Program(program.into())),
+        label: None,
     }
 }
 
@@ -58,60 +67,55 @@ fn listed_at(
 }
 
 #[test]
-fn an_account_writes_under_its_own_home_and_shared_and_the_chain_anywhere() {
+fn with_no_list_anyone_writes_beneath_the_namespace_roots_and_the_chain_anywhere() {
     let ada = named(1, "ada");
-    for ok in ["/home/ada/notes", "/home/ada/x/y", "/shared/a"] {
-        assert!(write(&ada, ok).is_ok(), "{ok}");
-    }
-    for refused in [
-        "/home",
-        "/home/ada",
-        "/home/bo/x",
-        "/home/Ada/x",
-        "/shared",
-        "/etc/passwd",
-        "/x",
-    ] {
-        assert_eq!(
-            write(&ada, refused).unwrap_err().code,
-            ::program::code::UNAUTHORIZED,
-            "{refused}"
-        );
-    }
-    assert!(write(&Writer::Chain, "/etc/passwd").is_ok());
-    assert!(write(&Writer::Chain, "/home/bo/x").is_ok());
-}
-
-#[test]
-fn another_home_is_unauthorized_and_an_unnamed_account_has_none() {
-    let refused = write(&named(1, "ada"), "/home/bo/agents/scout.md").unwrap_err();
-    assert_eq!(refused.code, ::program::code::UNAUTHORIZED);
     let unnamed = Writer::Account {
         number: 3,
+        caller: vec![Party::Account(3)],
         label: None,
     };
-    assert_eq!(
-        write(&unnamed, "/home/bo/x").unwrap_err().code,
-        ::program::code::UNAUTHORIZED
-    );
-    assert!(write(&unnamed, "/shared/x").is_ok());
+    for writer in [&ada, &unnamed, &through(7, "harness")] {
+        for ok in [
+            "/home/ada/notes",
+            "/home/bo/x",
+            "/home/Ada/x/y",
+            "/shared/a",
+            "/etc/passwd",
+            "/x",
+        ] {
+            assert!(write(writer, ok).is_ok(), "{ok}");
+        }
+        for root in ["/home", "/home/ada", "/home/bo", "/shared"] {
+            assert_eq!(
+                write(writer, root).unwrap_err().code,
+                ::program::code::UNAUTHORIZED,
+                "{root}"
+            );
+        }
+    }
+    for path in ["/etc/passwd", "/home/bo/x", "/home", "/shared"] {
+        assert!(write(&Writer::Chain, path).is_ok(), "{path}");
+    }
+    let (segments, along) = unlisted("/home/bo/x");
+    assert_eq!(writers(&segments, &along), Writers::Anyone);
 }
 
 #[test]
-fn the_nearest_list_decides_over_a_higher_list_and_the_home_rule() {
+fn the_nearest_list_decides_over_a_higher_list() {
     let path = "/home/ada/d/f";
     let (segments, _) = unlisted(path);
-    let mut along = listed_at(path, 2, Some(1), Ownership::Accounts(vec![2]));
+    let bo = Party::Account(2);
+    let mut along = listed_at(path, 2, Some(1), Ownership::Listed(vec![bo.clone()]));
     along[1] = Some(Access {
         creator: None,
         write: Some(Ownership::Owner),
     });
     assert_eq!(
-        writers(&segments, &along, Act::Write),
+        writers(&segments, &along),
         Writers::Listed {
             path: "/home/ada/d".into(),
             creator: Some(1),
-            write: Ownership::Accounts(vec![2]),
+            write: Ownership::Listed(vec![bo]),
         }
     );
     assert!(writable(&named(2, "bo"), &segments, &along, Act::Write).is_ok());
@@ -122,16 +126,46 @@ fn the_nearest_list_decides_over_a_higher_list_and_the_home_rule() {
 }
 
 #[test]
+fn a_listed_program_writes_as_any_account_it_sends_for_and_no_other_program_does() {
+    let path = "/shared/d/f";
+    let (segments, _) = unlisted(path);
+    let along = listed_at(
+        path,
+        1,
+        Some(1),
+        Ownership::Listed(vec![Party::Program("harness".into())]),
+    );
+    assert!(writable(&through(7, "harness"), &segments, &along, Act::Write).is_ok());
+    assert!(writable(&through(8, "harness"), &segments, &along, Act::Write).is_ok());
+    assert!(writable(&named(1, "ada"), &segments, &along, Act::Write).is_ok());
+    for refused in [through(8, "chat"), named(8, "agent")] {
+        assert_eq!(
+            writable(&refused, &segments, &along, Act::Write)
+                .unwrap_err()
+                .code,
+            ::program::code::UNAUTHORIZED
+        );
+    }
+}
+
+#[test]
 fn a_list_names_who_it_allows() {
     assert_eq!(
         allows(Some(1), &Ownership::Owner),
         "only its creator, account 1"
     );
     assert_eq!(
-        allows(Some(1), &Ownership::Accounts(vec![4, 9])),
-        "its creator, account 1, and account 4, account 9"
+        allows(
+            Some(1),
+            &Ownership::Listed(vec![
+                Party::Account(4),
+                Party::Account(9),
+                Party::Program("harness".into())
+            ])
+        ),
+        "its creator, account 1, and account 4, account 9, program harness"
     );
-    assert_eq!(allows(None, &Ownership::Anyone), "any account");
+    assert_eq!(allows(None, &Ownership::Anyone), "anyone");
 }
 
 #[test]

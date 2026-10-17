@@ -13,6 +13,7 @@ use view::{Div, Stateful};
 
 use crate::state::{ROOT, Route};
 use crate::words;
+use crate::write::{Form, ListChoice};
 use crate::{Cx, Files, Kit};
 
 mod file;
@@ -480,4 +481,36 @@ fn data(text: impl Into<SharedString>) -> Div {
         .font_family(design::fonts::FAMILY_MONO)
         .text_size(design::text::MONO)
         .child(text.into())
+}
+
+pub(crate) fn list_choices(form: &Form, cx: Cx, k: &Kit) -> Stateful<Div> {
+    let picked = ListChoice::ALL
+        .iter()
+        .position(|choice| *choice == form.list);
+    let choices = ListChoice::ALL.map(|choice| {
+        (
+            ElementId::Name(format!("files/write/list/{}", choice.slug()).into()),
+            SharedString::from(words::list_choice(choice)),
+        )
+    });
+    design::segmented(
+        "files/write/list",
+        words::WHO_WRITES,
+        &k.ladder,
+        &k.theme,
+        picked,
+        choices,
+        cx.processor(|view: &mut Files, index: usize, _, cx| {
+            if let Some(choice) = ListChoice::ALL.get(index) {
+                view.pick_list(*choice, cx);
+            }
+        }),
+    )
+}
+
+pub(crate) fn listed_input(form: &Form) -> Input {
+    Input::new("files/write/listed", &form.listed, words::LISTED)
+        .w_full()
+        .placeholder("7, 12, harness")
+        .autocapitalize(view::Autocapitalize::None)
 }

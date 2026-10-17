@@ -520,11 +520,16 @@ pub(crate) fn set_ownership(
     }
     let ownership = ownership.settled(Some(manager));
     if let Some(missing) = ownership
-        .listed()
-        .iter()
+        .accounts()
         .find(|number| !ACCOUNTS.has(ctx, number))
     {
         return Err(not_found(format!("account {missing}")));
+    }
+    if let Some(missing) = ownership
+        .programs()
+        .find(|program| !OF_PROGRAM.has(ctx, program))
+    {
+        return Err(not_found(format!("program {missing}")));
     }
     match ownership {
         Ownership::Owner => OWNERSHIPS.remove(ctx, &number),

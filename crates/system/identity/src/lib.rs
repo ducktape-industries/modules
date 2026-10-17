@@ -2,7 +2,8 @@
 //! acts is an account: a user (the keys they hold), a program account (the
 //! keys its manager, a user, adds, and the script that runs its actions) and
 //! a system account (the one the kernel registers as it admits a program). An agent's
-//! manager also sets whom it answers, an [`Ownership`] whose `Owner` is the manager. The types, rules and [`Identity`] program are
+//! manager also sets whom it answers, an [`Ownership`] whose `Owner` is the manager and whose
+//! list names accounts and programs. The types, rules and [`Identity`] program are
 //! always built; a view links them with `program` off (`view.rs` is what a
 //! view shows of an account). The `program` feature adds its wasm exports.
 //!
@@ -16,7 +17,7 @@ mod rules;
 mod tests;
 pub mod view;
 
-pub use ::program::{AccountNumber, Ownership};
+pub use ::program::{AccountNumber, Ownership, Party};
 pub use abi::role::identity::{Category, Kind, Profile, Script, Standing};
 pub use program::Identity;
 
@@ -295,9 +296,12 @@ pub fn describe(op: &Op) -> describe::Description {
     let optional = |text: &Option<String>| Value::Text(text.clone().unwrap_or_else(|| "—".into()));
     let answers = |ownership: &Ownership| match ownership {
         Ownership::Owner => Value::text("its manager"),
-        Ownership::Accounts(numbers) => Value::List(
+        Ownership::Listed(parties) => Value::List(
             std::iter::once(Value::text("its manager"))
-                .chain(numbers.iter().copied().map(Value::Account))
+                .chain(parties.iter().map(|party| match party {
+                    Party::Account(number) => Value::Account(*number),
+                    Party::Program(program) => Value::Program(program.clone()),
+                }))
                 .collect(),
         ),
         Ownership::Anyone => Value::text("anyone"),

@@ -1,8 +1,9 @@
 //! `cargo run -p files-view --example live`: Files in the real app over a
 //! fake node with the real `files` program seated. The dev account (named
 //! `dev`) keeps notes and a plan in its home; ada shares a readme, a link
-//! to it and a picture, and keeps a diary in hers; the first snapshot
-//! is pinned `v1`. Dev writes in its home and `/shared`, and reads ada's.
+//! to it and a picture, and keeps a diary in hers, which she lists for
+//! herself alone; the first snapshot is pinned `v1`. Dev writes anywhere
+//! but ada's home, and reads it.
 use files::{Change, Content, Op};
 use view::rig::{self, Network};
 
@@ -78,6 +79,10 @@ fn main() {
                     target: "/shared/readme.txt".into(),
                 },
                 put(net, "/home/ada/diary.txt", b"Dear diary,"),
+                Change::SetOwnership {
+                    path: "/home/ada".into(),
+                    write: Some(files::Ownership::Owner),
+                },
             ],
         )?;
         commit(
