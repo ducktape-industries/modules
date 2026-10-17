@@ -8,7 +8,7 @@ pub fn channel_link(chain: &str, channel: &str, seq: Option<u64>) -> Option<Stri
     let seq = seq.map(|seq| seq.to_string());
     let mut tail = vec![channel];
     tail.extend(seq.as_deref());
-    ducklink::mint(chain, ::chat::MODULE, &tail)
+    ducklink::mint(chain, ::chat::PROGRAM, &tail)
 }
 
 /// Where a program's room (`forge:web:3`) is shown by its program:
@@ -18,6 +18,15 @@ pub fn program_link(chain: &str, channel: &str) -> Option<String> {
     let program = ::chat::namespace::program(channel)?;
     let path: Vec<&str> = channel[program.len() + 1..].split(':').collect();
     ducklink::mint(chain, program, &path)
+}
+
+/// `duck://<chain>/<calls>/<agent>/chat/<channel>`: where the program an
+/// agent's script calls shows its work in a room, by the place it keeps it
+/// under (`chat/<channel>`), the channel percent-encoded like any segment.
+/// None without a chain.
+pub fn work_record(chain: &str, calls: &str, agent: u64, channel: &str) -> Option<String> {
+    let agent = agent.to_string();
+    ducklink::mint(chain, calls, &[&agent, ::chat::PROGRAM, channel])
 }
 
 /// `duck://explorer/block/<height>`: the host's short link to a view on
@@ -40,10 +49,7 @@ pub fn route_target(route: &str) -> Option<(String, u64)> {
 /// None when no link can be minted (no chain yet).
 pub fn pressed_link(link: String, chain: &str) -> Option<String> {
     match link.parse::<u64>() {
-        Ok(account) => {
-            let identity = <program::role::Identity as ducktape_view_guest::methods::Program>::NAME;
-            ducklink::mint(chain, identity, &[&account.to_string()])
-        }
+        Ok(account) => ducklink::mint(chain, identity::PROGRAM, &[&account.to_string()]),
         Err(_) => Some(link),
     }
 }
@@ -69,6 +75,20 @@ mod tests {
             Some("duck://testnet-0a1b2c3d/forge/web/3")
         );
         assert_eq!(program_link("testnet#0a1b2c3d", "general"), None);
+        assert_eq!(
+            work_record("testnet#0a1b2c3d", "harness", 12, "general").as_deref(),
+            Some("duck://testnet-0a1b2c3d/harness/12/chat/general")
+        );
+        let link = work_record("testnet#0a1b2c3d", "harness", 12, "forge:web:3").unwrap();
+        assert_eq!(
+            link,
+            "duck://testnet-0a1b2c3d/harness/12/chat/forge%3Aweb%3A3"
+        );
+        assert_eq!(
+            ducklink::Link::parse(&link).unwrap().tail,
+            ["12", "chat", "forge:web:3"]
+        );
+        assert_eq!(work_record("", "harness", 12, "general"), None);
     }
 
     /// Any room lands, a forge room's `:` included: the link spells the id

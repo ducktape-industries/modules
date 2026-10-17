@@ -1,11 +1,11 @@
 //! What the reader's presses do: reads again, each form's submit, and the
 //! invite. A refusal lands on the form it came from.
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::queries::Found;
-use crate::state::{Answering, Choice, Form, Problem, Section, TTL};
+use crate::state::{Answering, Choice, Form, Problem, Section, Sheet, TTL};
 use crate::{Settings, queries};
-use identity::{Audience, Identity};
+use identity::{Identity, Ownership};
 
 impl Settings {
     pub(crate) fn session_changed(&mut self, session: Session, cx: &mut Context<Self>) {
@@ -16,9 +16,59 @@ impl Settings {
         self.read_account(cx);
     }
 
+    /// The menu or the phone's strip opens a section; a sheet over the last
+    /// one closes, as Back closes it.
     pub(crate) fn select_section(&mut self, section: Section, cx: &mut Context<Self>) {
         self.section = section;
+        self.close_sheet(cx);
+    }
+
+    pub(crate) fn open_sheet(&mut self, sheet: Sheet, cx: &mut Context<Self>) {
+        self.sheet = Some(sheet);
         cx.notify();
+    }
+
+    /// Closes the open sheet (Back, or its Cancel). What it held and did not
+    /// send goes with it, so it opens afresh next time: an agent's sheet on
+    /// its actions, with no rename, no Specific that listed nobody and no
+    /// person typed; an add sheet empty (Expo `Agents.tsx`'s closes). A form
+    /// in flight keeps going; its landing settles it.
+    pub(crate) fn close_sheet(&mut self, cx: &mut Context<Self>) {
+        let unsent = |form: &mut Form| {
+            if !form.busy {
+                *form = Form::default();
+            }
+        };
+        match self.sheet.take() {
+            Some(Sheet::Actions(number) | Sheet::Rename(number) | Sheet::Answers(number)) => {
+                self.rename_agent
+                    .retain(|agent, form| *agent != number || form.busy);
+                if let Some(answering) = self.answering.get_mut(&number) {
+                    answering.listing = false;
+                    unsent(&mut answering.pick);
+                    unsent(&mut answering.form);
+                }
+            }
+            Some(Sheet::CreateAgent) => unsent(&mut self.create_agent),
+            Some(Sheet::AddKey) => unsent(&mut self.agent_key),
+            None => {}
+        }
+        cx.notify();
+    }
+
+    /// Whom an agent answers, in its sheet: the choice, and under Specific
+    /// the field that adds someone.
+    pub(crate) fn open_answers(&mut self, number: u64, cx: &mut Context<Self>) {
+        self.answering.entry(number).or_default();
+        self.sheet = Some(Sheet::Answers(number));
+        cx.notify();
+    }
+
+    /// Rename from an agent's actions: its sheet turns to the field,
+    /// holding the name.
+    pub(crate) fn open_rename(&mut self, number: u64, cx: &mut Context<Self>) {
+        self.sheet = Some(Sheet::Rename(number));
+        self.begin_rename(number, cx);
     }
 
     /// Who the session's key is, read afresh: the boot, a new session, a
@@ -39,8 +89,7 @@ impl Settings {
     fn account_query(
         &self,
         cx: &mut Context<Self>,
-    ) -> impl Future<Output = Result<Option<queries::Seat>, ducktape_view_guest::host::Error>> + 'static
-    {
+    ) -> impl Future<Output = Result<Option<queries::Seat>, view::host::Error>> + 'static {
         let (signer, number) = (self.session.signer.clone(), self.session.account);
         queries::account(cx.host(), signer, number)
     }
@@ -64,32 +113,30 @@ impl Settings {
         };
         let ask = cx.host().ask::<Submit<Identity>>(op);
         cx.land(ask, |view, result, cx| {
-            // created: the form stays busy until the host's session
-            // names the new account, which re-reads it
-            if let Err(refusal) = result {
+            // created: the form stays busy until the host's session names
+            // the new account, which re-reads it
+            if let Some(said) = design::failure(&result) {
                 view.create_account.busy = false;
-                view.create_account.problem = Some(Problem::Refused(refusal.message));
+                view.create_account.problem = Some(Problem::Refused(said));
             }
             cx.notify();
         })
         .detach();
     }
 
-    /// Rename's first press turns the agent's name into a field holding
-    /// it; the next submits it.
+    /// A rename begins: the agent's name becomes a field holding it. A
+    /// rename already begun keeps what was typed.
+    pub(crate) fn begin_rename(&mut self, number: u64, cx: &mut Context<Self>) {
+        let name = self.agent_name(number).unwrap_or_default();
+        self.rename_agent.entry(number).or_insert_with(|| Form {
+            text: TextField::new(name),
+            ..Form::default()
+        });
+        cx.notify();
+    }
+
+    /// Sends the agent's new name, as its rename field holds it.
     pub(crate) fn submit_rename_agent(&mut self, number: u64, cx: &mut Context<Self>) {
-        if !self.rename_agent.contains_key(&number) {
-            let name = self.agent_name(number).unwrap_or_default();
-            self.rename_agent.insert(
-                number,
-                Form {
-                    text: TextField::new(name),
-                    ..Form::default()
-                },
-            );
-            cx.notify();
-            return;
-        }
         let form = self.rename_agent.entry(number).or_default();
         let name = form.text.text().trim().to_string();
         if name.is_empty() {
@@ -101,11 +148,21 @@ impl Settings {
             account: number,
             name,
         };
-        self.submit_agent_op(op, move |v| v.rename_agent.entry(number).or_default(), cx);
+        let from = self.sheet;
+        self.submit_agent_op(
+            op,
+            move |v| v.rename_agent.entry(number).or_default(),
+            from,
+            cx,
+        );
     }
 
     pub(crate) fn cancel_rename_agent(&mut self, number: u64, cx: &mut Context<Self>) {
         self.rename_agent.remove(&number);
+        // the sheet goes back to the agent's actions
+        if self.sheet == Some(Sheet::Rename(number)) {
+            self.sheet = Some(Sheet::Actions(number));
+        }
         cx.notify();
     }
 
@@ -113,7 +170,7 @@ impl Settings {
         self.agent(number).map(|agent| agent.name.clone())
     }
 
-    fn agent(&self, number: u64) -> Option<&queries::Agent> {
+    pub(crate) fn agent(&self, number: u64) -> Option<&queries::Agent> {
         match self.account.ready() {
             Some(Some(queries::Seat::Account(account))) => {
                 account.agents.iter().find(|agent| agent.number == number)
@@ -123,47 +180,49 @@ impl Settings {
     }
 
     fn listed(&self, number: u64) -> Vec<u64> {
-        match self.agent(number).map(|agent| &agent.audience) {
-            Some(Audience::Accounts(numbers)) => numbers.clone(),
-            Some(Audience::Manager | Audience::Anyone) | None => Vec::new(),
+        match self.agent(number).map(|agent| &agent.ownership) {
+            Some(Ownership::Accounts(numbers)) => numbers.clone(),
+            Some(Ownership::Owner | Ownership::Anyone) | None => Vec::new(),
         }
     }
 
-    pub(crate) fn pick_audience(&mut self, number: u64, choice: Choice, cx: &mut Context<Self>) {
+    pub(crate) fn pick_ownership(&mut self, number: u64, choice: Choice, cx: &mut Context<Self>) {
         match choice {
-            Choice::Manager => self.answer(number, Audience::Manager, cx),
+            Choice::Manager => self.answer(number, Ownership::Owner, cx),
             Choice::Specific => self.open_people(number, cx),
-            Choice::Anyone => self.answer(number, Audience::Anyone, cx),
+            Choice::Anyone => self.answer(number, Ownership::Anyone, cx),
         }
     }
 
     fn open_people(&mut self, number: u64, cx: &mut Context<Self>) {
         let answering = self.answering.entry(number).or_default();
-        if answering.form.busy {
+        if answering.busy() {
             return;
         }
         answering.listing = true;
         cx.notify();
     }
 
-    fn answer(&mut self, number: u64, audience: Audience, cx: &mut Context<Self>) {
+    fn answer(&mut self, number: u64, ownership: Ownership, cx: &mut Context<Self>) {
         let answering = self.answering.entry(number).or_default();
-        if answering.form.busy {
+        if answering.busy() {
             return;
         }
         answering.listing = false;
+        answering.pick.problem = None;
         answering.form.problem = None;
         let unchanged = self
             .agent(number)
-            .is_some_and(|agent| agent.audience == audience);
+            .is_some_and(|agent| agent.ownership == ownership);
         if unchanged {
             cx.notify();
             return;
         }
-        self.submit_audience(number, audience, cx);
+        let from = self.sheet;
+        self.submit_ownership(number, ownership, |answering| &mut answering.pick, from, cx);
     }
 
-    pub(crate) fn submit_audience_person(&mut self, number: u64, cx: &mut Context<Self>) {
+    pub(crate) fn submit_listed_person(&mut self, number: u64, cx: &mut Context<Self>) {
         let Some(answering) = self.answering.get_mut(&number) else {
             let opened = Answering {
                 listing: true,
@@ -173,10 +232,11 @@ impl Settings {
             cx.notify();
             return;
         };
-        let form = &mut answering.form;
-        if form.busy {
+        if answering.busy() {
             return;
         }
+        answering.pick.problem = None;
+        let form = &mut answering.form;
         let typed = form.text.text().trim().to_string();
         if typed.is_empty() {
             form.problem = Some(Problem::Empty);
@@ -186,15 +246,21 @@ impl Settings {
         form.busy = true;
         form.problem = None;
         cx.notify();
+        // the sheet Add was pressed on, not the one open once the person is
+        // found
+        let from = self.sheet;
         let find = queries::find(cx.host(), typed);
-        cx.land(find, move |view, found, cx| view.found(number, found, cx))
-            .detach();
+        cx.land(find, move |view, found, cx| {
+            view.found(number, from, found, cx)
+        })
+        .detach();
     }
 
     fn found(
         &mut self,
         number: u64,
-        found: Result<Found, ducktape_view_guest::host::Error>,
+        from: Option<Sheet>,
+        found: Result<Found, view::host::Error>,
         cx: &mut Context<Self>,
     ) {
         let form = &mut self.answering.entry(number).or_default().form;
@@ -203,17 +269,28 @@ impl Settings {
             Ok(Found::Account(person)) => {
                 let mut listed = self.listed(number);
                 listed.push(person);
-                return self.submit_audience(number, Audience::Accounts(listed), cx);
+                let ownership = Ownership::Accounts(listed);
+                return self.submit_ownership(
+                    number,
+                    ownership,
+                    |answering| &mut answering.form,
+                    from,
+                    cx,
+                );
             }
             Ok(Found::Nobody) => Problem::NoSuchAccount,
             Ok(Found::Several) => Problem::SeveralAccounts,
-            Err(refusal) => Problem::Refused(refusal.message),
+            // the look-up the write needs, worded as the write would be
+            // (Expo `Agents.tsx:410`)
+            Err(refusal) => Problem::Refused(
+                design::failure(&Err(refusal)).expect("an error is never a landed write"),
+            ),
         };
         form.problem = Some(problem);
         cx.notify();
     }
 
-    pub(crate) fn remove_audience_person(
+    pub(crate) fn remove_listed_person(
         &mut self,
         number: u64,
         person: u64,
@@ -221,17 +298,38 @@ impl Settings {
     ) {
         let mut listed = self.listed(number);
         listed.retain(|listed| *listed != person);
-        self.submit_audience(number, Audience::Accounts(listed), cx);
+        let ownership = Ownership::Accounts(listed);
+        let from = self.sheet;
+        self.submit_ownership(number, ownership, |answering| &mut answering.form, from, cx);
     }
 
-    fn submit_audience(&mut self, number: u64, audience: Audience, cx: &mut Context<Self>) {
-        let op = identity::Op::SetAudience {
+    /// Sends whom an agent answers, pressed on sheet `from`; `which` of its
+    /// forms carries the send (the choice's, or the person field's). Every
+    /// change goes through here: one at a time, as dev's one form had it,
+    /// so a Remove pressed while a choice is out cannot undo the choice.
+    fn submit_ownership(
+        &mut self,
+        number: u64,
+        ownership: Ownership,
+        which: fn(&mut Answering) -> &mut Form,
+        from: Option<Sheet>,
+        cx: &mut Context<Self>,
+    ) {
+        let answering = self.answering.entry(number).or_default();
+        if answering.busy() {
+            return;
+        }
+        // the last change's problem goes with the next
+        answering.pick.problem = None;
+        answering.form.problem = None;
+        let op = identity::Op::SetOwnership {
             account: number,
-            audience,
+            ownership,
         };
         self.submit_agent_op(
             op,
-            move |v| &mut v.answering.entry(number).or_default().form,
+            move |v| which(v.answering.entry(number).or_default()),
+            from,
             cx,
         );
     }
@@ -244,7 +342,7 @@ impl Settings {
             return;
         }
         let op = identity::Op::CreateAgent { name };
-        self.submit_agent_op(op, |v| &mut v.create_agent, cx);
+        self.submit_agent_op(op, |v| &mut v.create_agent, self.sheet, cx);
     }
 
     /// The agent's key request: the hex of an `AddKey` whose consent the
@@ -267,22 +365,25 @@ impl Settings {
             cx.notify();
             return;
         };
-        self.submit_agent_op(op, |v| &mut v.agent_key, cx);
+        self.submit_agent_op(op, |v| &mut v.agent_key, self.sheet, cx);
     }
 
     /// Suspends, resumes or revokes an agent: one press. Suspend and
     /// Revoke are confirmed by the host, natively, before the key signs
     /// them, so the view asks nothing of its own.
     pub(crate) fn set_standing(&mut self, op: identity::Op, cx: &mut Context<Self>) {
-        self.submit_agent_op(op, |v| &mut v.agent_standing, cx);
+        self.submit_agent_op(op, |v| &mut v.agent_standing, self.sheet, cx);
     }
 
-    /// Submits `op` from `form`; done, the form clears and the account is
-    /// read again.
+    /// Submits `op` from `form`, pressed on sheet `from`; done, the form
+    /// clears and the account is read again. A landing settles `from` only
+    /// while it is still the sheet open: another opened meanwhile is not
+    /// this op's to move.
     fn submit_agent_op(
         &mut self,
         op: identity::Op,
         form: impl Fn(&mut Settings) -> &mut Form + 'static,
+        from: Option<Sheet>,
         cx: &mut Context<Self>,
     ) {
         if form(self).busy {
@@ -292,18 +393,35 @@ impl Settings {
         pending.busy = true;
         pending.problem = None;
         cx.notify();
+        // whom an agent answers: a change that lands takes the person typed
+        // for it (dev's one form; Expo unmounts the field)
+        let answered = match &op {
+            identity::Op::SetOwnership { account, .. } => Some(*account),
+            _ => None,
+        };
         let ask = cx.host().ask::<Submit<Identity>>(op);
         cx.land(ask, move |view, result, cx| {
+            let problem = design::failure(&result);
+            let landed = problem.is_none();
             let form = form(view);
             form.busy = false;
-            match result {
-                Ok(_) => form.text.reset(""),
-                Err(refusal) => form.problem = Some(Problem::Refused(refusal.message)),
+            match problem {
+                None => form.text.reset(""),
+                Some(said) => form.problem = Some(Problem::Refused(said)),
             }
             // a rename that landed closes its field
             view.rename_agent.retain(|_, form| {
                 form.busy || form.problem.is_some() || !form.text.text().is_empty()
             });
+            if let Some(answering) = answered
+                .filter(|_| landed)
+                .and_then(|number| view.answering.get_mut(&number))
+            {
+                answering.form.text.reset("");
+            }
+            if landed && view.sheet == from {
+                view.sheet = from.and_then(Sheet::after_landing);
+            }
             view.refresh_account(cx);
             cx.notify();
         })

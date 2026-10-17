@@ -1,7 +1,7 @@
-//! The module's own path, run natively: the sender the host resolved, a
+//! The program's own path, run natively: the sender the host resolved, a
 //! the identity role's profiles paged through chat. Each
 //! refusal leaves the store as it was.
-use guest::{Env, Origin};
+use ::program::{Env, Origin};
 
 use super::*;
 use crate::{Category, Kind, Profile, Standing};
@@ -19,11 +19,12 @@ fn identity() -> Vec<Profile> {
         kind,
     };
     vec![
-        profile(1, Kind::Person),
-        profile(2, Kind::Person),
+        profile(1, Kind::User),
+        profile(2, Kind::User),
         profile(
             3,
-            Kind::Managed {
+            Kind::Program {
+                script: None,
                 manager: 1,
                 category: Category::Agent,
                 standing: Standing::Active,
@@ -44,7 +45,7 @@ fn env(origin: Origin, sender: Option<Principal>) -> Env {
         time: 1000,
         origin,
         sender,
-        ..MockHost::env(crate::MODULE)
+        ..MockHost::env(crate::PROGRAM)
     }
 }
 
@@ -53,7 +54,7 @@ fn env(origin: Origin, sender: Option<Principal>) -> Env {
 fn key(key: &[u8], account: Option<u64>) -> Env {
     Env {
         time: 1000,
-        ..MockHost::env(crate::MODULE).signed(key, account)
+        ..MockHost::env(crate::PROGRAM).signed(key, account)
     }
 }
 
@@ -73,7 +74,7 @@ fn refused(store: &MockHost, env: Env, op: Op) -> String {
 }
 
 /// A read of `store`.
-fn reads(store: &MockHost) -> guest::QueryCtx {
+fn reads(store: &MockHost) -> ::program::QueryCtx {
     store.query(env(Origin::Root, None))
 }
 
@@ -87,7 +88,7 @@ fn a_write_acts_as_its_sender() {
     crate::Chat::execute(&store.exec(ada()), create("a", PostPolicy::Open)).unwrap();
     assert_eq!(owner(&store, "a"), Principal::Account(1));
     // forge's own frame acts as forge's account
-    let forge = env(Origin::Module("forge".into()), Some(FORGE));
+    let forge = env(Origin::Program("forge".into()), Some(FORGE));
     crate::Chat::execute(&store.exec(forge), create("forge:c", PostPolicy::Open)).unwrap();
     assert_eq!(owner(&store, "forge:c"), FORGE);
     crate::Chat::execute(&store.exec(root()), create("d", PostPolicy::Open)).unwrap();
@@ -191,7 +192,7 @@ fn the_roster_pages_through_the_identity_role() {
     assert_eq!(numbers(&rest.items), [3]);
     assert!(matches!(
         rest.items[0].kind,
-        Kind::Managed { manager: 1, .. }
+        Kind::Program { manager: 1, .. }
     ));
     assert_eq!(rest.next, None);
 }

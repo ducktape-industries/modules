@@ -1,16 +1,19 @@
-//! The explorer's pages. Square corners, rows split by one-pixel rules,
-//! hashes and numbers in the data face.
+//! The explorer's pages under a pointer: the desktop tree, which the root
+//! picks when the device is not touch first (`lib.rs`; the phone's is
+//! `ui/phone/`). Square corners, rows split by one-pixel rules, hashes and
+//! numbers in the data face.
 use std::ops::Range;
 
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful};
+use view::prelude::*;
+use view::{Div, FontWeight, Paged, Stateful};
 
-use crate::decode::{ago, clip, date, grouped, plural, short};
-use crate::{BlockRow, Explorer, Note, Route, TxRow};
+use crate::chain::{Line, lines};
+use crate::decode::{ago, date, grouped, plural, short};
+use crate::state::landed;
+use crate::words::{self, unindexed};
+use crate::{BlockRow, Cx, Explorer, Route, TxRow};
 use design::{empty_state, mono};
 
-/// The most rows one list draws; the rest is reached by search.
-pub(crate) const LIST_ROWS: usize = 50;
 /// The rows each Overview panel draws.
 const LATEST: usize = 12;
 
@@ -35,7 +38,6 @@ const MARK: Pixels = px(6.);
 /// Each level a nested run steps in.
 const NEST_W: Pixels = px(20.);
 /// A transaction row's short hash.
-const HASH_W: Pixels = px(100.);
 /// A detail page's field labels.
 const LABEL_W: Pixels = px(110.);
 /// An operation's field labels.
@@ -51,21 +53,22 @@ const LATEST_BLOCKS_W: Pixels = px(420.);
 /// The avatar an account page opens with.
 const PAGE_AVATAR: Pixels = px(40.);
 
-type Cx<'a, 'b> = &'a mut Context<'b, Explorer>;
-
 mod accounts;
 mod blocks;
 mod overview;
+pub(crate) mod phone;
 mod programs;
 mod transactions;
 use accounts::{account, accounts};
 use blocks::{block, blocks};
 use overview::overview;
-use programs::programs;
+use programs::{program, programs};
 use transactions::{transactions, tx};
+use view::design::Ladder;
 
 pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
     let theme = *cx.global::<Theme>();
+    let ladder = &design::POINTER;
     let mut root = div()
         .id("explorer")
         .flex()
@@ -74,9 +77,9 @@ pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
         .bg(theme.background)
         .text_color(theme.foreground)
         .text_size(design::text::BODY)
-        .child(bar(view, cx, &theme));
+        .child(bar(view, cx, &theme, ladder));
     if let Some(note) = &view.note {
-        let note = worded(note);
+        let note = words::note(note);
         root = root.child(
             div()
                 .id("explorer-note")
@@ -90,48 +93,16 @@ pub fn render(view: &Explorer, cx: Cx) -> AnyElement {
                 .child(note),
         );
     }
-    // A page scrolls, and the SDK keeps its right edge for the bar. The
-    // Transactions page is a heading over a list that scrolls for it
-    // ([`Rows::shown`]): the page is no scroller there, so the list reaches
-    // the pane's edge and the host draws its bar where the other pages' is.
     let scroller = div().id("explorer-page").flex_1().flex().flex_col();
-    let scroller = match view.route {
-        Route::Transactions(_) => scroller.min_h(px(0.)),
+    let scroller = match view.pages.top() {
+        Route::Transactions(_) | Route::Blocks | Route::Accounts => scroller.min_h_0(),
         _ => scroller.overflow_y_scroll(),
     };
-    root.child(scroller.child(page(view, cx, &theme)))
+    root.child(scroller.child(page(view, cx, &theme, ladder)))
         .into_any_element()
 }
 
-pub(crate) fn unindexed(from: u64) -> String {
-    format!(
-        "History before block {} is not indexed on this node.",
-        grouped(from)
-    )
-}
-
-/// The line under the bar, in words.
-fn worded(note: &Note) -> String {
-    match note {
-        Note::NotFound(query) => format!("Nothing here is called “{query}”."),
-        Note::NoSuchHash { listed_from } => {
-            let since = listed_from.filter(|from| *from > 0);
-            match since {
-                Some(from) => format!(
-                    "No block or transaction since block {} has this hash. {}",
-                    grouped(from),
-                    unindexed(from)
-                ),
-                None => "No block or transaction has this hash.".into(),
-            }
-        }
-        Note::Unlinked(route) => format!("This link names nothing the Explorer shows: {route}"),
-        Note::Copied => "Copied the link.".into(),
-        Note::Sent(words) | Note::Refused(words) => words.clone(),
-    }
-}
-
-fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
+fn bar(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> impl IntoElement {
     let tabs = [
         ("overview", "Overview", Route::Overview),
         ("blocks", "Blocks", Route::Blocks),
@@ -140,7 +111,7 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
         ("programs", "Programs", Route::Programs),
     ];
     let submit = cx.listener(|view: &mut Explorer, _: &(), _, cx| view.search(cx));
-    let shown = view.route.tab();
+    let shown = view.pages.top().tab();
     let routes: Vec<Route> = tabs.iter().map(|(_, _, route)| route.clone()).collect();
     let pressed = routes.clone();
     let tabs = tabs.into_iter().map(|(key, label, route)| {
@@ -148,9 +119,16 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
         let go = cx
             .listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.go(route.clone(), cx));
         design::item(
-            design::tab(format!("explorer-tab-{key}"), label, active, theme, go)
-                .h_full()
-                .mx_1(),
+            design::tab(
+                format!("explorer-tab-{key}"),
+                label,
+                active,
+                ladder,
+                theme,
+                go,
+            )
+            .h_full()
+            .mx_1(),
             Role::Tab,
             active,
         )
@@ -199,7 +177,7 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
                 .flex()
                 .items_center()
                 .child(
-                    Input::new("explorer-search", &view.search, "Search the chain")
+                    Input::new("explorer-search", &view.search, words::SEARCH)
                         .w_full()
                         .h(design::size::CONTROL)
                         .px_2()
@@ -207,28 +185,33 @@ fn bar(view: &Explorer, cx: Cx, theme: &Theme) -> impl IntoElement {
                         .border_color(theme.border)
                         .bg(theme.background)
                         .text_size(design::text::SECONDARY)
-                        .placeholder("Search by height, hash, account or program")
+                        .placeholder(words::SEARCH_HINT)
                         .on_submit(submit),
                 ),
         )
 }
 
-fn page(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
-    if view.chain.blocks.is_empty() && !matches!(view.route, Route::Programs | Route::Accounts) {
+fn page(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
+    let without_chain = matches!(
+        view.pages.top(),
+        Route::Programs | Route::Program(_) | Route::Accounts
+    );
+    if view.chain.blocks.is_empty() && !without_chain {
         return match &view.chain.failed {
-            Some(sentence) => failed(sentence, cx, theme),
-            None => quiet("explorer-loading", "Reading the chain…", theme),
+            Some(sentence) => failed(sentence, cx, theme, ladder),
+            None => quiet("explorer-loading", words::READING_CHAIN, theme),
         };
     }
-    match view.route.clone() {
-        Route::Overview => overview(view, cx, theme),
+    match view.pages.top().clone() {
+        Route::Overview => overview(view, cx, theme, ladder),
         Route::Blocks => blocks(view, cx, theme),
-        Route::Block(height) => block(view, height, cx, theme),
-        Route::Transactions(program) => transactions(view, program, cx, theme),
-        Route::Tx(hash) => tx(view, &hash, cx, theme),
-        Route::Accounts => accounts(view, cx, theme),
-        Route::Account(number) => account(view, number, cx, theme),
-        Route::Programs => programs(view, cx, theme),
+        Route::Block(height) => block(view, height, cx, theme, ladder),
+        Route::Transactions(program) => transactions(view, program, cx, theme, ladder),
+        Route::Tx { height, position } => tx(view, height, position, cx, theme, ladder),
+        Route::Accounts => accounts(view, cx, theme, ladder),
+        Route::Account(number) => account(view, number, cx, theme, ladder),
+        Route::Programs => programs(view, cx, theme, ladder),
+        Route::Program(name) => program(view, &name, cx, theme, ladder),
     }
 }
 
@@ -242,9 +225,9 @@ fn quiet(id: &'static str, text: impl Into<SharedString>, theme: &Theme) -> AnyE
         .into_any_element()
 }
 
-fn failed(sentence: &str, cx: Cx, theme: &Theme) -> AnyElement {
+fn failed(sentence: &str, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let retry = cx.listener(|view: &mut Explorer, _: &ClickEvent, _, cx| view.read_all(cx));
-    design::refused("explorer", sentence.to_owned(), theme, retry)
+    design::refused("explorer", sentence.to_owned(), ladder, theme, retry)
         .m_5()
         .into_any_element()
 }
@@ -328,6 +311,9 @@ struct Rows {
     routes: Vec<Route>,
     children: Vec<AnyElement>,
     paint: Option<Painter>,
+    /// the line a painted list ends with while its listing reads on
+    /// ([`Rows::more`])
+    more: Option<&'static str>,
 }
 
 /// Paints a range of a list's rows, each a [`row`], off the view they are
@@ -347,6 +333,7 @@ fn rows(id: &'static str, label: &'static str, view: &Explorer) -> Rows {
         routes: Vec::new(),
         children: Vec::new(),
         paint: None,
+        more: None,
     }
 }
 
@@ -365,10 +352,6 @@ impl Rows {
         self.children.push(option(row, active, theme));
         self
     }
-    fn note(mut self, note: impl IntoElement) -> Self {
-        self.children.push(note.into_any_element());
-        self
-    }
     /// `routes.len()` rows the host asks for by index, painted as it shows
     /// them. They scroll for their page, which is no scroller then
     /// ([`render`]): the list reaches the pane's edge, where the host keeps
@@ -381,6 +364,13 @@ impl Rows {
     ) -> Self {
         self.routes = routes;
         self.paint = Some(Box::new(paint));
+        self
+    }
+    /// The line the painted rows end with, a row of their height that is
+    /// no option: the listing goes on past them. The painter is asked for
+    /// its index too, which is how it hears the list reached its end.
+    fn more(mut self, line: Option<&'static str>) -> Self {
+        self.more = line;
         self
     }
     /// The painted rows built now, drawn whole: for a list in a page that
@@ -408,6 +398,7 @@ impl Rows {
             routes,
             children,
             paint,
+            more,
         } = self;
         let count = routes.len();
         let active = active.min(count.saturating_sub(1));
@@ -435,19 +426,35 @@ impl Rows {
         let theme = *cx.global::<Theme>();
         let window = uniform_list(
             SharedString::from(format!("{id}-rows")),
-            count,
+            count + usize::from(more.is_some()),
             cx.processor(move |view: &mut Explorer, range: Range<usize>, _, cx| {
-                paint(view, range.clone(), cx, &theme)
+                let mut rows: Vec<AnyElement> = paint(view, range.clone(), cx, &theme)
                     .into_iter()
-                    .zip(range)
+                    .zip(range.clone())
                     .map(|(row, index)| option(row, index == active, &theme))
-                    .collect::<Vec<_>>()
+                    .collect();
+                if let Some(line) = more.filter(|_| range.end > count) {
+                    rows.push(
+                        div()
+                            .id(SharedString::from(format!("{id}-more")))
+                            .h(ROW_H)
+                            .px_5()
+                            .flex()
+                            .items_center()
+                            .border_b_1()
+                            .border_color(theme.border)
+                            .text_color(theme.faint)
+                            .child(line)
+                            .into_any_element(),
+                    );
+                }
+                rows
             }),
         )
         .track_scroll(&scroll)
         .flex_1()
-        .min_h(px(0.));
-        list.flex_1().min_h(px(0.)).flex().flex_col().child(window)
+        .min_h_0();
+        list.flex_1().min_h_0().flex().flex_col().child(window)
     }
 }
 
@@ -493,7 +500,7 @@ fn block_row(block: &BlockRow, now: u64, cx: Cx, theme: &Theme) -> Stateful<Div>
     .child(
         div()
             .text_color(theme.muted)
-            .child(format!("{} tx", block.txs)),
+            .child(words::tx_count(block.txs as u64)),
     )
     .child(
         mono(ago(now, block.time))
@@ -504,74 +511,44 @@ fn block_row(block: &BlockRow, now: u64, cx: Cx, theme: &Theme) -> Stateful<Div>
     )
 }
 
-/// One line of a block list: a block, or a run of empty ones.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Line<'a> {
-    Block(&'a BlockRow),
-    /// consecutive blocks with no transaction, `oldest..=newest`
-    Empty {
-        newest: u64,
-        oldest: u64,
-    },
+fn line_route(line: &Line) -> Route {
+    match line {
+        Line::Block(block) => Route::Block(block.height),
+        Line::Empty { newest, .. } => Route::Block(*newest),
+    }
 }
 
-/// `blocks` (newest first) as at most `rows` lines, each run of two or more
-/// empty blocks folded into one, so the list reaches back past quiet
-/// stretches as far as the window holds.
-pub(crate) fn lines(blocks: &[BlockRow], rows: usize) -> Vec<Line<'_>> {
-    let mut lines = Vec::new();
-    let mut at = 0;
-    while at < blocks.len() && lines.len() < rows {
-        let run = blocks[at..]
-            .iter()
-            .take_while(|block| block.txs == 0)
-            .count();
-        if run >= 2 {
-            let (newest, oldest) = (blocks[at].height, blocks[at + run - 1].height);
-            lines.push(Line::Empty { newest, oldest });
-            at += run;
-        } else {
-            lines.push(Line::Block(&blocks[at]));
-            at += 1;
+fn line_row(line: &Line, now: u64, cx: Cx, theme: &Theme) -> Stateful<Div> {
+    match line {
+        Line::Block(block) => block_row(block, now, cx, theme),
+        Line::Empty { newest, oldest } => {
+            let text = words::empty_run(*oldest, *newest);
+            row(
+                SharedString::from(format!("explorer-empty-{newest}")).into(),
+                text.clone(),
+                Route::Block(*newest),
+                cx,
+                theme,
+            )
+            .text_color(theme.faint)
+            .child(mono(text))
         }
     }
-    lines
 }
 
-fn block_lines(
-    list: Rows,
-    blocks: &[BlockRow],
-    rows: usize,
-    now: u64,
-    cx: Cx,
-    theme: &Theme,
-) -> Rows {
-    lines(blocks, rows)
-        .into_iter()
-        .fold(list, |list, line| match line {
-            Line::Block(block) => list.row(
-                Route::Block(block.height),
-                block_row(block, now, cx, theme),
-                theme,
-            ),
-            Line::Empty { newest, oldest } => list.note(
-                div()
-                    .id(SharedString::from(format!("explorer-empty-{newest}")))
-                    .flex()
-                    .items_center()
-                    .h(ROW_H)
-                    .px_5()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .text_color(theme.faint)
-                    .child(mono(format!(
-                        "{}–{} · {} empty blocks",
-                        grouped(oldest),
-                        grouped(newest),
-                        grouped(newest - oldest + 1)
-                    ))),
-            ),
-        })
+fn block_lines(list: Rows, view: &Explorer, rows: usize) -> Rows {
+    let routes = lines(&view.chain.blocks, rows)
+        .iter()
+        .map(line_route)
+        .collect();
+    list.shown(routes, move |view, range, cx, theme| {
+        let now = view.chain.now();
+        let lines = lines(&view.chain.blocks, rows);
+        range
+            .filter_map(|index| lines.get(index))
+            .map(|line| line_row(line, now, cx, theme))
+            .collect()
+    })
 }
 
 /// `tx_row`s as a [`Rows`] list. `select` picks the transactions, in
@@ -581,79 +558,146 @@ fn tx_rows(
     list: Rows,
     view: &Explorer,
     select: impl Fn(&Explorer) -> Vec<&TxRow> + 'static,
-    height: bool,
-    who: bool,
 ) -> Rows {
-    let routes = select(view).iter().map(|tx| Route::Tx(tx.hash)).collect();
+    let routes = select(view).iter().map(|tx| tx_route(tx)).collect();
     list.shown(routes, move |view, range, cx, theme| {
         let txs = select(view);
         range
-            .map(|index| tx_row(view, txs[index], height, who, cx, theme))
+            .map(|index| tx_row(view, txs[index], cx, theme))
             .collect()
     })
 }
 
 /// Its id is its place on the chain, which a frame the node landed again
-/// (the same hash) does not share; `height` adds the block column; `who` the signer column, which an account's own activity leaves
-/// out.
-fn tx_row(
-    view: &Explorer,
-    tx: &TxRow,
-    height: bool,
-    who: bool,
-    cx: Cx,
-    theme: &Theme,
-) -> Stateful<Div> {
-    let id = SharedString::from(format!("explorer-tx-{}-{}", tx.height, tx.index));
-    let now = view.chain.now();
-    view.describe(tx, cx);
-    // empty until the host answers: the program column already says whose
-    let title = clip(&tx.title());
-    let (word, mark) = match &tx.receipt {
-        Some(run) => {
-            let (word, color, _) = outcome(run, theme);
-            (word, Some(color))
-        }
-        None => ("", None),
+/// (the same hash) does not share.
+fn tx_row(view: &Explorer, tx: &TxRow, cx: Cx, theme: &Theme) -> Stateful<Div> {
+    let (height, position) = (tx.height, tx.index);
+    let id = SharedString::from(format!("explorer-tx-{height}-{position}"));
+    let place = format!("{} · {position}", grouped(height));
+    let applied = tx
+        .receipt
+        .as_ref()
+        .map(|run| matches!(run.outcome, Outcome::Applied { .. }));
+    let label = match applied {
+        Some(applied) => activity::view::label(&tx.target, applied, &grouped(height), position),
+        None => format!("{}, block {place}", tx.target),
     };
-    // what, where, how it ran, then the short hash drawn first on the row:
-    // the one part two like transactions never share
-    let hash = short(&tx.hash);
-    let label = [title.as_str(), word, &hash]
-        .into_iter()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let mark = div().size(MARK).flex_shrink_0().children(mark.map(|color| {
-        div()
-            .id(SharedString::from(format!(
-                "explorer-tx-mark-{}",
-                abi::hex(&tx.hash)
-            )))
-            .size_full()
-            .bg(color)
-    }));
-    row(ElementId::Name(id), label, Route::Tx(tx.hash), cx, theme)
-        .child(mark)
-        .child(mono(hash).w(HASH_W).text_color(theme.muted))
-        .child(
+    let color = applied.map(|applied| verdict(applied, theme).1);
+    let mark = div()
+        .size(MARK)
+        .flex_shrink_0()
+        .children(color.map(|color| {
             div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .gap_2()
-                .overflow_hidden()
-                .child(
-                    mono(tx.target.clone())
-                        .text_size(design::text::CAPTION)
-                        .text_color(theme.muted),
-                )
-                .child(div().truncate().child(title)),
-        )
-        .children(who.then(|| signer(view, &tx.signer, theme)))
-        .children(height.then(|| mono(grouped(tx.height)).text_color(theme.muted)))
+                .id(SharedString::from(format!(
+                    "explorer-tx-mark-{height}-{position}"
+                )))
+                .size_full()
+                .bg(color)
+        }));
+    row(ElementId::Name(id), label, tx_route(tx), cx, theme)
+        .child(mark)
+        .child(div().flex_1().truncate().child(tx.target.clone()))
+        .child(signer(view, &tx.signer, theme))
+        .child(mono(place).text_color(theme.muted))
+}
+
+fn tx_route(tx: &TxRow) -> Route {
+    Route::Tx {
+        height: tx.height,
+        position: tx.index,
+    }
+}
+
+/// The frames `select` picks of those `listing` holds, in order, as a
+/// [`Rows`] list. A list painted past them (its [`Rows::more`] line) reads
+/// the listing's next page, and the next while that line stays in view:
+/// until the rows fill the list or the listing ends.
+fn frame_rows(
+    list: Rows,
+    listing: &Entity<Paged<activity::Frame>>,
+    select: impl Fn(&[activity::Frame]) -> Vec<&activity::Frame> + 'static,
+) -> Rows {
+    let routes = listing.read(|listing| {
+        let picked = select(listing.rows());
+        picked.into_iter().map(frame_route).collect()
+    });
+    let listing = listing.clone();
+    list.shown(routes, move |view, range, cx, theme| {
+        let (rows, picked) = listing.read(|listing| {
+            let picked = select(listing.rows());
+            let rows = picked.get(range.start..range.end.min(picked.len()));
+            let rows = rows.unwrap_or_default().iter();
+            let rows = rows
+                .map(|frame| frame_row(view, frame, cx, theme))
+                .collect();
+            (rows, picked.len())
+        });
+        if range.end > picked {
+            listing.update(cx, read_older);
+        }
+        rows
+    })
+}
+
+/// The line over a list whose listing is behind the rows written above
+/// it: Show newest reads it anew from its first page.
+fn newer(cx: Cx, theme: &Theme) -> impl IntoElement {
+    let show = |view: &mut Explorer, cx: &mut Context<Explorer>| view.show_newest(cx);
+    div()
+        .id("explorer-newer")
+        .flex()
+        .items_center()
+        .gap_3()
+        .px_5()
+        .py_2()
+        .border_b_1()
+        .border_color(theme.border)
+        .bg(theme.surface)
+        .text_color(theme.muted)
+        .child(div().flex_1().child(words::NEWER))
+        .child(press(
+            "explorer-show-newest",
+            words::SHOW_NEWEST,
+            cx,
+            theme,
+            show,
+        ))
+}
+
+/// The listing's next page, if it goes on: asked as the page past the
+/// rows held, which [`Paged::show`] reads once.
+fn read_older(listing: &mut Paged<activity::Frame>, cx: &mut Context<Paged<activity::Frame>>) {
+    let held = listing.rows().len();
+    listing.show(held..held + 1, cx);
+}
+
+fn frame_route(frame: &activity::Frame) -> Route {
+    Route::Tx {
+        height: frame.height,
+        position: frame.position,
+    }
+}
+
+fn frame_row(view: &Explorer, frame: &activity::Frame, cx: Cx, theme: &Theme) -> Stateful<Div> {
+    let (height, position) = (frame.height, frame.position);
+    let id = SharedString::from(format!("explorer-tx-{height}-{position}"));
+    let now = view.chain.now();
+    let (_, color, _) = verdict(frame.applied, theme);
+    let label = activity::view::label(&frame.target, frame.applied, &grouped(height), position);
+    let mark = div()
+        .id(SharedString::from(format!(
+            "explorer-tx-mark-{height}-{position}"
+        )))
+        .size(MARK)
+        .flex_shrink_0()
+        .bg(color);
+    row(ElementId::Name(id), label, frame_route(frame), cx, theme)
+        .child(mark)
+        .child(div().flex_1().truncate().child(frame.target.clone()))
+        .child(signer(view, &frame.signer, theme))
+        .child(mono(grouped(height)).text_color(theme.muted))
         .child(
-            mono(ago(now, tx.time))
+            mono(ago(now, frame.time))
                 .w(AGE_W)
                 .flex()
                 .justify_end()
@@ -663,9 +707,16 @@ fn tx_row(
 
 /// A run's outcome in a word, its colour and its soft background.
 fn outcome(run: &Receipt, theme: &Theme) -> (&'static str, Hsla, Hsla) {
-    match run.outcome {
-        Outcome::Applied { .. } => ("Accepted", theme.success, theme.success_soft),
-        Outcome::Rejected(_) => ("Rejected", theme.danger, theme.danger_soft),
+    let applied = matches!(run.outcome, Outcome::Applied { .. });
+    verdict(applied, theme)
+}
+
+fn verdict(applied: bool, theme: &Theme) -> (&'static str, Hsla, Hsla) {
+    let word = activity::view::verdict(applied);
+    if applied {
+        (word, theme.success, theme.success_soft)
+    } else {
+        (word, theme.danger, theme.danger_soft)
     }
 }
 
@@ -747,7 +798,7 @@ fn press(
 fn copy_button(view: &Explorer, route: &Route, cx: Cx, theme: &Theme) -> Option<AnyElement> {
     let link = view.link(route)?;
     let copy = cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| {
-        view.copy_link(link.clone(), cx)
+        view.copy(link.clone(), words::LINK, cx)
     });
     Some(
         div()

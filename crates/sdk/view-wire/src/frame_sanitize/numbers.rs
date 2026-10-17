@@ -1,35 +1,7 @@
-use super::*;
-
-/// Cuts `text` down to [`MAX_STRING_BYTES`] on a char boundary, in place.
-pub fn truncate_string(text: &mut String) {
-    truncate_to(text, MAX_STRING_BYTES);
-}
-
-/// Cuts `text` down to `limit` bytes on a char boundary, in place.
-pub(crate) fn truncate_to(text: &mut String, limit: usize) {
-    if text.len() <= limit {
-        return;
-    }
-    let mut end = limit;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text.truncate(end);
-}
-
 pub(crate) fn bounded(value: f32) -> f32 {
     match value.is_nan() {
         true => 0.0,
-        false => value.clamp(0.0, MAX_PIXELS),
-    }
-}
-
-/// A pixel measure that may point either way (a paint-only inset), bounded
-/// on both sides; NaN reads as 0.
-pub(crate) fn signed_bounded(value: f32) -> f32 {
-    match value.is_nan() {
-        true => 0.0,
-        false => value.clamp(-MAX_PIXELS, MAX_PIXELS),
+        false => value.clamp(0.0, f32::MAX),
     }
 }
 

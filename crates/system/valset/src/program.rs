@@ -1,26 +1,31 @@
-//! The module: every op and every query, each handed to its rule.
+//! The program: every op and every query, each handed to its rule.
 
-use guest::{Error, ExecCtx, Module, Program, QueryCtx, decoded};
+use ::program::{Error, ExecCtx, MessageId, Outcome, Program, QueryCtx, decoded};
 
 use crate::rules::{MEMBERS, account_of, execute, init, memberships, motions, validators, voices};
-use crate::{Genesis, MODULE, Membership, Op, Query, Reply};
+use crate::{Genesis, Membership, Op, PROGRAM, Query, Reply};
 
 pub struct Valset;
 
 impl Program for Valset {
-    const NAME: &'static str = MODULE;
+    const NAME: &'static str = PROGRAM;
     type Op = Op;
     type Query = Query;
     type Reply = Reply;
-}
 
-impl Module for Valset {
     fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
-        init(ctx, decoded::<Genesis>(MODULE, "Genesis", params)?)
+        init(ctx, decoded::<Genesis>(PROGRAM, "Genesis", params)?)
     }
 
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
         execute(ctx, op)
+    }
+
+    /// The only message this program sends with a reply wanted is a passed `Role` motion's
+    /// op. Its refusal is taken, not passed on: the role's program wrote nothing, and the
+    /// motion stays gone from the pending set, so a vote never enacts it again.
+    fn reply(_ctx: &ExecCtx, _id: &MessageId, _outcome: &Outcome) -> Result<(), Error> {
+        Ok(())
     }
 
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
@@ -43,5 +48,5 @@ impl Module for Valset {
     }
 }
 
-#[cfg(feature = "module")]
-guest::export!(Valset);
+#[cfg(feature = "program")]
+::program::export!(Valset);

@@ -1,6 +1,6 @@
 //! The vote, for a reader whose seated key votes for a validator (valset's
-//! `Voices`): the motions that wait, the registry's scheduled changes and
-//! who made each, and the presses that vote on them. A module is changed
+//! `Voices`): the motions that wait, the programs role's scheduled changes and
+//! who made each, and the presses that vote on them. A program is changed
 //! in Explorer's Programs; this list stays here, in valset's view, which
 //! only the vote changes, so a maintainer's change is seen where no
 //! maintainer can hide it. A press the reader's uncast voices would carry
@@ -8,12 +8,14 @@
 //! ([`Voting::confirming`]). The words for a motion are here, pure, so
 //! each is a unit test.
 use abi::hex;
-use ducktape_view_guest::prelude::*;
-use module_registry::{Change, Entry, Pending};
+use abi::role::halo;
+use programs::{Change, Entry, Pending};
 use valset::{Motion, Op, Valset, Voted};
+use view::methods::Submitted;
+use view::prelude::*;
 
 use crate::Nodes;
-use crate::queries::{self, Motions, Names, Schedule};
+use crate::queries::{self, Motions, Names, Node, Schedule};
 
 #[derive(Default)]
 pub(crate) struct Voting {
@@ -22,7 +24,7 @@ pub(crate) struct Voting {
     /// the validators the seated key votes for; empty: it does not vote
     pub(crate) voices: Vec<Vec<u8>>,
     pub(crate) motions: Loadable<Motions>,
-    /// the programs the registry runs now
+    /// the programs the programs role runs now
     pub(crate) roster: Loadable<Vec<Entry>>,
     pub(crate) scheduled: Loadable<Schedule>,
     /// a press that enacts, waiting for the reader's yes
@@ -30,7 +32,13 @@ pub(crate) struct Voting {
     /// a vote in flight: no other press until it lands
     pub(crate) busy: bool,
     /// what the last vote did, or the refusal it met
+    // ponytail: one outcome for every screen; Expo keeps a landed one per
+    // screen, so a vote on a page replaces the list's until Back
     pub(crate) outcome: Option<Result<String, String>>,
+    /// the member page the last vote was pressed on (`None`: the list); a
+    /// landed one's message shows only there (Expo: each screen's own
+    /// `usePress`), a failure on every screen (Expo's outbox rows)
+    pub(crate) pressed_on: Option<Vec<u8>>,
 }
 
 impl Voting {
@@ -70,7 +78,8 @@ impl Voting {
         self.voices.iter().filter(|v| !voters.contains(v)).count()
     }
 
-    fn entries(&self) -> &[Entry] {
+    /// The programs the programs role runs now; none until read.
+    pub(crate) fn entries(&self) -> &[Entry] {
         self.roster.ready().map_or(&[], Vec::as_slice)
     }
 
@@ -82,6 +91,8 @@ impl Voting {
 
 impl Nodes {
     pub(crate) fn session_changed(&mut self, session: Session, cx: &mut Context<Self>) {
+        self.read_reader(session.account, cx);
+        self.chain = Some(session.chain_id).filter(|chain| !chain.is_empty());
         let signer = abi::unhex(&session.signer).filter(|key| !key.is_empty());
         if signer != self.voting.signer {
             // another reader's voices are not this one's
@@ -90,6 +101,27 @@ impl Nodes {
             self.voting.signer = signer;
         }
         self.read_voices(cx);
+    }
+
+    /// The reader's name for the first page's avatar, as identity names
+    /// the session's account; read again only when the account changes, so
+    /// the avatar does not blank on every session update.
+    fn read_reader(&mut self, account: Option<u64>, cx: &mut Context<Self>) {
+        if account == self.reader_account {
+            return;
+        }
+        self.reader_account = account;
+        self.reader.clear();
+        self.reading_reader = account.map(|number| {
+            let ask = queries::name(cx.host(), number);
+            cx.land(ask, |view, answer, cx| {
+                match answer {
+                    Ok(name) => view.reader = name.unwrap_or_default(),
+                    Err(refusal) => cx.log_refused("the reader's name", &refusal),
+                }
+                cx.notify();
+            })
+        });
     }
 
     /// Whom the seated key votes for, then, while it votes, what the vote
@@ -109,7 +141,7 @@ impl Nodes {
                     view.voting.voices = voices;
                     if view.voting.votes() {
                         view.read_motions(cx);
-                        view.read_registry(cx);
+                        view.read_programs(cx);
                     }
                 }
                 Err(refusal) => cx.log_refused("whom this key votes for", &refusal),
@@ -125,8 +157,8 @@ impl Nodes {
     }
 
     /// The roster and the schedule: on a vote's first read and on the
-    /// registry's live heads.
-    pub(crate) fn read_registry(&mut self, cx: &mut Context<Self>) {
+    /// `programs`'s live heads.
+    pub(crate) fn read_programs(&mut self, cx: &mut Context<Self>) {
         if !self.voting.votes() {
             return;
         }
@@ -149,6 +181,7 @@ impl Nodes {
         cx.notify();
     }
 
+    /// The reader's yes to the press that waits for one: its vote goes.
     pub(crate) fn confirm(&mut self, cx: &mut Context<Self>) {
         if let Some(motion) = self.voting.confirming.take() {
             self.vote(motion, cx);
@@ -156,6 +189,7 @@ impl Nodes {
         cx.notify();
     }
 
+    /// The reader's Not now: the press that waits is dropped, unsent.
     pub(crate) fn hold(&mut self, cx: &mut Context<Self>) {
         self.voting.confirming = None;
         cx.notify();
@@ -164,38 +198,64 @@ impl Nodes {
     fn vote(&mut self, motion: Motion, cx: &mut Context<Self>) {
         self.voting.busy = true;
         self.voting.outcome = None;
+        self.voting.pressed_on = self.open.clone();
         let ask = cx.host().ask::<Submit<Valset>>(Op::Vote(motion));
         cx.land(ask, |view, answer, cx| {
             view.voting.busy = false;
-            view.voting.outcome = Some(match answer {
-                Ok(output) => Ok(match abi::decode::<Voted>(&output) {
-                    Ok(Voted::Enacted) => "Enacted".to_owned(),
-                    Ok(Voted::Counted { votes, needed }) => {
-                        format!("Vote counted: {votes} of {needed}")
-                    }
-                    Err(_) => "Voted".to_owned(),
-                }),
-                Err(refusal) => Err(refusal.message),
-            });
+            let said = said(answer);
+            // its page closed while it was in flight: a landed message went
+            // with it
+            let closed = view.voting.pressed_on.is_some() && view.voting.pressed_on != view.open;
+            view.voting.outcome = (said.is_err() || !closed).then_some(said);
             view.read_voices(cx);
             cx.notify();
         })
         .detach();
     }
 
+    /// The reader is done with the last vote's outcome.
     pub(crate) fn dismiss_outcome(&mut self, cx: &mut Context<Self>) {
         self.voting.outcome = None;
         cx.notify();
     }
 }
 
+/// What a vote came to: what a landed one did (mobile
+/// `src/network/nodes.ts` `votedWords`); else why it stopped, in the words
+/// every view says a write that did not land in ([`design::failure`], the
+/// Expo app's `src/write/words.ts:77-85`).
+pub(crate) fn said(answer: Result<Submitted, Error>) -> Result<String, String> {
+    match answer {
+        Ok(Submitted::Applied { output, .. }) => Ok(match abi::decode::<Voted>(&output) {
+            Ok(Voted::Enacted) => "Enacted".to_owned(),
+            Ok(Voted::Counted { votes, needed }) => format!("Vote counted: {votes} of {needed}"),
+            Err(_) => "Voted".to_owned(),
+        }),
+        answer => Err(design::failure(&answer).expect("only a landed write has no failure")),
+    }
+}
+
+/// The motions a voter can put on a member, each with its slug and its
+/// label: Demote and Remove a validator, Promote a resident.
+pub(crate) fn motions_on(node: &Node) -> Vec<(&'static str, &'static str, Motion)> {
+    let key = node.key.clone();
+    match node.validator {
+        true => vec![
+            ("demote", "Demote", Motion::Demote { key: key.clone() }),
+            ("remove", "Remove", Motion::Remove { key }),
+        ],
+        false => vec![("promote", "Promote", Motion::Promote { key })],
+    }
+}
+
 /// The motion Propose cancel builds for a scheduled change.
 pub(crate) fn cancel(pending: &Pending) -> Motion {
-    let op = module_registry::Op::Cancel {
+    let op = programs::Op::Cancel {
         height: pending.height,
         program: pending.change.program().to_owned(),
     };
-    Motion::Registry {
+    Motion::Role {
+        role: abi::role::PROGRAMS.into(),
         op: abi::encode(&op),
     }
 }
@@ -221,31 +281,57 @@ pub(crate) fn named(names: &Names, account: u64) -> String {
         .unwrap_or_else(|| format!("account {account}"))
 }
 
-/// What a motion does, in words; a registry one decoded, never as bytes.
+/// What a motion does, in words: a programs or halo role's op decoded, another role's op
+/// and a binding by the role's name, never as bytes.
 pub(crate) fn words(motion: &Motion, roster: &[Entry], names: &Names) -> String {
     match motion {
         Motion::Promote { key } => format!("Promote {} to validator", key_words(key)),
         Motion::Demote { key } => format!("Demote {} to resident", key_words(key)),
         Motion::Remove { key } => format!("Remove {} from the network", key_words(key)),
-        Motion::Door { open: true } => "Open the door: anyone enrolls without an invite".into(),
-        Motion::Door { open: false } => "Close the door: enrolling takes an invite".into(),
-        Motion::Registry { op } => match abi::decode::<module_registry::Op>(op) {
-            Ok(module_registry::Op::Schedule(scheduled)) => {
+        Motion::Door { open } => {
+            let door = crate::words::door(*open);
+            format!("{}: {}", door.label, door.meaning)
+        }
+        Motion::Role { role, op } if role == abi::role::PROGRAMS => match abi::decode(op) {
+            Ok(programs::Op::Schedule(scheduled)) => {
                 scheduled_words(scheduled.height, &scheduled.change, roster)
             }
-            Ok(module_registry::Op::Cancel { height, program }) => format!(
+            Ok(programs::Op::Cancel { height, program }) => format!(
                 "Cancel {program}'s change at block {}",
                 design::grouped(height)
             ),
-            Ok(module_registry::Op::Grant(grant)) => {
+            Ok(programs::Op::Grant(grant)) => {
                 format!("Grant {} {}", named(names, grant.account), grant.scope)
             }
-            Ok(module_registry::Op::Revoke(grant)) => {
+            Ok(programs::Op::Revoke(grant)) => {
                 format!("Revoke {} {}", named(names, grant.account), grant.scope)
             }
-            Ok(op) => module_registry::describe(&op).title,
-            Err(_) => "A registry change this screen can't read".into(),
+            Err(_) => "A program change this screen can't read".into(),
         },
+        Motion::Role { role, op } if role == abi::role::HALO => match abi::decode(op) {
+            Ok(halo::Op::Open { name, cap }) => format!("Open lane {name} at class {cap:?}"),
+            Ok(halo::Op::Set {
+                name,
+                cap,
+                enabled: true,
+            }) => format!("Serve lane {name} at class {cap:?}"),
+            Ok(halo::Op::Set {
+                name,
+                enabled: false,
+                ..
+            }) => format!("Pause lane {name}"),
+            Ok(halo::Op::Close { name }) => format!("Close lane {name}"),
+            Err(_) => "A lane change this screen can't read".into(),
+        },
+        Motion::Role { role, .. } => format!("An op for the {role} role"),
+        Motion::Bind {
+            role,
+            program: Some(program),
+        } => format!("Bind the {role} role to {program}"),
+        Motion::Bind {
+            role,
+            program: None,
+        } => format!("Unbind the {role} role"),
     }
 }
 

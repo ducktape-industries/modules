@@ -2,10 +2,11 @@
 //! programs speak is folded to rows at render time, so a snapshot carries
 //! navigation and drafts, never wire records.
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
-use ducktape_view_guest::Paged;
-use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
+use view::Paged;
+use view::prelude::*;
 
 use forge::{CommitInfo, LineComment, Query, Reply, Revision, Side, Verdict};
 
@@ -36,10 +37,16 @@ pub struct Forge {
     /// the window's title last sent
     #[serde(skip)]
     pub(crate) title: Option<String>,
+    /// the route last named to the host as the one shown (`host.showing`)
+    #[serde(skip)]
+    pub(crate) showing: Option<String>,
+    /// the host badge last posted: 1 while a change waits on my judgment
+    #[serde(skip)]
+    pub(crate) badge: Option<i64>,
     pub(crate) layout: Layout,
     #[serde(skip)]
     /// every read on screen, keyed by the query that asked it
-    pub(crate) data: BTreeMap<Query, Loadable<Reply>>,
+    pub(crate) data: BTreeMap<Query, Loadable<Rc<Reply>>>,
     /// every log on screen, keyed like `data`: read a page at a time, as
     /// far as its list is scrolled. Beside each, the view hearing it land.
     #[serde(skip)]
@@ -58,33 +65,92 @@ pub struct Forge {
     pub(crate) rereading_messages: BTreeMap<String, Task<()>>,
     #[serde(skip)]
     pub(crate) pending: Vec<Pending>,
+    /// the height of the last forge block heard: an op issued before it
+    /// is carried by the time its receipt lands
+    #[serde(skip)]
+    pub(crate) block: u64,
     #[serde(skip)]
     pub(crate) diff_scroll: UniformListScrollHandle,
     #[serde(skip)]
     pub(crate) log_scroll: UniformListScrollHandle,
     #[serde(skip)]
     pub(crate) tree_scroll: UniformListScrollHandle,
+    /// the Files tab's list, kept on the file picked and the row the
+    /// arrows are on
+    #[serde(skip)]
+    pub(crate) files_scroll: UniformListScrollHandle,
+    /// the Refs tab's list, kept on the row the arrows are on
+    #[serde(skip)]
+    pub(crate) refs_scroll: UniformListScrollHandle,
+    /// the Changes tab's list, kept on the row the arrows are on
+    #[serde(skip)]
+    pub(crate) changes_scroll: UniformListScrollHandle,
+    /// a commit's file strip, kept on the row the arrows are on
+    #[serde(skip)]
+    pub(crate) strip_scroll: UniformListScrollHandle,
+    /// a file picked to show alone whose row the Files tab's list has
+    /// not yet been scrolled to: its diff is on its way
+    #[serde(skip)]
+    pub(crate) reveal: Option<Vec<u8>>,
     #[serde(skip)]
     pub(crate) next_pending: u64,
     /// the change whose Close waits for a second press: closing is final
     #[serde(skip)]
     pub(crate) closing: Option<String>,
+    /// drawn under a finger (`window.touch()`): the phone's screens,
+    /// whose change strip counts every tab as Expo's does, so a change's
+    /// conversation and diff are read whichever tab is open
+    #[serde(skip)]
+    pub(crate) touch: bool,
     /// the dropdown open under its button, if any
     #[serde(skip)]
     pub(crate) menu: Option<Menu>,
+    /// the sheet open over the phone's page, if any (boards 21, 23)
+    #[serde(skip)]
+    pub(crate) sheet: Option<Sheet>,
+    /// the phone's change page shows its Details tab (board 23)
+    #[serde(skip)]
+    pub(crate) details: bool,
+    /// the phone's Refs tab lists the tags, not the branches
+    #[serde(skip)]
+    pub(crate) refs_tags: bool,
+    /// the phone's file page wraps its lines
+    #[serde(skip)]
+    pub(crate) wrap: bool,
+    /// the phone's file page shows a markdown file's source, not the
+    /// document
+    #[serde(skip)]
+    pub(crate) source: bool,
+    /// the list the phone's code and diff rows are drawn in
+    #[serde(skip)]
+    pub(crate) lines: crate::ui::phone::Block,
+    /// the phone's people sheet's filter (reviewers, a writer to grant)
+    #[serde(skip)]
+    pub(crate) people_search: TextField,
     /// where the open dropdown sits: under the press that opened it
     #[serde(skip)]
     pub(crate) menu_at: (f32, f32),
     /// the dropdown item the arrows are on
     #[serde(skip)]
     pub(crate) menu_cursor: usize,
+    /// the open dropdown's filter box, empty on every open
+    #[serde(skip)]
+    pub(crate) menu_search: TextField,
+    /// the ref picker lists tags rather than branches
+    #[serde(skip)]
+    pub(crate) menu_tags: bool,
+    /// the open dropdown's list, kept on the item the arrows are on
+    #[serde(skip)]
+    pub(crate) menu_scroll: UniformListScrollHandle,
     /// the repository the arrows are on in the list, and which of its
     /// cells: Open, Copy, activity
     #[serde(skip)]
     pub(crate) repos_cursor: Option<(String, usize)>,
-    /// the reviewable diff line the arrows are on, and which of its gutters
+    /// the reviewable diff line the arrows are on, and which of its
+    /// gutters; none until they walk it, when the first gutter is claimed
+    /// for the keys and none is drawn
     #[serde(skip)]
-    pub(crate) diff_cursor: (usize, usize),
+    pub(crate) diff_cursor: Option<(usize, usize)>,
     /// the repository the arrows are on in the rail
     #[serde(skip)]
     pub(crate) rail_cursor: Option<String>,
@@ -92,6 +158,10 @@ pub struct Forge {
     /// which of its cells: the list's id, the row, the cell
     #[serde(skip)]
     pub(crate) list_cursor: Option<(&'static str, usize, usize)>,
+    /// the arrows have walked the file tree since the last move: its
+    /// cursor is drawn
+    #[serde(skip)]
+    pub(crate) tree_walked: bool,
     /// the repository tab the arrows are on but have not opened
     #[serde(skip)]
     pub(crate) tab_cursor: Option<RepoTab>,
@@ -99,7 +169,9 @@ pub struct Forge {
     #[serde(skip)]
     pub(crate) change_tab_cursor: Option<ChangeTab>,
     #[serde(skip)]
-    pub(crate) blob_cache: crate::ui::code::BlobCache,
+    pub(crate) blob_cache: crate::blob::BlobCache,
+    #[serde(skip)]
+    pub(crate) diff_cache: crate::ui::diff::DiffCache,
 }
 
 /// Where the reader is. One flat record: every screen is a projection of it,
@@ -116,14 +188,28 @@ pub(crate) struct Nav {
     pub cursor: Option<Vec<u8>>,
     /// the open file: its path and blob oid
     pub blob: Option<(Vec<u8>, String)>,
+    /// the folder the phone's Code tab shows on a page of its own, by
+    /// full path, each of its levels a page of the stack ([`Nav::pages`],
+    /// Expo `code/[...path].tsx`); the desktop opens folders in place
+    /// (`expanded`)
+    pub folder: Option<Vec<u8>>,
     /// a file a link named, opened once its folder's tree lands
     #[serde(skip)]
     pub goto: Option<Vec<u8>>,
+    /// a path a link named that the browsed ref does not hold: the
+    /// phone's Code tab says so on a page of its own (Expo
+    /// `code/[...path].tsx`), the desktop in its notice
+    #[serde(skip)]
+    pub missing: Option<Vec<u8>>,
     pub commit: Option<String>,
     pub change: Option<u64>,
     pub change_tab: ChangeTab,
     /// single-file mode in the change's diff
     pub diff_path: Option<Vec<u8>>,
+    /// the phone's All files page: every file of the change's diff on
+    /// one page (Expo `diff.tsx` without a path); the desktop's Files tab
+    /// shows them all in place
+    pub all_files: bool,
     pub dock: Option<Dock>,
 }
 
@@ -131,6 +217,110 @@ impl Nav {
     pub fn revision(&self, head: &[u8]) -> Revision {
         Revision::Ref(self.rev.clone().unwrap_or_else(|| head.to_vec()))
     }
+
+    /// The page stack this record projects to, root first: `Nav` is the one
+    /// route model (every screen reads it, a snapshot restores it), so the
+    /// stack is derived from it each render rather than kept beside it. The
+    /// phone shows the top page alone and Back pops one level
+    /// ([`Forge::back`](crate::Forge::back)); the desktop docks the same
+    /// pages as panes.
+    pub fn pages(&self) -> Vec<Page> {
+        let mut pages = vec![Page::Repos];
+        if self.repo.is_none() {
+            return pages;
+        }
+        pages.push(Page::Repo);
+        if self.change.is_some() {
+            pages.push(Page::Change);
+            match self.change_tab {
+                ChangeTab::Files if self.diff_path.is_some() || self.all_files => {
+                    pages.push(Page::File)
+                }
+                ChangeTab::Commits if self.commit.is_some() => pages.push(Page::Commit),
+                _ => {}
+            }
+            return pages;
+        }
+        match self.tab {
+            RepoTab::Code => {
+                // a page per folder level, as Expo pushes a screen per
+                // folder: `a/b` is `b`'s page over `a`'s, so Back walks
+                // up one and a link into `a/b` lands with `a` under it
+                let levels = self
+                    .folder
+                    .as_ref()
+                    .map_or(0, |path| path.split(|byte| *byte == b'/').count());
+                pages.extend(std::iter::repeat_n(Page::Folder, levels));
+                if self.blob.is_some() {
+                    pages.push(Page::Blob);
+                } else if self.missing.is_some() {
+                    pages.push(Page::Missing);
+                } else if self.goto.is_some() {
+                    pages.push(Page::Landing);
+                }
+            }
+            RepoTab::Commits if self.commit.is_some() => pages.push(Page::Commit),
+            _ => {}
+        }
+        pages
+    }
+
+    /// `0` at the repositories: how many pages Back has to pop.
+    pub fn depth(&self) -> usize {
+        self.pages().len() - 1
+    }
+}
+
+/// One page of the stack [`Nav::pages`] projects, the screen the phone
+/// shows alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Page {
+    Repos,
+    Repo,
+    Change,
+    /// one file of a change's diff, shown alone, or all of them (the
+    /// phone's All files)
+    File,
+    /// one commit of a repository's or a change's log
+    Commit,
+    /// one level of the phone's open folder in the Code tab: `a/b` is two
+    Folder,
+    /// one file of the Code tab
+    Blob,
+    /// a path a link named that the ref does not hold
+    Missing,
+    /// a path a link named, until its folder's tree says what it is: it
+    /// stands where its folder, file or missing page will, so the link
+    /// slides once (Expo `code/[...path].tsx` before its `entry` is read)
+    Landing,
+}
+
+/// What lies over the phone's page, read from the model each frame
+/// ([`Forge::overlay`](crate::Forge::overlay)): the one the phone draws, and
+/// the one its Back closes first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Overlay {
+    /// a ref picker (`menu`)
+    Menu(Menu),
+    /// a sheet a page opened (`sheet`)
+    Sheet(Sheet),
+    /// the New repository form
+    NewRepository,
+    /// Finish your review
+    FinishReview,
+}
+
+/// A sheet a phone page opens over itself; Back closes it first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Sheet {
+    /// a repository's About (the desktop docks it, `Nav::dock`)
+    About,
+    /// what an open change offers its author and writers: Edit, Close
+    ChangeActions,
+    /// a member to grant write access to (the Settings tab)
+    Grant,
+    /// a member to ask for a review (the change form)
+    Reviewers,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -224,14 +414,21 @@ pub(crate) enum Menu {
     Ref,
     /// the default head in the repository's settings
     Head,
+    /// a new change's source (the phone's change form)
+    Source,
+    /// a new change's target (the phone's change form)
+    Target,
 }
 
 impl Menu {
-    /// The element that opens it; its menu is `{key}-menu`.
+    /// The element that opens it; its list is `{key}-menu`, its filter
+    /// box `{key}-filter`.
     pub fn key(self) -> &'static str {
         match self {
             Menu::Ref => "forge-ref-picker",
             Menu::Head => "forge-settings-head",
+            Menu::Source => "forge-change-from",
+            Menu::Target => "forge-change-into",
         }
     }
 }
@@ -272,6 +469,10 @@ impl Filter {
     }
 }
 
+/// Where a line comment sits: the file's path, the new side (or the old),
+/// the line; what a diff line's comment button carries.
+pub(crate) type Anchor = (Vec<u8>, bool, u64);
+
 /// A review being written: pending comments staged against one pinned pair
 /// of endpoints, published as exactly one `ReviewSubmit`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -287,7 +488,16 @@ pub(crate) struct ReviewSession {
     #[serde(skip)]
     pub verdict: Option<Verdict>,
     pub finishing: bool,
-    pub error: String,
+    /// why finishing it was refused before it was sent; each design words
+    /// it
+    pub refused: Option<ReviewRefusal>,
+}
+
+/// Why a review was refused before it was sent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum ReviewRefusal {
+    /// a comment review with no body and no line comment
+    EmptyComment,
 }
 
 impl ReviewSession {
@@ -361,6 +571,8 @@ pub(crate) fn verdict_verb(verdict: Verdict) -> &'static str {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct ChangeForm {
+    /// the repository it was opened in, the only one that shows it
+    pub repo: String,
     /// `Some(n)` edits that change instead of opening a new one
     pub edit: Option<u64>,
     pub from: Vec<u8>,
@@ -393,6 +605,9 @@ pub(crate) struct SettingsForm {
 #[derive(Clone, Debug)]
 pub(crate) struct Pending {
     pub id: u64,
+    /// the forge block heard last as the op was issued: a later one
+    /// carries it
+    pub issued: u64,
     /// the screen the row belongs to
     pub scope: String,
     pub label: String,
@@ -405,16 +620,23 @@ pub(crate) enum Progress {
     Submitting,
     /// accepted by the node, waiting for the block that carries it
     Accepted,
-    /// refused, with the program's sentence
-    Refused(String),
+    /// it did not land: the host's answer (refused, in doubt, or never
+    /// sent), which both designs word as every view does
+    /// (`design::failure`)
+    Refused(Answer),
 }
+
+/// What the host answered a write.
+pub(crate) type Answer = Result<view::methods::Submitted, view::host::Error>;
 
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Layout {
-    /// the pane's width, read from the window each render
+    /// the pane's size, read from the window each render
     #[serde(skip)]
     pub width: f32,
+    #[serde(skip)]
+    pub height: f32,
     /// the repositories rail
     pub tree: f32,
     /// the Code tab's file tree
@@ -427,6 +649,7 @@ impl Default for Layout {
     fn default() -> Self {
         Self {
             width: 0.,
+            height: 0.,
             tree: 220.,
             files: 300.,
             tree_open: false,

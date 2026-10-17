@@ -1,22 +1,33 @@
 //! One Change: its header, the three tabs a reviewer lives in, and its
 //! details beside them. Conversation is chat's hidden channel; Files is
 //! the reviewer's home.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Anchor, AnchoredPositionMode, Div, FontWeight, Point, Stateful};
+use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
+
+use view::prelude::*;
+use view::{Anchor, AnchoredPositionMode, Div, FontWeight, Point, Stateful};
 
 use crate::Forge;
+use crate::select::{path_of, revision_name};
 use crate::state::{ChangeTab, verdict_label};
-use crate::ui::changes::{revision_name, state_chip};
-use crate::ui::components::{badge, button, heading, id, path_text, quiet, ref_label, short_hex};
-use crate::ui::{PAGE_X, TAB_BAR_H, commits, diff, dock, pending, scroller, staged};
+use crate::ui::changes::state_chip;
+use crate::ui::components::{badge, button, heading, id, path_text, quiet, short_hex};
+use crate::ui::{PAGE_X, TAB_BAR_H, commits, diff, dock, pending, staged};
+use crate::words;
 use forge::{Change, ChangeState, FileDiff, Query, Reply, Verdict};
+use view::design::Ladder;
 
 /// The Files tab's file list.
 const FILE_LIST_W: Pixels = px(240.);
 /// The finish-review panel.
 const FINISH_W: Pixels = px(380.);
 
-pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+pub(crate) fn render(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let Some(query) = forge.change_query() else {
         return div().into_any_element();
     };
@@ -24,9 +35,10 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         forge,
         &query,
         "forge-change",
-        "Reading this change…",
+        words::READING_CHANGE,
         cx,
         theme,
+        ladder,
     ) {
         Ok(reply) => reply,
         Err(state) => return state,
@@ -41,26 +53,21 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         .flex_col()
         .flex_1()
         .min_h(px(0.))
-        .child(header(forge, cx, theme))
-        .child(tabs(forge, cx, theme))
+        .child(header(forge, cx, theme, ladder))
+        .child(tabs(forge, cx, theme, ladder))
         .child(pending(forge, &scope, theme));
-    if let Some(form) = &forge.form {
-        column = column.child(crate::ui::changes::form(form, forge, cx, theme));
+    if let Some(form) = forge.change_form() {
+        column = column.child(crate::ui::changes::form(form, forge, cx, theme, ladder));
     }
     let tab = forge.nav().change_tab;
     let body: AnyElement = match tab {
-        ChangeTab::Conversation => crate::ui::conversation::render(forge, cx, theme),
-        ChangeTab::Commits => match forge.endpoints() {
-            Some((from, into)) => commits::log(
-                forge,
-                &commits::query(forge, from, Some(into)),
-                "forge-change-log",
-                cx,
-                theme,
-            ),
-            None => div().into_any_element(),
+        ChangeTab::Conversation => crate::ui::conversation::render(forge, cx, theme, ladder),
+        ChangeTab::Commits => match (forge.nav().commit.clone(), forge.shown_log()) {
+            (Some(oid), _) => commits::detail(forge, &oid, cx, theme, ladder),
+            (None, Some(log)) => commits::log(forge, &log, "forge-change-log", cx, theme, ladder),
+            (None, None) => div().into_any_element(),
         },
-        ChangeTab::Files => files(forge, cx, theme),
+        ChangeTab::Files => files(forge, cx, theme, ladder),
     };
     // wide, the details stand beside the conversation and the commits (the
     // files keep their width for the diff); narrow, "Details" lays them
@@ -84,26 +91,25 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         if forge.layout.dock_open {
             row = row.child(design::over(
                 id("forge-details-over"),
-                dock::sidebar(forge, cx, theme).w_full(),
+                dock::sidebar(forge, cx, theme, ladder).w_full(),
                 theme,
             ));
         }
     } else if tab != ChangeTab::Files {
-        row = row.child(dock::sidebar(forge, cx, theme));
+        row = row.child(dock::sidebar(forge, cx, theme, ladder));
     }
     column.child(row).into_any_element()
 }
 
-fn header(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+fn header(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let Some((change, source, _, _)) = forge.change() else {
         return div().into_any_element();
     };
     let back = cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_change(None, cx));
     let author = forge.principal_name(&change.author);
     let mut meta = format!(
-        "{author} wants {} → {}",
-        ref_label(&revision_name(&change.from)),
-        ref_label(&change.into)
+        "{author} wants {}",
+        words::endpoints(&revision_name(&change.from), &change.into)
     );
     if let Some(head) = source {
         meta = format!("{meta} · head {}", short_hex(head));
@@ -127,7 +133,7 @@ fn header(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
                 .on_click(back)
                 .child(format!("← {} · Changes", forge.repo_name())),
         )
-        .child(title_line(forge, change, cx, theme))
+        .child(title_line(forge, change, cx, theme, ladder))
         .child(
             design::mono(meta)
                 .text_size(design::text::CAPTION)
@@ -139,7 +145,7 @@ fn header(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
                 .id(id("forge-close-warning"))
                 .text_size(design::text::SECONDARY)
                 .text_color(theme.danger)
-                .child("Closing is final: a closed change cannot be reopened."),
+                .child(words::CLOSING_IS_FINAL),
         );
     }
     // why Merge is off: a strip while the change is open, a quiet line
@@ -184,8 +190,9 @@ fn title_line(
     change: &Change,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Stateful<Div> {
-    let edit = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_edit(cx));
+    let edit = cx.listener(|forge, _: &ClickEvent, window, cx| forge.start_edit(window, cx));
     let close = cx.listener(|forge, _: &ClickEvent, _, cx| forge.close_change(cx));
     let merge = cx.listener(|forge, _: &ClickEvent, _, cx| forge.merge(cx));
     let open = change.state == ChangeState::Open;
@@ -199,7 +206,7 @@ fn title_line(
         .items_center()
         .gap(design::space::SM)
         .child(heading(
-            id("forge-change-title"),
+            id("forge-change-heading"),
             change.title.clone(),
             1,
             theme,
@@ -210,20 +217,25 @@ fn title_line(
                 .text_color(theme.muted)
                 .child(format!("#{}", change.n)),
         )
-        .child(state_chip(change.state, change.n, theme))
+        .child(state_chip(change.state, change.n, theme, ladder))
         .child(div().flex_1());
     // an ended change has nothing left to edit, close or merge
     if open {
         top = top
             .child(
-                button(id("forge-edit-change"), "Edit", theme, edit)
+                button(id("forge-edit-change"), "Edit", ladder, theme, edit)
                     .kind(design::Kind::Quiet)
                     .enabled(mine),
             )
             .child(
                 button(
                     id("forge-close-change"),
-                    if closing { "Close for good" } else { "Close" },
+                    if closing {
+                        words::CLOSE_FOR_GOOD
+                    } else {
+                        "Close"
+                    },
+                    ladder,
                     theme,
                     close,
                 )
@@ -231,7 +243,7 @@ fn title_line(
                 .enabled(forge.writes_repo()),
             )
             .child(
-                button(id("forge-merge"), "Merge", theme, merge)
+                button(id("forge-merge"), "Merge", ladder, theme, merge)
                     .kind(design::Kind::Primary)
                     .enabled(mergeable && forge.writes_repo()),
             );
@@ -240,7 +252,7 @@ fn title_line(
 }
 
 /// The change's tabs, each with its count once it is known.
-fn tabs(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> {
+fn tabs(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) -> Stateful<Div> {
     // manual: Files reads the whole diff and Commits a log, so the arrows
     // only move and Enter opens
     let active = forge.change_tab_cursor.unwrap_or(forge.nav().change_tab);
@@ -274,46 +286,29 @@ fn tabs(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> 
         bar = bar.child(crate::ui::components::tab(
             id(format!("forge-change-tab-{}", tab.slug())),
             tab.label(),
-            tab_count(forge, tab),
+            forge.change_tab_count(tab),
             forge.nav().change_tab == tab,
             active == tab,
             theme,
+            ladder,
             pick,
         ));
     }
     bar
 }
 
-/// What a change tab holds, where the view has read it: the lines of the
-/// conversation, the commits the target lacks, the files the diff touches.
-fn tab_count(forge: &Forge, tab: ChangeTab) -> Option<u64> {
-    match tab {
-        ChangeTab::Conversation => {
-            let (change, _, _, _) = forge.change()?;
-            match forge.messages.get(&change.channel)? {
-                ducktape_view_guest::Loadable::Ready(rows)
-                | ducktape_view_guest::Loadable::Reloading(rows, _) => Some(rows.len() as u64),
-                _ => None,
-            }
-        }
-        ChangeTab::Commits => forge.compare().map(|comparison| comparison.ahead),
-        ChangeTab::Files => match forge.ready(&forge.diff_query()?)? {
-            Reply::Diff { total_files, .. } => Some(*total_files),
-            _ => None,
-        },
-    }
-}
-
 // ------------------------------------------------------------------ files
 
-fn files(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+fn files(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let Some(query) = forge.diff_query() else {
-        return quiet("Comparing the endpoints…", theme);
+        return quiet(words::COMPARING_ENDPOINTS, theme);
     };
-    let mut columns = div().id(id("forge-files")).flex().flex_1().min_h(px(0.));
-    if forge.layout.tree_visible() {
-        columns = columns.child(file_tree(forge, &query, cx, theme));
-    }
+    let columns = div()
+        .id(id("forge-files"))
+        .flex()
+        .flex_1()
+        .min_h(px(0.))
+        .child(file_tree(forge, &query, cx, theme, ladder));
     let pane = div()
         .id(id("forge-files-pane"))
         .flex_1()
@@ -321,15 +316,39 @@ fn files(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
         .flex()
         .flex_col()
         .min_h(px(0.))
-        .child(review_bar(forge, cx, theme))
-        .child(diff::composer(forge, cx, theme))
-        .child(diff::render(forge, &query, "forge-diff", true, cx, theme));
+        .child(review_bar(forge, cx, theme, ladder))
+        .child(diff::render(
+            forge,
+            &query,
+            "forge-diff",
+            true,
+            cx,
+            theme,
+            ladder,
+        ));
     columns.child(pane).into_any_element()
 }
 
+/// The Files tab's list of files, the id its cursor is kept under.
+pub(crate) const FILE_LIST_ID: &str = "forge-file-tree-list";
+/// A file row's height, as the approved mock draws it.
+const FILE_ROW_H: f32 = 30.;
+
 /// The reviewer's file list: how much each file changes, a tick for the
-/// ones read, and a click that shows one file alone.
-fn file_tree(forge: &Forge, query: &Query, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+/// ones read, and a click that shows one file alone. A virtual list, so a
+/// render draws the rows on screen and not every file of a release; one
+/// Tab stop, a grid: ↑ ↓ walk the files, Enter opens the active one, and →
+/// reaches its viewed tick (drawn left of the name, as the mock has it,
+/// but the row's second cell: the press stays first so Enter opens), where
+/// Enter or Space ticks it.
+fn file_tree(
+    forge: &Forge,
+    query: &Query,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
+    let ladder = *ladder;
     let column = div()
         .id(id("forge-file-tree"))
         .w(FILE_LIST_W)
@@ -339,73 +358,162 @@ fn file_tree(forge: &Forge, query: &Query, cx: &mut Context<Forge>, theme: &Them
         .min_h(px(0.))
         .border_r_1()
         .border_color(theme.border);
-    let Some(Reply::Diff {
-        page, total_files, ..
-    }) = forge.ready(query)
-    else {
+    let Some(shared) = forge.shared(query) else {
         return column
-            .child(quiet("Reading the diff…", theme))
+            .child(quiet(words::READING_DIFF, theme))
             .into_any_element();
     };
-    let (added, deleted) = page.items.iter().fold((0, 0), |(a, d), file| {
-        (a + file.additions, d + file.deletions)
-    });
+    let Reply::Diff {
+        page, total_files, ..
+    } = &*shared
+    else {
+        return column.into_any_element();
+    };
+    let (added, deleted) = crate::select::totals(&page.items);
     let all = cx.listener(|forge, _: &ClickEvent, _, cx| forge.single_file(None, cx));
     let header = div()
         .id(id("forge-file-tree-header"))
+        .flex_none()
         .flex()
         .items_center()
         .gap(design::space::SM)
         .px(design::space::BLOCK)
         .h(px(36.))
         .child(
-            design::mono(format!(
-                "{} · +{added} −{deleted}",
-                design::plural(*total_files, "file", "files")
-            ))
-            .id(id("forge-files-title"))
-            .text_size(design::text::CAPTION)
-            .text_color(theme.muted),
+            design::mono(words::files_changed(*total_files, added, deleted))
+                .id(id("forge-files-title"))
+                // a release's counts give way to All files, the way back to
+                // every file, rather than push it out of the column
+                .min_w(px(0.))
+                .truncate()
+                .text_size(design::text::CAPTION)
+                .text_color(theme.muted),
         )
         .child(div().flex_1())
         .when(forge.nav().diff_path.is_some(), |header| {
             header.child(
-                button(id("forge-files-all"), "All files", theme, all).kind(design::Kind::Quiet),
+                div().id(id("forge-files-all-box")).flex_none().child(
+                    button(id("forge-files-all"), words::ALL_FILES, &ladder, theme, all)
+                        .kind(design::Kind::Quiet),
+                ),
             )
         });
-    let mut list = scroller("forge-file-tree-list").p_0().gap_0();
-    for file in &page.items {
-        list = list.children(file_row(forge, file, cx, theme));
-    }
-    list = list.child(
-        div()
-            .px(design::space::BLOCK)
-            .py(design::space::LG)
-            .child(quiet("Tick a file once you have read it.", theme)),
+    // what marks the rows, read once a render for the rows the list draws:
+    // a render pays for the rows on screen, not for every file
+    let count = page.items.len();
+    let (at, cell) = crate::ui::components::cursor(forge, FILE_LIST_ID);
+    let marks = Rc::new(FileMarks {
+        viewed: viewed_paths(forge),
+        comments: file_comments(forge),
+        selected: forge.nav().diff_path.clone(),
+        active: (at.min(count.saturating_sub(1)), cell),
+        walked: crate::ui::components::walked(forge, FILE_LIST_ID),
+    });
+    let open: diff::Route<Vec<u8>> = Rc::new(
+        cx.listener(|forge, path: &Vec<u8>, _, cx| forge.single_file(Some(path.clone()), cx)),
     );
-    column.child(header).child(list).into_any_element()
+    let tick: diff::Route<Vec<u8>> =
+        Rc::new(cx.listener(|forge, path: &Vec<u8>, _, cx| forge.toggle_viewed(path, cx)));
+    let pressed = shared.clone();
+    let list = crate::ui::components::grid(
+        FILE_LIST_ID,
+        "Files",
+        count,
+        2,
+        Some(&forge.files_scroll),
+        forge,
+        cx,
+        move |forge, index, cell, _, cx| {
+            let Some(path) = diff::file_at(&pressed, index).and_then(path_of) else {
+                return;
+            };
+            match cell {
+                0 => forge.single_file(Some(path), cx),
+                _ => forge.toggle_viewed(&path, cx),
+            }
+        },
+    )
+    // as tall as its rows, so the hint sits under a short list; a long one
+    // gives way to the column and scrolls
+    .flex_none()
+    .flex_shrink_1()
+    .h(px(count as f32 * FILE_ROW_H));
+    let theme = *theme;
+    let rows = crate::ui::components::rows(
+        "forge-file-tree-rows",
+        count,
+        None,
+        Some(&forge.files_scroll),
+        move |index| match diff::file_at(&shared, index) {
+            Some(file) => file_row(file, index, &marks, &open, &tick, &theme, &ladder),
+            None => div().into_any_element(),
+        },
+    );
+    column
+        .child(header)
+        .child(list.child(rows))
+        .child(
+            div()
+                .flex_none()
+                .px(design::space::BLOCK)
+                .py(design::space::LG)
+                .child(quiet(words::TICK_A_FILE, &theme)),
+        )
+        .into_any_element()
 }
 
-/// One file of the diff: its viewed tick, its path, its counts and
-/// comments.
+/// What marks the file list's rows: the files ticked, the comments on
+/// each, the file shown alone, and where the arrows are (row, cell).
+struct FileMarks {
+    viewed: BTreeSet<String>,
+    comments: BTreeMap<Vec<u8>, usize>,
+    selected: Option<Vec<u8>>,
+    active: (usize, usize),
+    walked: bool,
+}
+
+/// The paths of the open change's files the reader has ticked, as its
+/// viewed keys spell them.
+fn viewed_paths(forge: &Forge) -> BTreeSet<String> {
+    let Some(prefix) = forge.file_key(b"") else {
+        return BTreeSet::new();
+    };
+    forge
+        .viewed
+        .range(prefix.clone()..)
+        .take_while(|key| key.starts_with(&prefix))
+        .map(|key| key[prefix.len()..].to_owned())
+        .collect()
+}
+
+/// One file of the diff, a grid row: its press (the path, its comments and
+/// counts) and its viewed tick, each a cell; the tick is drawn first.
 fn file_row(
-    forge: &Forge,
     file: &FileDiff,
-    cx: &mut Context<Forge>,
+    index: usize,
+    marks: &FileMarks,
+    open: &diff::Route<Vec<u8>>,
+    tick: &diff::Route<Vec<u8>>,
     theme: &Theme,
-) -> Option<AnyElement> {
-    let path = diff::path_of(file)?;
+    ladder: &Ladder,
+) -> AnyElement {
+    let Some(path) = path_of(file) else {
+        return div().h(px(FILE_ROW_H)).into_any_element();
+    };
     let label = path_text(&path);
-    let viewed = forge
-        .file_key(&path)
-        .is_some_and(|key| forge.viewed.contains(&key));
-    let comments = file_comments(forge, &path);
-    let selected = forge.nav().diff_path.as_deref() == Some(path.as_slice());
-    let pick = cx.listener({
-        let path = path.clone();
-        move |forge, _: &ClickEvent, _, cx| forge.single_file(Some(path.clone()), cx)
-    });
-    let tick = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.toggle_viewed(&path, cx));
+    let viewed = marks.viewed.contains(&label);
+    let comments = marks.comments.get(&path).copied().unwrap_or(0);
+    let selected = marks.selected.as_deref() == Some(path.as_slice());
+    let active = (index == marks.active.0).then_some(marks.active.1);
+    let walked = marks.walked;
+    let pick = {
+        let (open, path) = (open.clone(), path.clone());
+        move |_: &ClickEvent, window: &mut Window, app: &mut App| open(&path, window, app)
+    };
+    let tick = {
+        let tick = tick.clone();
+        move |_: &ClickEvent, window: &mut Window, app: &mut App| tick(&path, window, app)
+    };
     let theme = *theme;
     let check = div()
         .id(id(format!("forge-viewed-{label}")))
@@ -426,11 +534,13 @@ fn file_row(
                 &theme,
             )
         })
+        // the arrows on the tick: the ring's ink marks the cell
+        .when(walked && active == Some(1), |check| {
+            check.border_2().border_color(theme.accent)
+        })
         .text_size(px(10.))
-        .role(Role::CheckBox)
         .aria_label(format!("Viewed {label}"))
         .aria_toggled(viewed.into())
-        .focusable()
         // a tick is not also a click on the row
         .occlude()
         .on_click(tick)
@@ -443,11 +553,9 @@ fn file_row(
         .flex()
         .items_center()
         .gap(design::space::SM)
-        .role(Role::Button)
         .when(selected, |press| {
-            press.aria_current(ducktape_view_guest::accesskit::AriaCurrent::True)
+            press.aria_current(view::accesskit::AriaCurrent::True)
         })
-        .focusable()
         .on_click(pick)
         .child(
             design::mono(label.clone())
@@ -465,6 +573,7 @@ fn file_row(
         press = press.child(badge(
             id(format!("forge-file-comments-{label}")),
             comments.to_string(),
+            ladder,
             theme.muted,
             theme.surface_raised,
         ));
@@ -490,46 +599,58 @@ fn file_row(
                 )
             }),
     );
-    // the tick sits beside the row's press, as a button may not hold it
+    // the tick's cell beside the press's, as a button may not hold it
+    // as wide as the list, so a long path is cut and its counts stay in view
     let row = div()
         .id(id(format!("forge-file-{label}")))
-        .h(px(30.))
+        .w_full()
+        .h(px(FILE_ROW_H))
         .px(design::space::BLOCK)
         .flex()
         .items_center()
         .gap(design::space::SM)
         .when(selected, |row| row.bg(theme.surface_raised))
+        .when(walked && active.is_some() && !selected, |row| {
+            row.bg(theme.surface)
+        })
         .hover(move |style| style.bg(theme.surface))
-        .role(Role::ListItem)
-        .child(check)
-        .child(press);
-    Some(row.into_any_element())
+        .role(Role::Row)
+        .child(
+            div()
+                .id(id(format!("forge-file-{label}-tick")))
+                .flex_none()
+                .role(Role::GridCell)
+                .child(design::item(check, Role::CheckBox, active == Some(1))),
+        )
+        .child(
+            div()
+                .id(id(format!("forge-file-{label}-open-cell")))
+                .flex_1()
+                .min_w(px(0.))
+                .self_stretch()
+                .flex()
+                .role(Role::GridCell)
+                .child(design::item(press, Role::Button, active == Some(0))),
+        );
+    row.into_any_element()
 }
 
-/// The line comments on one file: my review's drafts plus the published.
-fn file_comments(forge: &Forge, path: &[u8]) -> usize {
+/// The line comments on each file: my review's drafts plus the published.
+fn file_comments(forge: &Forge) -> BTreeMap<Vec<u8>, usize> {
     let drafts = forge
         .review()
-        .map(|review| {
-            review
-                .comments
-                .iter()
-                .filter(|comment| comment.path == path)
-                .count()
-        })
-        .unwrap_or(0);
+        .into_iter()
+        .flat_map(|review| review.comments.iter().map(|comment| &comment.path));
     let landed = forge
         .change()
-        .map(|(_, _, _, reviews)| {
-            reviews
-                .items
-                .iter()
-                .flat_map(|review| review.draft.comments.iter())
-                .filter(|comment| comment.path == path)
-                .count()
-        })
-        .unwrap_or(0);
-    drafts + landed
+        .into_iter()
+        .flat_map(|(_, _, _, reviews)| reviews.items.iter())
+        .flat_map(|review| review.draft.comments.iter().map(|comment| &comment.path));
+    let mut counts = BTreeMap::new();
+    for path in drafts.chain(landed) {
+        *counts.entry(path.clone()).or_default() += 1;
+    }
+    counts
 }
 
 /// The strip above the diff: what a review is, or where this one stands.
@@ -548,7 +669,12 @@ fn strip(theme: &Theme) -> Stateful<Div> {
 }
 
 /// No review under way: how to comment, and Start review.
-fn idle_review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+fn idle_review_bar(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let start = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_review(cx));
     strip(theme)
         .child(quiet(
@@ -557,18 +683,29 @@ fn idle_review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Any
         ))
         .child(div().flex_1())
         .child(
-            button(id("forge-start-review"), "Start review", theme, start)
-                .kind(design::Kind::Primary)
-                .enabled(forge.may_write()),
+            button(
+                id("forge-start-review"),
+                words::START_REVIEW,
+                ladder,
+                theme,
+                start,
+            )
+            .kind(design::Kind::Primary)
+            .enabled(forge.may_write()),
         )
         .into_any_element()
 }
 
 /// Start review → staged comments → finish as exactly one operation. The
 /// finish form opens as a panel under its button.
-fn review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+fn review_bar(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let Some(review) = forge.review() else {
-        return idle_review_bar(forge, cx, theme);
+        return idle_review_bar(forge, cx, theme, ladder);
     };
     let cancel = cx.listener(|forge, _: &ClickEvent, _, cx| forge.cancel_review(cx));
     let finishing = cx.listener(|forge, _: &ClickEvent, _, cx| forge.finishing(true, cx));
@@ -579,6 +716,7 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyEleme
     let opener = button(
         id("forge-finish-review"),
         "Finish review ⌄",
+        ladder,
         theme,
         finishing,
     )
@@ -589,10 +727,10 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyEleme
     // button's right edge, where it hangs from
     let panel = review
         .finishing
-        .then(|| finish_panel(forge, review, cx, theme));
+        .then(|| finish_panel(forge, review, cx, theme, ladder));
     let fold = cx.listener(|forge, _: &(), _, cx| forge.finishing(false, cx));
     let finish = div().relative().flex_none().child(
-        modal_overlay(id("forge-finish"), "Finish your review", opener, panel)
+        modal_overlay(id("forge-finish"), words::FINISH_YOUR_REVIEW, opener, panel)
             .flex_col()
             .items_end()
             .on_dismiss(fold),
@@ -601,6 +739,7 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyEleme
         .child(badge(
             id("forge-review-state"),
             "Reviewing",
+            ladder,
             theme.muted,
             theme.surface_raised,
         ))
@@ -610,11 +749,12 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyEleme
         ))
         .child(div().flex_1())
         .child(
-            button(id("forge-cancel-review"), "Discard", theme, cancel).kind(design::Kind::Quiet),
+            button(id("forge-cancel-review"), "Discard", ladder, theme, cancel)
+                .kind(design::Kind::Quiet),
         )
         .child(finish);
     let mut column = div().flex().flex_col().child(bar);
-    if !review.error.is_empty() {
+    if let Some(refused) = review.refused {
         column = column.child(
             div()
                 .id(id("forge-review-error"))
@@ -622,7 +762,7 @@ fn review_bar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyEleme
                 .py(design::space::XS)
                 .text_size(design::text::SECONDARY)
                 .text_color(theme.danger)
-                .child(review.error.clone()),
+                .child(words::review_refusal(refused)),
         );
     }
     column.into_any_element()
@@ -636,6 +776,7 @@ fn finish_panel(
     review: &crate::state::ReviewSession,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let fold = cx.listener(|forge, _: &MouseDownEvent, _, cx| forge.finishing(false, cx));
     let verdict = review.verdict.unwrap_or(Verdict::Comment);
@@ -656,15 +797,21 @@ fn finish_panel(
         .child(
             div()
                 .font_weight(FontWeight::SEMIBOLD)
-                .child("Finish your review"),
+                .child(words::FINISH_YOUR_REVIEW),
         )
         .child(review_body(&review.body, theme))
         .child(verdicts(forge, verdict, cx, theme))
         .child(
             div().flex().justify_end().child(
-                button(id("forge-submit-review"), "Submit review", theme, submit)
-                    .kind(design::Kind::Primary)
-                    .enabled(forge.may_write()),
+                button(
+                    id("forge-submit-review"),
+                    words::SUBMIT_REVIEW,
+                    ladder,
+                    theme,
+                    submit,
+                )
+                .kind(design::Kind::Primary)
+                .enabled(forge.may_write()),
             ),
         );
     deferred(
@@ -679,7 +826,7 @@ fn finish_panel(
                 x: px(0.),
                 y: design::size::CONTROL + design::space::XXS,
             })
-            .snap_to_window_with_margin(ducktape_view_guest::Edges::all(design::space::SM))
+            .snap_to_window_with_margin(view::Edges::all(design::space::SM))
             .child(panel),
     )
     .into_any_element()
@@ -687,7 +834,7 @@ fn finish_panel(
 
 /// What the review says overall, typed while finishing.
 fn review_body(body: &TextField, theme: &Theme) -> impl IntoElement + use<> {
-    Textarea::new(id("forge-review-body"), body, "Review body")
+    Textarea::new(id("forge-review-body"), body, words::REVIEW_BODY)
         .min_h(design::size::CONTROL * 2.5)
         .w_full()
         .px_2()
@@ -695,7 +842,7 @@ fn review_body(body: &TextField, theme: &Theme) -> impl IntoElement + use<> {
         .border_color(theme.border_strong)
         .bg(theme.background)
         .text_color(theme.foreground)
-        .placeholder("What this review says overall")
+        .placeholder(words::REVIEW_PROMPT)
 }
 
 /// The three verdicts as radio rows, each with what it means.
@@ -705,15 +852,7 @@ fn verdicts(
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> Stateful<Div> {
-    const VERDICTS: [(Verdict, &str, &str); 3] = [
-        (Verdict::Comment, "comment", "Feedback without a verdict."),
-        (Verdict::Approve, "approve", "Ready to merge as it is."),
-        (
-            Verdict::RequestChanges,
-            "request-changes",
-            "Needs work before it merges.",
-        ),
-    ];
+    use words::VERDICTS;
     let theme = *theme;
     let active = VERDICTS
         .iter()

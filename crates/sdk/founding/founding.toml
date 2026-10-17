@@ -5,17 +5,23 @@ block_time_ms = 1000
 hooks = ["activity"]
 
 [roles]
-registry = "module-registry"
+programs = "programs"
 validators = "valset"
 identity = "identity"
+blobs = "blobs"
+awaits = "awaits"
+halo = "halo"
+egress = "egress"
+scheduler = "scheduler"
 
 [[validators]]
 key = "KEY"                   # this node's key: `ducktape identity`
 address = "ADDRESS"           # where peers dial it: tcp://, tls://, ws:// or wss://; drop the line if none can
+halo = "HALO"                 # host:port other members dial it at over QUIC; the same as `ducktape init --halo`
 
 [[programs]]
-id = "module-registry"
-code = "module_registry.wasm"
+id = "programs"
+code = "programs.wasm"
 
 [[programs]]
 id = "valset"
@@ -24,6 +30,23 @@ code = "valset.wasm"
 [[programs]]
 id = "identity"
 code = "identity.wasm"
+
+[[programs]]
+id = "blobs"
+code = "blobs.wasm"
+
+[[programs]]
+id = "awaits"
+code = "awaits.wasm"
+
+[[programs]]
+id = "halo"
+code = "halo.wasm"
+params = "halo.params"
+
+[[programs]]
+id = "scheduler"
+code = "scheduler.wasm"
 
 [[programs]]
 id = "chat"
@@ -43,8 +66,16 @@ id = "files"
 code = "files.wasm"
 
 [[programs]]
-id = "provider"
-code = "provider.wasm"
+id = "egress"
+code = "egress.wasm"
+
+[[programs]]
+id = "attribution"
+code = "attribution.wasm"
+
+[[programs]]
+id = "harness"
+code = "harness.wasm"
 
 [[views]]
 name = "explorer"

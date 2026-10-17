@@ -1,7 +1,7 @@
 //! Messages: posting, threads, editing, deleting, and the reads over them.
 use super::channels::edit;
 use super::*;
-use crate::{MAX_MESSAGE_BYTES, roots_below};
+use crate::roots_below;
 
 #[test]
 fn posts_land_as_roots_newest_first_and_page_older() {
@@ -46,16 +46,6 @@ fn a_message_id_is_unique_and_a_colon_id_is_its_programs_alone() {
     assert_eq!(row.seq, 2);
     let nowhere = chat.refused(&BO, post("nowhere", "m9", "hi", None));
     assert_eq!(nowhere, code::NOT_FOUND);
-}
-
-#[test]
-fn a_message_is_at_most_its_byte_cap() {
-    let mut chat = Chat::with_channel(PostPolicy::Open);
-    let huge = "word ".repeat(MAX_MESSAGE_BYTES / 5 + 1);
-    assert_eq!(
-        chat.refused(&BO, post("general", "big", &huge, None)),
-        code::CAPACITY
-    );
 }
 
 #[test]
@@ -193,25 +183,6 @@ fn tagged(chat: &Chat, tag: &str) -> Vec<u64> {
     let everywhere = ask(None);
     assert_eq!(ask(Some("general".into())), everywhere);
     everywhere
-}
-
-#[test]
-fn a_read_names_a_bounded_number_of_viewers() {
-    let chat = Chat::with_channel(PostPolicy::Open);
-    let roots = |viewer: Vec<Principal>| Query::Roots {
-        channel_id: "general".into(),
-        viewer,
-        page: PageRequest::first(8),
-    };
-    let most = (0..crate::MAX_VIEWERS as u64)
-        .map(Principal::Account)
-        .collect();
-    crate::Chat::query(&chat.reads(), roots(most)).unwrap();
-    let over = (0..=crate::MAX_VIEWERS as u64)
-        .map(Principal::Account)
-        .collect();
-    let refusal = crate::Chat::query(&chat.reads(), roots(over)).unwrap_err();
-    assert_eq!(refusal.code, code::CAPACITY);
 }
 
 #[test]

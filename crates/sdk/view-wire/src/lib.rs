@@ -1,28 +1,28 @@
 //! The wire between a host and a view running in wasm.
 //!
-//! The guest ships a WIDGET TREE, not a picture: every tick it returns the
+//! The view ships a WIDGET TREE, not a picture: every tick it returns the
 //! [`Node`] its view built, with every value in it (text, colours, sizes),
 //! and the host's own toolkit does layout, render, fonts, IME, clipboard and
-//! scroll. The guest never learns where anything landed, which is the point:
+//! scroll. The view never learns where anything landed, which is the point:
 //! there is nothing in it to draw with.
 //!
 //! A style crosses once. A node names its style by [`StyleId`], an entry of
-//! the table its tree crosses with ([`Frame::styles`]): the guest's
+//! the table its tree crosses with ([`Frame::styles`]): the view's
 //! [`Interner`] numbers each distinct style, and the host's [`Styles`] is
 //! the table of the tree it holds, which it reads at render.
 //!
 //! Interaction goes back as MEANING, not input. An element's
 //! [`Interactivity`] carries, per listener (`on_click`, `on_mouse_down`,
-//! `on_key_down`, ...), the index of the handler the guest registered this
+//! `on_key_down`, ...), the index of the handler the view registered this
 //! frame; the host sends [`Event::Click`], [`Event::MouseDown`],
-//! [`Event::KeyDown`] and the rest with that index and the guest runs its
+//! [`Event::KeyDown`] and the rest with that index and the view runs its
 //! own handler. A text field ([`Node::Field`]) is the host engine's: it
-//! sends [`Event::Text`] with the whole text it now holds, and the guest
+//! sends [`Event::Text`] with the whole text it now holds, and the view
 //! asks for an edit with [`WidgetCommand::Replace`]. A rich text's
 //! clickable ranges answer with [`Event::Select`] and the index of the
 //! range clicked.
 //!
-//! The types here are the one definition of the format: the guest serializes
+//! The types here are the one definition of the format: the view serializes
 //! them and the host deserializes the same code, so a field neither side can
 //! drop silently. No name crosses: a struct is its fields in order, a
 //! variant its index, and a struct that mostly says nothing the fields it
@@ -49,25 +49,22 @@ pub(crate) fn is_default<T: Default + PartialEq>(value: &T) -> bool {
 pub mod abi;
 pub mod manifest;
 pub mod methods;
+pub mod notifier;
 
 mod sanitization;
 pub use sanitization::SanitizeReport;
 
 pub mod text;
 pub use text::{
-    Edit, KeyClaim, MAX_FIELD_BYTES, MAX_FIELD_CLAIMS, MAX_FIELD_TOKENS, TextChange, TextRange,
-    TextToken, changed_span, rebase, validate_field,
+    Edit, KeyClaim, TextChange, TextRange, TextToken, changed_span, rebase, validate_field,
 };
 
 mod image;
 pub use image::ImageData;
 
-mod snapshot;
-pub use snapshot::MAX_SNAPSHOT_BYTES;
-
 mod aria;
 pub mod click;
-pub use aria::{Aria, MAX_ARIA_ACTIONS, MAX_ARIA_CUSTOM_ACTIONS, MAX_ARIA_TEXT_BYTES};
+pub use aria::Aria;
 /// gpui's own accessibility vocabulary, the one `Aria` and [`Event::A11yAction`] speak.
 pub use gpui::accesskit::{Action, ActionData, AriaCurrent, HasPopup, Invalid, Live};
 mod element_id;
@@ -76,7 +73,7 @@ mod style;
 mod style_sanitize;
 pub use style::{GroupRefinement, Interactivity};
 mod styles;
-pub use styles::{Interner, MAX_STYLES, Style, StyleId, Styles, entry_fields};
+pub use styles::{Interner, Style, StyleId, Styles, entry_fields};
 
 mod qr;
 pub use qr::{Qr, QrCorrection, QrSize, QrVersion};
@@ -86,28 +83,28 @@ mod canvas;
 pub mod list;
 pub use canvas::{
     CanvasCommand, CanvasLineCap, CanvasLineJoin, CanvasSegment, CanvasShape, CanvasStroke,
-    MAX_CANVAS_PARTS,
 };
 pub use list::{
     ListAlignment, ListCommand, ListKey, ListOffset, ListRequest, ListScroll, ListSizingBehavior,
-    MAX_LIST_COMMANDS, MAX_LIST_ITEMS, MAX_LIST_ROWS,
 };
 mod widget;
 pub use widget::{WidgetCommand, WidgetTarget};
 pub mod web;
-pub use web::{MAX_URL_BYTES, MAX_WEB_COMMANDS, WebCommand, WebState};
+pub use web::{WebCommand, WebState};
+pub mod media;
+pub use media::{MediaState, MediaStatus, MicCommand, Playback, TrackState};
 
 mod styled_nodes;
-pub use styled_nodes::{ContainerNode, TextNode};
+pub use styled_nodes::{ContainerNode, TextNode, TextTransform};
 mod node;
 pub use node::{
-    Anchor, AnchoredFitMode, AnchoredPositionMode, ImageObjectFit, ImageStyle, Node, SvgSource,
-    SvgTransformation, safe_asset_path,
+    Anchor, AnchoredFitMode, AnchoredPositionMode, ImageObjectFit, ImageStyle, Node, RemoteMedia,
+    SvgSource, SvgTransformation, safe_asset_path,
 };
 mod accessibility;
 pub use accessibility::{Fault, FaultKind, audit};
 mod patch;
-pub use patch::{MAX_PATCHES, Patch, apply, diff, diff_taking};
+pub use patch::{Patch, apply, diff, diff_taking};
 
 pub mod interactivity;
 pub mod keyboard;
@@ -116,21 +113,18 @@ pub use interactivity::{DispatchPhase, HoverListenerMode, Tooltip, TooltipRespon
 
 mod protocol;
 pub use protocol::{
-    Error, Event, Frame, InputOptions, MAX_CANCELS, MAX_REQUESTS, Request, RichTextHover, code,
+    Autocapitalize, Error, Event, Frame, InputOptions, Request, RichTextHover, TextInput,
+    TextInputAction, VirtualKeyboard, code,
 };
 
 mod frame_sanitize;
 pub mod identity;
-pub(crate) use frame_sanitize::{Budgets, finite, sanitize_tree, spend_text, truncate_to};
-pub use frame_sanitize::{
-    MAX_DEPTH, MAX_FRAME_BYTES, MAX_NODES, MAX_PICTURE_BYTES_PER_FRAME, MAX_PIXELS,
-    MAX_STRING_BYTES, MAX_TEXT_BYTES_PER_FRAME, MAX_TEXT_PIXELS, MAX_UNIFORM_LIST_COUNT,
-    MAX_UNIFORM_LIST_ROWS, Refused, sanitize, truncate_string,
-};
+pub use frame_sanitize::{MAX_DEPTH, Refused, sanitize};
+pub(crate) use frame_sanitize::{finite, sanitize_tree};
 
 mod codec;
 pub(crate) use codec::bounded_vec;
-pub use codec::{MAX_DECODED_NODES, decode, encode, try_encode};
+pub use codec::{decode, encode, try_encode};
 
 #[cfg(test)]
 mod tests;

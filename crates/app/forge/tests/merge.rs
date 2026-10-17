@@ -194,18 +194,16 @@ fn a_sha256_repository_keeps_its_own_ids() {
     assert_eq!(refs_of(&sandbox, "modern")["refs/heads/main"], tip.to_hex());
     assert_eq!(tip.to_hex().len(), 64);
 
-    let clone = ask(
+    let clone = fetch(
         &sandbox,
-        &Query::Upload {
-            repo: "modern".into(),
-            request: v2_request(
-                "fetch",
-                Hash::Sha256,
-                &[format!("want {tip}"), "done".into()],
-            ),
-        },
-    )
-    .unwrap();
+        "modern",
+        HashKind::Sha256,
+        &v2_request(
+            "fetch",
+            Hash::Sha256,
+            &[format!("want {tip}"), "done".into()],
+        ),
+    );
     let (_, pack_bytes) = fetched_pack(&clone);
     assert_eq!(
         ids_in_pack(&pack_bytes, Hash::Sha256),
@@ -219,17 +217,14 @@ fn a_sha1_pack_is_refused_by_a_sha256_repository() {
     create(&sandbox, "modern", HashKind::Sha256);
     let mut source = MemoryObjects::new(Hash::Sha1);
     let tip = file_commit(&mut source, &[], 1, &[("a", b"1")]);
-    let request = push_request(
-        &[(Hash::Sha1.zero(), tip, "refs/heads/main")],
-        &pack_of(&source, &all_ids(&source)),
-    );
-    let refused = act(
-        &sandbox,
-        OWNER,
-        &Op::Push {
+    let request = push_request(&[(Hash::Sha1.zero(), tip, "refs/heads/main")]);
+    let refused = with_pack(&sandbox, &pack_of(&source, &all_ids(&source)), |pack| {
+        let op = Op::Push {
             repo: "modern".into(),
             request,
-        },
-    );
+            pack,
+        };
+        act(&sandbox, OWNER, &op)
+    });
     assert_eq!(refused.unwrap_err().code, code::INVALID_INPUT);
 }

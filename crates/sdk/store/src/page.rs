@@ -1,19 +1,19 @@
-//! Bounded, resumable query pages over guest's `Range`: the one paging
-//! vocabulary every module's queries speak.
+//! Bounded, resumable query pages over `program`'s `Range`: the one paging
+//! vocabulary every program's queries speak.
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{Error, QueryCtx};
+use program::{Error, QueryCtx};
 use serde::{Deserialize, Serialize};
 
-use guest::{invalid, stale};
+use program::{invalid, stale};
 
 /// What `PageRequest::after` and `PageResponse::next` carry, opaque to clients: the
 /// listing the cursor belongs to (`scope`), what it is pinned to (the height
-/// that answered it, unless the module pinned it to something of its own:
+/// that answered it, unless the program pinned it to something of its own:
 /// see [`Listing::pinned`]), and the raw position to resume after.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Cursor {
-    /// the pin: the answering height unless the module set another
+    /// the pin: the answering height unless the program set another
     pub height: u64,
     pub scope: Vec<u8>,
     pub after: Vec<u8>,
@@ -38,8 +38,6 @@ pub struct PageRequest {
 }
 
 impl PageRequest {
-    pub const MAX_LIMIT: u64 = 256;
-
     pub const fn first(limit: u64) -> PageRequest {
         PageRequest::resume(None, limit)
     }
@@ -54,12 +52,10 @@ impl PageRequest {
     }
 
     pub fn limit(&self) -> u64 {
-        self.limit
-            .unwrap_or(Self::MAX_LIMIT)
-            .clamp(1, Self::MAX_LIMIT)
+        self.limit.unwrap_or(u64::MAX).max(1)
     }
 
-    /// The same page, its limit capped at `max` (a module's own bound).
+    /// The same page, its limit capped at `max` (a program's own bound).
     pub fn bounded(&self, max: u64) -> PageRequest {
         PageRequest::resume(self.after.clone(), self.limit().min(max.max(1)))
     }
@@ -111,7 +107,7 @@ pub struct Listing {
     /// What every `next` is pinned to: the answering height, or what
     /// [`Listing::pinned`] set.
     pin: u64,
-    /// What the cursor was pinned to, for a module whose listings are
+    /// What the cursor was pinned to, for a program whose listings are
     /// rewritten (forge refuses a cursor pinned to another write count).
     pub cursor_pin: Option<u64>,
 }
@@ -121,7 +117,7 @@ impl Listing {
         self.limit
     }
 
-    /// Pins every `next` to `pin` instead of the answering height: a module
+    /// Pins every `next` to `pin` instead of the answering height: a program
     /// whose listings are rewritten by its own ops, and by nothing else,
     /// pins to a count of them, so a walk outlives the blocks that wrote
     /// nothing there and a write that shares the answering height (one of
@@ -139,8 +135,8 @@ impl Listing {
         })
     }
 
-    pub fn scan(&self, prefix: &[u8]) -> guest::Range {
-        let mut scan = guest::Range::prefix(prefix);
+    pub fn scan(&self, prefix: &[u8]) -> program::Range {
+        let mut scan = program::Range::prefix(prefix);
         if let Some(after) = &self.after {
             let start = scan.start.clone();
             scan = scan.after(after);
@@ -150,8 +146,8 @@ impl Listing {
         scan
     }
 
-    pub fn scan_ahead(&self, prefix: &[u8]) -> guest::Range {
-        self.scan(prefix).limit(self.limit + 1)
+    pub fn scan_ahead(&self, prefix: &[u8]) -> program::Range {
+        self.scan(prefix).limit(self.limit.saturating_add(1))
     }
 
     /// Consume ordered rows, retaining one lookahead to detect the final page.
@@ -230,9 +226,9 @@ mod tests {
 
     /// A read at `height`.
     fn at(height: u64) -> QueryCtx {
-        guest::MockHost::default().query(guest::Env {
+        program::MockHost::default().query(program::Env {
             height,
-            ..guest::MockHost::env("test")
+            ..program::MockHost::env("test")
         })
     }
 
@@ -254,11 +250,11 @@ mod tests {
         assert_eq!(scan.limit, Some(2));
         assert_eq!(
             listing(&PageRequest::default()).scan(b"p/").limit,
-            Some(PageRequest::MAX_LIMIT)
+            Some(u64::MAX)
         );
         assert_eq!(PageRequest::first(500).bounded(10).limit(), 10);
         let other = page.listing(&at(7), b"q/".to_vec()).unwrap_err();
-        assert_eq!(other.code, guest::code::STALE);
+        assert_eq!(other.code, program::code::STALE);
         assert_eq!(listing(&page).cursor_pin, Some(7));
         let pinned = listing(&PageRequest::first(2)).pinned(3).reply([
             (b"p/3".to_vec(), 3u8),
@@ -274,7 +270,7 @@ mod tests {
         };
         assert_eq!(
             garbage.open(b"p/").unwrap_err().code,
-            guest::code::INVALID_INPUT
+            program::code::INVALID_INPUT
         );
     }
 

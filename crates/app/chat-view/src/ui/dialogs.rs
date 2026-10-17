@@ -1,13 +1,20 @@
 //! The channel creation dialog.
 
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
+use crate::words;
 use crate::{ChannelCreate, Chat};
+use view::design::Ladder;
 
 /// How wide the dialog's card grows.
 const CARD_MAX_WIDTH: f32 = 480.;
 
-pub fn channel_create(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<AnyElement> {
+pub fn channel_create(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Option<AnyElement> {
     let create = chat.create.as_ref()?;
     let busy = create.busy;
     let can_submit = !busy && chat.session.connected && chat.holds_account();
@@ -50,13 +57,22 @@ pub fn channel_create(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Opt
                 .flex()
                 .flex_wrap()
                 .gap_2()
-                .child(members_only(create, cx, theme))
+                .child(members_only(create, cx, theme, ladder))
                 .child(div().flex_1())
-                .child(design::button("chat-create-cancel", "Cancel", theme, cancel).enabled(!busy))
                 .child(
-                    design::button("chat-create-submit", "Create channel", theme, submit)
-                        .kind(design::Kind::Primary)
-                        .enabled(can_submit),
+                    design::button("chat-create-cancel", words::CANCEL, ladder, theme, cancel)
+                        .enabled(!busy),
+                )
+                .child(
+                    design::button(
+                        "chat-create-submit",
+                        "Create channel",
+                        ladder,
+                        theme,
+                        submit,
+                    )
+                    .kind(design::Kind::Primary)
+                    .enabled(can_submit),
                 ),
         );
     Some(card.into_any_element())
@@ -88,17 +104,28 @@ fn name_field(
 }
 
 /// Members only, a toggle: on, posting takes a seat.
-fn members_only(create: &ChannelCreate, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+fn members_only(
+    create: &ChannelCreate,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let toggle = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         if let Some(create) = &mut chat.create {
             create.members_only = !create.members_only;
         }
         cx.notify();
     });
-    design::button("chat-create-members", "Members only", theme, toggle)
-        .selected(create.members_only)
-        .enabled(!create.busy)
-        .into_any_element()
+    design::button(
+        "chat-create-members",
+        words::MEMBERS_ONLY,
+        ladder,
+        theme,
+        toggle,
+    )
+    .selected(create.members_only)
+    .enabled(!create.busy)
+    .into_any_element()
 }
 
 /// Why the dialog failed, and why it cannot create at all.

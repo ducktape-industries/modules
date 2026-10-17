@@ -4,9 +4,9 @@ use crate::contract::*;
 use crate::objects::{ObjectStore, object_not_held};
 use crate::ops::{cap, refusal_of};
 use crate::state::{load_repo, parse_oid, repo_hash, resolve};
+use ::program::Error;
+use ::program::{QueryCtx, invalid, not_found};
 use gitcore::{Commit, Hash, Kind, Mode, Objects, Oid, Signature, Tag, Tree};
-use guest::Error;
-use guest::{QueryCtx, invalid, not_found};
 use std::collections::BTreeSet;
 use store::Listing;
 
@@ -134,7 +134,7 @@ fn reading<'a>(
 ) -> Result<Reading<'a>, Error> {
     let hash = repo_hash(&load_repo(ctx, name)?);
     Ok(Reading {
-        store: ObjectStore::querying(ctx, hash, bounds, reads),
+        store: ObjectStore::querying(ctx, bounds, reads),
         hash,
         bounds,
     })

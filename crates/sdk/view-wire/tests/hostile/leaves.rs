@@ -33,15 +33,10 @@ pub(super) fn gen_key(rng: &mut Rng) -> String {
     (*rng.choose(&POOL)).to_string()
 }
 
-/// A string built from single-, two-, three- and four-byte UTF-8
-/// characters. Most calls stay small so a tree of thousands of leaves
-/// stays cheap to build; roughly one in three hundred goes hostile and
-/// targets up to `3 * MAX_STRING_BYTES`, which is what actually exercises
-/// `truncate`'s char-boundary walk.
 pub(super) fn gen_string(rng: &mut Rng) -> String {
     const POOL: [char; 6] = ['a', 'Z', 'é', '한', '😀', '\n'];
     let (cap, exponent) = match rng.next_range(300) {
-        0 => (3 * MAX_STRING_BYTES, 8),
+        0 => (3 * LONG_STRING, 8),
         _ => (48, 2),
     };
     let target = rng.skewed(cap, exponent);
@@ -107,6 +102,22 @@ pub(super) fn gen_field(rng: &mut Rng) -> Node {
             invalid: rng.next_bool().then_some(Invalid::True),
             required: rng.next_bool(),
             read_only: rng.next_bool(),
+            text_input: TextInput {
+                autocorrect: rng.next_bool(),
+                autocapitalize: *rng.choose(&[
+                    Autocapitalize::None,
+                    Autocapitalize::Words,
+                    Autocapitalize::Sentences,
+                    Autocapitalize::Characters,
+                ]),
+                suggestions: rng.next_bool(),
+                input_action: *rng.choose(&[TextInputAction::Unspecified, TextInputAction::Send]),
+                virtual_keyboard: *rng.choose(&[
+                    VirtualKeyboard::Text,
+                    VirtualKeyboard::Url,
+                    VirtualKeyboard::Numeric,
+                ]),
+            },
         }),
         placeholder: gen_string(rng),
         secure: rng.next_bool(),
@@ -126,15 +137,16 @@ pub(super) fn gen_text(rng: &mut Rng) -> Node {
             PLAIN
         },
         content: gen_string(rng),
+        transform: rng
+            .next_bool()
+            .then_some(view_wire::TextTransform::Uppercase),
     })
 }
 
-/// A picture whose bytes cross about half the time, and about one time in
-/// sixteen run past `MAX_PICTURE_BYTES_PER_FRAME` on their own.
 pub(super) fn gen_svg(rng: &mut Rng) -> Node {
     let bytes = rng.next_bool().then(|| {
         let len = match rng.next_range(16) {
-            0 => MAX_PICTURE_BYTES_PER_FRAME + 1 + rng.next_range(64),
+            0 => BIG_PICTURE + 1 + rng.next_range(64),
             _ => rng.skewed(4096, 2),
         };
         vec![b'<'; len]
@@ -200,28 +212,26 @@ pub(super) fn gen_leaf(rng: &mut Rng) -> Node {
             Node::Space
         }
         2 => gen_svg(rng),
-        3 => gen_web(rng),
+        3 => match rng.next_range(3) {
+            0 => gen_web(rng),
+            _ => gen_media(rng),
+        },
         _ => gen_field(rng),
     }
 }
 
-/// An address up to twice [`MAX_URL_BYTES`], so about half are past the
-/// bound `sanitize` empties.
 fn gen_url(rng: &mut Rng) -> String {
     let mut url = String::from("https://");
-    let target = rng.next_range(2 * view_wire::MAX_URL_BYTES);
+    let target = rng.next_range(2 * LONG_URL);
     while url.len() < target {
         url.push(*rng.choose(&['a', '/', '한', '%']));
     }
     url
 }
 
-/// A web piece: a hostile address and up to `MAX_WEB_COMMANDS` commands
-/// (the decoder refuses more), each a `Load` of a hostile address or a
-/// plain navigation.
 pub(super) fn gen_web(rng: &mut Rng) -> Node {
     let url = gen_url(rng);
-    let commands = (0..=rng.next_range(view_wire::MAX_WEB_COMMANDS))
+    let commands = (0..=rng.next_range(WEB_COMMANDS))
         .map(|_| match rng.next_range(3) {
             0 => view_wire::WebCommand::Load(gen_url(rng)),
             1 => view_wire::WebCommand::Back,
@@ -235,6 +245,94 @@ pub(super) fn gen_web(rng: &mut Rng) -> Node {
         revision: rng.next_u64(),
         commands,
         on_state: rng.next_bool().then(|| rng.next_u64() as u32),
+    }
+}
+
+fn gen_device(rng: &mut Rng) -> Option<String> {
+    rng.next_bool()
+        .then(|| "d".repeat(rng.next_range(2 * LONG_DEVICE)))
+}
+
+/// A live track a piece publishes into or plays, one in two out of the
+/// rule `live.publish` holds a track to: a room empty, over-long or with a
+/// line break; a name over-long, empty, or with an empty or `..` segment.
+fn gen_track(rng: &mut Rng) -> view_wire::methods::LiveTrack {
+    use program::live::{MAX_NAMESPACE, MAX_TRACK_NAME};
+    let room = match rng.next_range(6) {
+        0 => String::new(),
+        1 => "call\nroom".into(),
+        2 => "r".repeat(MAX_NAMESPACE + rng.next_range(2)),
+        _ => "call".into(),
+    };
+    let name = match rng.next_range(8) {
+        0 => "x".repeat(MAX_TRACK_NAME + rng.next_range(2)),
+        1 => "mic/../1".into(),
+        2 => "mic//1".into(),
+        3 => String::new(),
+        _ => format!("mic/{}", rng.next_u64()),
+    };
+    view_wire::methods::LiveTrack { room, name }
+}
+
+/// A camera, microphone or remote piece: hostile device ids, commands
+/// recording any length, and hostile tracks to publish into or play.
+pub(super) fn gen_media(rng: &mut Rng) -> Node {
+    let on_state = |rng: &mut Rng| rng.next_bool().then(|| rng.next_u64() as u32);
+    let object_fit = |rng: &mut Rng| {
+        *rng.choose(&[
+            ImageObjectFit::Fill,
+            ImageObjectFit::Contain,
+            ImageObjectFit::Cover,
+            ImageObjectFit::ScaleDown,
+            ImageObjectFit::None,
+        ])
+    };
+    match rng.next_range(3) {
+        0 => Node::Camera {
+            id: gen_id(rng),
+            style: PLAIN,
+            device: gen_device(rng),
+            mirror: rng.next_bool(),
+            object_fit: object_fit(rng),
+            on_state: on_state(rng),
+            publish: rng.next_bool().then(|| gen_track(rng)),
+        },
+        1 => {
+            let commands = (0..=rng.next_range(MIC_COMMANDS))
+                .map(|_| match rng.next_bool() {
+                    true => view_wire::MicCommand::Record {
+                        seconds: rng.next_u64() as u8,
+                    },
+                    false => view_wire::MicCommand::Stop,
+                })
+                .collect();
+            Node::Microphone {
+                id: gen_id(rng),
+                style: PLAIN,
+                device: gen_device(rng),
+                output: gen_device(rng),
+                monitor: rng.next_bool(),
+                revision: rng.next_u64(),
+                commands,
+                on_state: on_state(rng),
+                publish: rng.next_bool().then(|| gen_track(rng)),
+                muted: rng.next_bool(),
+            }
+        }
+        _ => Node::Remote {
+            id: gen_id(rng),
+            style: PLAIN,
+            track: gen_track(rng),
+            media: match rng.next_bool() {
+                true => RemoteMedia::Video {
+                    object_fit: object_fit(rng),
+                },
+                false => RemoteMedia::Audio {
+                    output: gen_device(rng),
+                },
+            },
+            on_state: on_state(rng),
+        },
     }
 }
 
@@ -258,6 +356,7 @@ pub(super) fn gen_container(rng: &mut Rng, children: Vec<Node>) -> Node {
             active: refinement(rng),
             group_hover: group(rng),
             group_active: group(rng),
+            on_back: (rng.next_range(8) == 0).then(|| rng.next_u64() as u32),
             ..Default::default()
         })),
         children,

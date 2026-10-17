@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 
-use guest::Error;
+use ::program::Error;
 
 use crate::{Kind, MsgRow, PageRequest, PageResponse, Principal, Profile, Standing, ask};
 
@@ -18,10 +18,7 @@ pub async fn roster<F: Future<Output = Result<PageResponse<Profile>, Error>>>(
     let mut after = None;
     loop {
         let page = ask(ask::Accounts {
-            page: PageRequest {
-                after,
-                limit: Some(PageRequest::MAX_LIMIT),
-            },
+            page: PageRequest { after, limit: None },
         })
         .await?;
         rows.extend(page.items);
@@ -85,9 +82,9 @@ impl Names {
         names
     }
 
-    /// The accounts a person picks, as a reviewer or a mention: people and
-    /// agents that act, ascending. No module's account, none suspended or
-    /// revoked.
+    /// The accounts a person picks, as a reviewer or a mention: users and
+    /// program accounts that act, ascending. No system account, none
+    /// suspended or revoked.
     pub fn people(&self) -> impl Iterator<Item = u64> + '_ {
         self.profiles
             .values()
@@ -147,29 +144,29 @@ impl Names {
         }
     }
 
-    /// The module an account is the account of.
-    pub fn module(&self, principal: &Principal) -> Option<&str> {
+    /// The program an account is the account of.
+    pub fn program(&self, principal: &Principal) -> Option<&str> {
         match self.kind(principal)? {
-            Kind::Module(module) => Some(module),
-            Kind::Person | Kind::Managed { .. } => None,
+            Kind::System(program) => Some(program),
+            Kind::User | Kind::Program { .. } => None,
         }
     }
 
     /// What an account is, beside its name ([`Kind::badge`]): an agent and
-    /// who manages it ("Agent · managed by Dev"), or the module it is
-    /// ("Module · forge"). None for a person.
+    /// who manages it ("Agent · managed by Dev"), or the program it is
+    /// ("Program · forge"). None for a user.
     pub fn badge(&self, principal: &Principal) -> Option<String> {
         self.kind(principal)?
             .badge(|manager| self.member(&Principal::Account(manager)))
     }
 }
 
-/// A person picks a person or an agent that acts.
+/// A user picks a user or a program account that acts.
 fn picks(kind: &Kind) -> bool {
     match kind {
-        Kind::Person => true,
-        Kind::Managed { standing, .. } => *standing == Standing::Active,
-        Kind::Module(_) => false,
+        Kind::User => true,
+        Kind::Program { standing, .. } => *standing == Standing::Active,
+        Kind::System(_) => false,
     }
 }
 

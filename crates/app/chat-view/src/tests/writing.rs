@@ -52,7 +52,7 @@ fn a_send_shows_greyed_then_lands_and_a_refusal_is_a_banner() {
     cx.simulate_submit("chat-create-name");
     cx.run_until_parked();
     assert!(cx.host().requests::<Submit<::chat::Chat>>().iter().any(|op| matches!(op, Op::CreateChannel { channel_id, name, post_policy: PostPolicy::MembersOnly } if channel_id == "channel-1" && name == "random")));
-    assert!(cx.has_text("Couldn’t create this channel: no"));
+    assert!(cx.has_text("That didn’t go through: no"));
     let (restored, view) = restored(&cx);
     view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "general"));
     assert!(restored.host().requests::<Ask<::chat::Chat>>().len() >= 2);
@@ -82,7 +82,7 @@ fn holding(view: &Entity<Chat>) -> Vec<String> {
 }
 
 fn submit_in_flight(cx: &TestAppContext) -> u64 {
-    use ducktape_view_guest::methods::Method;
+    use view::methods::Method;
     let requests = &cx.last_frame().requests;
     let submit = requests
         .iter()
@@ -148,7 +148,7 @@ fn a_greyed_post_keeps_its_place_and_height_when_it_lands() {
 
 #[test]
 fn a_post_the_room_shows_before_its_receipt_is_shown_once() {
-    use ducktape_view_guest::methods::Method;
+    use view::methods::Method;
     let (mut cx, view, receipt) = post_in_flight("on its way");
     // its block lands first, and the re-read serves it
     cx.host().handle::<Ask<::chat::Chat>>(|query| {
@@ -175,7 +175,9 @@ fn a_post_the_room_shows_before_its_receipt_is_shown_once() {
     // then the receipt
     cx.simulate_event(wire::Event::Response {
         id: receipt,
-        result: Ok(Submit::<::chat::Chat>::encode_reply(&Vec::new())),
+        result: Ok(Submit::<::chat::Chat>::encode_reply(
+            &view::testing::applied(Vec::new()),
+        )),
         done: true,
     });
     assert!(cx.has_text("on its way") && !greyed(&cx, "message-1"));
@@ -226,7 +228,11 @@ fn a_refused_post_leaves_the_timeline_and_keeps_the_text() {
         result: Err(wire::Error::new("unauthorized", "not a member")),
         done: true,
     });
-    assert!(cx.has_text("not a member"), "{:?}", cx.texts());
+    assert!(
+        cx.has_text("That didn’t go through: not a member"),
+        "{:?}",
+        cx.texts()
+    );
     assert!(cx.has_text("An earlier message wasn’t sent"));
     assert!(!cx.has_text("turned away"));
     assert_eq!(shown(&view, "message-1"), 0);
@@ -248,7 +254,11 @@ fn a_refused_post_shows_no_row_and_keeps_the_text() {
     cx.simulate_input("draft-general/editor", "turned away");
     cx.simulate_field_key("draft-general/editor", "enter");
     cx.run_until_parked();
-    assert!(cx.has_text("not a member"), "{:?}", cx.texts());
+    assert!(
+        cx.has_text("That didn’t go through: not a member"),
+        "{:?}",
+        cx.texts()
+    );
     assert!(cx.has_text("An earlier message wasn’t sent"));
     assert_eq!(shown(&view, "message-1"), 0);
     assert!(holding(&view).is_empty());
@@ -466,9 +476,7 @@ fn types(cx: &mut TestAppContext, view: &Entity<Chat>, key: &str, text: &str) {
 fn the_first_key_is_kept_however_the_room_came_on_screen() {
     let mut cx = TestAppContext::new();
     configure(&mut cx);
-    let routes = cx
-        .host()
-        .stream::<ducktape_view_guest::methods::HostRoute>();
+    let routes = cx.host().stream::<view::methods::HostRoute>();
     let view = cx.open::<Chat>();
     seat(&mut cx);
     let link = crate::links::channel_link("testnet#0a1b2c3d", "forge:web:3", None).unwrap();

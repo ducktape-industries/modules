@@ -23,16 +23,19 @@ use view_wire::list::{
     ListCommand, UniformListHorizontalSizing, UniformListScrollRequest, UniformListScrollStrategy,
     UniformListSizing,
 };
+use view_wire::manifest::{Manifest, Tint};
 use view_wire::methods::{self, Method, Program};
 use view_wire::{
     Action, ActionData, Anchor, AnchoredFitMode, AnchoredPositionMode, Aria, AriaCurrent,
     CanvasCommand, CanvasLineCap, CanvasLineJoin, CanvasSegment, CanvasShape, CanvasStroke,
     ContainerNode, DispatchPhase, Edit, ElementIdAtom, ElementIdWire, Error, Event, Frame,
     GroupRefinement, HasPopup, ImageData, ImageObjectFit, ImageStyle, Interactivity, Invalid,
-    KeyClaim, ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live, Node,
-    Patch, Request, RichTextHighlightStyle, RichTextHover, RichTextRuns, Style, StyleId, SvgSource,
-    SvgTransformation, TextChange, TextNode, TextRange, TextToken, Tooltip, TooltipResponse,
-    WebCommand, WebState, WidgetCommand, click, interactivity, keyboard, mouse,
+    KeyClaim, ListAlignment, ListOffset, ListRequest, ListScroll, ListSizingBehavior, Live,
+    MediaState, MediaStatus, MicCommand, Node, Patch, Playback, RemoteMedia, Request,
+    RichTextHighlightStyle, RichTextHover, RichTextRuns, Style, StyleId, SvgSource,
+    SvgTransformation, TextChange, TextNode, TextRange, TextToken, TextTransform, Tooltip,
+    TooltipResponse, TrackState, WebCommand, WebState, WidgetCommand, click, interactivity,
+    keyboard, mouse,
 };
 
 const MESSAGE: &str =
@@ -40,8 +43,8 @@ const MESSAGE: &str =
 
 /// Bumped by hand with the enum: `node_variant` and `event_variant` fail to compile until
 /// the fixture names the new one, and this count keeps the fixture honest.
-const NODE_VARIANTS: usize = 16;
-const EVENT_VARIANTS: usize = 35;
+const NODE_VARIANTS: usize = 20;
+const EVENT_VARIANTS: usize = 38;
 
 fn golden(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -90,6 +93,7 @@ fn text(content: &str) -> Node {
         id: Some(id(content)),
         style: style(),
         content: content.into(),
+        transform: None,
     })
 }
 
@@ -187,13 +191,21 @@ fn frame_and_events_are_the_committed_bytes() {
     );
 }
 
-/// The program a golden `module.query`/`op.submit`/`module.changes` addresses.
+/// The program a golden `program.query`/`op.submit`/`program.changes` addresses.
 struct Golden;
 impl Program for Golden {
     const NAME: &'static str = "golden";
     type Op = String;
     type Query = (u64, String);
     type Reply = Vec<u32>;
+
+    fn execute(_: &program::ExecCtx, _: Self::Op) -> Result<(), program::Error> {
+        unreachable!()
+    }
+
+    fn query(_: &program::QueryCtx, _: Self::Query) -> Result<Self::Reply, program::Error> {
+        unreachable!()
+    }
 }
 
 /// The kind, the request bytes and the reply bytes of one exchange.
@@ -220,7 +232,14 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
     use methods::*;
     vec![
         exchange::<Query<Golden>>((7, "q".into()), vec![1, 2, 3]),
-        exchange::<Submit<Golden>>("op".into(), b"receipt".to_vec()),
+        exchange::<Submit<Golden>>(
+            "op".into(),
+            Submitted::Applied {
+                frame: [7; 32],
+                until: 1_300,
+                output: b"receipt".to_vec(),
+            },
+        ),
         exchange::<ChainStatus>(
             (),
             NodeStatus {
@@ -274,6 +293,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             BlockPage {
                 before: Some(10),
                 limit: 2,
+                most: 1,
             },
             BlockList {
                 blocks: vec![Block {
@@ -312,9 +332,18 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 listed_from: Some(3),
             },
         ),
-        exchange::<ChainBlock>(BlockRef::Id([4; 32]), None),
         exchange::<ChainBlock>(
-            BlockRef::Height(9),
+            BlockAsk {
+                by: BlockRef::Id([4; 32]),
+                most: 0,
+            },
+            None,
+        ),
+        exchange::<ChainBlock>(
+            BlockAsk {
+                by: BlockRef::Height(9),
+                most: u32::MAX,
+            },
             Some(Block {
                 height: 9,
                 id: [4; 32],
@@ -370,6 +399,26 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             None,
         ),
         exchange::<BlobGet>("sha256:00".into(), Some(b"blob".to_vec())),
+        // a view this host cannot read the manifest of
+        exchange::<BlobManifest>(
+            "sha256:01".into(),
+            Some(Manifested {
+                size: 512,
+                view: Some(CarriedView {
+                    size: 256,
+                    manifest: None,
+                }),
+            }),
+        ),
+        // a program that draws nothing
+        exchange::<BlobManifest>(
+            "sha256:02".into(),
+            Some(Manifested {
+                size: 128,
+                view: None,
+            }),
+        ),
+        exchange::<BlobManifest>("sha1:03".into(), None),
         exchange::<HostSession>(
             (),
             Session {
@@ -381,8 +430,144 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             },
         ),
         exchange::<HostVisible>((), true),
+        exchange::<HostFloat>(
+            Float {
+                width: 320,
+                height: 200,
+                min_width: 240,
+                min_height: 150,
+                on_top: true,
+            },
+            Placement {
+                floating: true,
+                on_top: true,
+            },
+        ),
+        exchange::<HostFloat>(
+            Float {
+                width: 320,
+                height: 200,
+                min_width: 240,
+                min_height: 150,
+                on_top: false,
+            },
+            Placement {
+                floating: true,
+                on_top: false,
+            },
+        ),
+        exchange::<HostUnfloat>((), ()),
+        exchange::<HostPlacement>(
+            (),
+            Placement {
+                floating: false,
+                on_top: false,
+            },
+        ),
         exchange::<HostBadge>(3, ()),
         exchange::<HostTitle>("general".into(), ()),
+        exchange::<HostShow>(Place::Account, ()),
+        exchange::<HostShow>(Place::CameraSettings, ()),
+        exchange::<HostShow>(Place::MicrophoneSettings, ()),
+        exchange::<CameraDevices>(
+            (),
+            vec![
+                CameraDevice {
+                    id: "0".into(),
+                    name: "FaceTime HD Camera".into(),
+                    default: true,
+                    facing: Facing::Front,
+                },
+                CameraDevice {
+                    id: "1".into(),
+                    name: "Back Camera".into(),
+                    default: false,
+                    facing: Facing::Back,
+                },
+                CameraDevice {
+                    id: "2".into(),
+                    name: "USB Camera".into(),
+                    default: false,
+                    facing: Facing::External,
+                },
+            ],
+        ),
+        exchange::<MicrophoneDevices>(
+            (),
+            AudioDevices {
+                inputs: vec![
+                    AudioDevice {
+                        id: "Built-in Microphone".into(),
+                        name: "Built-in Microphone".into(),
+                        default: true,
+                        kind: AudioKind::Other,
+                    },
+                    AudioDevice {
+                        id: "AirPods".into(),
+                        name: "AirPods".into(),
+                        default: false,
+                        kind: AudioKind::Headphones,
+                    },
+                ],
+                outputs: vec![
+                    AudioDevice {
+                        id: "Speaker".into(),
+                        name: "Speaker".into(),
+                        default: true,
+                        kind: AudioKind::Speaker,
+                    },
+                    AudioDevice {
+                        id: "Earpiece".into(),
+                        name: "iPhone".into(),
+                        default: false,
+                        kind: AudioKind::Earpiece,
+                    },
+                    AudioDevice {
+                        id: "Headphones".into(),
+                        name: "Headphones".into(),
+                        default: false,
+                        kind: AudioKind::Headphones,
+                    },
+                ],
+            },
+        ),
+        exchange::<MicrophoneChime>(Some("Headphones".into()), ()),
+        exchange::<MicrophoneChime>(None, ()),
+        exchange::<FilePick>(
+            Pick { multiple: true },
+            vec![
+                Picked {
+                    name: "tape.png".into(),
+                    size: 3,
+                    file: 1,
+                },
+                Picked {
+                    name: "film.mov".into(),
+                    size: 1 << 30,
+                    file: 2,
+                },
+            ],
+        ),
+        exchange::<FilePick>(Pick { multiple: false }, Vec::new()),
+        exchange::<OpPut>(
+            PutBlobs {
+                blobs: vec![
+                    NewBlob {
+                        kind: "chunk".into(),
+                        body: BlobBody::Picked {
+                            file: 1,
+                            offset: 0,
+                            len: BLOB_MOST,
+                        },
+                    },
+                    NewBlob {
+                        kind: "chunk".into(),
+                        body: BlobBody::Bytes(b"tape".to_vec()),
+                    },
+                ],
+            },
+            vec![[0x11; 32], [0x22; 32]],
+        ),
         exchange::<LinkOpen>("duck://chat/room".into(), ()),
         exchange::<HostRoute>((), "tx/00ff".into()),
         exchange::<HostId>("msg".into(), "msg-1".into()),
@@ -404,10 +589,25 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
         exchange::<NotifyPost>(notification(), Delivery::Banner),
         exchange::<NotifyPost>(notification(), Delivery::Logged),
         exchange::<NotifyPost>(notification(), Delivery::Blocked),
+        exchange::<NotifyPost>(
+            Notification {
+                title: "alice is calling".into(),
+                body: "Huddle with 3 people".into(),
+                tag: "call/c-1".into(),
+                link: "duck://local/huddle/call/c-1".into(),
+                kind: NoticeKind::Call,
+                until: 1_700_000_045,
+                end_link: "duck://local/huddle/call/c-1/leave".into(),
+            },
+            Delivery::Banner,
+        ),
         exchange::<StoreGet>("reads/alice".into(), Some(vec![1, 2])),
         exchange::<StoreSet>(("reads/alice".into(), None), ()),
         exchange::<StoreSet>(("reads/alice".into(), Some(vec![1, 2])), ()),
         exchange::<NotifySeen>("#design".into(), ()),
+        exchange::<StoreChanges>((), "reads/alice".into()),
+        exchange::<HostShowing>("general".into(), ()),
+        exchange::<HostScreen>((), vec!["dm-3-5".into(), "general".into()]),
         exchange::<ChainHeads>(
             (),
             Head {
@@ -416,7 +616,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 id: [4; 32],
             },
         ),
-        exchange::<ModuleDescribe>(
+        exchange::<ProgramDescribe>(
             ("chat".into(), vec![1, 2]),
             Some(Description {
                 title: "Post in #design".into(),
@@ -426,7 +626,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 }],
             }),
         ),
-        exchange::<ModuleDescribe>(
+        exchange::<ProgramDescribe>(
             ("chat".into(), vec![1, 2]),
             Some(Description {
                 title: "Post in #design".into(),
@@ -445,7 +645,7 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                     },
                     Field {
                         label: "program".into(),
-                        value: Value::Module("chat".into()),
+                        value: Value::Program("chat".into()),
                     },
                     Field {
                         label: "commit".into(),
@@ -465,8 +665,136 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
                 ],
             }),
         ),
-        exchange::<ModuleDescribe>(("chat".into(), vec![3]), None),
+        exchange::<ProgramDescribe>(("chat".into(), vec![3]), None),
+        exchange::<LivePublishTrack>(
+            LivePublish {
+                track: live_track("presence/3"),
+                mode: LiveMode::Datagram,
+                priority: 128,
+            },
+            Publishing::Waiting,
+        ),
+        exchange::<LivePublishTrack>(
+            LivePublish {
+                track: live_track("presence/3"),
+                mode: LiveMode::Datagram,
+                priority: 128,
+            },
+            Publishing::Subscribers(2),
+        ),
+        exchange::<LivePublishTrack>(
+            LivePublish {
+                track: live_track("doc"),
+                mode: LiveMode::Stream,
+                priority: 128,
+            },
+            Publishing::Cut { group: 4 },
+        ),
+        exchange::<LiveSendObject>(
+            LiveSend {
+                track: live_track("doc"),
+                group: 4,
+                object: 0,
+                body: vec![1, 2],
+                end: true,
+            },
+            (),
+        ),
+        exchange::<LiveSubscribeTrack>(
+            LiveSubscribe {
+                track: live_track("doc"),
+                from: LiveStart::Latest,
+            },
+            LiveItem::Waiting,
+        ),
+        exchange::<LiveSubscribeTrack>(
+            LiveSubscribe {
+                track: live_track("doc"),
+                from: LiveStart::Latest,
+            },
+            LiveItem::Opened {
+                by: 3,
+                mode: LiveMode::Stream,
+                latest: Some(4),
+            },
+        ),
+        exchange::<LiveSubscribeTrack>(
+            LiveSubscribe {
+                track: live_track("presence/3"),
+                from: LiveStart::Next,
+            },
+            LiveItem::Opened {
+                by: 3,
+                mode: LiveMode::Datagram,
+                latest: None,
+            },
+        ),
+        exchange::<LiveSubscribeTrack>(
+            LiveSubscribe {
+                track: live_track("doc"),
+                from: LiveStart::Latest,
+            },
+            LiveItem::Object {
+                group: 4,
+                object: 1,
+                body: vec![7],
+            },
+        ),
+        exchange::<LiveSubscribeTrack>(
+            LiveSubscribe {
+                track: live_track("doc"),
+                from: LiveStart::Latest,
+            },
+            LiveItem::GroupEnd {
+                group: 4,
+                complete: false,
+            },
+        ),
+        exchange::<LiveTracks>("lobby".into(), Watching::Waiting),
+        exchange::<LiveTracks>(
+            "lobby".into(),
+            Watching::Announce(LiveAnnounce {
+                name: "presence/3".into(),
+                by: 3,
+                mode: LiveMode::Datagram,
+                up: true,
+            }),
+        ),
     ]
+    .into_iter()
+    // a view's manifest in every tint: the borsh rule samples each one
+    .chain(
+        Tint::ALL
+            .map(|tint| exchange::<BlobManifest>("sha256:00".into(), Some(carried_view(tint)))),
+    )
+    .collect()
+}
+
+/// A program's code carrying a view, its manifest in `tint`.
+fn carried_view(tint: Tint) -> methods::Manifested {
+    methods::Manifested {
+        size: 2_048,
+        view: Some(methods::CarriedView {
+            size: 1_024,
+            manifest: Some(Manifest {
+                wire_id: "0123abcd".into(),
+                name: "Chat".into(),
+                description: "Rooms and threads.".into(),
+                capabilities: methods::Capability::ALL.to_vec(),
+                min_width: 480,
+                targets: vec!["chat".into()],
+                icon: "icons/chat.svg".into(),
+                tint,
+            }),
+        }),
+    }
+}
+
+fn live_track(name: &str) -> methods::LiveTrack {
+    methods::LiveTrack {
+        room: "lobby".into(),
+        name: name.into(),
+    }
 }
 
 fn notification() -> methods::Notification {
@@ -475,6 +803,9 @@ fn notification() -> methods::Notification {
         body: "@bob hi".into(),
         tag: "room".into(),
         link: "duck://chat/room".into(),
+        kind: methods::NoticeKind::Notice,
+        until: 0,
+        end_link: String::new(),
     }
 }
 

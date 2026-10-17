@@ -1,22 +1,24 @@
 //! The execute path: who acts, which op, and the repository ops (create,
 //! configure, grant, revoke, push, stage). Change ops live in `changes`.
 
+use ::program::{BlobId, Error, HashKind};
+use ::program::{
+    ExecCtx, QueryCtx, already_exists, capacity, decoded, invalid, not_found, unauthorized,
+};
 use gitcore::server::{Policy, RefUpdate};
 use gitcore::{Error as GitError, Limits, server};
-use guest::{Error, HashKind};
-use guest::{ExecCtx, QueryCtx, already_exists, capacity, decoded, invalid, unauthorized};
 
-use crate::contract::{Bounds, MAX_PATH_BYTES, Principal, Repo, Settings, valid_repo_name};
+use crate::contract::{Bounds, PACK_KIND, Principal, Repo, Settings, valid_repo_name};
 use crate::objects::{ObjectWriter, object_not_held};
 use crate::state::{
     WRITERS, delete_ref, is_writer, load_bounds, load_refs, load_repo, repo_exists, repo_hash,
     save_bounds, save_repo, set_ref, storage,
 };
 
-pub const MODULE: &str = "forge";
+pub const PROGRAM: &str = "forge";
 
 pub(crate) fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
-    let bounds: Bounds = decoded(MODULE, "Bounds", params)?;
+    let bounds: Bounds = decoded(PROGRAM, "Bounds", params)?;
     let usable = bounds.page_size > 0
         && bounds.log_walk > 0
         && bounds.tree_walk > 0
@@ -33,9 +35,9 @@ pub(crate) fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
 }
 
 /// Forge is written by keys (a person's or an agent's account), never by a
-/// module or the system: the frame is signed, and acts as the account its
+/// program or the system: the frame is signed, and acts as the account its
 /// key holds. The host rejects a frame whose key's account is not live
-/// before it gets here; [`ExecCtx::sender`](guest::ExecCtx::sender) refuses
+/// before it gets here; [`ExecCtx::sender`](program::ExecCtx::sender) refuses
 /// a key that holds no account.
 pub(crate) fn signed_account(ctx: &ExecCtx) -> Result<Principal, Error> {
     ctx.env()
@@ -83,8 +85,7 @@ pub(crate) fn configure(
 ) -> Result<(), Error> {
     let mut repo = load_repo(ctx, name)?;
     require_owner(&repo, actor)?;
-    let head_is_a_ref =
-        settings.head.len() <= MAX_PATH_BYTES && server::valid_ref_name(&settings.head);
+    let head_is_a_ref = server::valid_ref_name(&settings.head);
     if !head_is_a_ref {
         return Err(invalid("head names a ref under refs/"));
     }
@@ -99,7 +100,7 @@ pub(crate) fn grant(
     principal: Principal,
 ) -> Result<(), Error> {
     require_owner(&load_repo(ctx, name)?, actor)?;
-    require_person_or_agent(ctx, &principal)?;
+    require_user_or_program_account(ctx, &principal)?;
     WRITERS.insert(ctx, &(name.to_owned(), principal));
     Ok(())
 }
@@ -127,9 +128,14 @@ pub(crate) fn push(
     actor: &Principal,
     name: &str,
     request: &[u8],
+    pack: Option<BlobId>,
 ) -> Result<(), Error> {
     let mut repo = load_repo(ctx, name)?;
     require_writer(ctx, name, &repo, actor)?;
+    let pack = match pack {
+        Some(id) => held_pack(ctx, id)?,
+        None => Vec::new(),
+    };
     let bounds = load_bounds(ctx)?;
     let hash = repo_hash(&repo);
     let refs = load_refs(ctx, name, hash)?;
@@ -142,6 +148,7 @@ pub(crate) fn push(
         &mut objects,
         &refs,
         request,
+        &pack,
         hash,
         &limits_of(&bounds),
         &policy,
@@ -177,15 +184,31 @@ pub(crate) fn stage(
     ctx: &ExecCtx,
     actor: &Principal,
     name: &str,
-    pack: &[u8],
+    pack: BlobId,
 ) -> Result<(), Error> {
     let repo = load_repo(ctx, name)?;
     require_writer(ctx, name, &repo, actor)?;
+    let pack = held_pack(ctx, pack)?;
     let bounds = load_bounds(ctx)?;
     let hash = repo_hash(&repo);
     let mut objects = ObjectWriter::new(ctx, hash);
-    server::admit_pack(&mut objects, pack, hash, &limits_of(&bounds)).map_err(refusal_of)?;
+    server::admit_pack(&mut objects, &pack, hash, &limits_of(&bounds)).map_err(refusal_of)?;
     objects.flush()
+}
+
+fn held_pack(ctx: &ExecCtx, id: BlobId) -> Result<Vec<u8>, Error> {
+    let Some(blob) = ctx.blob_get(id) else {
+        return Err(not_found(format!(
+            "pack {id:?} is not held: put it as a {PACK_KIND:?} blob and wait for a quorum of validators to hold it"
+        )));
+    };
+    if blob.kind != PACK_KIND {
+        return Err(invalid(format!(
+            "pack {id:?} is a {:?} blob, not {PACK_KIND:?}",
+            blob.kind
+        )));
+    }
+    Ok(blob.body)
 }
 
 fn require_owner(repo: &Repo, actor: &Principal) -> Result<(), Error> {
@@ -219,12 +242,15 @@ pub(crate) fn require_named(principal: &Principal) -> Result<(), Error> {
 }
 
 /// Whom a person asks to write or review: an account the identity role
-/// profiles as a person or an agent that acts.
-pub(crate) fn require_person_or_agent(ctx: &QueryCtx, principal: &Principal) -> Result<(), Error> {
+/// profiles as a user or a program account that acts.
+pub(crate) fn require_user_or_program_account(
+    ctx: &QueryCtx,
+    principal: &Principal,
+) -> Result<(), Error> {
     let Some(number) = principal.account() else {
         return Err(invalid("only an account is named here"));
     };
-    ctx.require_person_or_agent(number)
+    ctx.require_user_or_program_account(number)
 }
 
 pub fn limits_of(bounds: &Bounds) -> Limits {

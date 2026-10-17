@@ -1,10 +1,13 @@
 //! What the network calls a principal, as the composer offers and inserts it.
 //! The roster itself is [`chat::view::Names`], shared with every view that
 //! names chat principals.
-use chat::Principal;
-use chat::view::Names;
+use std::collections::BTreeMap;
 
-/// Autocomplete candidates: every person and agent that acts
+use chat::view::Names;
+use chat::{Category, Kind, Principal, Standing};
+use identity::Ownership;
+
+/// Autocomplete candidates: every user and program account that acts
 /// ([`Names::people`]), then the room's other such members, labelled
 /// without the `@`.
 pub fn mention_choices(names: &Names, members: &[Principal]) -> Vec<MentionChoice> {
@@ -37,10 +40,110 @@ pub fn mention_token(principal: &Principal) -> String {
     }
 }
 
+/// The account a [`mention_token`] names.
+pub fn mentioned(token: &str) -> Option<u64> {
+    token.strip_prefix("<@")?.strip_suffix('>')?.parse().ok()
+}
+
+/// Why `agent` would give `reader` no answer, by the rule harness answers
+/// by: an active agent's manager always gets one, anyone else as its
+/// `Ownership` in identity says. None when it answers them, for anyone not
+/// an active agent, and while its `Ownership` is unread.
+pub fn unanswered(
+    names: &Names,
+    ownerships: &BTreeMap<u64, Ownership>,
+    agent: &Principal,
+    reader: u64,
+) -> Option<&'static str> {
+    let Some(Kind::Program {
+        manager,
+        category: Category::Agent,
+        standing: Standing::Active,
+        ..
+    }) = names.kind(agent)
+    else {
+        return None;
+    };
+    if *manager == reader {
+        return None;
+    }
+    match ownerships.get(&agent.account()?)? {
+        Ownership::Owner => Some("its manager only"),
+        Ownership::Accounts(listed) if !listed.contains(&reader) => Some("listed people only"),
+        Ownership::Accounts(_) | Ownership::Anyone => None,
+    }
+}
+
+/// Whom an agent answers, in words: its manager, and whom its `Ownership`
+/// adds.
+pub fn answers(names: &Names, ownership: &Ownership) -> String {
+    match ownership {
+        Ownership::Owner => "Answers its manager only".into(),
+        Ownership::Accounts(listed) => {
+            let listed: Vec<String> = listed
+                .iter()
+                .map(|number| names.member(&Principal::Account(*number)))
+                .collect();
+            format!("Answers its manager and {}", listed.join(", "))
+        }
+        Ownership::Anyone => "Answers anyone".into(),
+    }
+}
+
 /// The other account of a dm room `mine` is in.
 pub fn dm_peer_of(mine: u64, channel_id: &str) -> Option<u64> {
     let (a, b) = chat::dm_peers(channel_id)?;
     (mine == a).then_some(b).or((mine == b).then_some(a))
+}
+
+#[cfg(not(feature = "notifier"))]
+impl crate::Chat {
+    /// The open direct room's other person: their name, and whether they
+    /// are an agent. None for a channel, or before the roster is read.
+    pub(crate) fn dm_peer(&self) -> Option<(String, bool)> {
+        let room = self.room.as_ref()?;
+        let names = self.names.ready()?;
+        let peer = Principal::Account(dm_peer_of(self.my_account()?, &room.id)?);
+        Some((names.member(&peer), crate::message::agent(names, &peer)))
+    }
+
+    /// The name a person knows room `id` by: a direct room's other person,
+    /// else the channel's `#name`; a direct room the roster cannot name yet
+    /// keeps its own name, and a room not listed yet its short id.
+    pub(crate) fn room_name(&self, id: &str) -> String {
+        let peer = self
+            .my_account()
+            .and_then(|me| dm_peer_of(me, id))
+            .zip(self.names.ready())
+            .map(|(peer, names)| names.member(&Principal::Account(peer)));
+        let name = |name: &str| match chat::dm_peers(id) {
+            Some(_) => name.to_owned(),
+            None => format!("#{name}"),
+        };
+        peer.unwrap_or_else(|| match self.info(id) {
+            Some(info) => name(&info.channel.name),
+            None => name(&view::design::short_hex(id)),
+        })
+    }
+
+    /// What the top of the open room's history says: where it starts, by
+    /// the channel's name or the direct room's other person.
+    pub(crate) fn intro(&self) -> Option<String> {
+        let room = self.room.as_ref()?;
+        Some(match self.dm_peer() {
+            Some((peer, _)) => {
+                format!("This is the very beginning of your conversation with {peer}.")
+            }
+            None => {
+                let name = self
+                    .info(&room.id)
+                    .map_or(room.id.as_str(), |info| info.channel.name.as_str());
+                format!(
+                    "This is the very beginning of #{name}. Say hello, or pin what the room is for."
+                )
+            }
+        })
+    }
 }
 
 #[cfg(test)]
@@ -58,22 +161,23 @@ mod tests {
     }
 
     fn agent(manager: u64, standing: Standing) -> Kind {
-        Kind::Managed {
+        Kind::Program {
+            script: None,
             manager,
             category: Category::Agent,
             standing,
         }
     }
 
-    /// Mentions and reviewers offer people and agents that act: no
-    /// module's account, no suspended or revoked one. Each wears the one
+    /// Mentions and reviewers offer users and program accounts that act:
+    /// no system account, no suspended or revoked one. Each wears the one
     /// badge and note its kind gives it.
     #[test]
     fn the_pickers_offer_people_and_live_agents_only() {
         let names = Names::from_roster([
-            profile(1, "ada", Kind::Person),
+            profile(1, "ada", Kind::User),
             profile(2, "scout", agent(1, Standing::Active)),
-            profile(3, "forge", Kind::Module("forge".into())),
+            profile(3, "forge", Kind::System("forge".into())),
             profile(4, "idle", agent(1, Standing::Suspended)),
             profile(5, "gone", agent(1, Standing::Revoked)),
         ]);
@@ -92,9 +196,49 @@ mod tests {
             names.badge(&account(2)).as_deref(),
             Some("Agent · managed by ada")
         );
-        assert_eq!(names.badge(&account(3)).as_deref(), Some("Module · forge"));
-        assert_eq!(names.module(&account(3)), Some("forge"));
+        assert_eq!(names.badge(&account(3)).as_deref(), Some("Program · forge"));
+        assert_eq!(names.program(&account(3)), Some("forge"));
         assert!(crate::message::agent(&names, &account(2)));
         assert!(!crate::message::agent(&names, &account(3)));
+    }
+
+    /// An active agent answers its manager always, and anyone else as its
+    /// `Ownership` says; nothing is said of a person, a program, an agent
+    /// that does not act, or one whose `Ownership` is unread.
+    #[test]
+    fn who_an_agent_leaves_unanswered() {
+        let names = Names::from_roster([
+            profile(1, "ada", Kind::User),
+            profile(2, "scout", agent(1, Standing::Active)),
+            profile(3, "forge", Kind::System("forge".into())),
+            profile(4, "bo", Kind::User),
+            profile(5, "idle", agent(1, Standing::Suspended)),
+        ]);
+        let scout = Principal::Account(2);
+        let heard = |ownership: Ownership, reader| {
+            let ownerships = BTreeMap::from([(2, ownership)]);
+            unanswered(&names, &ownerships, &scout, reader)
+        };
+        assert_eq!(heard(Ownership::Owner, 1), None, "its manager");
+        assert_eq!(heard(Ownership::Owner, 4), Some("its manager only"));
+        assert_eq!(heard(Ownership::Accounts(vec![4]), 4), None);
+        assert_eq!(
+            heard(Ownership::Accounts(vec![4]), 9),
+            Some("listed people only")
+        );
+        assert_eq!(heard(Ownership::Anyone, 9), None);
+        let none = BTreeMap::new();
+        assert_eq!(unanswered(&names, &none, &scout, 4), None, "unread");
+        for other in [1, 3, 5] {
+            let ownerships = BTreeMap::from([(other, Ownership::Owner)]);
+            assert_eq!(
+                unanswered(&names, &ownerships, &Principal::Account(other), 4),
+                None
+            );
+        }
+        assert_eq!(
+            answers(&names, &Ownership::Accounts(vec![4, 9])),
+            "Answers its manager and bo, account 9"
+        );
     }
 }

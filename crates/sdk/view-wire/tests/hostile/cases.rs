@@ -2,29 +2,42 @@ use super::*;
 
 /// What `sanitize` refuses a tree for on a field's account (`validate_field`).
 const FIELD_REFUSALS: [&str; 5] = [
-    "field text exceeds its cap",
+    "field text is longer than a u32 offset reaches",
     "field cursor is off its text",
     "field token is off its text",
-    "field token id exceeds bounds",
+    "field token id is empty",
     "field claims a key the engine owns",
 ];
 
+/// What `sanitize` refuses a tree for on a sheet's or the root's account:
+/// a shape the generator draws at random too.
+const SHAPE_REFUSALS: [&str; 6] = [
+    "a sheet has at most eight detents",
+    "a sheet detent is a fraction of the body",
+    "sheet detents ascend",
+    "a sheet inside a sheet",
+    "a second sheet in one frame",
+    "on_back below the root",
+];
+
+/// What `sanitize` refuses a tree for on a piece's live track's account
+/// (`LiveTrack::check`).
+const TRACK_REFUSALS: [&str; 2] = [
+    "a live room is one line of plain text",
+    "a live track's name is `/`-separated segments, none empty or `..`",
+];
+
 fn field_refusal(refused: &Refused) -> bool {
-    matches!(refused, Refused::Invalid(reason) if FIELD_REFUSALS.contains(reason))
+    matches!(refused.reason(), Refused::Invalid(reason)
+        if FIELD_REFUSALS.contains(reason)
+            || SHAPE_REFUSALS.contains(reason)
+            || TRACK_REFUSALS.contains(reason))
 }
 
 // --------------------------------------------------------------- test 1
 
-/// Random trees, decoded and sanitized, always land inside every bound
-/// `sanitize` promises — or `decode` refused them for a reason the budget
-/// actually names, and the tree really was over it.
 #[test]
-fn random_trees_come_out_of_sanitize_inside_every_bound() {
-    // Without decode's own recursion needing a dedicated thread (its depth
-    // budget caps recursion at MAX_DEPTH, safe on a normal stack — see
-    // `on_big_stack`'s doc comment), 200 trees with a steep width/depth skew
-    // keep this test's slice of the file's ~10s debug budget comfortably
-    // small.
+fn random_trees_come_out_of_sanitize_well_formed() {
     const SEED: u64 = 0x5EED_F00D_1234_5678;
     const NUM_TREES: usize = 200;
 
@@ -37,58 +50,46 @@ fn random_trees_come_out_of_sanitize_inside_every_bound() {
             (frame, bytes)
         });
 
-        match decode::<Frame>(&bytes) {
+        let mut decoded = match decode::<Frame>(&bytes) {
+            Ok(decoded) => decoded,
             Err(message) => {
                 let root = frame.root.as_ref().expect("gen_frame always sets a root");
-                let depth_over = tree_depth(root) > MAX_DEPTH;
-                // an entry of the style table costs what a node costs
-                let count_over = root.count() + frame.styles.len() > MAX_DECODED_NODES;
-                let styles_over = frame.styles.len() > MAX_STYLES;
                 assert!(
-                    depth_over || count_over || styles_over,
-                    "{ctx}: decode refused a tree that was not actually over either \
-                     budget (depth {}, nodes {}): {message}",
-                    tree_depth(root),
-                    root.count()
+                    tree_depth(root) > MAX_DEPTH,
+                    "{ctx}: decode refused a tree within MAX_DEPTH: {message}"
                 );
-                let names_the_budget = message.contains("deeper than the host renders")
-                    || message.contains("more nodes than the host holds")
-                    || message.contains("more styles than the host holds");
-                assert!(names_the_budget, "{ctx}: unexpected refusal: {message}");
+                assert!(
+                    message.contains("deeper than the host renders"),
+                    "{ctx}: unexpected refusal: {message}"
+                );
+                continue;
             }
-            Ok(mut decoded) => {
-                let duplicate_ids = decoded
-                    .root
-                    .as_ref()
-                    .is_some_and(has_duplicate_typed_siblings);
-                let before = decoded.root.as_ref().map(field_texts).unwrap_or_default();
-                match sanitized(&mut decoded) {
-                    Ok(styles) => {
-                        check_frame(&decoded, &styles, &ctx);
-                        // a subtree past the node budget is dropped whole;
-                        // every field left reads as it did
-                        let after = decoded.root.as_ref().map(field_texts).unwrap_or_default();
-                        let mut kept = before.iter();
-                        assert!(
-                            after.iter().all(|text| kept.any(|had| had == text)),
-                            "{ctx}: sanitize rewrote a field's text"
-                        );
-                    }
-                    Err(Refused::Duplicate(_)) => {
-                        assert!(
-                            duplicate_ids,
-                            "{ctx}: identity refusal must name an actual collision"
-                        );
-                    }
-                    // Other refusals are a field off its own text or claiming
-                    // an engine key: the engine adopts a value whole or not at
-                    // all. Every other bound is pulled into range instead.
-                    Err(refused) => assert!(
-                        field_refusal(&refused),
-                        "{ctx}: unexpected refusal: {refused}"
-                    ),
-                }
+        };
+        let duplicate_ids = decoded
+            .root
+            .as_ref()
+            .is_some_and(has_duplicate_typed_siblings);
+        let before = decoded.root.as_ref().map(field_texts).unwrap_or_default();
+        match sanitized(&mut decoded) {
+            Ok(styles) => {
+                check_frame(&decoded, &styles, &ctx);
+                let after = decoded.root.as_ref().map(field_texts).unwrap_or_default();
+                let mut kept = before.iter();
+                assert!(
+                    after.iter().all(|text| kept.any(|had| had == text)),
+                    "{ctx}: sanitize rewrote a field's text"
+                );
             }
+            Err(Refused::Duplicate(_)) => {
+                assert!(
+                    duplicate_ids,
+                    "{ctx}: identity refusal must name an actual collision"
+                );
+            }
+            Err(refused) => assert!(
+                field_refusal(&refused),
+                "{ctx}: unexpected refusal: {refused}"
+            ),
         }
     }
 }
@@ -145,11 +146,6 @@ fn payload_message(payload: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "non-string panic payload".to_string())
 }
 
-/// Bytes a hostile guest could have written — a sound frame with random
-/// bit flips, byte overwrites, truncations, insertions, and corrupted
-/// length prefixes — never make `decode` panic. `decode`'s own depth budget
-/// (checked before each level is even built) is what makes this safe on a
-/// plain stack.
 #[test]
 fn mutated_bytes_never_panic() {
     const SEED: u64 = 0xBADF_00D5_A5A5_5A5A;
@@ -184,11 +180,6 @@ fn mutated_bytes_never_panic() {
 
 // --------------------------------------------------------------- test 2b
 
-/// A sanitized tree, patched by any sequence the wire decodes, is a
-/// sanitized tree or a refusal: every bound `check_bounds` covers holds of
-/// what `apply` returns `Ok` on, whatever the patches inserted, replaced or
-/// shuffled — including subtrees over every ceiling on their own, and keys
-/// the tree already holds. A refusal names one of the budgets `apply` has.
 #[test]
 fn a_patched_sanitized_tree_is_a_sanitized_tree() {
     const SEED: u64 = 0x9A7C_4E5D_0B1A_2F3E;
@@ -222,7 +213,10 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
                 // a hostile one is refused somewhere along it.
                 let mut candidate = staged.clone();
                 let applied = view_wire::apply(&mut candidate, vec![patch.clone()], &styles);
-                if matches!(applied, Err(Refused::Duplicate(_))) {
+                if matches!(
+                    applied.as_ref().map_err(Refused::reason),
+                    Err(Refused::Duplicate(_))
+                ) {
                     assert!(
                         has_duplicate_typed_siblings(&candidate),
                         "{ctx}: missing collision"
@@ -243,14 +237,11 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
                 patches,
                 ..Frame::default()
             };
-            // A patch's subtree meets the same budget a root does: one nested
-            // past what the host walks is refused before it is built.
             let decoded: Frame = match decode(&encode(&patched)) {
                 Ok(decoded) => decoded,
                 Err(message) => {
                     assert!(
-                        message.contains("deeper than the host renders")
-                            || message.contains("more nodes than the host holds"),
+                        message.contains("deeper than the host renders"),
                         "{ctx}: unexpected refusal: {message}"
                     );
                     return;
@@ -261,7 +252,10 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
             // far; the batch sanitizes once, at the end, so a well-behaved
             // sequence can still collide in it. `apply` leaves the tree it
             // refused as the batch made it, collision included.
-            if matches!(outcome, Err(Refused::Duplicate(_))) {
+            if matches!(
+                outcome.as_ref().map_err(Refused::reason),
+                Err(Refused::Duplicate(_))
+            ) {
                 assert!(
                     has_duplicate_typed_siblings(&root),
                     "{ctx}: missing collision"
@@ -288,7 +282,6 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
                                 | "an index past the list"
                                 | "a list edit on no list"
                                 | "props of another arity"
-                                | "more patches than the host applies"
                         )
                     ) || field_refusal(&refused);
                     assert!(named, "{ctx}: unexpected refusal: {refused}");
@@ -300,14 +293,6 @@ fn a_patched_sanitized_tree_is_a_sanitized_tree() {
 
 // --------------------------------------------------------------- test 2c
 
-/// `diff` then `apply` is the identity on the new tree, and leaves both
-/// inputs as they were. The new tree is the old one with a handful of
-/// well-behaved edits applied — so the pair shares most of its structure
-/// and the diff has to find moves, inserts, removes and field changes
-/// inside lists whose keys come from a five-entry pool — and, one time in
-/// eight, an unrelated tree, which is a `Replace` at the root. A pair whose
-/// diff runs past `MAX_PATCHES` is the guest's cue to send the tree whole,
-/// so it is only checked for that refusal.
 #[test]
 fn a_diff_applied_to_the_old_tree_is_the_new_tree_for_random_pairs() {
     const SEED: u64 = 0xD1FF_0000_A99B_1E5A;
@@ -348,7 +333,7 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree_for_random_pairs() {
                         match view_wire::apply(&mut candidate, vec![patch], &styles) {
                             Ok(_) => edited = candidate,
                             Err(refused) if field_refusal(&refused) => {}
-                            Err(Refused::Duplicate(_)) => {
+                            Err(refused) if matches!(refused.reason(), Refused::Duplicate(_)) => {
                                 assert!(
                                     has_duplicate_typed_siblings(&candidate),
                                     "{ctx}: missing collision"
@@ -368,11 +353,7 @@ fn a_diff_applied_to_the_old_tree_is_the_new_tree_for_random_pairs() {
             let mut applied = old;
             match view_wire::apply(&mut applied, patches, &styles) {
                 Ok(_) => assert_eq!(applied, new, "{ctx}: {count} patches"),
-                Err(refused) => assert!(
-                    count > MAX_PATCHES
-                        && refused == Refused::Invalid("more patches than the host applies"),
-                    "{ctx}: {count} patches refused: {refused}"
-                ),
+                Err(refused) => panic!("{ctx}: {count} patches refused: {refused}"),
             }
         });
     }
@@ -417,7 +398,7 @@ fn a_length_prefix_bomb_is_refused_without_the_allocation() {
 
 /// `sanitize` is idempotent: running it again on its own output changes
 /// nothing, which is what lets a host call it on every frame without
-/// worrying whether the guest already sent a clean one.
+/// worrying whether the view already sent a clean one.
 #[test]
 fn sanitize_is_idempotent() {
     const SEED: u64 = 0x1DE4_1DE4_5EED_5EED;
@@ -455,11 +436,11 @@ fn resize_handle_round_trip_retains_routes_and_checks_its_child() {
             id: None,
             style: StyleId(1),
             content: String::new(),
+            transform: None,
         })),
         style: PLAIN,
         interactivity: Default::default(),
     });
-    assert_eq!(tree_depth(frame.root.as_ref().unwrap()), 1);
     frame.styles = common::table(&[gen_native_style(&mut Rng::new(99))]);
     let mut decoded: Frame = decode(&encode(&frame)).unwrap();
     let styles = sanitized(&mut decoded).unwrap();
@@ -501,89 +482,6 @@ fn a_host_local_id_on_any_node_kind_is_refused() {
         }
     }
     assert!(refused > 0, "no poisoned id reached the check");
-}
-
-// --------------------------------------------------------------- frame vectors
-
-fn remove_patches(count: usize) -> Vec<Patch> {
-    vec![
-        Patch::Remove {
-            path: Vec::new(),
-            index: 0
-        };
-        count
-    ]
-}
-
-/// Each sequence a frame carries is bounded at decode: at the bound it
-/// reads, one past it is refused by the bound's own message.
-#[test]
-fn a_frame_sequence_past_its_bound_is_refused_at_decode() {
-    let request = Request {
-        id: 0,
-        kind: String::new(),
-        payload: Vec::new(),
-    };
-    let response = TooltipResponse {
-        request: 0,
-        character_index: None,
-        content: None,
-    };
-    let frame = |name: &str, count: usize| match name {
-        "patches" => Frame {
-            patches: remove_patches(count),
-            ..Default::default()
-        },
-        "requests" => Frame {
-            requests: vec![request.clone(); count],
-            ..Default::default()
-        },
-        "cancels" => Frame {
-            cancels: vec![0; count],
-            ..Default::default()
-        },
-        _ => Frame {
-            tooltip_responses: vec![response.clone(); count],
-            ..Default::default()
-        },
-    };
-    for (name, bound, message) in [
-        ("patches", MAX_PATCHES, "more patches than the host applies"),
-        ("requests", MAX_REQUESTS, "too many requests"),
-        ("cancels", MAX_CANCELS, "too many cancels"),
-        (
-            "tooltip responses",
-            MAX_PATCHES,
-            "too many tooltip responses",
-        ),
-    ] {
-        assert!(
-            decode::<Frame>(&encode(&frame(name, bound))).is_ok(),
-            "{name}"
-        );
-        let error = decode::<Frame>(&encode(&frame(name, bound + 1))).unwrap_err();
-        assert!(error.contains(message), "{name}: {error}");
-    }
-}
-
-#[test]
-fn a_frame_of_remove_patches_near_the_frame_byte_limit_is_refused_fast() {
-    let bytes = encode(&Frame {
-        patches: remove_patches(1_500_000),
-        ..Default::default()
-    });
-    assert!(
-        (7 << 20..=MAX_FRAME_BYTES).contains(&bytes.len()),
-        "{} bytes",
-        bytes.len()
-    );
-    let start = std::time::Instant::now();
-    let error = decode::<Frame>(&bytes).unwrap_err();
-    assert!(
-        error.contains("more patches than the host applies"),
-        "{error}"
-    );
-    assert!(start.elapsed() < std::time::Duration::from_millis(500));
 }
 
 /// A tooltip response's content is a tree of its own, decoded on the same

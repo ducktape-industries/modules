@@ -101,6 +101,7 @@ fn full_style() -> gpui::StyleRefinement {
     style.text.text_overflow = Some(gpui::TextOverflow::TruncateMiddle("...".into()));
     style.text.text_align = Some(gpui::TextAlign::Center);
     style.text.line_clamp = Some(3);
+    style.text.letter_spacing = Some(gpui::px(-0.5));
     style
 }
 
@@ -200,6 +201,8 @@ fn full_interactivity() -> Interactivity {
             hoverable: true,
             delay_ms: 300,
         }),
+        on_back: Some(81),
+        page: Some(2),
     }
 }
 
@@ -351,7 +354,53 @@ fn first_nodes() -> Vec<Node> {
             ],
             on_state: Some(17),
         },
+        Node::Camera {
+            id: id("camera"),
+            style: style(),
+            device: Some("0".into()),
+            mirror: true,
+            object_fit: ImageObjectFit::Cover,
+            on_state: Some(18),
+            publish: Some(live_track("cam/3")),
+        },
+        Node::Microphone {
+            id: id("microphone"),
+            style: style(),
+            device: Some("Built-in Microphone".into()),
+            output: Some("Headphones".into()),
+            monitor: true,
+            revision: 2,
+            commands: vec![MicCommand::Record { seconds: 5 }, MicCommand::Stop],
+            on_state: Some(19),
+            publish: Some(live_track("mic/3")),
+            muted: true,
+        },
+        Node::Remote {
+            id: id("tile"),
+            style: style(),
+            track: live_track("cam/4"),
+            media: RemoteMedia::Video {
+                object_fit: ImageObjectFit::Cover,
+            },
+            on_state: Some(20),
+        },
+        Node::Remote {
+            id: id("voice"),
+            style: style(),
+            track: live_track("mic/4"),
+            media: RemoteMedia::Audio {
+                output: Some("Headphones".into()),
+            },
+            on_state: Some(21),
+        },
         text("plain"),
+        // drawn in capitals, named as written
+        Node::Text(TextNode {
+            id: Some(id("capitals")),
+            style: style(),
+            content: "Drawn in capitals".into(),
+            transform: Some(TextTransform::Uppercase),
+        }),
         Node::Image {
             id: Some(id("image")),
             hash: 42,
@@ -403,6 +452,13 @@ fn first_nodes() -> Vec<Node> {
                 invalid: Some(Invalid::True),
                 required: true,
                 read_only: true,
+                text_input: view_wire::TextInput {
+                    autocorrect: true,
+                    autocapitalize: view_wire::Autocapitalize::Words,
+                    suggestions: true,
+                    input_action: view_wire::TextInputAction::Go,
+                    virtual_keyboard: view_wire::VirtualKeyboard::Url,
+                },
                 ..Default::default()
             }),
             placeholder: "Name".into(),
@@ -419,6 +475,14 @@ fn first_nodes() -> Vec<Node> {
             style: style(),
             on_dismiss: Some(30),
             children: vec![text("base"), text("modal")],
+        },
+        Node::Sheet {
+            id: id("sheet"),
+            label: Some("Message actions".into()),
+            style: style(),
+            detents: vec![0.6, 1.0],
+            on_dismiss: Some(31),
+            child: boxed("actions"),
         },
         Node::Canvas {
             style: style(),
@@ -868,7 +932,11 @@ pub fn node_variant(node: &Node) -> &'static str {
         Node::Field { .. } => "Field",
         Node::Space => "Space",
         Node::Overlay { .. } => "Overlay",
+        Node::Sheet { .. } => "Sheet",
         Node::Canvas { .. } => "Canvas",
         Node::Web { .. } => "Web",
+        Node::Camera { .. } => "Camera",
+        Node::Microphone { .. } => "Microphone",
+        Node::Remote { .. } => "Remote",
     }
 }

@@ -10,7 +10,8 @@
               "Name": "the tip"
             },
             "style": 0,
-            "content": "the tip"
+            "content": "the tip",
+            "transform": null
           }
         }
       }
@@ -143,7 +144,8 @@
             "TruncateMiddle": "..."
           },
           "text_align": "Center",
-          "line_clamp": 3
+          "line_clamp": 3,
+          "letter_spacing": -0.5
         },
         "mouse_cursor": "PointingHand",
         "opacity": 0.5,
@@ -322,7 +324,8 @@
                       "Name": "anchored"
                     },
                     "style": 0,
-                    "content": "anchored"
+                    "content": "anchored",
+                    "transform": null
                   }
                 }
               ]
@@ -367,7 +370,8 @@
                       "Name": "row 0"
                     },
                     "style": 0,
-                    "content": "row 0"
+                    "content": "row 0",
+                    "transform": null
                   }
                 },
                 {
@@ -376,7 +380,8 @@
                       "Name": "row 1"
                     },
                     "style": 0,
-                    "content": "row 1"
+                    "content": "row 1",
+                    "transform": null
                   }
                 }
               ]
@@ -455,7 +460,8 @@
                       "Name": "item"
                     },
                     "style": 0,
-                    "content": "item"
+                    "content": "item",
+                    "transform": null
                   }
                 }
               ]
@@ -486,7 +492,8 @@
                     "Name": "divider"
                   },
                   "style": 0,
-                  "content": "divider"
+                  "content": "divider",
+                  "transform": null
                 }
               }
             }
@@ -500,7 +507,8 @@
                     "Name": "later"
                   },
                   "style": 0,
-                  "content": "later"
+                  "content": "later",
+                  "transform": null
                 }
               }
             }
@@ -518,7 +526,8 @@
                     "Name": "measured"
                   },
                   "style": 0,
-                  "content": "measured"
+                  "content": "measured",
+                  "transform": null
                 }
               }
             }
@@ -541,12 +550,101 @@
             }
           },
           {
+            "Camera": {
+              "id": {
+                "Name": "camera"
+              },
+              "style": 0,
+              "device": "0",
+              "mirror": true,
+              "object_fit": "Cover",
+              "on_state": 18,
+              "publish": {
+                "room": "lobby",
+                "name": "cam/3"
+              }
+            }
+          },
+          {
+            "Microphone": {
+              "id": {
+                "Name": "microphone"
+              },
+              "style": 0,
+              "device": "Built-in Microphone",
+              "output": "Headphones",
+              "monitor": true,
+              "revision": 2,
+              "commands": [
+                {
+                  "Record": {
+                    "seconds": 5
+                  }
+                },
+                "Stop"
+              ],
+              "on_state": 19,
+              "publish": {
+                "room": "lobby",
+                "name": "mic/3"
+              },
+              "muted": true
+            }
+          },
+          {
+            "Remote": {
+              "id": {
+                "Name": "tile"
+              },
+              "style": 0,
+              "track": {
+                "room": "lobby",
+                "name": "cam/4"
+              },
+              "media": {
+                "Video": {
+                  "object_fit": "Cover"
+                }
+              },
+              "on_state": 20
+            }
+          },
+          {
+            "Remote": {
+              "id": {
+                "Name": "voice"
+              },
+              "style": 0,
+              "track": {
+                "room": "lobby",
+                "name": "mic/4"
+              },
+              "media": {
+                "Audio": {
+                  "output": "Headphones"
+                }
+              },
+              "on_state": 21
+            }
+          },
+          {
             "Text": {
               "id": {
                 "Name": "plain"
               },
               "style": 0,
-              "content": "plain"
+              "content": "plain",
+              "transform": null
+            }
+          },
+          {
+            "Text": {
+              "id": {
+                "Name": "capitals"
+              },
+              "style": 0,
+              "content": "Drawn in capitals",
+              "transform": "Uppercase"
             }
           },
           {
@@ -581,7 +679,8 @@
                       "Name": "while loading"
                     },
                     "style": 0,
-                    "content": "while loading"
+                    "content": "while loading",
+                    "transform": null
                   }
                 }
               ],
@@ -648,7 +747,14 @@
                 "disabled": false,
                 "invalid": "true",
                 "required": true,
-                "read_only": true
+                "read_only": true,
+                "text_input": {
+                  "autocorrect": true,
+                  "autocapitalize": "Words",
+                  "suggestions": true,
+                  "input_action": "Go",
+                  "virtual_keyboard": "Url"
+                }
               },
               "placeholder": "Name",
               "secure": false,
@@ -674,7 +780,8 @@
                       "Name": "base"
                     },
                     "style": 0,
-                    "content": "base"
+                    "content": "base",
+                    "transform": null
                   }
                 },
                 {
@@ -683,10 +790,35 @@
                       "Name": "modal"
                     },
                     "style": 0,
-                    "content": "modal"
+                    "content": "modal",
+                    "transform": null
                   }
                 }
               ]
+            }
+          },
+          {
+            "Sheet": {
+              "id": {
+                "Name": "sheet"
+              },
+              "label": "Message actions",
+              "style": 0,
+              "detents": [
+                0.6,
+                1.0
+              ],
+              "on_dismiss": 31,
+              "child": {
+                "Text": {
+                  "id": {
+                    "Name": "actions"
+                  },
+                  "style": 0,
+                  "content": "actions",
+                  "transform": null
+                }
+              }
             }
           },
           {
@@ -833,7 +965,8 @@
                       "Name": "anchored"
                     },
                     "style": 0,
-                    "content": "anchored"
+                    "content": "anchored",
+                    "transform": null
                   }
                 }
               ]
@@ -880,7 +1013,8 @@
                       "Name": "row 0"
                     },
                     "style": 0,
-                    "content": "row 0"
+                    "content": "row 0",
+                    "transform": null
                   }
                 },
                 {
@@ -889,7 +1023,8 @@
                       "Name": "row 1"
                     },
                     "style": 0,
-                    "content": "row 1"
+                    "content": "row 1",
+                    "transform": null
                   }
                 }
               ]
@@ -1055,7 +1190,9 @@
                   "request": 50,
                   "hoverable": true,
                   "delay_ms": 300
-                }
+                },
+                "on_back": 81,
+                "page": 2
               },
               "children": [
                 {
@@ -1064,7 +1201,8 @@
                       "Name": "item"
                     },
                     "style": 0,
-                    "content": "item"
+                    "content": "item",
+                    "transform": null
                   }
                 }
               ]
@@ -1105,7 +1243,8 @@
                       "Name": "while loading"
                     },
                     "style": 0,
-                    "content": "while loading"
+                    "content": "while loading",
+                    "transform": null
                   }
                 }
               ],
@@ -1342,7 +1481,14 @@
                 "disabled": false,
                 "invalid": "true",
                 "required": true,
-                "read_only": true
+                "read_only": true,
+                "text_input": {
+                  "autocorrect": false,
+                  "autocapitalize": "None",
+                  "suggestions": false,
+                  "input_action": "Unspecified",
+                  "virtual_keyboard": "Text"
+                }
               },
               "placeholder": "Notes",
               "secure": true,
@@ -1594,7 +1740,8 @@
                 "Name": "replaced"
               },
               "style": 0,
-              "content": "replaced"
+              "content": "replaced",
+              "transform": null
             }
           }
         }
@@ -1610,7 +1757,8 @@
                 "Name": "re-propped"
               },
               "style": 0,
-              "content": "re-propped"
+              "content": "re-propped",
+              "transform": null
             }
           }
         }
@@ -1625,7 +1773,8 @@
                 "Name": "inserted"
               },
               "style": 0,
-              "content": "inserted"
+              "content": "inserted",
+              "transform": null
             }
           }
         }
@@ -2203,6 +2352,11 @@
       }
     },
     {
+      "Pointer": {
+        "touch": true
+      }
+    },
+    {
       "Viewport": {
         "width": 900.0,
         "height": 501.0
@@ -2447,6 +2601,11 @@
       }
     },
     {
+      "Back": {
+        "handler": 81
+      }
+    },
+    {
       "Web": {
         "handler": 17,
         "state": {
@@ -2455,6 +2614,44 @@
           "loading": true,
           "can_go_back": true,
           "can_go_forward": true
+        }
+      }
+    },
+    {
+      "Media": {
+        "handler": 18,
+        "state": {
+          "status": "Failed",
+          "device": "FaceTime HD Camera",
+          "playback": "Recording",
+          "detail": "the driver stopped",
+          "speaking": true,
+          "opens_settings": true,
+          "monitor_stopped": true,
+          "track": {
+            "Up": {
+              "subscribers": 2
+            }
+          }
+        }
+      }
+    },
+    {
+      "Media": {
+        "handler": 20,
+        "state": {
+          "status": "Gone",
+          "device": "",
+          "playback": "Idle",
+          "detail": "",
+          "speaking": false,
+          "opens_settings": false,
+          "monitor_stopped": false,
+          "track": {
+            "Ended": {
+              "code": "track_ended"
+            }
+          }
         }
       }
     }
@@ -2796,6 +2993,12 @@
       "date",
       "time"
     ],
+    "Autocapitalize": [
+      "None",
+      "Words",
+      "Sentences",
+      "Characters"
+    ],
     "BorderStyle": [
       "Solid",
       "Dashed"
@@ -2946,6 +3149,19 @@
       "Right",
       "Numpad"
     ],
+    "MediaStatus": [
+      "Starting",
+      "Live",
+      "Denied",
+      "Busy",
+      "Gone",
+      "NoDevice",
+      "Unsupported",
+      "Failed"
+    ],
+    "MicCommand": [
+      "Stop"
+    ],
     "MouseButton": [
       "Left",
       "Right",
@@ -3020,6 +3236,11 @@
       "Clip",
       "Hidden",
       "Scroll"
+    ],
+    "Playback": [
+      "Idle",
+      "Recording",
+      "Playing"
     ],
     "Position": [
       "Relative",
@@ -3234,6 +3455,19 @@
       "Center",
       "Right"
     ],
+    "TextInputAction": [
+      "Unspecified",
+      "Enter",
+      "Done",
+      "Go",
+      "Next",
+      "Previous",
+      "Search",
+      "Send"
+    ],
+    "TextTransform": [
+      "Uppercase"
+    ],
     "Toggled": [
       "false",
       "true",
@@ -3244,6 +3478,10 @@
       "Moved",
       "Ended",
       "Cancelled"
+    ],
+    "TrackState": [
+      "None",
+      "Waiting"
     ],
     "UniformListHorizontalSizing": [
       "FitList",
@@ -3258,6 +3496,15 @@
     "UniformListSizing": [
       "Infer",
       "Auto"
+    ],
+    "VirtualKeyboard": [
+      "Text",
+      "Numeric",
+      "Decimal",
+      "Tel",
+      "Email",
+      "Url",
+      "Search"
     ],
     "Visibility": [
       "Visible",

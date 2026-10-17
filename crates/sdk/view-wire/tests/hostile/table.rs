@@ -45,9 +45,10 @@ pub(super) fn take_styles() -> Vec<Style> {
     TABLE.with_borrow_mut(|table| std::mem::take(&mut table.waiting))
 }
 
-/// `sanitize`, and the table it left the host holding.
+/// `sanitize`, and the table it left the host holding; what it refuses,
+/// not where.
 pub(super) fn sanitized(frame: &mut Frame) -> Result<Styles, Refused> {
     let mut styles = Styles::default();
-    view_wire::sanitize(frame, &mut styles)?;
+    view_wire::sanitize(frame, &mut styles).map_err(|refused| refused.reason().clone())?;
     Ok(styles)
 }

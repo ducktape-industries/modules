@@ -1,6 +1,6 @@
 //! Why a call failed: a [`code`] naming the class of failure (how a caller
 //! recovers) and one sentence for a person. The same borsh bytes as the
-//! kernel's `abi::Refusal { reason, sentence }`; `guest::kernel` converts.
+//! kernel's `abi::Refusal { reason, sentence }`; `program::kernel` converts.
 use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -30,21 +30,21 @@ impl std::error::Error for Error {}
 
 /// An [`Error`]'s code: two errors share one exactly when a caller does the
 /// same thing about them. The kernel's `abi::reason` tokens, same strings
-/// (guest's `codes_are_the_kernels_reasons` holds them equal).
+/// (`program`'s `codes_are_the_kernels_reasons` holds them equal).
 pub mod code {
-    /// the host: no module by that id runs on this network.
-    pub const UNKNOWN_MODULE: &str = "unknown_program";
-    /// the host: the module faulted (a trap, the fuel or memory limit).
+    /// the host: no program by that id runs on this network.
+    pub const UNKNOWN_PROGRAM: &str = "unknown_program";
+    /// the host: the program faulted (a trap, the fuel or memory limit).
     pub const TRAP: &str = "trap";
     /// the host: bytes that do not decode, or an op the call's kind refuses.
     pub const PROTOCOL: &str = "protocol";
     pub const ANCHOR: &str = "anchor";
     pub const DUPLICATE: &str = "duplicate";
-    /// naming a thing that exists (id, key, path, account, sibling module).
+    /// naming a thing that exists (id, key, path, account, sibling program).
     pub const NOT_FOUND: &str = "not_found";
     /// creating under a different id, or treating the create as done.
     pub const ALREADY_EXISTS: &str = "already_exists";
-    /// re-reading and retrying: what the caller sent is behind the module.
+    /// re-reading and retrying: what the caller sent is behind the program.
     pub const STALE: &str = "stale";
     /// changing the thing's state first: it exists, in a state that refuses this.
     pub const WRONG_STATE: &str = "wrong_state";
@@ -58,10 +58,10 @@ pub mod code {
     pub const EXHAUSTED: &str = "exhausted";
     /// acting as someone else: the actor may not do this to this thing.
     pub const UNAUTHORIZED: &str = "unauthorized";
-    /// configuring: the module or this deployment does not provide the op.
+    /// configuring: the program or this deployment does not provide the op.
     pub const UNSUPPORTED: &str = "unsupported";
     /// an operator: stored state or an index failed an invariant.
     pub const CORRUPT: &str = "corrupt";
-    /// an operator: a sibling module answered a shape or value this one refuses.
+    /// an operator: a sibling program answered a shape or value this one refuses.
     pub const UNEXPECTED_REPLY: &str = "unexpected_reply";
 }

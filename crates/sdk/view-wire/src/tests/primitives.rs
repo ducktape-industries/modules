@@ -1,54 +1,11 @@
 use super::*;
 
 #[test]
-fn svg_and_raster_images_share_the_frame_picture_budget() {
-    let image = Node::Image {
-        id: Some(ElementIdWire::Name("App/raster".into())),
-        hash: 8,
-        data: Some(ImageData::Encoded(vec![
-            0;
-            MAX_PICTURE_BYTES_PER_FRAME / 2 + 1
-        ])),
-        label: None,
-        image_style: ImageStyle {
-            grayscale: false,
-            object_fit: ImageObjectFit::Contain,
-        },
-        loading: false,
-        fallback: false,
-        state_children: vec![],
-        style: StyleId(0),
-        interactivity: Default::default(),
-    };
-    let mut frame = Frame {
-        root: Some(column(vec![
-            picture(Some(vec![0; MAX_PICTURE_BYTES_PER_FRAME / 2])),
-            image,
-        ])),
-        ..Frame::default()
-    };
-    sanitize_plain(&mut frame).unwrap();
-    let children = frame.root.as_ref().unwrap().children();
-    assert!(matches!(
-        children[0],
-        Node::Svg {
-            source: SvgSource::Data { bytes: Some(_), .. },
-            ..
-        }
-    ));
-    assert!(
-        matches!(children[1], Node::Image { data: None, .. }),
-        "SVG consumption must reduce raster admission"
-    );
-    assert!(decode::<Frame>(&encode(&frame)).is_ok());
-}
-
-#[test]
 fn primitive_geometry_and_state_children_are_bounded_in_the_main_walk() {
     let image = Node::Image {
         id: Some(ElementIdWire::Integer(1)),
         hash: 1,
-        data: Some(ImageData::Refusal("x".repeat(MAX_STRING_BYTES + 1))),
+        data: Some(ImageData::Refusal("x".into())),
         label: None,
         image_style: ImageStyle {
             grayscale: false,
@@ -62,7 +19,7 @@ fn primitive_geometry_and_state_children_are_bounded_in_the_main_walk() {
     };
     let svg = Node::Svg {
         id: Some(ElementIdWire::Integer(2)),
-        source: SvgSource::External("x".repeat(MAX_STRING_BYTES + 1)),
+        source: SvgSource::External("x".into()),
         transformation: SvgTransformation {
             scale: [f32::NAN, f32::INFINITY],
             translate: [f32::NEG_INFINITY, f32::INFINITY],
@@ -84,27 +41,15 @@ fn primitive_geometry_and_state_children_are_bounded_in_the_main_walk() {
         }],
     };
     let children = sanitized_children(column(vec![image, svg, anchored]));
-    let Node::Image {
-        data: Some(ImageData::Refusal(reason)),
-        state_children,
-        ..
-    } = &children[0]
-    else {
+    let Node::Image { state_children, .. } = &children[0] else {
         panic!()
     };
-    assert!(reason.len() <= MAX_STRING_BYTES);
     assert_eq!(state_children.len(), 2);
-    let Node::Svg {
-        source: SvgSource::External(path),
-        transformation,
-        ..
-    } = &children[1]
-    else {
+    let Node::Svg { transformation, .. } = &children[1] else {
         panic!()
     };
-    assert!(path.len() <= MAX_STRING_BYTES);
-    assert_eq!(transformation.scale, [0., MAX_PIXELS]);
-    assert_eq!(transformation.translate, [-MAX_PIXELS, MAX_PIXELS]);
+    assert_eq!(transformation.scale, [0., f32::MAX]);
+    assert_eq!(transformation.translate, [f32::MIN, f32::MAX]);
     assert_eq!(transformation.rotate, 0.);
     let Node::Anchored {
         fit,
@@ -116,46 +61,19 @@ fn primitive_geometry_and_state_children_are_bounded_in_the_main_walk() {
     else {
         panic!()
     };
-    assert_eq!(*position, Some([MAX_PIXELS, -MAX_PIXELS]));
+    assert_eq!(*position, Some([f32::MAX, f32::MIN]));
     assert_eq!(*offset, Some([0., 3.]));
     assert_eq!(
         *fit,
-        AnchoredFitMode::SnapToWindowWithMargin([0., MAX_PIXELS, 0., 4.])
+        AnchoredFitMode::SnapToWindowWithMargin([0., f32::MAX, 0., 4.])
     );
-    assert!(matches!(children[0], Node::Deferred { priority: 16, .. }));
-}
-
-/// A picture past what is left of the frame's budget is dropped whole,
-/// never cut: half an SVG is not an SVG. The head of the frame keeps
-/// its pictures; a hash without bytes passes as the reference it is.
-#[test]
-fn a_frame_past_the_picture_budget_drops_whole_pictures_from_its_tail() {
-    const EACH: usize = MAX_PICTURE_BYTES_PER_FRAME / 4 * 3;
-    let children = sanitized_children(column(vec![
-        picture(Some(vec![b'<'; EACH])),
-        picture(Some(vec![b'<'; EACH])),
-        picture(None),
-        picture(Some(vec![b'<'; MAX_PICTURE_BYTES_PER_FRAME / 4])),
-    ]));
-    let carried: Vec<Option<usize>> = children
-        .iter()
-        .map(|child| match child {
-            Node::Svg {
-                source: SvgSource::Data { bytes, .. },
-                ..
-            } => bytes.as_ref().map(Vec::len),
-            other => panic!("{other:?}"),
-        })
-        .collect();
-    assert_eq!(
-        carried,
-        [
-            Some(EACH),
-            None,
-            None,
-            Some(MAX_PICTURE_BYTES_PER_FRAME / 4)
-        ]
-    );
+    assert!(matches!(
+        children[0],
+        Node::Deferred {
+            priority: usize::MAX,
+            ..
+        }
+    ));
 }
 
 /// An aria field a view did not set costs no bytes: the default is the
@@ -205,5 +123,147 @@ fn an_unset_aria_field_sends_no_bytes() {
         let bytes = encode(&aria);
         assert_eq!(bytes[0], 0x81, "one key for {aria:?}");
         assert_eq!(decode::<Aria>(&bytes).unwrap(), aria);
+    }
+}
+
+/// A web, camera or microphone piece the view's manifest leaves out is
+/// found wherever a frame carries a node: deep in its tree, in a patch, in
+/// a tooltip's content; declared, it is not.
+#[test]
+fn an_undeclared_piece_is_found_in_the_tree_a_patch_and_a_tooltip() {
+    use crate::methods::Capability;
+    let web = Node::Web {
+        id: ElementIdWire::Name("page".into()),
+        url: "https://example.com/".into(),
+        style: StyleId(0),
+        revision: 0,
+        commands: Vec::new(),
+        on_state: None,
+    };
+    let microphone = Node::Microphone {
+        id: ElementIdWire::Name("mic".into()),
+        style: StyleId(0),
+        device: None,
+        output: None,
+        monitor: false,
+        revision: 0,
+        commands: Vec::new(),
+        on_state: None,
+        publish: None,
+        muted: false,
+    };
+    let camera = Node::Camera {
+        id: ElementIdWire::Name("camera".into()),
+        style: StyleId(0),
+        device: None,
+        mirror: false,
+        object_fit: ImageObjectFit::Contain,
+        on_state: None,
+        publish: None,
+    };
+    let in_tree = Frame {
+        root: Some(column(vec![text("a"), column(vec![web])])),
+        ..Frame::default()
+    };
+    let in_patch = Frame {
+        patches: vec![Patch::Insert {
+            path: Vec::new(),
+            index: 0,
+            node: microphone,
+        }],
+        ..Frame::default()
+    };
+    let in_tooltip = Frame {
+        tooltip_responses: vec![TooltipResponse {
+            request: 0,
+            character_index: None,
+            content: Some(Box::new(column(vec![camera]))),
+        }],
+        ..Frame::default()
+    };
+    for (frame, gate) in [
+        (in_tree, Capability::Web),
+        (in_patch, Capability::Microphone),
+        (in_tooltip, Capability::Camera),
+    ] {
+        assert_eq!(frame.undeclared(&[Capability::Host]), Some(gate));
+        assert_eq!(frame.undeclared(&[Capability::Host, gate]), None);
+    }
+}
+
+fn voice(room: &str, name: &str) -> Node {
+    Node::Remote {
+        id: ElementIdWire::Name("voice".into()),
+        style: StyleId(0),
+        track: crate::methods::LiveTrack {
+            room: room.into(),
+            name: name.into(),
+        },
+        media: RemoteMedia::Audio { output: None },
+        on_state: None,
+    }
+}
+
+/// A piece that publishes or plays a live track needs `live` beside its
+/// device's capability; a remote piece needs `live` alone.
+#[test]
+fn a_piece_on_a_live_track_needs_the_live_capability() {
+    use crate::methods::Capability::{Live, Microphone};
+    let remote = Frame {
+        root: Some(column(vec![voice("call", "mic/2")])),
+        ..Frame::default()
+    };
+    assert_eq!(remote.undeclared(&[Microphone]), Some(Live));
+    assert_eq!(remote.undeclared(&[Live]), None);
+    let publishing = Frame {
+        root: Some(Node::Microphone {
+            id: ElementIdWire::Name("me".into()),
+            style: StyleId(0),
+            device: None,
+            output: None,
+            monitor: false,
+            revision: 0,
+            commands: Vec::new(),
+            on_state: None,
+            publish: Some(crate::methods::LiveTrack {
+                room: "call".into(),
+                name: "mic/1".into(),
+            }),
+            muted: true,
+        }),
+        ..Frame::default()
+    };
+    assert_eq!(publishing.undeclared(&[Microphone]), Some(Live));
+    assert_eq!(publishing.undeclared(&[Live]), Some(Microphone));
+    assert_eq!(publishing.undeclared(&[Microphone, Live]), None);
+}
+
+/// A piece's track is held to the rule `live.publish` holds a track to: a
+/// room of one line of plain text, a name of `/`-separated segments within
+/// the node's cap. A track out of it refuses the frame.
+#[test]
+fn a_piece_on_a_track_out_of_its_rule_refuses_the_frame() {
+    use program::live::{MAX_NAMESPACE, MAX_TRACK_NAME};
+    let longest = "x".repeat(MAX_TRACK_NAME);
+    sanitized_root(voice("call", &longest));
+    sanitized_root(voice(&"r".repeat(MAX_NAMESPACE), "mic/2"));
+    let name =
+        Refused::Invalid("a live track's name is `/`-separated segments, none empty or `..`");
+    let room = Refused::Invalid("a live room is one line of plain text");
+    for (piece, refused) in [
+        (voice("call", &format!("{longest}x")), &name),
+        (voice("call", ""), &name),
+        (voice("call", "mic//2"), &name),
+        (voice("call", "mic/../2"), &name),
+        (voice("", "mic/2"), &room),
+        (voice("call\nroom", "mic/2"), &room),
+        (voice("call\u{202e}", "mic/2"), &room),
+        (voice(&"r".repeat(MAX_NAMESPACE + 1), "mic/2"), &room),
+    ] {
+        let mut frame = Frame {
+            root: Some(column(vec![piece])),
+            ..Frame::default()
+        };
+        assert_eq!(sanitize_plain(&mut frame).as_ref().err(), Some(refused));
     }
 }

@@ -4,11 +4,13 @@
 //! straight away, keeps saying so while the block that carries it is on its
 //! way, and a refusal replaces it with the reason inline. Nothing is guessed
 //! into the lists — the next query reconciles them.
-use ducktape_view_guest::prelude::*;
+use view::methods::Submitted;
+use view::prelude::*;
 
 use crate::api::SubmitForge;
-use crate::state::{ChangeForm, Forge, NewRepo, Pending, Progress, change_key};
-use forge::{Mergeability, Op, Revision, Settings, valid_repo_name};
+use crate::state::{Answer, ChangeForm, Forge, NewRepo, Pending, Progress, change_key};
+use crate::words;
+use forge::{Mergeability, Op, Principal, Revision, Settings, valid_repo_name};
 
 /// Why a change cannot merge from this view.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,36 +43,67 @@ impl MergeBlock {
 impl Forge {
     /// One operation, optimistic in `scope` until a query reconciles it.
     pub(crate) fn submit(&mut self, op: Op, scope: String, label: &str, cx: &mut Context<Self>) {
-        self.next_pending += 1;
-        let id = self.next_pending;
         // a landed review is done: its session goes, or it stays pinned at
         // the old head and Finish would send it again
         let review = matches!(op, Op::ReviewSubmit { .. }).then(|| scope.clone());
+        let id = self.issue(scope, label, cx);
+        let submit = cx.host().ask::<SubmitForge>(op);
+        cx.land(submit, move |forge, answer, cx| {
+            cx.notify();
+            if forge.settle(id, answer) {
+                if let Some(key) = &review {
+                    forge.reviews.remove(key);
+                }
+                forge.refresh(cx);
+            }
+        })
+        .detach();
+    }
+
+    /// A write's row in `scope`, saying it is on its way; its id.
+    fn issue(&mut self, scope: String, label: &str, cx: &mut Context<Self>) -> u64 {
+        self.next_pending += 1;
+        let id = self.next_pending;
         self.pending.push(Pending {
             id,
+            issued: self.block,
             scope,
             label: label.to_owned(),
             progress: Progress::Submitting,
         });
         cx.notify();
-        let submit = cx.host().ask::<SubmitForge>(op);
-        cx.land(submit, move |forge, result, cx| {
-            cx.notify();
-            let Some(op) = forge.pending.iter_mut().find(|op| op.id == id) else {
-                return;
-            };
-            match result {
-                Ok(_) => {
-                    op.progress = Progress::Accepted;
-                    if let Some(key) = &review {
-                        forge.reviews.remove(key);
-                    }
-                    forge.refresh(cx);
-                }
-                Err(refusal) => op.progress = Progress::Refused(refusal.message),
-            }
-        })
-        .detach();
+        id
+    }
+
+    /// Lands the host's answer on write `id`'s row: applied, it waits for
+    /// the block that carries it (or goes, when a block heard since it
+    /// went out carried it); else the row keeps the answer (a doubt reads
+    /// as a refusal the person may retry) until dismissed. Says whether
+    /// it was applied.
+    fn settle(&mut self, id: u64, answer: Answer) -> bool {
+        let block = self.block;
+        let Some(op) = self.pending.iter_mut().find(|op| op.id == id) else {
+            return false;
+        };
+        if !matches!(answer, Ok(Submitted::Applied { .. })) {
+            op.progress = Progress::Refused(answer);
+            return false;
+        }
+        // the receipt can land after the block on a fast node, and no
+        // later block would retire the row
+        if block > op.issued {
+            self.pending.retain(|op| op.id != id);
+        } else {
+            op.progress = Progress::Accepted;
+        }
+        true
+    }
+
+    /// A write that did not land, taken off its screen (its Dismiss).
+    pub(crate) fn dismiss(&mut self, id: u64, cx: &mut Context<Self>) {
+        self.pending
+            .retain(|op| op.id != id || !matches!(op.progress, Progress::Refused(_)));
+        cx.notify();
     }
 
     pub(crate) fn create_repo(&mut self, cx: &mut Context<Self>) {
@@ -79,10 +112,7 @@ impl Forge {
         };
         let name = form.name.text().trim().to_owned();
         if !valid_repo_name(&name) {
-            form.error = format!(
-                "A repository name is 1–{} bytes of letters, digits, dot, dash or underscore",
-                forge::MAX_REPO_NAME
-            );
+            form.error = "A repository name is letters, digits, dot, dash or underscore".to_owned();
             cx.notify();
             return;
         }
@@ -103,8 +133,9 @@ impl Forge {
         );
     }
 
-    pub(crate) fn start_repo(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn start_repo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.new_repo = Some(NewRepo::default());
+        window.focus(crate::id("forge-new-repo-name"));
         cx.notify();
     }
 
@@ -114,20 +145,28 @@ impl Forge {
     }
 
     /// A Change draft from a ref comparison, or an edit of an open change.
-    pub(crate) fn start_change(&mut self, from: Vec<u8>, cx: &mut Context<Self>) {
+    pub(crate) fn start_change(
+        &mut self,
+        from: Vec<u8>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.form = Some(ChangeForm {
+            repo: self.repo_name(),
             from,
             into: self.default_head(),
             ..ChangeForm::default()
         });
+        window.focus(crate::id("forge-change-title"));
         cx.notify();
     }
 
-    pub(crate) fn start_edit(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn start_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some((change, _, _, _)) = self.change() else {
             return;
         };
         self.form = Some(ChangeForm {
+            repo: self.repo_name(),
             edit: Some(change.n),
             from: match &change.from {
                 Revision::Ref(name) => name.clone(),
@@ -139,6 +178,7 @@ impl Forge {
             reviewers: change.reviewers.clone(),
             error: String::new(),
         });
+        window.focus(crate::id("forge-change-title"));
         cx.notify();
     }
 
@@ -148,15 +188,19 @@ impl Forge {
     }
 
     pub(crate) fn submit_change(&mut self, cx: &mut Context<Self>) {
-        let repo = self.repo_name();
         let Some(form) = &mut self.form else { return };
         if form.title.is_blank() {
             form.error = "A change needs a title".into();
             cx.notify();
             return;
         }
+        // a new change opens from a source: Open waits for one
+        if form.edit.is_none() && form.from.is_empty() {
+            return;
+        }
         let form = form.clone();
         self.form = None;
+        let repo = form.repo.clone();
         let (op, label, scope) = match form.edit {
             Some(n) => (
                 Op::ChangeEdit {
@@ -282,14 +326,36 @@ impl Forge {
         );
     }
 
-    pub(crate) fn grant(&mut self, cx: &mut Context<Self>) {
+    /// Saves the open repository's settings as they are on screen, with
+    /// `change` made (Expo `repo.tsx:449`, `{...settings, ...change}`):
+    /// the phone's switches and default head save as they are flipped.
+    pub(crate) fn configure_with(
+        &mut self,
+        change: impl FnOnce(&mut Settings),
+        cx: &mut Context<Self>,
+    ) {
+        let Some((info, _, _)) = self.repo() else {
+            return;
+        };
+        let mut settings = info.repo.settings.clone();
+        change(&mut settings);
         let repo = self.repo_name();
+        self.submit(
+            Op::Configure { repo, settings },
+            "settings".into(),
+            "Saving these settings",
+            cx,
+        );
+    }
+
+    /// The desktop's Grant: the account number typed in its field.
+    pub(crate) fn grant(&mut self, cx: &mut Context<Self>) {
         let typed = self
             .repo_settings
             .as_ref()
             .map(|form| form.grant.text().trim().to_owned())
             .unwrap_or_default();
-        let Some(principal) = forge::Principal::parse(&typed) else {
+        let Some(principal) = Principal::parse(&typed) else {
             self.notice = "Grant takes an account number".into();
             cx.notify();
             return;
@@ -297,6 +363,12 @@ impl Forge {
         if let Some(form) = &mut self.repo_settings {
             form.grant.reset("");
         }
+        self.grant_to(principal, cx);
+    }
+
+    /// Write access for `principal` in the open repository.
+    pub(crate) fn grant_to(&mut self, principal: Principal, cx: &mut Context<Self>) {
+        let repo = self.repo_name();
         self.submit(
             Op::Grant { repo, principal },
             "settings".into(),
@@ -318,19 +390,25 @@ impl Forge {
     // ------------------------------------------------------ conversation
 
     /// A reply in the change's hidden channel. Chat owns every reply; forge
-    /// owns only the change's own body.
+    /// owns only the change's own body. It is a write like forge's, its
+    /// row under [`Forge::reply_scope`]; the box keeps its text until the
+    /// write lands, so a failure loses nothing, and Send waits while one is
+    /// out (Expo `change.tsx` `Composer`).
     pub(crate) fn post_reply(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let text = self.reply.text().trim().to_owned();
-        if text.is_empty() {
+        let Some(scope) = self.reply_scope() else {
+            return;
+        };
+        if text.is_empty() || self.busy(&scope) {
             return;
         }
         let Some((change, _, _, _)) = self.change() else {
             return;
         };
         let channel = change.channel.clone();
-        self.reply.reset("");
-        cx.notify();
+        let id = self.issue(scope, words::REPLYING, cx);
         let host = cx.host();
+        let sent = text.clone();
         let post = async move {
             let message_id = host.ask::<HostId>("message".into()).await?;
             host.ask::<Submit<::chat::Chat>>(chat::Op::PostMessage {
@@ -341,14 +419,19 @@ impl Forge {
             })
             .await
         };
-        cx.land(post, |forge, result, cx| {
+        cx.land(post, move |forge, answer, cx| {
             cx.notify();
-            match result {
-                Ok(_) => forge.refresh(cx),
-                Err(refusal) => {
-                    forge.notice = format!("That didn’t go through: {}", refusal.message)
-                }
+            if !forge.settle(id, answer) {
+                return;
             }
+            // a chat write: no forge block retires its row, and the room
+            // read again shows the reply
+            forge.pending.retain(|op| op.id != id);
+            // a box changed while the reply was out is left as it is
+            if forge.reply.text().trim() == sent {
+                forge.reply.reset("");
+            }
+            forge.refresh(cx);
         })
         .detach();
     }

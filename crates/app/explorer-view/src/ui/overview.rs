@@ -1,5 +1,6 @@
 //! The Overview tab: the head, the latest blocks and transactions.
 use super::*;
+use view::design::Ladder;
 
 /// A stat keeps this much of the row; the four fold two by two below it.
 const STAT_MIN_W: Pixels = px(200.);
@@ -17,7 +18,7 @@ fn side_by_side(view: &Explorer) -> bool {
     view.width - gutter >= f32::from(PANEL_MIN_W + TXS_MIN_W)
 }
 
-pub(super) fn overview(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
+pub(super) fn overview(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let side = side_by_side(view);
     // side by side, the panels fill the page's height and the rule between
     // them runs to its foot; narrower, each takes the page's width and its
@@ -28,7 +29,7 @@ pub(super) fn overview(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         .when(side, |row| row.flex_wrap().flex_1())
         .when(!side, |column| column.flex_col())
         .child(latest_blocks(view, side, cx, theme))
-        .child(latest_txs(view, side, cx, theme));
+        .child(latest_txs(view, side, cx, theme, ladder));
     div()
         .id("explorer-overview")
         .flex()
@@ -42,23 +43,16 @@ pub(super) fn overview(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
 /// The row of figures: height, epoch, validators, accounts.
 fn stats(view: &Explorer, theme: &Theme) -> impl IntoElement {
     let status = view.status.ready();
-    let dash = || "—".to_string();
+    let dash = || words::NO_VALUE.to_owned();
     let (height, cadence) = match status {
         Some(status) => (
             grouped(status.height),
-            format!("Block every {:.1} s", status.block_time_ms as f64 / 1000.),
+            words::block_every(status.block_time_ms),
         ),
         None => (dash(), String::new()),
     };
-    let (epoch, next) = match status {
-        Some(status) if status.epoch_length > 0 => {
-            let closes = (status.epoch + 1) * status.epoch_length - 1;
-            let left = closes.saturating_sub(status.height);
-            (
-                grouped(status.epoch),
-                format!("Next in {}", plural(left, "block", "blocks")),
-            )
-        }
+    let (epoch, next) = match (status, view.epoch_left()) {
+        (Some(status), Some(left)) => (grouped(status.epoch), words::next_in(left)),
         _ => (dash(), String::new()),
     };
     let validators = view
@@ -148,7 +142,7 @@ fn stat(
 fn latest_blocks(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoElement {
     let all = link(
         "explorer-all-blocks".into(),
-        "All blocks →".into(),
+        words::ALL_BLOCKS.into(),
         Route::Blocks,
         cx,
         theme,
@@ -156,14 +150,7 @@ fn latest_blocks(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl Int
     .text_size(design::text::SECONDARY)
     .into_any_element();
     let list = rows("explorer-latest-blocks-list", "Latest blocks", view);
-    let blocks = block_lines(
-        list,
-        &view.chain.blocks,
-        LATEST,
-        view.chain.now(),
-        cx,
-        theme,
-    );
+    let blocks = block_lines(list, view, LATEST).whole(view, cx, theme);
     div()
         .id("explorer-latest-blocks")
         .when(side, |panel| {
@@ -183,10 +170,16 @@ fn latest_blocks(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl Int
         .child(blocks.build(cx))
 }
 
-fn latest_txs(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoElement {
+fn latest_txs(
+    view: &Explorer,
+    side: bool,
+    cx: Cx,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let all = link(
         "explorer-all-txs".into(),
-        "All transactions →".into(),
+        words::ALL_TRANSACTIONS.into(),
         Route::Transactions(None),
         cx,
         theme,
@@ -194,27 +187,11 @@ fn latest_txs(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoEl
     .text_size(design::text::SECONDARY)
     .into_any_element();
     let list = rows("explorer-latest-txs-list", "Latest transactions", view);
-    let txs = (!view.chain.txs.is_empty()).then(|| {
-        tx_rows(
-            list,
-            view,
-            |view| view.chain.txs.iter().take(LATEST).collect(),
-            false,
-            true,
-        )
-        .whole(view, cx, theme)
-        .build(cx)
-    });
-    let none = view.chain.txs.is_empty().then(|| {
-        quiet(
-            "explorer-no-txs",
-            format!(
-                "No transactions in the last {}.",
-                plural(view.chain.blocks.len() as u64, "block", "blocks")
-            ),
-            theme,
-        )
-    });
+    let txs = match landed(view.frames.as_ref()) {
+        Ok(frames) => latest(view, &frames.rows, list, cx, theme),
+        Err(Some(refusal)) => failed(&design::sentence(&refusal), cx, theme, ladder),
+        Err(None) => quiet("explorer-txs-loading", "Reading transactions…", theme),
+    };
     div()
         .id("explorer-latest-txs")
         .when(side, |panel| panel.flex_1().min_w(TXS_MIN_W))
@@ -224,6 +201,24 @@ fn latest_txs(view: &Explorer, side: bool, cx: Cx, theme: &Theme) -> impl IntoEl
             Some(all),
             theme,
         ))
-        .children(txs)
-        .children(none)
+        .child(txs)
+}
+
+/// The newest of the listing's first page.
+fn latest(
+    view: &Explorer,
+    frames: &Entity<Paged<activity::Frame>>,
+    list: Rows,
+    cx: Cx,
+    theme: &Theme,
+) -> AnyElement {
+    // a first page with nothing on it is a listing with nothing on it
+    let none = frames.read(|frames| frames.rows().is_empty());
+    if none {
+        return quiet("explorer-no-txs", "No transactions recorded.", theme);
+    }
+    frame_rows(list, frames, |frames| frames.iter().take(LATEST).collect())
+        .whole(view, cx, theme)
+        .build(cx)
+        .into_any_element()
 }

@@ -1,6 +1,6 @@
 //! The open room, search results, notices, and composer.
 
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use chat::MsgRow;
 
@@ -8,9 +8,16 @@ use super::timeline;
 use crate::composer::Target;
 use crate::session::Gate;
 use crate::ui::{badge, button, empty_state, quiet};
+use crate::words;
 use crate::{Chat, Hits, Pane, Room};
+use view::design::Ladder;
 
-pub fn render(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+pub fn render(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let pane = div()
         .id("chat-room")
         .flex_1()
@@ -21,26 +28,41 @@ pub fn render(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoEl
         .bg(theme.background)
         .text_color(theme.foreground);
     let Some(room) = &chat.room else {
-        return pane.child(no_room(chat, cx, theme));
+        return pane.child(no_room(chat, cx, theme, ladder));
     };
     let body = match chat.search.query.is_empty() {
-        true => timeline::list(chat, Pane::Timeline, cx, theme).into_any_element(),
-        false => search_results(chat, cx, theme).into_any_element(),
+        true => timeline::list(chat, Pane::Timeline, cx, theme, ladder).into_any_element(),
+        false => search_results(chat, cx, theme, ladder).into_any_element(),
     };
-    pane.child(header(chat, room, cx, theme))
-        .children(notice(chat, cx, theme))
-        .children(confirmation(chat, cx, theme))
+    pane.child(header(chat, room, cx, theme, ladder))
+        .children(notice(chat, cx, theme, ladder))
+        .children(confirmation(chat, cx, theme, ladder))
         .child(body)
-        .child(compose(chat, room, cx, theme))
+        .child(compose(chat, room, cx, theme, ladder))
 }
 
 /// A refused write, until dismissed.
-fn notice(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<impl IntoElement> {
-    if chat.notice.is_empty() {
-        return None;
-    }
+fn notice(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Option<impl IntoElement> {
+    // a refused write, or why the room's older messages could not be read
+    let older_failed = chat
+        .room
+        .as_ref()
+        .and_then(|room| room.older_failed.as_deref());
+    let said = match (chat.notice.is_empty(), older_failed) {
+        (false, _) => chat.notice.clone(),
+        (true, Some(why)) => words::unreadable_room(why),
+        (true, None) => return None,
+    };
     let dismiss = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         chat.notice.clear();
+        if let Some(room) = &mut chat.room {
+            room.older_failed = None;
+        }
         cx.notify();
     });
     Some(
@@ -54,10 +76,11 @@ fn notice(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<impl Int
             .flex()
             .items_center()
             .gap_2()
-            .child(div().flex_1().child(chat.notice.clone()))
+            .child(div().flex_1().child(said))
             .child(button(
                 "chat-room-notice-dismiss",
-                "Dismiss",
+                words::DISMISS,
+                ladder,
                 theme,
                 dismiss,
             )),
@@ -65,7 +88,12 @@ fn notice(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<impl Int
 }
 
 /// A write that landed, said once, until dismissed.
-fn confirmation(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<impl IntoElement> {
+fn confirmation(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Option<impl IntoElement> {
     if chat.confirmation.is_empty() {
         return None;
     }
@@ -92,7 +120,8 @@ fn confirmation(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<im
             .child(design::icon_button(
                 "chat-room-confirmation-dismiss",
                 "✕",
-                "Dismiss",
+                words::DISMISS,
+                ladder,
                 theme,
                 dismiss,
             )),
@@ -100,9 +129,15 @@ fn confirmation(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> Option<im
 }
 
 /// The composer, or why the reader may not write here.
-fn compose(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+fn compose(
+    chat: &Chat,
+    room: &Room,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     if let Some(gate) = chat.write_gate() {
-        return write_gate(gate, cx, theme).into_any_element();
+        return write_gate(gate, cx, theme, ladder).into_any_element();
     }
     let target = Target::Post {
         channel: room.id.clone(),
@@ -112,29 +147,26 @@ fn compose(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> A
     // inset from the pane's edges, so the field reads as a field
     div()
         .p_3()
-        .child(composer(chat, target, &hint(chat, room), editable, cx))
+        .child(composer(
+            chat,
+            target,
+            &chat.composer_hint(room),
+            editable,
+            cx,
+        ))
         .into_any_element()
 }
 
-/// The composer's placeholder: who or where a message goes.
-fn hint(chat: &Chat, room: &Room) -> String {
-    if let Some((peer, _)) = super::sidebar::dm_peer(chat) {
-        return format!("Message {peer}");
-    }
-    let name = chat.info(&room.id).map_or_else(
-        || ducktape_view_guest::design::short_hex(&room.id),
-        |info| info.channel.name.clone(),
-    );
-    match chat::dm_peers(&room.id) {
-        Some(_) => format!("Message {name}"),
-        None => format!("Message #{name}"),
-    }
-}
-
-fn header(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+fn header(
+    chat: &Chat,
+    room: &Room,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let info = chat.info(&room.id);
     let name = info.map_or_else(
-        || ducktape_view_guest::design::short_hex(&room.id),
+        || view::design::short_hex(&room.id),
         |info| info.channel.name.clone(),
     );
     let details = cx.listener(|chat, _: &ClickEvent, _window, cx| {
@@ -144,7 +176,7 @@ fn header(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> im
     // a direct room is a person: their initials and name, no `#`, and no
     // "Members only" (a direct room always is)
     let direct = chat::dm_peers(&room.id).is_some();
-    let peer = super::sidebar::dm_peer(chat);
+    let peer = chat.dm_peer();
     let mut title = div().flex().items_center().gap_2();
     if direct {
         let (name, agent) = peer.clone().unwrap_or((name.clone(), false));
@@ -160,7 +192,7 @@ fn header(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> im
         div()
             .id("chat-room-title")
             .text_size(design::text::SECTION)
-            .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
+            .font_weight(view::FontWeight::SEMIBOLD)
             .role(Role::Heading)
             .aria_level(2)
             .child(match (direct, peer) {
@@ -172,7 +204,8 @@ fn header(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> im
     if info.is_some_and(|info| info.channel.archived) {
         title = title.child(badge(
             "chat-room-archived",
-            "Archived",
+            words::ARCHIVED,
+            ladder,
             theme.warning,
             theme.warning_soft,
         ));
@@ -180,11 +213,30 @@ fn header(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> im
     if !direct && info.is_some_and(|info| info.channel.members_only()) {
         title = title.child(badge(
             "chat-room-members-only",
-            "Members only",
+            words::MEMBERS_ONLY,
+            ladder,
             theme.muted,
             theme.surface_raised,
         ));
     }
+    // a dm with an agent that would not answer the reader says so before
+    // they write; writing stays open
+    let unanswered = chat
+        .my_account()
+        .and_then(|me| crate::names::dm_peer_of(me, &room.id))
+        .map(chat::Principal::Account)
+        .and_then(|peer| {
+            let why = chat.unanswered(&peer)?;
+            let name = chat.names.ready()?.member(&peer);
+            Some(format!("{name} answers {why}. Messages here get no reply."))
+        })
+        .map(|line| {
+            div()
+                .id("chat-room-unanswered")
+                .text_size(design::text::SECONDARY)
+                .text_color(theme.muted)
+                .child(line)
+        });
     div()
         .id("chat-room-header")
         .flex()
@@ -193,39 +245,54 @@ fn header(chat: &Chat, room: &Room, cx: &mut Context<Chat>, theme: &Theme) -> im
         .p_3()
         .border_b_1()
         .border_color(theme.border)
-        .child(div().flex_1().child(title))
+        .child(
+            div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(title)
+                .children(unanswered),
+        )
         .child(button(
             "chat-room-details",
             if direct {
                 "Conversation details"
             } else {
-                "Channel details"
+                words::CHANNEL_DETAILS
             },
+            ladder,
             theme,
             details,
         ))
 }
 
-fn no_room(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
+fn no_room(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     match &chat.channels {
         Loadable::Idle | Loadable::Loading(_) => empty_state(
             "chat-no-room-loading",
+            "message-square",
             "Loading channels…",
             "Choose a room when they arrive.",
+            ladder,
             theme,
         )
         .into_any_element(),
         Loadable::Failed(refusal) => empty_state(
             "chat-no-room-failed",
+            "message-square",
             "Couldn’t read the channels",
-            refusal.message.clone(),
+            design::sentence(refusal),
+            ladder,
             theme,
         )
         .into_any_element(),
         Loadable::Ready(rooms) | Loadable::Reloading(rooms, _) if !rooms.is_empty() => empty_state(
             "chat-no-room",
+            "message-square",
             "No channel open",
             "Choose a channel from the sidebar.",
+            ladder,
             theme,
         )
         .into_any_element(),
@@ -250,6 +317,7 @@ fn no_room(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
                 .child(button(
                     "chat-no-room-create",
                     "Create a channel",
+                    ladder,
                     theme,
                     open,
                 ))
@@ -259,22 +327,33 @@ fn no_room(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
     .into_any_element()
 }
 
-fn search_results(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+fn search_results(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let found = match &chat.search.hits {
         Loadable::Idle | Loadable::Loading(_) => {
             vec![quiet("Searching…", theme).into_any_element()]
         }
-        Loadable::Failed(refusal) => vec![quiet(refusal.message.clone(), theme).into_any_element()],
+        Loadable::Failed(refusal) => {
+            vec![quiet(design::sentence(refusal), theme).into_any_element()]
+        }
         Loadable::Ready(hits) | Loadable::Reloading(hits, _) if hits.rows.is_empty() => vec![
             empty_state(
                 "chat-search-empty",
+                "search-x",
                 "No results",
                 "Nothing matched this message search.",
+                ladder,
                 theme,
             )
             .into_any_element(),
         ],
-        Loadable::Ready(hits) | Loadable::Reloading(hits, _) => hit_list(chat, hits, cx, theme),
+        Loadable::Ready(hits) | Loadable::Reloading(hits, _) => {
+            hit_list(chat, hits, cx, theme, ladder)
+        }
     };
     let clear = cx.listener(|chat, _: &ClickEvent, _window, cx| {
         chat.search_clear();
@@ -292,13 +371,20 @@ fn search_results(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl In
         .child(button(
             "chat-search-clear",
             "Clear message search",
+            ladder,
             theme,
             clear,
         ))
 }
 
 /// How many hits, a row per hit, and the way to more.
-fn hit_list(chat: &Chat, hits: &Hits, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
+fn hit_list(
+    chat: &Chat,
+    hits: &Hits,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Vec<AnyElement> {
     let count = design::plural(hits.rows.len() as u64, "result", "results");
     let mut list = vec![
         div()
@@ -313,7 +399,9 @@ fn hit_list(chat: &Chat, hits: &Hits, cx: &mut Context<Chat>, theme: &Theme) -> 
             cx.notify();
             chat.search_more(cx)
         });
-        list.push(button("chat-search-more", "More results", theme, more).into_any_element());
+        list.push(
+            button("chat-search-more", "More results", ladder, theme, more).into_any_element(),
+        );
     }
     list
 }
@@ -354,7 +442,7 @@ fn hit(chat: &Chat, row: &MsgRow, cx: &mut Context<Chat>, theme: &Theme) -> AnyE
         .p_2()
         .bg(theme.surface)
         .hover(|s| s.bg(theme.surface_raised))
-        .role(ducktape_view_guest::Role::Button)
+        .role(view::Role::Button)
         .focusable()
         .on_click(open)
         .child(
@@ -372,18 +460,8 @@ fn hit(chat: &Chat, row: &MsgRow, cx: &mut Context<Chat>, theme: &Theme) -> AnyE
 }
 
 /// Where the composer would be, why the reader may not write here.
-fn write_gate(gate: Gate, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
-    let why = match gate {
-        Gate::Archived => {
-            "This channel is archived. It keeps its history and takes no new messages."
-        }
-        Gate::NotMember => {
-            "This channel is members-only and your key is not on its roster. Ask a member to add your key from Channel details."
-        }
-        Gate::NoAccount => {
-            "To send messages, create or join an account in Account. You can read this channel without an account."
-        }
-    };
+fn write_gate(gate: Gate, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> AnyElement {
+    let why = words::gate(gate);
     let mut notice = div()
         .id("chat-room-write-refusal")
         .mx_3()
@@ -403,7 +481,13 @@ fn write_gate(gate: Gate, cx: &mut Context<Chat>, theme: &Theme) -> AnyElement {
             cx.notify();
             chat.set_archived(false, cx);
         });
-        notice = notice.child(button("chat-room-unarchive", "Unarchive", theme, reopen));
+        notice = notice.child(button(
+            "chat-room-unarchive",
+            words::UNARCHIVE,
+            ladder,
+            theme,
+            reopen,
+        ));
     }
     notice.into_any_element()
 }
@@ -424,7 +508,7 @@ pub fn composer(
         .expect("seated by `Chat::render` before the frame");
     let choices = chat.mention_choices();
     let (commit, cancel) = match target {
-        Target::Post { .. } => ("Send", None),
+        Target::Post { .. } => (words::SEND, None),
         // an edit's way out sits beside its Save, as Send's row lays out
         Target::Edit { .. } => (
             "Save",
@@ -436,11 +520,11 @@ pub fn composer(
     };
     // what the field is; the hint, drawn in it, says what to write
     let label = match target {
-        Target::Post { thread: None, .. } => "New message",
+        Target::Post { thread: None, .. } => words::NEW_MESSAGE,
         Target::Post {
             thread: Some(_), ..
-        } => "Reply",
-        Target::Edit { .. } => "Edited message",
+        } => words::REPLY,
+        Target::Edit { .. } => words::EDITED_MESSAGE,
     };
     crate::composer::view(
         draft,
@@ -456,7 +540,12 @@ pub fn composer(
     )
 }
 
-pub fn selection_bar(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+pub fn selection_bar(
+    chat: &Chat,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> impl IntoElement {
     let count = chat.copy_count();
     if count == 0 {
         return div().into_any_element();
@@ -479,6 +568,6 @@ pub fn selection_bar(chat: &Chat, cx: &mut Context<Chat>, theme: &Theme) -> impl
             "{} selected",
             design::plural(count as u64, "message", "messages")
         )))
-        .child(button("chat-selection-copy", "Copy", theme, copy))
+        .child(button("chat-selection-copy", "Copy", ladder, theme, copy))
         .into_any_element()
 }

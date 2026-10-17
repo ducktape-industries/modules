@@ -1,10 +1,11 @@
 //! Who reads: the session the host hands over (the seated key and the
 //! account it holds), and what that lets them do in the open room.
 use chat::Principal;
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::Chat;
-use crate::queries::{channels, roster};
+use crate::queries::{channels, ownerships, roster};
+use futures::FutureExt;
 
 /// Why the reader may not write in the open room.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,14 +29,6 @@ impl Chat {
             || self.session.chain_id != prev.chain_id;
         if reader_changed {
             self.load_names(cx);
-        }
-        // a key that gains an account while this view stays open writes
-        // without a relaunch; the rooms are looked at again once they are
-        // known, since the recount of what is meant for them waits on it
-        if (reader_changed || self.session.account != prev.account)
-            && let Some(list) = self.channels.ready().cloned()
-        {
-            self.channels_landed(list, cx);
         }
         if reader_changed || (prev.connected && !self.session.connected) {
             for draft in self.drafts.values_mut() {
@@ -71,15 +64,26 @@ impl Chat {
         }
     }
 
-    /// The roster's names, read again with the ones on screen kept.
+    /// The roster's names and whom its agents answer, read again with the
+    /// ones on screen kept: the roster is read once, for both.
     pub(crate) fn load_names(&mut self, cx: &mut Context<Self>) {
-        cx.load(self, roster(cx.host()), |chat| &mut chat.names);
+        let host = cx.host();
+        let names = roster(host.clone()).shared();
+        cx.load(self, names.clone(), |chat| &mut chat.names);
+        let answers = async move { ownerships(host, &names.await?).await };
+        cx.load(self, answers, |chat| &mut chat.ownerships);
     }
 
     pub(crate) fn load_channels(&mut self, cx: &mut Context<Self>) {
         // a link that came back: the sidebar says the rooms are loading
         self.channels = Loadable::Idle;
         cx.load(self, channels(cx.host()), |chat| &mut chat.channels);
+    }
+
+    /// The network the session is on, by its label (`<label>#<salt>`).
+    pub(crate) fn network(&self) -> &str {
+        let chain = self.session.chain_id.as_str();
+        chain.split_once('#').map_or(chain, |(label, _)| label)
     }
 
     /// The reader's account number, as the host resolved it.
@@ -91,6 +95,15 @@ impl Chat {
     /// key holds none, since only an account writes.
     pub(crate) fn me(&self) -> Option<Principal> {
         Principal::writer(self.my_account())
+    }
+
+    /// The reader's account name for the first page's avatar, as the
+    /// roster names it (Expo `chat/index.tsx:110`, `connection.account.name`);
+    /// empty until the session and the roster both say who the reader is.
+    pub(crate) fn reader_name(&self) -> String {
+        let me = self.me();
+        me.and_then(|me| self.names.ready()?.name(&me).map(str::to_owned))
+            .unwrap_or_default()
     }
 
     /// The reader, as a query's `viewer`.
@@ -122,5 +135,13 @@ impl Chat {
 
     pub(crate) fn may_write(&self) -> bool {
         self.write_gate().is_none()
+    }
+
+    /// Why the agent `principal` would give the reader no answer
+    /// ([`crate::names::unanswered`]).
+    pub(crate) fn unanswered(&self, principal: &Principal) -> Option<&'static str> {
+        let names = self.names.ready()?;
+        let ownerships = self.ownerships.ready()?;
+        crate::names::unanswered(names, ownerships, principal, self.my_account()?)
     }
 }

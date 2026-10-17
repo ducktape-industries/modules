@@ -1,17 +1,23 @@
 //! Chat over the fake node: the chain seeded through chat's own ops, what
 //! the person sees read off it, someone else's post reaching the open room
-//! through `module.changes`, and a post through the composer landing on the
+//! through `program.changes`, and a post through the composer landing on the
 //! chain as the signed-in account.
 use chat::{Block, Op, PostPolicy, Query, Reply};
 use chat_view::Chat;
-use ducktape_view_guest::live::Network;
-use ducktape_view_guest::methods::{HostId, HostSession, HostVisible, StoreGet};
-use ducktape_view_guest::testing::TestAppContext;
+use view::methods::{HostId, HostSession, HostVisible, StoreGet};
+use view::rig::Network;
+use view::testing::TestAppContext;
+
+/// The time of the test's `n`th block (unix ms), a minute apart: pinned
+/// with `Network::at`, so the times the room draws are the same every run.
+fn minute(n: u64) -> u64 {
+    1_790_000_000_000 + n * 60_000
+}
 
 fn post(net: &Network, who: u64, id: &str, text: &str) {
     net.submit(
         who,
-        chat::MODULE,
+        chat::PROGRAM,
         &Op::PostMessage {
             channel_id: "general".into(),
             message_id: id.into(),
@@ -25,11 +31,13 @@ fn post(net: &Network, who: u64, id: &str, text: &str) {
 #[test]
 fn a_seeded_room_is_read_off_the_chain_and_a_post_comes_back_through_it() {
     let net = Network::new();
-    net.seat::<chat::Chat>(chat::MODULE);
+    net.seat::<chat::Chat>(chat::PROGRAM);
+    net.at(minute(0));
     let ada = net.person("ada");
+    net.at(minute(1));
     net.submit(
         ada,
-        chat::MODULE,
+        chat::PROGRAM,
         &Op::CreateChannel {
             channel_id: "general".into(),
             name: "General".into(),
@@ -37,7 +45,9 @@ fn a_seeded_room_is_read_off_the_chain_and_a_post_comes_back_through_it() {
         },
     )
     .unwrap();
+    net.at(minute(2));
     post(&net, ada, "m1", "hello from ada");
+    net.at(minute(3));
     post(&net, net.me(), "m2", "and from me");
 
     let mut cx = TestAppContext::new();
@@ -64,8 +74,9 @@ fn a_seeded_room_is_read_off_the_chain_and_a_post_comes_back_through_it() {
     assert!(cx.has_text("ada"), "the author's name is identity's");
 
     // ada posts while the room is open: the view asked nothing, so her
-    // post reaches it only as the block's `module.changes` item and the
+    // post reaches it only as the block's `program.changes` item and the
     // re-read that item causes
+    net.at(minute(4));
     post(&net, ada, "m3", "ada again, while the room is open");
     cx.run_until_parked();
     assert!(
@@ -77,12 +88,13 @@ fn a_seeded_room_is_read_off_the_chain_and_a_post_comes_back_through_it() {
     // a post through the composer: chat's rules run it, as the signed-in
     // account
     cx.simulate_input("draft-general/editor", "typed in the live test");
+    net.at(minute(5));
     cx.simulate_click("draft-general/send");
     cx.run_until_parked();
     assert!(cx.has_text("typed in the live test"), "{:?}", cx.texts());
     let Reply::Roots(page) = net
         .query(
-            chat::MODULE,
+            chat::PROGRAM,
             &Query::Roots {
                 channel_id: "general".into(),
                 viewer: vec![],

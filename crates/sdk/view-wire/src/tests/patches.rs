@@ -257,230 +257,55 @@ fn a_patch_the_tree_cannot_take_is_refused() {
         }),
         Refused::Invalid("props of another arity")
     );
-    let many = vec![
-        Patch::Move {
-            path: vec![],
-            from: 0,
-            to: 0
-        };
-        MAX_PATCHES + 1
-    ];
-    assert_eq!(
-        apply(&mut tree.clone(), many, &held()).unwrap_err(),
-        Refused::Invalid("more patches than the host applies")
-    );
 }
 
-/// A patch is bounded like a tree: the result of applying it is inside
-/// every limit, however the patches were shaped.
 #[test]
 fn an_applied_patch_frame_is_a_sanitized_tree() {
-    let mut tree = column(
-        (0..MAX_NODES - 1)
-            .map(|i| keyed(&i.to_string(), "x"))
-            .collect(),
-    );
+    let mut tree = column((0..9).map(|i| keyed(&i.to_string(), "x")).collect());
     sanitize_tree(&mut tree, &held()).unwrap();
-    assert_eq!(tree.count(), MAX_NODES);
-    let mut deep = keyed("0", "leaf");
-    for _ in 0..MAX_DEPTH {
-        deep = column(vec![deep]);
-    }
+    let long = "y".repeat(1 << 20);
     apply(
         &mut tree,
         vec![
             Patch::Insert {
                 path: vec![],
                 index: 0,
-                node: keyed("inserted", &"y".repeat(MAX_STRING_BYTES + 1)),
+                node: keyed("inserted", &long),
             },
             Patch::Replace {
                 path: vec![1],
-                node: deep,
+                node: column(vec![keyed("0", "leaf")]),
             },
         ],
         &held(),
     )
     .unwrap();
-    assert!(tree.count() <= MAX_NODES, "{}", tree.count());
     let Node::Container(crate::ContainerNode { children, .. }) = &tree else {
         panic!()
     };
-    // A new typed ID leaves every existing sibling identity unchanged.
     assert_eq!(children[0].key(), Some("inserted"));
     assert_eq!(children[2].key(), Some("1"));
     let Node::Text(crate::TextNode { content, .. }) = &children[0] else {
         panic!()
     };
-    assert_eq!(content.len(), MAX_STRING_BYTES);
-    let mut depth = 0;
-    let mut node = &children[1];
-    while let Node::Container(crate::ContainerNode { children, .. }) = node {
-        depth += 1;
-        node = &children[0];
-    }
-    assert!(depth <= MAX_DEPTH, "{depth}");
+    assert_eq!(content, &long);
 }
 
-#[test]
-fn a_frame_past_the_text_budget_keeps_its_head_and_loses_its_tail() {
-    const NODES: usize = 8;
-    const EACH: usize = MAX_TEXT_BYTES_PER_FRAME / 4;
-
-    let children = sanitized_children(column(
-        (0..NODES).map(|_| text(&"é".repeat(EACH / 2))).collect(),
-    ));
-    let shaped: Vec<usize> = children
-        .iter()
-        .map(|child| match child {
-            Node::Text(crate::TextNode { content, .. }) => content.len(),
-            other => panic!("{other:?}"),
-        })
-        .collect();
-    assert_eq!(shaped.iter().sum::<usize>(), MAX_TEXT_BYTES_PER_FRAME);
-    assert_eq!(&shaped[..4], &[EACH; 4]);
-    assert_eq!(&shaped[4..], &[0; NODES - 4]);
-}
-
-#[test]
-fn display_truncation_shortens_a_placeholder_and_never_a_fields_text() {
-    let long = "x".repeat(2 * MAX_TEXT_BYTES_PER_FRAME);
-    let value = "v".repeat(MAX_FIELD_BYTES);
-    let mut frame = Frame {
-        root: Some(column(vec![field("App/e", &value, &long), text(&long)])),
-        ..Frame::default()
-    };
-    assert_eq!(
-        sanitize_plain(&mut frame),
-        Ok(SanitizeReport {
-            strings: 2,
-            first: Some(vec![0]),
-            ..Default::default()
-        })
-    );
-    let Some(Node::Container(crate::ContainerNode { children, .. })) = &frame.root else {
-        panic!()
-    };
-    let Node::Field {
-        placeholder,
-        value: kept,
-        ..
-    } = &children[0]
-    else {
-        panic!()
-    };
-    assert!(
-        placeholder.len() < long.len(),
-        "a field's placeholder is display text and spends the frame budget"
-    );
-    assert_eq!(
-        kept, &value,
-        "a 1 MiB value crosses whole: the engine adopts it, nothing shapes it"
-    );
-}
-
-/// A field is checked by `validate_field` (`text.rs` holds its cases), and
-/// what it refuses refuses the frame whole: the engine adopts a value
-/// entire or not at all, so nothing is cut to fit.
 #[test]
 fn a_field_validate_field_refuses_refuses_the_frame() {
-    let over = "x".repeat(MAX_FIELD_BYTES + 1);
     let mut frame = Frame {
-        root: Some(column(vec![field("App/e", &over, "")])),
+        root: Some(column(vec![field("App/e", "é", "")])),
         ..Frame::default()
     };
+    let Some(Node::Container(crate::ContainerNode { children, .. })) = &mut frame.root else {
+        unreachable!()
+    };
+    let Node::Field { cursor, .. } = &mut children[0] else {
+        unreachable!()
+    };
+    *cursor = TextRange::caret(1);
     assert_eq!(
         sanitize_plain(&mut frame),
-        Err(Refused::Invalid("field text exceeds its cap"))
-    );
-}
-
-#[test]
-fn every_shaped_string_spends_the_same_budget() {
-    let long = "x".repeat(MAX_TEXT_BYTES_PER_FRAME);
-    let children = sanitized_children(column(vec![
-        {
-            let mut details = field("App/e", &long, &long);
-            let Node::Field { options, .. } = &mut details else {
-                unreachable!()
-            };
-            options.label = "Details".into();
-            details
-        },
-        Node::Overlay {
-            id: ElementIdWire::Name("App/o".into()),
-            label: Some(long.clone()),
-            style: StyleId(0),
-            on_dismiss: None,
-            children: vec![text("tail")],
-        },
-    ]));
-    let Node::Field {
-        placeholder,
-        value,
-        options,
-        ..
-    } = &children[0]
-    else {
-        panic!()
-    };
-    // The placeholder took the frame's whole budget and everything
-    // shaped after it came out empty. The value is not shaped, so it is
-    // whole; the accessible name is not shaped either, so it answers to
-    // the per-string cap alone.
-    assert_eq!(placeholder.len(), MAX_TEXT_BYTES_PER_FRAME);
-    assert_eq!(value.len(), long.len());
-    assert_eq!(options.label, "");
-    let Node::Overlay {
-        label, children, ..
-    } = &children[1]
-    else {
-        panic!()
-    };
-    assert_eq!(label.as_deref().map(str::len), Some(MAX_STRING_BYTES));
-    assert_eq!(children[0], text(""));
-}
-
-#[test]
-fn a_hostile_frame_is_pulled_into_range() {
-    let mut deep = text("leaf");
-    for _ in 0..MAX_DEPTH + 10 {
-        deep = column(vec![deep]);
-    }
-    let wide = column((0..MAX_NODES + 5).map(|_| text("x")).collect());
-    let root = sanitized_root(column(vec![
-        Node::Text(crate::TextNode {
-            id: Some(ElementIdWire::Name("k".repeat(MAX_STRING_BYTES).into())),
-            style: StyleId(0),
-            content: "é".repeat(MAX_STRING_BYTES),
-        }),
-        deep,
-        wide,
-    ]));
-    // A container whose child fell past the budget keeps an empty
-    // stand-in, one per level at most.
-    assert!(root.count() <= MAX_NODES + MAX_DEPTH, "{}", root.count());
-    let Node::Container(crate::ContainerNode { children, .. }) = &root else {
-        panic!()
-    };
-    let Node::Text(crate::TextNode { id, content, .. }) = &children[0] else {
-        panic!("{:?}", children[0])
-    };
-    assert_eq!(
-        id.as_ref().and_then(ElementIdWire::name).unwrap().len(),
-        MAX_STRING_BYTES
-    );
-    assert!(content.len() <= MAX_STRING_BYTES && content.is_char_boundary(content.len()));
-}
-
-#[test]
-fn oversized_typed_identity_is_refused_whole_instead_of_truncated() {
-    let mut frame = Frame {
-        root: Some(keyed(&"k".repeat(MAX_STRING_BYTES + 3), "text")),
-        ..Default::default()
-    };
-    assert_eq!(
-        sanitize_plain(&mut frame).unwrap_err(),
-        Refused::Invalid("element identity name is too long")
+        Err(Refused::Invalid("field cursor is off its text"))
     );
 }

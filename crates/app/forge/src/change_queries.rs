@@ -1,8 +1,8 @@
 //! The change queries: a repository's changes, one change with its
 //! reviews, and the judgment a person owes across every repository.
 
-use guest::{Error, Range};
-use guest::{QueryCtx, capacity};
+use ::program::{Error, Range};
+use ::program::{QueryCtx, capacity};
 use store::Listing;
 
 use crate::contract::*;

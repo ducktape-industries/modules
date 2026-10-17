@@ -1,37 +1,38 @@
-# modules
+# programs
 
-The ducktape contract line and the modules written against it, one
-repository. Only what compiles to wasm lives here:
+The ducktape contract line and the programs written against it, one
+repository. Everything here compiles to wasm:
 
 ```
-crates/sdk/     abi error program guest store conformance describe ducklink view-wire view-guest view-guest-derive design
-crates/system/  module-registry valset identity
-crates/app/     chat chat-view forge forge-view activity files provider members-view node-view explorer-view settings-view
+crates/sdk/     abi error program store conformance describe ducklink view-wire view view-derive design
+crates/system/  programs valset identity blobs awaits halo scheduler
+crates/app/     chat chat-view forge forge-view activity files egress attribution harness members-view node-view explorer-view settings-view
 crates/lib/     gitcore
 ```
 
 | Path | What |
 |---|---|
-| `crates/sdk/abi` | the borsh bytes ABI a module and the host share: `GuestCall`, `HostOp`/`HostReply`, `Env`, `Refusal`, `Principal`, `Roles`, and the `role::registry`, `role::validators` and `role::identity` interfaces the kernel calls, under the kernel's names. A copy of ducktape's `crates/kernel/abi`, plus what only a view needs (`unhex`, `preview`, and `Kind::badge`/`note`, an account's badge) |
-| `crates/sdk/error` | `Error { code, message }` and its `code` tokens, the one error type a module, the host and a view share (borsh; serde behind a feature). Depends on no ducktape crate; `guest` re-exports it and `view-wire` carries it |
-| `crates/sdk/program` | the one `Program` trait: a program's `NAME` and the borsh `Op`, `Query` and `Reply` it speaks. A program crate implements it on its module type; a view names the program by that type (`Query<chat::Chat>`); `program::role::Identity` is the identity role as a view follows it, and the one place its program id is spelled. Below both SDKs: `guest` and `view-wire` re-export it |
-| `crates/sdk/guest` | the minimal module SDK, enough alone: the `Module` trait (over `Program`), the `ExecCtx` and `QueryCtx` contexts its entry points receive (env, raw state, blobs, events, `set_return_data`, `verify`, and `emit` (a write another module runs in this frame) and `query` (a read of one)), `ExecCtx::sender` (the `Principal` the host resolved: an account, a module's too, or `Root`), `Env.roles` (the module genesis bound to each role), the `Env` origin checks (`signer`, `sending_module`, `sent_by`) and `authority` (a message from the program bound to the validators role), `export!`, `Error` and its constructors and `decoded` and `MockHost`, the native host the same contexts run over in a test, and `MockChain`, which seats several modules over their own `MockHost`s and runs a submission as one frame, its messages and replies as the kernel runs them. `src/kernel.rs` is the one place the kernel's names (`Refusal`, `ProgramId`, `ItemRef`, `Scan`, …) become the SDK's (`Error`, `ModuleId`, `MessageId`, `Range`, …), byte for byte; `kernel::error_from`/`refusal_from` convert an error. `examples/counter.rs` is a module written with it alone |
-| `crates/sdk/store` | optional typed storage over `guest`'s contexts: the `Map`/`Set`/`Item` descriptors with `KeyCodec`, and `PageRequest`/`PageResponse`. A read takes `&QueryCtx` (an `&ExecCtx` serves it), a write `&ExecCtx`. A view links it and calls none of it |
-| `crates/sdk/conformance` | proof that a module fills a role the kernel calls (`registry`, `validators`, `identity`), native over `MockHost`: a module takes it as a dev-dependency, implements the role's `Fixture` and calls its `run` in a test; see its [README](crates/sdk/conformance/README.md) |
+| `crates/sdk/abi` | the borsh bytes ABI a program and the host share: `ProgramCall`, `HostOp`/`HostReply`, `Env`, `Refusal`, `Principal`, `Roles`, and the `role::programs`, `role::validators`, `role::identity`, `role::awaits`, `role::halo` and `role::scheduler` interfaces the kernel calls, the `role::egress` interface the node reads (the blobs role's contract is ducktape's `blob::contract`, which programs link), under the kernel's names. A copy of ducktape's `crates/kernel/abi`, plus what only a view needs (`unhex`, `preview`, and `Kind::badge`/`note`, an account's badge) |
+| `crates/sdk/error` | `Error { code, message }` and its `code` tokens, the one error type a program, the host and a view share (borsh; serde behind a feature). Depends on no ducktape crate; `program` re-exports it and `view-wire` carries it |
+| `crates/sdk/program` | the program SDK, enough alone: the one `Program` trait (a program's `NAME`, the borsh `Op`, `Query` and `Reply` it speaks, and what it does with each; a view names the program by that type, `Query<chat::Chat>`, and `view-wire` re-exports it), `Ask` and `Reads` (one question to a program as its own type, and the tables it reads), the `ExecCtx` and `QueryCtx` contexts its entry points receive (env, raw state, blobs, events, `set_return_data`, `verify`, and `emit` (a write another program runs in this frame) and `query` (a read of one)), `ExecCtx::sender` (the `Principal` the host resolved: an account, a program's too, or `Root`), `Env.roles` (the program genesis bound to each role), the `Env` origin checks (`signer`, `sending_program`, `sent_by`) and `authority` (a message from the program bound to the validators role), `export!`, `Awaiting` and `export_awaiting!` (an `async fn execute(ctx: Ctx, op)` whose `ctx.call(target, &op).await` waits, parked between blocks when it must, for the target's answer), `ctx.schedule(height, target, &op)` and `ctx.cancel(entry)` (a run of `target` at a later height, through the scheduler role, and its cancel), `defer` and `resolve` (how a called program answers later), `Error` and its constructors and `decoded` and `MockHost`, the native host the same contexts run over in a test, and `MockChain`, which seats several programs over their own `MockHost`s and runs a submission as one frame, its messages and replies as the kernel runs them, and the scheduler role's due entries at the end of each block `at` moves past. `src/kernel.rs` is the one place the kernel's names (`Refusal`, `ProgramId`, `ItemRef`, `Scan`, …) become the SDK's (`Error`, `ProgramId`, `MessageId`, `Range`, …), byte for byte; `kernel::error_from`/`refusal_from` convert an error. `examples/counter.rs` is a program written with it alone |
+| `crates/sdk/store` | optional typed storage over `program`'s contexts: the `Map`/`Set`/`Item` descriptors with `KeyCodec`, and `PageRequest`/`PageResponse`. A read takes `&QueryCtx` (an `&ExecCtx` serves it), a write `&ExecCtx`. A view links it and calls none of it |
+| `crates/sdk/conformance` | proof that a program fills a role the kernel calls (`programs`, `validators`, `identity`, `awaits`, `halo`, `scheduler`), native over `MockHost`: a program takes it as a dev-dependency, implements the role's `Fixture` and calls its `run` in a test; see its [README](crates/sdk/conformance/README.md) |
 | `crates/sdk/describe` | what an op means to a person: the pure wasm module a program ships in its `ducktape.describe` section, and the sandbox that runs it |
 | `crates/sdk/ducklink` | the `duck://` link: `duck://<chain>/<program>/<tail…>`, one spelling per name, no program names known here |
-| `crates/sdk/view-wire`, `view-guest`, `view-guest-derive`, `design` | the host<->view wire (`view_wire::methods`: every method a view may ask, and in `methods::refusal` every code the host refuses one with), the runtime a wasm view is written against, the palette |
-| `crates/system/module-registry` | the boot set's root: the registry module (its `Op`, `Query`, `Reply`). Its `tests/system.rs` founds ducktape's host over the bytes `make wasm-programs` built and drives every system module |
-| `crates/system/valset`, `identity` | the other two boot modules, the same shape: types always built, the wasm exports behind `module`. valset holds the members and runs their rules: enroll (by invite or an open door), leave, and the validators' vote on members, the door and registry changes. identity holds every account that acts, `Account { number, card, control }`: a person's, an agent's (managed by a person, who suspends, resumes and revokes it and says whom it answers) and each module's (registered by the kernel as it admits the module) |
-| `crates/app/chat`, `chat-view` | the reference app module: `chat` is one crate whose types, rules and `Chat` module are always built (native, tested over `MockHost`), and whose wasm exports sit behind its `module` feature. `chat-view` links `chat` with the feature off: the types, no host import, no module export |
-| `crates/app/forge`, `forge-view` | the git server as a module, the same shape as `chat`: a push is one op whose input is the receive-pack body a client sent, a merge is an op that lands the commit the client built, fetch and the ref advertisement are queries; a git object's blob id is its oid. it links `gitcore` for the git; merging is the client's. The module runs natively over `MemorySandbox` (forge and chat seated on a `MockChain`), which is where `fixtures/` comes from; `forge-view` links `forge` with `module` off |
-| `crates/app/activity` | the hook the kernel tells of every frame a block carries ([roles.md](docs/roles.md), "Hooks"): it indexes each frame by the key that signed it and the account it acted as, keeping the newest `KEPT` (1,000) of each, and counts each account's frames by program. It takes no op; members-view and explorer-view read it, then read each frame by its place (`chain.tx`) |
-| `crates/app/files` | a replicated filesystem as a module: a commit edits one tree of directories, files and symlinks and names the result by a snapshot; an account writes under `/home/<label>/` and `/shared/`, the root anywhere. A file's bytes are `chunk` blobs of at most `CHUNK_SIZE` (1 MiB) that a `Stage` op stores, so a large file lands over several frames and one commit references them; trees, files and snapshots are blobs too, and its state keeps only the head, the history, a snapshot's place in it and the named pins. Reads (stat, list, read, find, grep, diff) take the head or any snapshot it minted |
-| `crates/app/provider` | a module's request to the world outside the chain. A member node's key serves named services (`Serve`); a module requests one (`Request`: a service, an input, blob parts for a large body, and the prefix of its own `Op` the answer comes back as); the chain elects the provider in turn among the member nodes serving it; that provider alone answers (`Answer`), and the answer is delivered to the module in the same frame. A request unanswered for `EXPIRY_BLOCKS` (64) expires, and the module is told. `http` is the shape every HTTP service speaks; `relay` is answered with nothing, a later block's call back |
-| `crates/app/members-view`, `node-view`, `explorer-view`, `settings-view` | the system views, which link the system crates with `module` off |
+| `crates/sdk/view-wire`, `view`, `view-derive`, `design` | the host<->view wire (`view_wire::methods`: every method a view may ask, and in `methods::refusal` every code the host refuses one with), the runtime a wasm view is written against, the palette |
+| `crates/system/programs` | the boot set's root: `programs`, the program bound to the programs role (its `Op`, `Query`, `Reply`). Its `tests/system.rs` founds ducktape's host over the bytes `make wasm-programs` built and drives every system program |
+| `crates/system/valset`, `identity`, `blobs`, `awaits`, `halo`, `scheduler` | the other boot programs, the same shape: types always built, the wasm exports behind `program`. valset holds the members and runs their rules: enroll (by invite or an open door, with the halo address other members dial), a member moving its halo address, leave, and the validators' vote on members, the door, an op of the program a role binds (`Motion::Role`: programs changes, halo's lanes) and the roles a network may bind or unbind (`Motion::Bind`). identity holds every account that acts, `Account { number, card, control }`: a user's (a person holding their own keys), a program account's (managed by a user, who suspends, resumes and revokes it, sets the script that runs its actions, and says whom it answers) and each program's own system account (registered by the kernel as it admits the program). blobs records each bundle of blobs an account puts, by id, length and kind; a current validator receipts a bundle once its node holds every blob, and two thirds of the current validators make it held, which is when the host serves its blobs to a program. awaits keeps a ticket for each call a parked frame waits on, and hands the frame its answer when the called program resolves the ticket; a wait has no deadline. halo holds the lanes halo carries between members, each name with its wire id, the class its streams are served at most, whether it is served and whether the founding pinned it; only the validators' vote opens, sets or closes one, no vote pauses or closes a pinned lane (the founding pins blobs'), and an id is never handed out twice. scheduler keeps the runs programs schedule for later heights (`Schedule { height, target, payload }`, answered with the entry id; only the program that scheduled an entry cancels it, and only before it runs), lists them by height (`Due`), and keeps each run's receipt, which the kernel hands it (`Ran`) after it runs the entry at the end of its block as the program that scheduled it (`Cause::Scheduled`) |
+| `crates/app/chat`, `chat-view` | the reference app program: `chat` is one crate whose types, rules and `Chat` program are always built (native, tested over `MockHost`), and whose wasm exports sit behind its `program` feature. `chat-view` links `chat` with the feature off: the types, no host import, no program export |
+| `crates/app/forge`, `forge-view` | the git server as a program, the same shape as `chat`: a push is one op carrying git's ref commands and naming its pack, a held blob, a merge is an op that lands the commit the client built, fetch and the ref advertisement are queries; a git object's blob id is its oid. it links `gitcore` for the git; merging is the client's. The program runs natively over `MemorySandbox` (forge and chat seated on a `MockChain`), which is where `fixtures/` comes from; `forge-view` links `forge` with `program` off |
+| `crates/app/activity` | the hook the kernel tells of every frame a block carries ([roles.md](docs/roles.md), "Hooks"): it keeps each frame (its place, time, signer, target and whether it applied) newest first network-wide (`Frames`), by the key that signed it (`Signed`) and by the account it acted as (`Acted`), and counts each account's frames by program (`Used`). It takes no op. explorer-view's transaction lists and both views' lists of what an account did are its frames: a row is the program, whether it applied, its place and its age, and no transaction is read to draw it |
+| `crates/app/files`, `files-view` | a replicated filesystem as a program: a commit edits one tree of directories, files and symlinks and names the result by a snapshot; each tree records, beside every entry, the account number that first made it with `Put`, `Mkdir` or `Symlink` (and the directories that write made), and its write list if one is set; a move carries both with the entry and a remove drops them. `Change::SetOwnership { path, write }` sets a path's write list (`program::Ownership`: `Owner`, its creator alone; `Accounts`, its creator and the account numbers listed; `Anyone`) or, with `None`, removes it; only the path's creator sets it, and for a home folder `/home/<name>` the account named `<name>`, whose number then stands as its creator. A write to a path (put, mkdir, symlink, remove, both ends of a move, setting a list) is allowed by the nearest write list at or above it; with none, an account writes under `/shared/` and under its own home, `/home/<label>/`, where `<label>` is the name the identity role gives that account when the commit runs (`Profile`), every other home refuses it, and the root writes anywhere, lists or not. A list only controls writing: every member holds every file. `Query::Ownership { path, at }` answers a path's creator, its own list and who writes it (`Writers`). A file's bytes are `chunk` blobs of at most `CHUNK_SIZE` (1 MiB), put through the node's blob upload (a view's `op.put`) and held by the network before one commit names them: no transaction carries a file's bytes; trees, files and snapshots are blobs too, and its state keeps only the head, the history, a snapshot's place in it and the named pins. Reads (stat, list, read, find, grep, diff, ownership) take the head or any snapshot it minted. `files-view` browses it: a folder at the head, a file's text, the history and its pins, and the writes the reader may make there (a new folder, a new text file, an edit, a rename or move, a removal), each one commit with a message |
+| `crates/app/attribution` | which accounts each program's objects relate to, and every change to that. A program reports an object of its own (`Attribute`: its relations as of a revision that only grows; a mention, an author, an owner, an assignee, or a reason it names) and attribution records what was added, withdrawn or transferred, indexed by recipient and by object. Each change is handed to one program at most: when its recipient is an active program account whose script names a program (identity's `SetScript`), and that program registered (`Register`, with the prefix of its own `Op` attribution puts before the change), attribution hands it the change as it is recorded; its refusal changes nothing. A change about any other account is recorded and handed to no one. chat reports each message's mentions, and in a direct message the counterpart (`chat::attributed::DIRECT`) |
+| `crates/app/egress` | a program's call to something outside the chain, bound to the egress role (`abi::role::egress`, whose `Op` and leading queries it speaks). A `Request` names a service: `Relay` carries a note and is answered with nothing, a later block's call back; `Http` names a service, an `http::Head` (a method, a target, headers) and the body as blob parts. For the reserved `http` service the target is a full `http://` or `https://` URL on the public internet; any other service is registered (`Register`) by an account, which owns the name and assigns the node keys that may serve it (`Assign`), and its target is a path under the base the serving node's operator gives it. A member node's key says which services it serves (`Serve`). A program calls egress with a request and awaits it; egress checks the head (the framing headers and every `ducktape-` header are the node's to set) and that its parts are on the network, then elects in turn among the member nodes serving that service, and for a registered service only those its owner assigned; that node alone answers (`Answer`), in a later block than the request, and its answer, or its reported failure as a refusal, resolves the program's call. An `Http` request's call answers an encoded `http::Response`. One that asks for its reply as events (`Delivery::Events { deliver }`) hears each event of a `text/event-stream` reply (`Event`) as its own op, `deliver` followed by the encoded event, and its call answers the stream's end (`EndStream`): `Complete` as the `http::Response` with its status and headers and an empty body, a cut as a refusal; each event moves its expiry `wait` blocks on, and any other reply comes whole. An event's `seq` counts from 0 per call the node makes: a repeated `seq` is a repeat, and a `seq` back at 0 is the node calling the service again (it restarted), which voids what came before; egress passes `seq` through unchecked, for the requester to act on. A relay is answered whole, and asking one with `Delivery::Events` is refused. A request waits `wait` blocks, `DEFAULT_WAIT` (64) when the caller names none: egress schedules its own `Expire` for that height through the scheduler role as it records the request (a network that binds no scheduler refuses every request), cancels it when the answer comes, and an `Expire` from that scheduled run alone drops the request and answers the call with a refusal that says it expired; a later answer is refused. The node itself does the answering: ducktape's `noded` reads this program after each block, calls what it was elected for with the services its `egress.toml` names, and signs `Answer` and `Serve` with its key |
+| `crates/app/harness` | agents that consensus runs, nothing outside it driving. An agent is a program account of the `Agent` category whose script calls harness (identity's `SetScript`); the script's `config` is the path of its configuration file in `files`: Markdown whose TOML front matter, between `+++` lines, names a model id, `max_tokens` and an optional `wait` (the blocks egress waits), and whose body is the system prompt (`harness::Config`). Harness reads the file at the head at each model call, and each turn it records names the files snapshot it read. A model id is a record harness keeps (`SetModel { id, wire, service, name }`: the wire the model speaks, the registered egress service that reaches it, the vendor's name for it; the first account to set an id owns it, and only it changes or removes it with `RemoveModel`), with the context window harness learned from the vendor. `Query::Agent` answers what harness resolves for an account: its configuration path, the configuration and its model, or what is wrong. Harness registers with `attribution` at its init, so a mention of the agent, or a direct message to it, reaches harness and opens or continues the agent's thread for that place, one per chat channel, when the agent's `Ownership` in identity allows its author (its manager always; `Accounts` adds the accounts it lists, `Anyone` everyone). A configuration that is missing, malformed or names no model record is told to the thread once as a notice, and the next message tries again. Each thread runs as one awaiting loop: harness puts the model's request for the thread as blob parts in the model's wire (one per message, so earlier messages are reused; `wire::anthropic` speaks the Anthropic Messages API, `/v1/messages`) and calls the program bound to the egress role (`env.roles.egress`) with an HTTP request to the model's service. A turn's request asks for a streamed reply (`Delivery::Events`, delivered as harness's `Streamed { thread, event }`): each event the elected node relays lands in its own block, and harness folds it, in the model's wire, into the thread's partial reply (`Query::Partial`), which harness-view shows growing. A repeated event is dropped, an event back at `seq` 0 starts the reply over, and a gap breaks it. When the stream ends, the partial becomes the model's turn, the same turn the whole reply would have given; a broken stream or an `error` event is told to the thread as a notice. A reply the service sends whole (a refusal such as a 429) is read whole. Only the program bound to the egress role may send `Streamed`, and only for a thread waiting on its model. While no member node serves that service, a thread tells itself so and does not ask the model. The turn's tool calls run together, each relayed through egress's `relay` service; when its relay comes back, in a later block, harness runs the call: a read of `files`, `chat`, `forge`, the identity role or `activity` as a query, a search or read of the thread's own transcript, a write to `files` or `chat` as a call made as the agent, which the program allows where it allows the agent's account (in `files`, `/shared/` and the agent's own home where no write list says otherwise, so not its manager's home, where harness-view proposes its configuration file and sets that file's write list to `Owner`, its manager's account number alone). A call whose thread closed, or whose agent no longer runs here (its script was taken back, or it is not active), does not run. Once every result is back, harness asks the model again. Input that arrives while the loop runs is held and follows the results. A thread follows the model's context window: harness learns the window from the models endpoint, counts the tokens each answer reports, and when the next answer would not fit, or the model says the request was too long, it has the model summarize the thread so far in its wire (Anthropic's compaction) and sends that summary in place of the messages it covers; a summary frame names the wire that wrote it, and another wire is handed only its text. A summary ends after an input, never between a tool call and its result; if the API finds the summary request itself too long, the next one covers less. When nothing the model already answered is left to summarize and the request is still too long, harness leaves the largest new input out of the model's view, one at a time, and puts a note in its place naming its frame and size. The transcript keeps every frame whole, and the model reaches it with `thread_search` (a literal string, over the whole thread or one frame: each matching line, its frame, line number and offsets) and `thread_read` (a frame, whole or a byte range), so neither a left-out input nor what a summary covers is lost to it. A failed model call is told to the thread as a notice and not repeated until new input arrives |
+| `crates/app/members-view`, `node-view`, `explorer-view`, `settings-view` | the system views, which link the system crates with `program` off |
 | `crates/lib/gitcore` | git as a library over one `Objects` trait: objects, packs (read, delta, write), walks, diffs, and the server side of the wire (receive-pack verification, upload-pack); no merging, that is the git client's. `forge` links it into its wasm |
 
-A view links its module by path and reads its types. A module is a cdylib
+A view links its program by path and reads its types. A program is a cdylib
 for wasm32 the host loads by blob id; a view is a cdylib for wasm32 the
 desktop loads from a file. The host (runtime, state, blobs, node, consensus,
 the daemon and the CLI) lives in ducktape; the founding suite links it at
@@ -41,27 +42,29 @@ What is not wasm lives elsewhere, except `crates/sdk/founding`, which packs a
 founding out of what this repo builds. The forge smoke (real git against
 `forge.wasm` on ducktape's runtime) is in the qa repo.
 
-The kernel calls the boot modules by role, never by id: genesis binds
-`registry`, `validators` and `identity` to founding modules (the founding's
-`[roles]`), and every `Env` carries the bindings (`env.roles`). The host asks
+The kernel calls the boot programs by role, never by id: genesis binds
+`programs`, `validators`, `identity`, `blobs`, `awaits` and `halo`, and optionally `egress` and `scheduler`, to founding programs (the founding's
+`[roles]` table, one row per role), and every `Env` carries that table
+(`env.roles`, a map from role name to program; the names are constants in
+`abi::role`, and a new role is a new row). The host asks
 the identity role once per frame which account the frame acts as, and hands
-it to the module as `ctx.sender()`. A role is an interface in `abi`, so
-another module that speaks it can fill the role at genesis.
-[`docs/roles.md`](docs/roles.md) has the three roles, the account model,
-the update path, and how to write a module for a role.
+it to the program as `ctx.sender()`. A role is an interface in `abi`, so
+another program that speaks it can fill the role at genesis.
+[`docs/roles.md`](docs/roles.md) has the roles, the account model,
+the update path, and how to write a program for a role.
 
 Membership changes only by a vote of the current validators, in `valset`;
 a stranger enrolls there as a resident, by invite or while the door is
-open. The same vote decides a module swap: `module-registry` schedules or
+open. The same vote decides a program swap: `programs` schedules or
 cancels a change only on a message from the program bound to the validators
-role (`guest::Env::authority`). An
-update replaces a module's code under the same id. The system modules beyond the boot set are archived at
+role (`program::Env::authority`). An
+update replaces a program's code under the same id. The system programs beyond the boot set are archived at
 `ducktape-industries/ducktape-system-modules-archive`.
 
-## A module
+## A program
 
 ```rust
-use guest::{Error, ExecCtx, Module, Principal, Program, QueryCtx};
+use program::{Error, ExecCtx, Principal, Program, QueryCtx};
 
 /// A count per account.
 pub struct Counter;
@@ -71,22 +74,20 @@ impl Program for Counter {
     type Op = u64;
     type Query = Principal;
     type Reply = u64;
-}
 
-impl Module for Counter {
     fn execute(ctx: &ExecCtx, by: u64) -> Result<(), Error> {
-        let who = guest::abi::encode(&ctx.sender()?);
+        let who = program::abi::encode(&ctx.sender()?);
         let n: u64 = ctx.record(&who)?.unwrap_or(0);
         ctx.put(who, &(n + by));
         Ok(())
     }
 
     fn query(ctx: &QueryCtx, who: Principal) -> Result<u64, Error> {
-        Ok(ctx.record(guest::abi::encode(&who))?.unwrap_or(0))
+        Ok(ctx.record(program::abi::encode(&who))?.unwrap_or(0))
     }
 }
 
-guest::export!(Counter);
+program::export!(Counter);
 ```
 
 An entry point receives its context (`ExecCtx` reads, writes, sends and
@@ -94,12 +95,12 @@ sets return data; `QueryCtx` reads) and nothing else: `ctx.env()` is the call's
 `Env`, and nothing reaches the host by any other path. `ctx.sender()` is who
 the write acts as, the account the host resolved or the chain. `export!`
 only emits the `alloc`/`call` exports. The same contexts run over a
-`MockHost` natively, so a module's test runs its real code
-(`crates/sdk/guest/examples/counter.rs`); modules that emit to each other run
+`MockHost` natively, so a program's test runs its real code
+(`crates/sdk/program/examples/counter.rs`); programs that emit to each other run
 together on a `MockChain`, a submission as one frame as the kernel runs it.
 
-[`docs/modules.md`](docs/modules.md) is the walk from `make new-module` to
-a module founded in qa: the crate and its features, `Op`/`Query`/`Reply`
+[`docs/programs.md`](docs/programs.md) is the walk from `make new-program` to
+a program founded in qa: the crate and its features, `Op`/`Query`/`Reply`
 and the append-only rule, tables and pages over `store`, errors and codes,
 sender and identity, queries, emits and replies, `describe`, the native
 tests, the edit loop and founding.
@@ -110,7 +111,7 @@ A view implements `Render::render(window, cx)` on serializable, `Default` state,
 and `View::attach(window, cx)` to follow the host. `Context<V>` dereferences to
 `App`; `listener` turns a method into a typed event callback, whose route id
 the tree takes when it lowers to `wire::Node`. Call `cx.notify()` after state changes: the view decides when it
-renders (`view-guest/README.md`, "When a view renders").
+renders (`view/README.md`, "When a view renders").
 Unnotified frames retain their tree and event routes; native debug builds catch
 serialized state changes without notification.
 
@@ -118,14 +119,14 @@ A view composes from child entities as a gpui view does: `cx.new` builds
 one from any state, `entity.update(cx, ..)` changes it from a listener or a
 task, and `cx.emit`/`cx.subscribe`/`cx.observe` connect it to its parent. The
 snapshot carries the root alone, so `attach` builds the children
-(`view-guest/README.md`, "Child entities").
+(`view/README.md`, "Child entities").
 
 `cx.host()` is the typed host method. Keep the `Task` returned by `cx.spawn`, or
 call `.detach()`; dropping it cancels the future and any owned subscription.
 Consume host streams with `while let Some(item) = stream.next().await` and update
 through `WeakEntity`. `TestAppContext` supplies typed fake handlers and feeds,
 input simulation, and tree assertions. See `examples/exported_view.rs` in
-`ducktape-view-guest` for a whole view, and each app view's `src/tests.rs` (chat and
+`view` for a whole view, and each app view's `src/tests.rs` (chat and
 explorer: `src/tests/`) for its tests.
 
 Snapshot/restore transfers the root view's serde state, not entity identities.
@@ -136,7 +137,7 @@ The tree vocabulary, manifests, and five-function Wasm ABI are unchanged.
 
 ## Loop
 
-1. Edit a module or a view.
+1. Edit a program or a view.
 2. `make dev`: rebuilds what cargo finds stale (one line per artifact:
    `name  1,181,498 B` or `unchanged`), gates the rebuilt
    views (ABI) and runs the native tests of the crates cargo rebuilt.
@@ -145,21 +146,21 @@ The tree vocabulary, manifests, and five-function Wasm ABI are unchanged.
    `kit new NAME --modules <branch> && kit up NAME` downloads the
    founding and founds it, and `kit app NAME` opens the app on them.
 4. Where a view's bytes go: `make wasm-why V=members-view` (`twiggy top`, `cargo install twiggy`).
-5. A new module: `make new-module NAME=x`, then `make new-view NAME=x-view`;
+5. A new program: `make new-program NAME=x`, then `make new-view NAME=x-view`;
    each prints what to do next, down to its place in `crates/sdk/founding`
-   ([`docs/modules.md`](docs/modules.md) walks it).
+   ([`docs/programs.md`](docs/programs.md) walks it).
    `make scaffold-check` proves both still build, gate and test. `make test`
    runs everything; the founding suite builds the boot set itself.
 
 ## Building
 
 `make test` (`cargo test --workspace`; the founding suite runs `make
-wasm-programs` itself), clippy, `make module-wasm-check`,
+wasm-programs` itself), clippy, `make program-wasm-check`,
 `make view-wasm-check`, `make wasm-views`, `make scaffold-check` and
 `make wasm-reproducible` are what CI runs. The toolchain is pinned in `rust-toolchain.toml`.
 
 Every wasm artifact is a build output: `make wasm-modules` builds every
-module and every view under `$CARGO_TARGET_DIR/wasm32-unknown-unknown/release/`;
+program and every view under `$CARGO_TARGET_DIR/wasm32-unknown-unknown/release/`;
 nothing built is committed. `make wasm-reproducible` proves the
 bytes do not depend on the checkout. They do depend on the host triple (the
 Makefile says why at `WASM_RUSTFLAGS`), and the reference host is Linux x86_64:
@@ -168,7 +169,7 @@ is a development build.
 
 `make wasm-publish` builds every artifact at the checked-out commit and
 publishes them as the GitHub release `wasm-<commit>`, in two archives, each
-with its `SHA256SUMS`. `modules-wasm.tar.gz` holds every artifact unpacked.
+with its `SHA256SUMS`. `programs-wasm.tar.gz` holds every artifact unpacked.
 `founding.tar.gz` holds a founding: each program with its describe module
 and any view embedded (`crates/sdk/founding`), `forge.params`, and a
 `founding.toml` that `ducktape init` reads once its network, time, key and
@@ -181,7 +182,7 @@ time `main` moves, the self-hosted runner fabrics-1 publishes it
 
 `make dev`'s view gate and view releases require `wasm-tools`, Python 3, and
 [Binaryen wasm-opt 132](https://github.com/WebAssembly/binaryen/releases/tag/version_132).
-`make wasm-views` builds, optimizes, and checks the exact guest ABI, printing
+`make wasm-views` builds, optimizes, and checks the exact view ABI, printing
 `name  bytes`. The bytes before wasm-opt stay beside each
 artifact as `<name>.wasm.unoptimized`. `WASM_OPT=/path/to/wasm-opt` can
 select the pinned optimizer. It preserves the view manifest and never
@@ -191,9 +192,9 @@ view with `--profile why` (release plus names, its own output dir) and runs
 twiggy cannot read the shipped bytes.
 
 GPUI uses the fork's default-off consumer configuration: `web` is disabled for
-guests and remains default-on in the native app. The root patches select the
+views and remains default-on in the native app. The root patches select the
 fork's scheduler, logging, and MessagePack crates as well. MessagePack's `typed`
 feature is enabled only for wasm: it follows the wire's Serde shapes and retains
 the existing named encoding. Dynamic/ignored values remain supported. Shared
 writers and table-driven keyboard enums avoid duplicate generated codec code.
-Native and guest roundtrip, limit, and malformed-input tests cover that boundary.
+Native and view roundtrip, limit, and malformed-input tests cover that boundary.

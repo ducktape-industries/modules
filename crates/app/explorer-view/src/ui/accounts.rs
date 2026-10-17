@@ -2,122 +2,145 @@
 use super::*;
 use crate::decode::scheme;
 use identity::Account;
+use view::design::Ladder;
 
-/// What `account` is, its manager named from the list: "Person", "Agent ·
-/// managed by Dev · suspended", "Module · forge" (identity's own wording,
-/// [`identity::view::kind`], over `Kind::badge` and `Kind::note`).
-fn kind(view: &Explorer, account: &Account) -> String {
-    identity::view::kind(&account.kind(), |manager| {
-        view.account(manager)
-            .map(|manager| manager.card.name.clone())
-    })
-}
-
-pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
+pub(super) fn accounts(view: &Explorer, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let listed = match &view.accounts {
         Loadable::Ready(listed) | Loadable::Reloading(listed, _) => listed,
-        Loadable::Failed(refusal) => return failed(&refusal.message, cx, theme),
+        Loadable::Failed(refusal) => return failed(&design::sentence(refusal), cx, theme, ladder),
         Loadable::Idle | Loadable::Loading(_) => {
-            return quiet("explorer-accounts-loading", "Reading accounts…", theme);
+            return quiet("explorer-accounts-loading", words::READING_ACCOUNTS, theme);
         }
     };
     let list = rows("explorer-accounts-list", "Accounts", view);
-    let list = listed
+    let routes = listed
         .list
         .iter()
-        .take(LIST_ROWS * 4)
-        .fold(list, |list, account| {
-            let name = &account.card.name;
-            let sent = view.used_by(account.number).map(|used| frames(&used));
-            let row = row(
-                SharedString::from(format!("explorer-account-{}", account.number)).into(),
-                name.clone(),
-                Route::Account(account.number),
-                cx,
-                theme,
-            )
-            .child(design::avatar(name, design::size::AVATAR, theme))
-            .child(div().flex_1().truncate().child(name.clone()))
-            .child(div().text_color(theme.muted).child(kind(view, account)))
-            .child(mono(format!("#{}", account.number)).text_color(theme.faint))
-            .child(div().w(DEVICES_W).text_color(theme.muted).child(plural(
-                account.keys().len() as u64,
-                "device",
-                "devices",
-            )))
-            .child(
-                mono(sent.map_or_else(|| "–".to_owned(), |sent| plural(sent, "tx", "tx")))
-                    .w(COUNT_W)
-                    .flex()
-                    .justify_end()
-                    .text_color(theme.muted),
-            );
-            list.row(Route::Account(account.number), row, theme)
-        });
-    let caption_text = format!("{} · tx recorded", grouped(listed.list.len() as u64));
+        .map(|account| Route::Account(account.number))
+        .collect();
+    let list = list.shown(routes, |view, range, cx, theme| {
+        let Some(listed) = view.accounts.ready() else {
+            return Vec::new();
+        };
+        range
+            .filter_map(|index| listed.list.get(index))
+            .map(|account| account_row(view, account, cx, theme))
+            .collect()
+    });
+    let caption_text = words::tx_recorded(listed.list.len() as u64);
     div()
         .id("explorer-accounts")
-        .child(heading(
-            "explorer-accounts-heading",
-            "Accounts",
-            Some(caption(caption_text, theme)),
-            theme,
-        ))
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .child(
+            heading(
+                "explorer-accounts-heading",
+                "Accounts",
+                Some(caption(caption_text, theme)),
+                theme,
+            )
+            .mr(design::size::SCROLLBAR),
+        )
         .child(list.build(cx))
         .into_any_element()
 }
 
-fn frames(used: &[&activity::Used]) -> u64 {
-    used.iter().map(|used| used.frames).sum()
+fn account_row(view: &Explorer, account: &Account, cx: Cx, theme: &Theme) -> Stateful<Div> {
+    let name = &account.card.name;
+    let sent = view.sent_by(account.number);
+    row(
+        SharedString::from(format!("explorer-account-{}", account.number)).into(),
+        name.clone(),
+        Route::Account(account.number),
+        cx,
+        theme,
+    )
+    .child(design::avatar(name, design::size::AVATAR, theme))
+    .child(div().flex_1().truncate().child(name.clone()))
+    .child(div().text_color(theme.muted).child(view.kind_of(account)))
+    .child(mono(format!("#{}", account.number)).text_color(theme.faint))
+    .child(div().w(DEVICES_W).text_color(theme.muted).child(plural(
+        account.keys().len() as u64,
+        "device",
+        "devices",
+    )))
+    .child(
+        mono(sent.map_or_else(|| words::NO_COUNT.to_owned(), words::tx_count))
+            .w(COUNT_W)
+            .flex()
+            .justify_end()
+            .text_color(theme.muted),
+    )
 }
 
-fn acted(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> AnyElement {
-    let Some(acted) = view.acted(number) else {
-        return match &view.acted {
-            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
-            _ => quiet("explorer-activity-loading", "Reading its activity…", theme),
-        };
+/// Its newest activity, a page at a time: the rows read so far, drawn in
+/// the page that scrolls, and a press that reads the page past them; over
+/// them, Newer transactions once rows were written above them
+/// (`Listing::behind`).
+fn acted(view: &Explorer, number: u64, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
+    let acted = match landed(view.acted(number)) {
+        Ok(acted) => acted,
+        Err(Some(refusal)) => return failed(&design::sentence(&refusal), cx, theme, ladder),
+        Err(None) => return quiet("explorer-activity-loading", words::READING_ACTIVITY, theme),
     };
-    if acted.is_empty() {
-        return quiet("explorer-no-activity", "No activity recorded.", theme);
+    let (none, more) = acted
+        .rows
+        .read(|acted| (acted.rows().is_empty(), acted.count() > acted.rows().len()));
+    if none {
+        return quiet("explorer-no-activity", words::NO_ACTIVITY, theme);
     }
     let list = rows("explorer-activity-list", "Activity", view);
-    tx_rows(
-        list,
-        view,
-        move |view| {
-            view.acted(number)
-                .map_or_else(Vec::new, |rows| rows.iter().collect())
-        },
-        true,
-        false,
-    )
-    .whole(view, cx, theme)
-    .build(cx)
-    .into_any_element()
+    let older = more.then(|| {
+        let acted = acted.rows.clone();
+        let read = move |_: &mut Explorer, cx: &mut Context<Explorer>| acted.update(cx, read_older);
+        div().px_5().py_2().child(press(
+            "explorer-activity-older",
+            words::SHOW_OLDER,
+            cx,
+            theme,
+            read,
+        ))
+    });
+    div()
+        .children(acted.behind.then(|| newer(cx, theme)))
+        .child(
+            frame_rows(list, &acted.rows, |frames| frames.iter().collect())
+                .whole(view, cx, theme)
+                .build(cx),
+        )
+        .children(older)
+        .into_any_element()
 }
 
-pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> AnyElement {
+pub(super) fn account(
+    view: &Explorer,
+    number: u64,
+    cx: Cx,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let Some(account) = view.account(number) else {
         return match &view.accounts {
             Loadable::Ready(_) | Loadable::Reloading(_, _) => empty_state(
                 "explorer-no-account",
-                format!("No account #{number}"),
-                "Identity holds no account by this number.",
+                "user-x",
+                words::no_account(number),
+                words::NO_ACCOUNT_HERE,
+                ladder,
                 theme,
             )
             .into_any_element(),
-            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
+            Loadable::Failed(refusal) => failed(&design::sentence(refusal), cx, theme, ladder),
             Loadable::Idle | Loadable::Loading(_) => {
-                quiet("explorer-account-loading", "Reading the account…", theme)
+                quiet("explorer-account-loading", words::READING_ACCOUNT, theme)
             }
         };
     };
-    let total = view.used_by(number).map(|used| frames(&used));
-    let recorded = total.map(|total| {
-        let total = plural(total, "transaction", "transactions");
-        caption(format!("{total} recorded"), theme)
-    });
+    let recorded = view
+        .sent_by(number)
+        .map(|total| caption(words::recorded(total), theme));
     let activity = div()
         .id("explorer-activity")
         .flex_1()
@@ -129,7 +152,7 @@ pub(super) fn account(view: &Explorer, number: u64, cx: Cx, theme: &Theme) -> An
             recorded,
             theme,
         ))
-        .child(acted(view, number, cx, theme));
+        .child(acted(view, number, cx, theme, ladder));
     div()
         .id("explorer-account")
         .flex()
@@ -154,7 +177,7 @@ fn title(view: &Explorer, account: &Account, cx: Cx, theme: &Theme) -> impl Into
     let about = format!(
         "account {}   {}   {}",
         account.number,
-        kind(view, account),
+        view.kind_of(account),
         plural(account.keys().len() as u64, "device", "devices")
     );
     div()
@@ -194,13 +217,9 @@ fn title(view: &Explorer, account: &Account, cx: Cx, theme: &Theme) -> impl Into
 
 fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
     let now = view.chain.now();
-    let sent = view.acted(account.number).unwrap_or_default();
     let devices = account.keys().iter().enumerate().map(|(index, key)| {
-        let last = sent.iter().find(|tx| tx.signer == key.key);
-        let label = key
-            .label
-            .clone()
-            .unwrap_or_else(|| format!("Device {}", index + 1));
+        let last = view.last_signed(account.number, &key.key);
+        let label = key.label.clone().unwrap_or_else(|| words::device(index));
         div()
             .flex()
             .items_center()
@@ -217,21 +236,12 @@ fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
                     .text_color(theme.faint),
             )
             .child(
-                mono(match last {
-                    Some(tx) => format!("last used {} ago", ago(now, tx.time)),
-                    None => "not used lately".into(),
-                })
-                .text_size(design::text::CAPTION)
-                .text_color(theme.muted),
+                mono(words::last_used(now, last))
+                    .text_size(design::text::CAPTION)
+                    .text_color(theme.muted),
             )
     });
-    let mut used: Vec<(&str, u64)> = view
-        .used_by(account.number)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|used| (used.program.as_str(), used.frames))
-        .collect();
-    used.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    let used = view.programs_used(account.number).unwrap_or_default();
     // a heading over nothing says nothing: it comes with its rows
     let used_heading =
         (!used.is_empty()).then(|| heading("explorer-used-heading", "Programs used", None, theme));
@@ -244,7 +254,7 @@ fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
             .border_b_1()
             .border_color(theme.border)
             .child(mono(program.to_owned()).flex_1())
-            .child(mono(format!("{count} tx")).text_color(theme.muted))
+            .child(mono(words::tx_count(count)).text_color(theme.muted))
     });
     div()
         .id("explorer-account-side")

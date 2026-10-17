@@ -1,27 +1,25 @@
-//! The module: the signer resolved to its principal, then every op and
+//! The program: the signer resolved to its principal, then every op and
 //! every query, each handed to its function (`ops.rs`, `changes.rs`,
 //! `queries.rs`, `reads.rs`, `change_queries.rs`).
 
-use guest::{Error, ExecCtx, Module, Program, QueryCtx};
+use ::program::{Error, ExecCtx, Program, QueryCtx};
 
 use crate::change_queries::{change, changes, judgment};
 use crate::changes::{Draft, Edit, MergeRequest, close, edit, merge_heads, open, submit_review};
 use crate::contract::*;
 use crate::ops::{configure, create, grant, init, push, revoke, signed_account, stage, touch};
-use crate::queries::{advertise, listing, objects, refs, repos, upload};
+use crate::queries::{advertise, closure, listing, refs, repos, upload};
 use crate::reads::{blob, comparison, diff, log, tree};
 use crate::state::{WRITERS, load_bounds, load_repo};
 
 pub struct Forge;
 
 impl Program for Forge {
-    const NAME: &'static str = crate::MODULE;
+    const NAME: &'static str = crate::PROGRAM;
     type Op = Op;
     type Query = Query;
     type Reply = Reply;
-}
 
-impl Module for Forge {
     fn init(ctx: &ExecCtx, params: &[u8]) -> Result<(), Error> {
         init(ctx, params)
     }
@@ -38,7 +36,11 @@ impl Module for Forge {
             }
             Op::Grant { repo, principal } => grant(ctx, actor, &repo, principal).map(|()| None),
             Op::Revoke { repo, principal } => revoke(ctx, actor, &repo, principal).map(|()| None),
-            Op::Push { repo, request } => push(ctx, actor, &repo, &request).map(|()| None),
+            Op::Push {
+                repo,
+                request,
+                pack,
+            } => push(ctx, actor, &repo, &request, pack).map(|()| None),
             Op::Merge {
                 repo,
                 into,
@@ -93,7 +95,7 @@ impl Module for Forge {
             Op::ReviewSubmit { repo, n, review } => {
                 submit_review(ctx, actor, &repo, n, review).map(Some)
             }
-            Op::Stage { repo, pack } => stage(ctx, actor, &repo, &pack).map(|()| None),
+            Op::Stage { repo, pack } => stage(ctx, actor, &repo, pack).map(|()| None),
         }?;
         if let Some(reply) = reply {
             ctx.set_return_data(abi::encode(&reply));
@@ -121,7 +123,7 @@ impl Module for Forge {
         Ok(match &query {
             // `answer` takes git's two queries before `query` sees them
             Query::Advertise { .. } | Query::Upload { .. } => {
-                return Err(guest::invalid(
+                return Err(::program::invalid(
                     "a git-wire query answers git's bytes, not a Reply",
                 ));
             }
@@ -197,14 +199,10 @@ impl Module for Forge {
                 height,
                 page: judgment(ctx, principal, &listing(page)?)?,
             },
-            Query::Objects {
-                repo,
-                ids,
-                ancestors,
-            } => objects(ctx, height, &bounds, repo, ids, *ancestors)?,
+            Query::Closure { repo, walk } => closure(ctx, height, &bounds, repo, walk)?,
         })
     }
 }
 
-#[cfg(feature = "module")]
-guest::export!(Forge);
+#[cfg(feature = "program")]
+::program::export!(Forge);

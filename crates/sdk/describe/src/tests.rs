@@ -40,7 +40,7 @@ fn an_op_round_trips_to_its_description() {
     };
     let bytes = describe_bytes(&borsh::to_vec(&op).unwrap(), describe).unwrap();
     assert_eq!(Description::decode(&bytes), Some(describe(&op)));
-    // not an op of this module, or one with bytes after it
+    // not an op of this program, or one with bytes after it
     assert_eq!(describe_bytes(&[9], describe), None);
     let mut long = borsh::to_vec(&Op::Say("hi".into())).unwrap();
     long.push(0);
@@ -85,9 +85,8 @@ fn a_description_nests_lists_only_so_deep() {
         Description::decode(&borsh::to_vec(&nest(MAX_DEPTH + 1)).unwrap()),
         None
     );
-    // a bomb as deep as the answer ceiling allows: refused, not a stack overflow
     let mut bomb = vec![1, 0, 0, 0, b't', 1, 0, 0, 0, 1, 0, 0, 0, b'f'];
-    for _ in 0..host::MAX_ANSWER / 5 {
+    for _ in 0..1 << 16 {
         bomb.extend([8, 1, 0, 0, 0]);
     }
     assert_eq!(Description::decode(&bomb), None);
@@ -145,9 +144,9 @@ fn a_section_is_read_out_of_a_program_and_run() {
     }
     program.push(size as u8);
     program.extend_from_slice(&body);
-    assert_eq!(host::section(&program), Some(&section[..]));
-    assert_eq!(host::section(&module("(module)")), None);
-    assert_eq!(host::section(b"not wasm"), None);
+    assert_eq!(crate::section(&program), Some(&section[..]));
+    assert_eq!(crate::section(&module("(module)")), None);
+    assert_eq!(crate::section(b"not wasm"), None);
 
     let compiled = host::compile(&engine, &section).unwrap();
     let description = host::run(&engine, &compiled, &[1, 2, 3]).unwrap();

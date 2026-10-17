@@ -9,13 +9,13 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 abi.workspace = true
-ducktape-view-guest.workspace = true
+view.workspace = true
 identity.workspace = true
 valset.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
 # `examples/live.rs`: the view in the real app over the fake node
-ducktape-view-guest = { workspace = true, features = ["live"] }
+view = { workspace = true, features = ["rig"] }
 # the screen export writes the fixtures as JSON
 serde_json.workspace = true

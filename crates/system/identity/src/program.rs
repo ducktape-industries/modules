@@ -1,27 +1,25 @@
-//! The module: every op and every query, each handed to its rule.
+//! The program: every op and every query, each handed to its rule.
 
-use guest::{Error, ExecCtx, Module, Program, QueryCtx};
+use ::program::{Error, ExecCtx, Program, QueryCtx};
 
 use crate::rules::{
-    ACCOUNTS, MANAGED, OF_MODULE, account, add_key, audience, create, create_agent, generation,
-    of_key, profiles, register_module, remove_key, resolve, resume, revoke, set_audience, set_name,
-    set_profile, suspend,
+    ACCOUNTS, MANAGED, OF_PROGRAM, account, add_key, create, create_agent, generation, of_key,
+    ownership, profiles, register_program, remove_key, resolve, resume, revoke, runs, set_name,
+    set_ownership, set_profile, set_script, suspend,
 };
 use crate::{Op, Query, Reply};
 
 pub struct Identity;
 
 impl Program for Identity {
-    const NAME: &'static str = crate::MODULE;
+    const NAME: &'static str = crate::PROGRAM;
     type Op = Op;
     type Query = Query;
     type Reply = Reply;
-}
 
-impl Module for Identity {
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
         match op {
-            Op::RegisterModule { module } => register_module(ctx, module),
+            Op::RegisterProgram { program } => register_program(ctx, program),
             Op::Create { name, scheme } => create(ctx, name, scheme),
             Op::CreateAgent { name } => create_agent(ctx, name),
             Op::AddKey {
@@ -39,18 +37,20 @@ impl Module for Identity {
             Op::Suspend { account } => suspend(ctx, account),
             Op::Resume { account } => resume(ctx, account),
             Op::Revoke { account } => revoke(ctx, account),
-            Op::SetAudience { account, audience } => set_audience(ctx, account, audience),
+            Op::SetOwnership { account, ownership } => set_ownership(ctx, account, ownership),
+            Op::SetScript { account, script } => set_script(ctx, account, script),
         }
     }
 
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
         Ok(match query {
             Query::OfKey { key } => Reply::Number(of_key(ctx, &key)?),
-            Query::OfModule { module } => Reply::Number(OF_MODULE.get(ctx, &module)?),
+            Query::OfProgram { program } => Reply::Number(OF_PROGRAM.get(ctx, &program)?),
             Query::Profile { number } => {
                 Reply::Profile(ACCOUNTS.get(ctx, &number)?.map(|account| account.profile()))
             }
             Query::Profiles { after, limit } => profiles(ctx, after, limit)?,
+            Query::Runs { program, account } => Reply::Number(runs(ctx, &program, account)?),
             Query::Get { number } => Reply::Account(ACCOUNTS.get(ctx, &number)?),
             Query::Generation { key } => Reply::Generation(generation(ctx, &key)?),
             Query::Resolve { references } => Reply::Resolved(
@@ -67,10 +67,10 @@ impl Module for Identity {
                     .range_of(ctx, &by, &page)?
                     .try_map(|(_, number)| account(ctx, number))?,
             ),
-            Query::Audience { number } => Reply::Audience(audience(ctx, number)?),
+            Query::Ownership { number } => Reply::Ownership(ownership(ctx, number)?),
         })
     }
 }
 
-#[cfg(feature = "module")]
-guest::export!(Identity);
+#[cfg(feature = "program")]
+::program::export!(Identity);

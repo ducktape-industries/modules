@@ -26,7 +26,7 @@ pub struct Interactivity {
     pub in_focus: Option<StyleId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub focus_visible: Option<StyleId>,
-    /// Guest-app-local opaque focus allocation. It is never an authored element ID.
+    /// View-local opaque focus allocation. It is never an authored element ID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub focus_handle: Option<u64>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -93,10 +93,7 @@ pub struct Interactivity {
     /// Keystrokes in gpui's words (`"escape"`, `"shift-tab"`) this node
     /// takes, with its key-down listeners or its keyboard click: the host
     /// stops each one here once they have heard it.
-    #[serde(
-        skip_serializing_if = "Vec::is_empty",
-        deserialize_with = "crate::interactivity::decode_consumed_keys"
-    )]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub consumes_keys: Vec<SharedString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_hover: Option<u32>,
@@ -104,6 +101,22 @@ pub struct Interactivity {
     pub on_file_drop_exit: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tooltip: Option<crate::Tooltip>,
+    /// The handler Back goes to while the view has somewhere to go back to
+    /// (a page under the root of its stack, an open sheet), as
+    /// [`Event::Back`](crate::Event::Back); absent when it has not, and the
+    /// host leaves the program instead. On the ROOT node only: below the
+    /// root the frame is refused. A host with no Back gesture (the desktop)
+    /// never sends it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_back: Option<u32>,
+    /// The node is the page on top of the view's stack, this many pages
+    /// over its root (`0`: the root). Its id is the page's: a frame whose
+    /// first such node has another id or depth shows another page, and the
+    /// depths say which way it went (deeper: a push; shallower: a pop;
+    /// equal: a page put in place of another, a tab). Moving between them
+    /// is the host's to draw; the view draws only the page on top.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<u32>,
 }
 
 crate::codec::sparse!(Interactivity);

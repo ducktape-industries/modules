@@ -57,8 +57,8 @@ pub enum Value {
     Account(u64),
     /// a public key, which may belong to an account
     Key(Vec<u8>),
-    /// a module by name
-    Module(String),
+    /// a program by name
+    Program(String),
     /// a digest: a blob id, a commit
     Hash(Vec<u8>),
     /// `value / 10^decimals`
@@ -167,7 +167,7 @@ pub fn describe_bytes<T: BorshDeserialize>(
 
 /// The module's exports, for [`export!`].
 #[doc(hidden)]
-pub mod guest {
+pub mod exports {
     use super::*;
 
     pub fn alloc(len: u32) -> u32 {
@@ -210,12 +210,12 @@ macro_rules! export {
             // names inside this block
             #[unsafe(export_name = "alloc")]
             extern "C" fn __describe_alloc(len: u32) -> u32 {
-                $crate::guest::alloc(len)
+                $crate::exports::alloc(len)
             }
             #[unsafe(export_name = "describe")]
             unsafe extern "C" fn __describe_export(ptr: u32, len: u32) -> u64 {
                 // SAFETY: the host writes the op into a buffer `alloc` gave it
-                unsafe { $crate::guest::describe::<$op>(ptr, len, $describe) }
+                unsafe { $crate::exports::describe::<$op>(ptr, len, $describe) }
             }
         };
     };
@@ -239,6 +239,38 @@ pub fn variants<T: BorshDeserialize + std::fmt::Debug>() -> Vec<String> {
                 .map(str::to_owned)
         })
         .collect()
+}
+
+/// The payload of the describe section of a program's code blob, if it has
+/// one. Walks the section headers only; a malformed module has none. Feature-free:
+/// a host with no wasm runtime of its own (one that runs the module elsewhere)
+/// still reads the section here.
+pub fn section(module: &[u8]) -> Option<&[u8]> {
+    let mut rest = module.strip_prefix(b"\0asm\x01\0\0\0")?;
+    while let Some((&id, after)) = rest.split_first() {
+        let (size, after) = leb(after)?;
+        let body = after.get(..size)?;
+        rest = &after[size..];
+        if id == 0 {
+            let (len, name) = leb(body)?;
+            if name.get(..len)? == SECTION.as_bytes() {
+                return Some(&name[len..]);
+            }
+        }
+    }
+    None
+}
+
+/// An unsigned LEB128 u32 and what follows it.
+fn leb(bytes: &[u8]) -> Option<(usize, &[u8])> {
+    let mut value = 0u32;
+    for (index, byte) in bytes.iter().take(5).enumerate() {
+        value |= u32::from(byte & 0x7f).checked_shl(7 * index as u32)?;
+        if byte & 0x80 == 0 {
+            return Some((value as usize, &bytes[index + 1..]));
+        }
+    }
+    None
 }
 
 #[cfg(any(feature = "host", test))]

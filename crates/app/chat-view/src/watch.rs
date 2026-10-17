@@ -1,10 +1,10 @@
 //! What chat follows while it is open: the session, routes opened into
 //! it, whether it is on screen, and the live heads of chat and identity.
 //! Every follower says what a refusal means to it; none ends on one.
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::{Chat, links};
-use program::role::Identity;
+use identity::Identity;
 
 impl Chat {
     /// Follows each of them for as long as the view runs.
@@ -12,7 +12,7 @@ impl Chat {
         cx.follow::<HostSession>((), |chat, props, cx| match props {
             Ok(next) => chat.session_changed(next, cx),
             Err(refusal) => {
-                chat.notice = format!("Couldn’t read the session: {}", refusal.message);
+                chat.notice = format!("Couldn’t read the session: {}", design::sentence(&refusal));
                 cx.notify();
             }
         })
@@ -30,11 +30,23 @@ impl Chat {
                 if let Some((channel, seq)) = links::route_target(&route) {
                     chat.search_clear();
                     chat.open_at(channel, seq, cx);
-                    chat.settle_badge(cx);
                     cx.notify();
                 }
             }
             Err(refusal) => cx.log_refused("the route", &refusal),
+        })
+        .detach();
+        // the chain's clock: which day "Today" is (a day separator's word
+        // under a finger); a new frame only when the day turns
+        cx.follow::<ChainHeads>((), |chat, head, cx| match head {
+            Ok(head) => {
+                let today = Some(crate::message::day_of(head.time));
+                if chat.today != today {
+                    chat.today = today;
+                    cx.notify();
+                }
+            }
+            Err(refusal) => cx.log_refused("the chain's heads", &refusal),
         })
         .detach();
         cx.follow::<HostVisible>((), |chat, visible, cx| match visible {

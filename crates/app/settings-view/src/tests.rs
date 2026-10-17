@@ -1,10 +1,21 @@
 use crate::Settings;
-use ducktape_view_guest::methods::{Change, Changes, ClipboardWrite, Query};
-use ducktape_view_guest::methods::{HostSession, Invite, InviteCreate, Session, Submit};
-use ducktape_view_guest::testing::{StreamSender, TestAppContext};
-use ducktape_view_guest::{Theme, wire};
 use identity::Identity;
 use valset::Valset;
+use view::methods::{Change, Changes, ClipboardWrite, Query};
+use view::methods::{HostSession, Invite, InviteCreate, Session, Submit};
+use view::testing::{StreamSender, TestAppContext};
+use view::{Theme, wire};
+
+mod phone;
+
+/// A press on `key` as the host sends it, to batch several in one tick.
+fn press(cx: &TestAppContext, key: &str) -> wire::Event {
+    let handler = cx.interactivity(key).on_click.expect("a click route");
+    wire::Event::Click {
+        handler,
+        event: (&view::ClickEvent::default()).into(),
+    }
+}
 
 fn account(number: u64, name: &str, control: identity::Control) -> identity::Account {
     identity::Account {
@@ -26,20 +37,58 @@ fn maya(number: u64, label: &str) -> identity::Account {
         label: Some(label.into()),
         added_at: 1,
     }];
-    account(number, "Maya", identity::Control::Person { keys })
+    account(number, "Maya", identity::Control::User { keys })
 }
 /// Scout, the agent Maya (7) manages, keyless.
 fn scout() -> identity::Account {
     account(
         12,
         "Scout",
-        identity::Control::Managed {
+        identity::Control::Program {
+            script: None,
             manager: 7,
             category: identity::Category::Agent,
             life: identity::Life::Active { keys: Vec::new() },
         },
     )
 }
+
+/// From here on identity reads Scout (12) in `life`: its manager's view
+/// after a suspend, a resume or a revoke lands.
+fn scout_is(cx: &TestAppContext, life: identity::Life) {
+    cx.host().handle::<Query<Identity>>(move |q| {
+        let life = life.clone();
+        Ok(match q {
+            identity::Query::Get { number } => {
+                identity::Reply::Account(Some(maya(number, "Laptop key")))
+            }
+            identity::Query::Managed { by: 7, .. } => {
+                let identity::Control::Program {
+                    manager, category, ..
+                } = scout().control
+                else {
+                    panic!()
+                };
+                let control = identity::Control::Program {
+                    script: None,
+                    manager,
+                    category,
+                    life,
+                };
+                identity::Reply::Accounts(identity::PageResponse {
+                    height: 42,
+                    items: vec![identity::Account { control, ..scout() }],
+                    next: None,
+                })
+            }
+            identity::Query::Ownership { number: 12 } => {
+                identity::Reply::Ownership(identity::Ownership::Owner)
+            }
+            q => panic!("unexpected query: {q:?}"),
+        })
+    });
+}
+
 fn respond(cx: &TestAppContext) {
     cx.host().handle::<Query<Identity>>(|q| {
         Ok(match q {
@@ -54,8 +103,8 @@ fn respond(cx: &TestAppContext) {
                     next: None,
                 })
             }
-            identity::Query::Audience { number: 12 } => {
-                identity::Reply::Audience(identity::Audience::Manager)
+            identity::Query::Ownership { number: 12 } => {
+                identity::Reply::Ownership(identity::Ownership::Owner)
             }
             q => panic!("unexpected query: {q:?}"),
         })
@@ -66,6 +115,7 @@ fn respond(cx: &TestAppContext) {
                 valset::Reply::Membership(Some(valset::Membership {
                     key,
                     address: Some("127.0.0.1:19001".into()),
+                    halo: "node.example.org:9100".into(),
                     role: valset::Role::Validator,
                 }))
             }
@@ -98,7 +148,8 @@ fn seated(state: &str, dark: bool) -> (TestAppContext, StreamSender<HostSession>
                     identity::Reply::Profile(Some(identity::Profile {
                         number: 12,
                         name: "Scout".into(),
-                        kind: identity::Kind::Managed {
+                        kind: identity::Kind::Program {
+                            script: None,
                             manager: 7,
                             category: identity::Category::Agent,
                             standing: identity::Standing::Suspended,
@@ -142,7 +193,7 @@ fn seated(state: &str, dark: bool) -> (TestAppContext, StreamSender<HostSession>
                 assert_eq!(request.ttl_days, 7);
                 Ok(Invite {
                     invite: "duck-invite:workshop-loopback-example".into(),
-                    notes: vec![ducktape_view_guest::host::Error {
+                    notes: vec![view::host::Error {
                         code: "expires".into(),
                         message: "This invite expires in 7 days.".into(),
                     }],
@@ -162,7 +213,7 @@ fn four_states_are_honest() {
     let cx = fixture("ready", false);
     for text in [
         "Maya",
-        "account 7 · Person",
+        "account 7 · User",
         "Keys",
         "Laptop key",
         "abcd",
@@ -201,11 +252,11 @@ fn the_menu_opens_one_pane_at_a_time() {
 fn an_arrow_on_the_menu_opens_the_next_section() {
     let mut cx = fixture("ready", false);
     let nav = cx.interactivity("settings/nav");
-    assert_eq!(nav.role, Some(ducktape_view_guest::Role::TabList));
+    assert_eq!(nav.role, Some(view::Role::TabList));
     assert_eq!(nav.aria.label.as_deref(), Some("Settings"));
     assert_eq!(
         nav.aria.orientation,
-        Some(ducktape_view_guest::design::Orientation::Vertical)
+        Some(view::design::Orientation::Vertical)
     );
     assert!(nav.focusable && nav.tab_stop == Some(true));
     assert!(!cx.interactivity("settings/nav/account").focusable);
@@ -261,14 +312,14 @@ fn invite_ttl_copy_and_refusal() {
 fn the_invite_lifetime_checks_the_next_choice_on_an_arrow() {
     let mut cx = fixture("invite-ready", false);
     let group = cx.interactivity("settings/ttl");
-    assert_eq!(group.role, Some(ducktape_view_guest::Role::RadioGroup));
+    assert_eq!(group.role, Some(view::Role::RadioGroup));
     assert!(group.focusable && group.tab_stop == Some(true));
     assert!(!cx.interactivity("settings/ttl/1").focusable);
     let checked = |cx: &TestAppContext| {
         [1, 7, 30].map(|days| {
             let segment = cx.interactivity(&format!("settings/ttl/{days}"));
             (
-                segment.aria.toggled == Some(ducktape_view_guest::Toggled::True),
+                segment.aria.toggled == Some(view::Toggled::True),
                 segment.aria.active_descendant,
             )
         })
@@ -290,11 +341,11 @@ fn a_refusal_retries_and_a_snapshot_restores() {
     respond(&cx);
     cx.simulate_click("settings/account-retry");
     cx.run_until_parked();
-    assert!(cx.has_text("account 7 · Person"), "{:?}", cx.texts());
+    assert!(cx.has_text("account 7 · User"), "{:?}", cx.texts());
     let snapshot = cx.snapshot().unwrap();
     cx.restore::<Settings>(&snapshot).unwrap();
     cx.run_until_parked();
-    assert!(cx.has_text("account 7 · Person"));
+    assert!(cx.has_text("account 7 · User"));
 }
 #[test]
 fn export_settings_screens() {
@@ -397,7 +448,7 @@ fn unregistered_key_creates_an_account() {
             op,
             identity::Op::Create { ref name, scheme: abi::Scheme::Ed25519 } if name == "Maya"
         ));
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.host().handle::<Query<Identity>>(|q| {
         Ok(match q {
@@ -424,7 +475,7 @@ fn unregistered_key_creates_an_account() {
     });
     cx.run_until_parked();
     assert!(cx.has_text("Maya"), "{:?}", cx.texts());
-    assert!(cx.has_text("account 9 · Person"), "{:?}", cx.texts());
+    assert!(cx.has_text("account 9 · User"), "{:?}", cx.texts());
     assert!(cx.find("settings/account/create/name").is_none());
 }
 
@@ -532,7 +583,7 @@ fn a_person_creates_an_agent_and_adds_its_key() {
     }
     cx.host().handle::<Submit<Identity>>(|op| {
         assert_eq!(op, identity::Op::CreateAgent { name: "Bot".into() });
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.simulate_input("settings/agents/create/name", " Bot ");
     cx.simulate_click("settings/agents/create/submit");
@@ -557,7 +608,7 @@ fn a_person_creates_an_agent_and_adds_its_key() {
     let expected = add.clone();
     cx.host().handle::<Submit<Identity>>(move |op| {
         assert_eq!(op, expected);
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.simulate_input("settings/agents/key/request", &abi::hex(&abi::encode(&add)));
     cx.simulate_click("settings/agents/key/submit");
@@ -601,7 +652,7 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
                 name: "Scout II".into()
             }
         );
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.simulate_input("settings/agents/12/name", " Scout II ");
     cx.simulate_click("settings/agents/12/rename");
@@ -618,41 +669,9 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     assert!(cx.find("settings/agents/12/resume").is_none());
     cx.host().handle::<Submit<Identity>>(|op| {
         assert_eq!(op, identity::Op::Suspend { account: 12 });
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
-    let suspended = |cx: &TestAppContext, life: identity::Life| {
-        cx.host().handle::<Query<Identity>>(move |q| {
-            let life = life.clone();
-            Ok(match q {
-                identity::Query::Get { number } => {
-                    identity::Reply::Account(Some(maya(number, "Laptop key")))
-                }
-                identity::Query::Managed { by: 7, .. } => {
-                    let identity::Control::Managed {
-                        manager, category, ..
-                    } = scout().control
-                    else {
-                        panic!()
-                    };
-                    let control = identity::Control::Managed {
-                        manager,
-                        category,
-                        life,
-                    };
-                    identity::Reply::Accounts(identity::PageResponse {
-                        height: 42,
-                        items: vec![identity::Account { control, ..scout() }],
-                        next: None,
-                    })
-                }
-                identity::Query::Audience { number: 12 } => {
-                    identity::Reply::Audience(identity::Audience::Manager)
-                }
-                q => panic!("unexpected query: {q:?}"),
-            })
-        });
-    };
-    suspended(&cx, identity::Life::Suspended { keys: Vec::new() });
+    scout_is(&cx, identity::Life::Suspended { keys: Vec::new() });
     cx.simulate_click("settings/agents/12/suspend");
     cx.run_until_parked();
     assert_eq!(sent(&cx), 2);
@@ -662,11 +681,11 @@ fn a_manager_renames_suspends_and_revokes_an_agent() {
     let logged = log.clone();
     cx.host().handle::<Submit<Identity>>(move |op| {
         logged.borrow_mut().push(op);
-        Ok(Vec::new())
+        Ok(view::testing::applied(Vec::new()))
     });
     cx.simulate_click("settings/agents/12/resume");
     cx.run_until_parked();
-    suspended(&cx, identity::Life::Revoked);
+    scout_is(&cx, identity::Life::Revoked);
     cx.simulate_click("settings/agents/12/revoke");
     cx.run_until_parked();
     assert!(
@@ -715,7 +734,8 @@ fn an_identity_head_re_reads_the_account_in_place() {
             }
             identity::Query::Managed { .. } => {
                 let mut scout = scout();
-                scout.control = identity::Control::Managed {
+                scout.control = identity::Control::Program {
+                    script: None,
                     manager: 7,
                     category: identity::Category::Agent,
                     life: identity::Life::Suspended { keys: Vec::new() },
@@ -726,8 +746,8 @@ fn an_identity_head_re_reads_the_account_in_place() {
                     next: None,
                 })
             }
-            identity::Query::Audience { number: 12 } => {
-                identity::Reply::Audience(identity::Audience::Manager)
+            identity::Query::Ownership { number: 12 } => {
+                identity::Reply::Ownership(identity::Ownership::Owner)
             }
             q => panic!("unexpected query: {q:?}"),
         })
@@ -753,14 +773,14 @@ fn profile(number: u64, name: &str, kind: identity::Kind) -> identity::Profile {
 }
 
 fn person(number: u64, name: &str) -> identity::Profile {
-    profile(number, name, identity::Kind::Person)
+    profile(number, name, identity::Kind::User)
 }
 
-type Answers = std::rc::Rc<std::cell::RefCell<identity::Audience>>;
+type Answers = std::rc::Rc<std::cell::RefCell<identity::Ownership>>;
 
-fn answering(audience: identity::Audience) -> (TestAppContext, Answers) {
+fn answering(ownership: identity::Ownership) -> (TestAppContext, Answers) {
     let mut cx = fixture("ready", false);
-    let answers: Answers = std::rc::Rc::new(std::cell::RefCell::new(audience));
+    let answers: Answers = std::rc::Rc::new(std::cell::RefCell::new(ownership));
     let read = answers.clone();
     let directory = [
         person(7, "Maya"),
@@ -768,7 +788,7 @@ fn answering(audience: identity::Audience) -> (TestAppContext, Answers) {
         person(9, "Eve"),
         person(10, "Sam"),
         person(11, "sam"),
-        profile(3, "Bob", identity::Kind::Module("bob".into())),
+        profile(3, "Bob", identity::Kind::System("bob".into())),
     ];
     cx.host().handle::<Query<Identity>>(move |q| {
         Ok(match q {
@@ -782,8 +802,8 @@ fn answering(audience: identity::Audience) -> (TestAppContext, Answers) {
                     next: None,
                 })
             }
-            identity::Query::Audience { number: 12 } => {
-                identity::Reply::Audience(read.borrow().clone())
+            identity::Query::Ownership { number: 12 } => {
+                identity::Reply::Ownership(read.borrow().clone())
             }
             identity::Query::Profile { number } => {
                 identity::Reply::Profile(directory.iter().find(|p| p.number == number).cloned())
@@ -812,15 +832,15 @@ fn answering(audience: identity::Audience) -> (TestAppContext, Answers) {
     });
     let landed = answers.clone();
     cx.host().handle::<Submit<Identity>>(move |op| {
-        let identity::Op::SetAudience {
+        let identity::Op::SetOwnership {
             account: 12,
-            audience,
+            ownership,
         } = op
         else {
             panic!("unexpected op: {op:?}");
         };
-        *landed.borrow_mut() = audience;
-        Ok(Vec::new())
+        *landed.borrow_mut() = ownership;
+        Ok(view::testing::applied(Vec::new()))
     });
     let heads = cx.host().stream::<Changes<Identity>>();
     heads.send(Some(Change {
@@ -837,7 +857,7 @@ fn picked(cx: &TestAppContext) -> Vec<&'static str> {
         .into_iter()
         .filter(|choice| {
             let segment = cx.interactivity(&format!("settings/agents/12/answers/{choice}"));
-            segment.aria.toggled == Some(ducktape_view_guest::Toggled::True)
+            segment.aria.toggled == Some(view::Toggled::True)
         })
         .collect()
 }
@@ -850,13 +870,13 @@ const WARNING: &str = "Anyone on the network can tell this agent what to do.";
 
 #[test]
 fn an_agent_reads_as_answering_its_manager_some_people_or_anyone() {
-    let (cx, _) = answering(identity::Audience::Manager);
+    let (cx, _) = answering(identity::Ownership::Owner);
     assert_eq!(picked(&cx), ["manager"]);
     assert!(cx.has_text("Who it answers"), "{:?}", cx.texts());
     assert!(!cx.has_text(WARNING));
     assert!(cx.find("settings/agents/12/answers/people").is_none());
 
-    let (cx, _) = answering(identity::Audience::Accounts(vec![8, 9]));
+    let (cx, _) = answering(identity::Ownership::Accounts(vec![8, 9]));
     assert_eq!(picked(&cx), ["specific"]);
     for text in ["Bob", "account 8", "Eve", "account 9", "Add someone"] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
@@ -864,7 +884,7 @@ fn an_agent_reads_as_answering_its_manager_some_people_or_anyone() {
     assert!(cx.find("settings/agents/12/answers/8/remove").is_some());
     assert!(!cx.has_text(WARNING));
 
-    let (cx, _) = answering(identity::Audience::Anyone);
+    let (cx, _) = answering(identity::Ownership::Anyone);
     assert_eq!(picked(&cx), ["anyone"]);
     assert!(cx.has_text(WARNING), "{:?}", cx.texts());
     assert!(cx.find("settings/agents/12/answers/people").is_none());
@@ -872,10 +892,10 @@ fn an_agent_reads_as_answering_its_manager_some_people_or_anyone() {
 
 #[test]
 fn only_me_and_anyone_each_take_one_press() {
-    let (mut cx, answers) = answering(identity::Audience::Manager);
+    let (mut cx, answers) = answering(identity::Ownership::Owner);
     cx.simulate_click("settings/agents/12/answers/anyone");
     cx.run_until_parked();
-    assert_eq!(*answers.borrow(), identity::Audience::Anyone);
+    assert_eq!(*answers.borrow(), identity::Ownership::Anyone);
     assert_eq!(picked(&cx), ["anyone"]);
     assert!(cx.has_text(WARNING), "{:?}", cx.texts());
 
@@ -888,13 +908,13 @@ fn only_me_and_anyone_each_take_one_press() {
     assert_eq!(
         sent(&cx),
         [
-            identity::Op::SetAudience {
+            identity::Op::SetOwnership {
                 account: 12,
-                audience: identity::Audience::Anyone,
+                ownership: identity::Ownership::Anyone,
             },
-            identity::Op::SetAudience {
+            identity::Op::SetOwnership {
                 account: 12,
-                audience: identity::Audience::Manager,
+                ownership: identity::Ownership::Owner,
             },
         ],
         "the choice it already has sends nothing"
@@ -903,7 +923,7 @@ fn only_me_and_anyone_each_take_one_press() {
 
 #[test]
 fn specific_people_are_added_by_name_or_number_and_removed() {
-    let (mut cx, answers) = answering(identity::Audience::Manager);
+    let (mut cx, answers) = answering(identity::Ownership::Owner);
     cx.simulate_click("settings/agents/12/answers/specific");
     cx.run_until_parked();
     assert_eq!(picked(&cx), ["specific"]);
@@ -915,15 +935,15 @@ fn specific_people_are_added_by_name_or_number_and_removed() {
     cx.run_until_parked();
     assert_eq!(
         *answers.borrow(),
-        identity::Audience::Accounts(vec![8]),
-        "a module named Bob is not a person"
+        identity::Ownership::Accounts(vec![8]),
+        "a program named Bob is not a person"
     );
     assert!(cx.has_text("account 8"), "{:?}", cx.texts());
 
     cx.simulate_input("settings/agents/12/answers/name", "#9");
     cx.simulate_submit("settings/agents/12/answers/name");
     cx.run_until_parked();
-    assert_eq!(*answers.borrow(), identity::Audience::Accounts(vec![8, 9]));
+    assert_eq!(*answers.borrow(), identity::Ownership::Accounts(vec![8, 9]));
     assert!(cx.has_text("Eve"), "{:?}", cx.texts());
 
     for (typed, problem) in [
@@ -945,19 +965,82 @@ fn specific_people_are_added_by_name_or_number_and_removed() {
 
     cx.simulate_click("settings/agents/12/answers/8/remove");
     cx.run_until_parked();
-    assert_eq!(*answers.borrow(), identity::Audience::Accounts(vec![9]));
+    assert_eq!(*answers.borrow(), identity::Ownership::Accounts(vec![9]));
     assert!(!cx.has_text("account 8"), "{:?}", cx.texts());
     assert!(cx.find("settings/agents/12/answers/refused").is_none());
 }
 
+fn typed(cx: &TestAppContext) -> &str {
+    let Some(wire::Node::Field { value, .. }) = cx.find("settings/agents/12/answers/name") else {
+        panic!("the person field: {:?}", cx.texts())
+    };
+    value
+}
+
+/// A person typed and not added goes with a choice that lands, and stays
+/// through one that is refused (one form for both on dev).
 #[test]
-fn a_refused_choice_shows_in_its_agents_row() {
-    let (mut cx, answers) = answering(identity::Audience::Manager);
+fn a_person_typed_goes_with_a_choice_that_lands() {
+    let (mut cx, _) = answering(identity::Ownership::Accounts(vec![8]));
+    cx.simulate_click("settings/agents/12/answers/add");
+    cx.simulate_input("settings/agents/12/answers/name", "Sam");
+    cx.simulate_click("settings/agents/12/answers/anyone");
+    cx.run_until_parked();
+    cx.simulate_click("settings/agents/12/answers/specific");
+    assert_eq!(typed(&cx), "");
+
+    cx.simulate_input("settings/agents/12/answers/name", "Eve");
+    cx.host()
+        .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
+    cx.simulate_click("settings/agents/12/answers/manager");
+    cx.run_until_parked();
+    cx.simulate_click("settings/agents/12/answers/specific");
+    assert_eq!(typed(&cx), "Eve");
+}
+
+/// The person field and Add wait while a choice is out (dev's one form).
+#[test]
+fn the_person_field_waits_for_a_choice_that_is_out() {
+    let (mut cx, _) = answering(identity::Ownership::Accounts(vec![8]));
+    cx.simulate_click("settings/agents/12/answers/add");
+    let anyone = press(&cx, "settings/agents/12/answers/anyone");
+    cx.tick(vec![anyone]);
+    let Some(wire::Node::Field { options, .. }) = cx.find("settings/agents/12/answers/name") else {
+        panic!("the person field: {:?}", cx.texts())
+    };
+    assert!(options.disabled);
+    assert!(
+        cx.interactivity("settings/agents/12/answers/add")
+            .on_click
+            .is_none()
+    );
+}
+
+/// A Remove that lands takes a refused choice's sentence with it.
+#[test]
+fn a_landed_remove_takes_a_refused_choices_sentence() {
+    let (mut cx, _) = answering(identity::Ownership::Accounts(vec![8, 9]));
     cx.host()
         .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
     cx.simulate_click("settings/agents/12/answers/anyone");
     cx.run_until_parked();
-    assert_eq!(*answers.borrow(), identity::Audience::Manager);
+    let refused = "That didn’t go through: account 7 does not manage account 12";
+    assert!(cx.has_text(refused));
+    cx.host()
+        .handle::<Submit<Identity>>(|_| Ok(view::testing::applied(Vec::new())));
+    cx.simulate_click("settings/agents/12/answers/8/remove");
+    cx.run_until_parked();
+    assert!(!cx.has_text(refused), "{:?}", cx.texts());
+}
+
+#[test]
+fn a_refused_choice_shows_in_its_agents_row() {
+    let (mut cx, answers) = answering(identity::Ownership::Owner);
+    cx.host()
+        .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
+    cx.simulate_click("settings/agents/12/answers/anyone");
+    cx.run_until_parked();
+    assert_eq!(*answers.borrow(), identity::Ownership::Owner);
     assert_eq!(picked(&cx), ["manager"]);
     assert!(!cx.has_text(WARNING));
     let Some(refusal) = cx.find("settings/agents/12/answers/refused") else {

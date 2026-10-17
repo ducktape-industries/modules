@@ -1,19 +1,27 @@
 //! A change's details, one sidebar beside its conversation: who reviewed
 //! it and how, what stands between it and its target ref, every line
 //! comment in one place, and the channel it talks in.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful};
+use view::prelude::*;
+use view::{Div, FontWeight, Stateful};
 
 use crate::Forge;
+use crate::select::Standings;
 use crate::ui::components::{badge, id, path_text, quiet, short_hex};
+use crate::words;
 use forge::{Mergeability, Verdict};
+use view::design::Ladder;
 
 /// The sidebar's width.
 const SIDEBAR_W: Pixels = px(280.);
 /// A fact's label column in Merge status.
 const LABEL_W: Pixels = px(92.);
 
-pub(crate) fn sidebar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> {
+pub(crate) fn sidebar(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Stateful<Div> {
     let column = div()
         .id(id("forge-dock"))
         .w(SIDEBAR_W)
@@ -26,17 +34,17 @@ pub(crate) fn sidebar(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> 
         .border_color(theme.border)
         .bg(theme.background);
     let Some((change, _, _, _)) = forge.change() else {
-        return column.child(quiet("Reading this change…", theme));
+        return column.child(quiet(words::READING_CHANGE, theme));
     };
     column
-        .child(reviews(forge, theme))
+        .child(reviews(forge, theme, ladder))
         .child(merge_status(forge, theme))
         .child(comments(forge, cx, theme))
         .child(
             section("forge-channel", "Channel", None, theme).child(
                 div()
                     .id(id("forge-channel-name"))
-                    .child(format!("# {}", change.channel)),
+                    .child(words::channel(&change.channel)),
             ),
         )
 }
@@ -79,37 +87,36 @@ fn section(key: &str, title: &str, note: Option<String>, theme: &Theme) -> State
 /// Each reviewer's latest verdict, then who was asked and has not
 /// answered. Approvals are advisory: the merge is a compare-and-set on
 /// both heads.
-fn reviews(forge: &Forge, theme: &Theme) -> Stateful<Div> {
-    let mut section = section("forge-reviews", "Reviews", Some("advisory".into()), theme);
-    let Some((change, _, _, reviews)) = forge.change() else {
+fn reviews(forge: &Forge, theme: &Theme, ladder: &Ladder) -> Stateful<Div> {
+    let mut section = section(
+        "forge-reviews",
+        "Reviews",
+        Some(words::ADVISORY.into()),
+        theme,
+    );
+    let Some(Standings {
+        answered: latest,
+        asked: waiting,
+    }) = forge.standings()
+    else {
         return section;
     };
-    let mut latest: Vec<(&forge::Principal, Verdict)> = Vec::new();
-    for review in &reviews.items {
-        match latest.iter_mut().find(|(who, _)| **who == review.author) {
-            Some(held) => held.1 = review.draft.verdict,
-            None => latest.push((&review.author, review.draft.verdict)),
-        }
-    }
-    let waiting: Vec<&forge::Principal> = change
-        .reviewers
-        .iter()
-        .filter(|asked| !latest.iter().any(|(who, _)| who == asked))
-        .collect();
     if latest.is_empty() && waiting.is_empty() {
-        return section.child(quiet("Nobody has reviewed this change yet.", theme));
+        return section.child(quiet(words::NOBODY_REVIEWED, theme));
     }
     for (index, (who, verdict)) in latest.into_iter().enumerate() {
-        let (label, foreground, background) = match verdict {
-            Verdict::Approve => ("approved", theme.success, theme.success_soft),
-            Verdict::RequestChanges => ("changes", theme.danger, theme.danger_soft),
-            Verdict::Comment => ("commented", theme.muted, theme.surface_raised),
+        let label = words::standing(verdict);
+        let (foreground, background) = match verdict {
+            Verdict::Approve => (theme.success, theme.success_soft),
+            Verdict::RequestChanges => (theme.danger, theme.danger_soft),
+            Verdict::Comment => (theme.muted, theme.surface_raised),
         };
         section = section.child(person(
             forge.principal_name(who),
             badge(
                 id(format!("forge-reviewer-verdict-{index}")),
                 label,
+                ladder,
                 foreground,
                 background,
             ),
@@ -121,7 +128,8 @@ fn reviews(forge: &Forge, theme: &Theme) -> Stateful<Div> {
             forge.principal_name(who),
             badge(
                 id(format!("forge-reviewer-asked-{index}")),
-                "asked",
+                words::ASKED,
+                ladder,
                 theme.muted,
                 theme.surface_raised,
             ),
@@ -150,17 +158,17 @@ fn person(name: String, verdict: impl IntoElement, theme: &Theme) -> Div {
 /// Whether the change can merge, how far apart its endpoints are, and the
 /// two heads.
 fn merge_status(forge: &Forge, theme: &Theme) -> Stateful<Div> {
-    let mut section = section("forge-merge-status", "Merge status", None, theme);
+    let mut section = section("forge-merge-status", words::MERGE_STATUS, None, theme);
     let Some((_, source, target, _)) = forge.change() else {
         return section;
     };
     let comparison = forge.compare();
-    let (verdict, tone) = match comparison.map(|c| c.mergeability) {
-        Some(Mergeability::UpToDate) => ("already contained", theme.muted),
-        Some(Mergeability::FastForward) => ("fast-forward", theme.success),
-        Some(Mergeability::Diverged) => ("diverged", theme.warning),
-        Some(Mergeability::Unrelated) => ("unrelated histories", theme.danger),
-        None => ("comparing…", theme.muted),
+    let verdict = comparison.map_or(words::COMPARING, |c| words::merge_status(c.mergeability));
+    let tone = match comparison.map(|c| c.mergeability) {
+        Some(Mergeability::UpToDate) | None => theme.muted,
+        Some(Mergeability::FastForward) => theme.success,
+        Some(Mergeability::Diverged) => theme.warning,
+        Some(Mergeability::Unrelated) => theme.danger,
     };
     section = section.child(fact(
         "Mergeability",
@@ -170,17 +178,15 @@ fn merge_status(forge: &Forge, theme: &Theme) -> Stateful<Div> {
     if let Some(comparison) = comparison {
         section = section.child(fact(
             "Distance",
-            design::mono(format!(
-                "{} ahead · {} behind",
-                comparison.ahead, comparison.behind
-            )),
+            design::mono(words::distance(comparison)),
             theme,
         ));
     }
-    let head = |oid: &Option<String>| design::mono(oid.as_deref().map_or("gone".into(), short_hex));
+    let head =
+        |oid: &Option<String>| design::mono(oid.as_deref().map_or(words::GONE.into(), short_hex));
     section
-        .child(fact("Source head", head(source), theme))
-        .child(fact("Target head", head(target), theme))
+        .child(fact(words::SOURCE_HEAD, head(source), theme))
+        .child(fact(words::TARGET_HEAD, head(target), theme))
 }
 
 fn fact(label: &str, value: impl IntoElement, theme: &Theme) -> Div {
@@ -203,7 +209,7 @@ fn fact(label: &str, value: impl IntoElement, theme: &Theme) -> Div {
 /// its file in the Files tab.
 fn comments(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<Div> {
     let Some((_, _, _, reviews)) = forge.change() else {
-        return section("forge-comments", "Line comments", None, theme);
+        return section("forge-comments", words::LINE_COMMENTS, None, theme);
     };
     let mut rows = Vec::new();
     if let Some(review) = forge.review() {
@@ -214,7 +220,7 @@ fn comments(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<D
             });
             rows.push(comment_row(
                 id(format!("forge-comment-draft-{}", staged.anchor())),
-                format!("{}:{} · pending", path_text(&staged.path), staged.line),
+                words::pending_at(&staged.path, staged.line),
                 jump,
                 theme,
             ));
@@ -243,15 +249,12 @@ fn comments(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Stateful<D
     let count = rows.len();
     let section = section(
         "forge-comments",
-        "Line comments",
+        words::LINE_COMMENTS,
         (count > 0).then(|| count.to_string()),
         theme,
     );
     match count {
-        0 => section.child(quiet(
-            "Nobody has written on a line of this change yet.",
-            theme,
-        )),
+        0 => section.child(quiet(words::NOBODY_ON_A_LINE, theme)),
         _ => section.children(rows),
     }
 }

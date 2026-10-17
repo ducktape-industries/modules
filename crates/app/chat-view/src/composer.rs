@@ -6,14 +6,13 @@ mod binding;
 mod draft;
 
 pub use binding::{Click, Event, Outcome, view};
+pub(crate) use binding::{Handle, editor, press};
 pub use draft::{Draft, MentionChoice, Send, focus};
+pub(crate) use draft::{editor_id, matching_choices};
 
 use chat::{MsgRow, Op, Principal, parse_message};
-use ducktape_view_guest::host::Error;
 use serde::{Deserialize, Serialize};
-
-/// The most a composer sends, well under the program's message cap.
-const MAX_BODY_BYTES: usize = 16 * 1024;
+use view::host::Error;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Target {
@@ -59,11 +58,8 @@ impl Target {
 /// The op a committed draft becomes, `id` naming a new message.
 pub fn op(id: String, send: &Send, target: &Target) -> Result<Op, Error> {
     let body = &send.body;
-    if body.is_empty() || body.len() > MAX_BODY_BYTES {
-        return Err(Error::new(
-            "invalid_body",
-            "Message must contain between 1 byte and 16 KiB",
-        ));
+    if body.is_empty() {
+        return Err(Error::new("invalid_body", "Message must not be empty"));
     }
     let blocks = parse_message(body);
     Ok(match target.clone() {

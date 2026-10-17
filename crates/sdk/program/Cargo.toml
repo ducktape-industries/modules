@@ -3,10 +3,28 @@ name = "program"
 version.workspace = true
 edition.workspace = true
 
-# What a program is to everything that addresses it: one trait, below both
-# SDKs, so a program's own crate (through `guest`) and a view's wire
-# (`view-wire`) name the same thing.
+# The program SDK: a program is written with this crate alone. On
+# wasm32 its contexts call the host through the `ducktape.*` imports; natively
+# they run over `MockHost`, so a program's native test is its real code.
+[features]
+# `Principal` as serde: the rows programs serve carry it.
+serde = ["dep:serde"]
+
 [dependencies]
 abi = { workspace = true }
-borsh = { workspace = true }
+error = { workspace = true }
 program-derive = { path = "../program-derive" }
+borsh = { workspace = true }
+serde = { workspace = true, optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+blob = { workspace = true }
+sha2 = { workspace = true }
+
+# A program written with `program` alone: `cargo build --target
+# wasm32-unknown-unknown -p program --example counter` builds it, and `cargo
+# test` runs its native test over `MockHost`.
+[[example]]
+name = "counter"
+crate-type = ["cdylib"]
+test = true

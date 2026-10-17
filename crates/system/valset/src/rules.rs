@@ -2,11 +2,11 @@
 // enacts, the last validator kept seated, and no more members than the cap the network was
 // founded with.
 
-use abi::role::identity::{self, Kind, Standing};
-use guest::{
+use ::program::{
     AccountNumber, Error, ExecCtx, Principal, QueryCtx, Reply, Scheme, capacity, code, corrupt,
     invalid, not_found, unauthorized, unexpected_reply, wrong_state,
 };
+use abi::role::identity::{self, Kind, Standing};
 use store::{Item, Map, PageRequest, Set};
 
 use crate::{Genesis, INVITE_NAMESPACE, Invite, Membership, Motion, Op, Pending, Role, Voted};
@@ -21,9 +21,11 @@ const KEY_LEN: usize = 32;
 pub(crate) fn init(ctx: &ExecCtx, genesis: Genesis) -> Result<(), Error> {
     CAP.put(ctx, &genesis.member_cap);
     for member in genesis.validators {
+        registered(&member.halo)?;
         let membership = Membership {
             key: member.key,
             address: member.address,
+            halo: member.halo,
             role: Role::Validator,
         };
         fits(ctx, &membership.key)?;
@@ -35,9 +37,14 @@ pub(crate) fn init(ctx: &ExecCtx, genesis: Genesis) -> Result<(), Error> {
 pub(crate) fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
     let signer = ctx.env().signer()?;
     match op {
-        Op::Enroll { address, invite } => enroll(ctx, signer, address, invite),
+        Op::Enroll {
+            address,
+            halo,
+            invite,
+        } => enroll(ctx, signer, address, halo, invite),
         Op::Leave => leave(ctx, signer),
         Op::Vote(motion) => vote(ctx, signer, motion),
+        Op::SetHalo { halo } => set_halo(ctx, signer, halo),
     }
 }
 
@@ -61,10 +68,17 @@ fn enroll(
     ctx: &ExecCtx,
     key: Vec<u8>,
     address: Option<String>,
+    halo: String,
     invite: Option<Invite>,
 ) -> Result<(), Error> {
+    registered(&halo)?;
     if let Some(held) = MEMBERS.get(ctx, &key)? {
-        MEMBERS.put(ctx, &key, &Membership { address, ..held });
+        let membership = Membership {
+            address,
+            halo,
+            ..held
+        };
+        MEMBERS.put(ctx, &key, &membership);
         return Ok(());
     }
     fits(ctx, &key)?;
@@ -72,6 +86,7 @@ fn enroll(
     let membership = Membership {
         key,
         address,
+        halo,
         role: Role::Resident,
     };
     MEMBERS.put(ctx, &membership.key, &membership);
@@ -128,6 +143,17 @@ fn redeem(ctx: &ExecCtx, invite: &Invite) -> Result<(), Error> {
         return Err(wrong_state("the invite was already redeemed"));
     }
     SPENT.insert(ctx, &nonce);
+    Ok(())
+}
+
+fn registered(halo: &str) -> Result<(), Error> {
+    abi::role::validators::registered_halo(halo).map_err(::program::kernel::error_from)
+}
+
+fn set_halo(ctx: &ExecCtx, key: Vec<u8>, halo: String) -> Result<(), Error> {
+    registered(&halo)?;
+    let held = member(ctx, &key)?;
+    MEMBERS.put(ctx, &key, &Membership { halo, ..held });
     Ok(())
 }
 
@@ -201,13 +227,13 @@ pub(crate) fn voices(
     Ok(voices)
 }
 
-/// Whether `key` acts as an agent `manager` manages and keeps active, as
-/// the identity role says.
+/// Whether `key` acts as a program account `manager` manages and keeps
+/// active, as the identity role says.
 fn managed_by(ctx: &QueryCtx, key: &[u8], manager: AccountNumber) -> Result<bool, Error> {
     let Some(account) = account_of(ctx, key)? else {
         return Ok(false);
     };
-    let bound = &ctx.env().roles.identity;
+    let bound = &ctx.env().role(abi::role::IDENTITY)?.clone();
     let profile = match ctx.query(bound, &identity::Query::Profile(account))? {
         identity::Reply::Profile(profile) => profile,
         other => return Err(unexpected_reply(bound, "Profile", &other)),
@@ -215,7 +241,7 @@ fn managed_by(ctx: &QueryCtx, key: &[u8], manager: AccountNumber) -> Result<bool
     Ok(profile.is_some_and(|profile| {
         matches!(
             profile.kind,
-            Kind::Managed { manager: by, standing: Standing::Active, .. } if by == manager
+            Kind::Program { manager: by, standing: Standing::Active, .. } if by == manager
         )
     }))
 }
@@ -225,7 +251,7 @@ fn managed_by(ctx: &QueryCtx, key: &[u8], manager: AccountNumber) -> Result<bool
 /// refuses it `unauthorized`). Any other refusal fails the caller, so an
 /// identity that misanswers drops no one's voice quietly.
 pub(crate) fn account_of(ctx: &QueryCtx, key: &[u8]) -> Result<Option<AccountNumber>, Error> {
-    let bound = &ctx.env().roles.identity;
+    let bound = &ctx.env().role(abi::role::IDENTITY)?.clone();
     match ctx.query(bound, &identity::Query::Account(key.to_vec())) {
         Ok(identity::Reply::Account(account)) => Ok(account),
         Ok(other) => Err(unexpected_reply(bound, "Account", &other)),
@@ -235,10 +261,7 @@ pub(crate) fn account_of(ctx: &QueryCtx, key: &[u8]) -> Result<Option<AccountNum
 }
 
 /// A page of the motions waiting for votes, each with its voters still
-/// seated, as [`vote`] tallies them. A registry op too late to land (what
-/// [`timely`] refuses) is left out before the page is cut, so it takes no
-/// slot of the page; a vote can never clear it, since a refused frame
-/// writes nothing.
+/// seated, as [`vote`] tallies them.
 pub(crate) fn motions(ctx: &QueryCtx, page: &PageRequest) -> Result<crate::Reply, Error> {
     let validators = validators(ctx)?;
     let prefix = VOTES.key(&());
@@ -251,11 +274,6 @@ pub(crate) fn motions(ctx: &QueryCtx, page: &PageRequest) -> Result<crate::Reply
     for (record, mut voters) in VOTES.scan(ctx, scan)? {
         let motion: Motion =
             abi::decode(&record).map_err(|refusal| corrupt("votes/", &record, refusal.sentence))?;
-        if let Motion::Registry { op } = &motion
-            && registry_op(op).and_then(|op| timely(ctx, &op)).is_err()
-        {
-            continue;
-        }
         voters.retain(|voter| validators.contains(voter));
         rows.push((VOTES.key(&record), Pending { motion, voters }));
     }
@@ -265,57 +283,28 @@ pub(crate) fn motions(ctx: &QueryCtx, page: &PageRequest) -> Result<crate::Reply
     })
 }
 
+/// What a vote refuses before it counts: what the motion names must hold now. A
+/// `Role` motion's role must be bound; its op is the role's program's to judge, when the
+/// vote passes, and this program reads none of it. A `Bind` never names a role the
+/// network binds for its life, as the host refuses that.
 fn admissible(ctx: &QueryCtx, motion: &Motion) -> Result<(), Error> {
     match motion {
         Motion::Promote { key } => promotable(ctx, key),
         Motion::Demote { key } => demotable(ctx, key),
         Motion::Remove { key } => removable(ctx, key),
         Motion::Door { open } => door_moves(ctx, *open),
-        Motion::Registry { op } => {
-            let op = registry_op(op)?;
-            timely(ctx, &op)?;
-            grantable(ctx, &op)
-        }
+        Motion::Role { role, .. } => ctx.env().role(role).map(drop),
+        Motion::Bind { role, .. } => rebindable(role),
     }
 }
 
-/// A registry motion's op, as the registry reads it.
-fn registry_op(op: &[u8]) -> Result<module_registry::Op, Error> {
-    abi::decode(op).map_err(|refusal| invalid(format!("not a registry op: {}", refusal.sentence)))
-}
-
-/// A registry motion's `Schedule` or `Cancel` names a later block than
-/// this one: a change lands at a later block (module-registry's
-/// `schedule`), and one whose block has come has landed, so there is
-/// nothing left to cancel. Refused at the first vote: refused only at
-/// enactment, the vote that reached the quorum would fail inside the
-/// registry, and the motion would sit one vote short for good.
-fn timely(ctx: &QueryCtx, op: &module_registry::Op) -> Result<(), Error> {
-    let at = match op {
-        module_registry::Op::Publish { .. }
-        | module_registry::Op::Grant(_)
-        | module_registry::Op::Revoke(_) => return Ok(()),
-        module_registry::Op::Schedule(scheduled) => scheduled.height,
-        module_registry::Op::Cancel { height, .. } => *height,
-    };
-    let height = ctx.env().height;
-    if at <= height {
+fn rebindable(role: &str) -> Result<(), Error> {
+    if abi::role::REQUIRED.contains(&role) {
         return Err(invalid(format!(
-            "too late: block {at} is not past block {height}"
+            "the {role} role is bound for the network's life"
         )));
     }
     Ok(())
-}
-
-/// A `Grant` the registry would refuse (`module_registry::grantable`: a
-/// bad id, a role, no such account, a program's), refused at the first
-/// vote for `timely`'s reason. Asked here, not in `timely`, so reading the
-/// motions asks identity nothing: what it checks never changes once true.
-fn grantable(ctx: &QueryCtx, op: &module_registry::Op) -> Result<(), Error> {
-    match op {
-        module_registry::Op::Grant(grant) => module_registry::grantable(ctx, grant),
-        _ => Ok(()),
-    }
 }
 
 fn enact(ctx: &ExecCtx, motion: Motion) -> Result<(), Error> {
@@ -330,10 +319,13 @@ fn enact(ctx: &ExecCtx, motion: Motion) -> Result<(), Error> {
             DOOR.put(ctx, &open);
             Ok(())
         }
-        Motion::Registry { op } => {
-            ctx.emit_raw(ctx.env().roles.registry.clone(), op, Reply::None);
+        // a refusal comes back as the reply (`Valset::reply`), which takes it: the op's
+        // writes are undone, and the motion left the pending set with this vote
+        Motion::Role { role, op } => {
+            ctx.emit_raw(ctx.env().role(&role)?.clone(), op, Reply::Wanted);
             Ok(())
         }
+        Motion::Bind { role, program } => ctx.bind(role, program),
     }
 }
 

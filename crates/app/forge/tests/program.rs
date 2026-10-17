@@ -1,5 +1,6 @@
 mod common;
 use common::*;
+use forge::Content;
 
 #[test]
 fn founding_requires_bounds_and_ops_require_a_signer() {
@@ -12,7 +13,7 @@ fn founding_requires_bounds_and_ops_require_a_signer() {
         repo: "r".into(),
         hash: HashKind::Sha1,
     };
-    for origin in [Origin::Root, Origin::Module("chat".into())] {
+    for origin in [Origin::Root, Origin::Program("chat".into())] {
         let refusal = sandbox
             .forge
             .refused(|| sandbox.frame(origin, 1, TIME, &create));
@@ -448,15 +449,14 @@ fn a_log_exclude_spends_its_own_walk_budget() {
     assert_eq!(oids, [story.feature, story.root]);
 }
 
-fn stage(sandbox: &MemorySandbox, actor: &[u8], pack: Vec<u8>) -> Result<Vec<u8>, guest::Error> {
-    act(
-        sandbox,
-        actor,
-        &Op::Stage {
+fn stage(sandbox: &MemorySandbox, actor: &[u8], pack: Vec<u8>) -> Result<Vec<u8>, program::Error> {
+    with_pack(sandbox, &pack, |pack| {
+        let op = Op::Stage {
             repo: "project".into(),
-            pack,
-        },
-    )
+            pack: pack.expect("a stage carries objects"),
+        };
+        act(sandbox, actor, &op)
+    })
 }
 
 /// The ids under `commit` that `source` gained for it: its tree and blobs,
@@ -498,6 +498,49 @@ fn a_stage_stores_objects_and_moves_no_ref() {
     // a pack that is no pack is refused as one
     let garbage = stage(&sandbox, OWNER, b"PACK not really".to_vec());
     assert_eq!(garbage.unwrap_err().code, code::INVALID_INPUT);
+}
+
+#[test]
+fn a_push_and_a_stage_read_only_a_held_pack() {
+    let sandbox = founded();
+    create(&sandbox, "project", HashKind::Sha1);
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    let tip = file_commit(&mut source, &[], 1, &[("a", b"1")]);
+    let pack = pack_of(&source, &all_ids(&source));
+    let commands = [(Hash::Sha1.zero(), tip, "refs/heads/main")];
+    let push_with = |request: Vec<u8>, pack: Option<BlobId>| Op::Push {
+        repo: "project".into(),
+        request,
+        pack,
+    };
+
+    let unheld = program::blob_id(HashKind::Sha256, forge::PACK_KIND, &pack).unwrap();
+    let missing = push_with(push_request(&commands), Some(unheld));
+    assert_eq!(refused(&sandbox, OWNER, &missing).code, code::NOT_FOUND);
+    let missing = Op::Stage {
+        repo: "project".into(),
+        pack: unheld,
+    };
+    assert_eq!(refused(&sandbox, OWNER, &missing).code, code::NOT_FOUND);
+
+    let page = held_blob(&sandbox, "page", &pack);
+    let not_a_pack = push_with(push_request(&commands), Some(page));
+    assert_eq!(
+        refused(&sandbox, OWNER, &not_a_pack).code,
+        code::INVALID_INPUT
+    );
+    forget(&sandbox, page);
+
+    let mut inline = push_request(&commands);
+    inline.extend_from_slice(&pack);
+    let inline = push_with(inline, None);
+    assert_eq!(refused(&sandbox, OWNER, &inline).code, code::INVALID_INPUT);
+    assert_eq!(sandbox.blob_count(), 0);
+    assert!(refs_of(&sandbox, "project").is_empty());
+
+    let moved = push(&sandbox, OWNER, "project", &commands, &pack).unwrap();
+    assert_eq!(moved, ["unpack ok", "ok refs/heads/main"]);
+    assert_eq!(sandbox.blob_count(), source.count());
 }
 
 #[test]
@@ -612,13 +655,9 @@ fn noise(len: usize, seed: u64) -> Vec<u8> {
         .collect()
 }
 
-/// A commit like the font bundles in ducktape's history: its own objects
-/// take more than a block carries (16 MiB, core's `node::BLOCK_BYTES`), so
-/// no one push holds it. Staged a blob at a time, it lands, and the push
-/// that moves the ref holds the tree and the commit alone.
 #[test]
-fn a_commit_bigger_than_a_frame_lands_in_parts() {
-    const FRAME: usize = 16 << 20;
+fn a_commit_bigger_than_one_part_lands_in_parts() {
+    const PART: usize = 16 << 20;
     let sandbox = MemorySandbox::default();
     Forge::init(
         &sandbox.exec(1),
@@ -640,15 +679,15 @@ fn a_commit_bigger_than_a_frame_lands_in_parts() {
     let tip = file_commit(&mut source, &[], 1, &files);
     let (below, _) = objects_of(&source, tip);
     let (tree, blobs) = below.split_first().unwrap();
-    assert!(pack_of(&source, &all_ids(&source)).len() > FRAME);
+    assert!(pack_of(&source, &all_ids(&source)).len() > PART);
 
     for blob in blobs {
         let part = pack_of(&source, &[*blob]);
-        assert!(part.len() < FRAME);
+        assert!(part.len() < PART);
         stage(&sandbox, OWNER, part).unwrap();
     }
     let last = pack_of(&source, &[*tree, tip]);
-    assert!(last.len() < FRAME);
+    assert!(last.len() < PART);
     let moved = push(
         &sandbox,
         OWNER,
@@ -686,87 +725,216 @@ fn history(bounds: Bounds) -> (MemorySandbox, MemoryObjects, [Oid; 5]) {
     (sandbox, source, [c1, c2, side, c3, c4])
 }
 
-fn objects(sandbox: &MemorySandbox, ids: &[Oid], ancestors: bool) -> (Vec<Oid>, Vec<String>) {
-    let query = Query::Objects {
+fn closure_page(sandbox: &MemorySandbox, walk: gitcore::walk::Walk) -> Reply {
+    let query = Query::Closure {
         repo: "project".into(),
-        ids: ids.iter().map(|id| id.to_hex()).collect(),
-        ancestors,
+        walk: forge::Walk::of(walk),
     };
-    let Reply::Objects {
-        objects, missing, ..
-    } = abi::decode(&ask(sandbox, &query).unwrap()).unwrap()
-    else {
-        panic!("objects");
-    };
-    let ids = objects
-        .iter()
-        .map(|object| Oid::from_hex(Hash::Sha1, &object.oid).unwrap())
-        .collect();
-    (ids, missing)
+    abi::decode(&ask(sandbox, &query).unwrap()).unwrap()
+}
+
+fn listed_ids(sandbox: &MemorySandbox, wants: &[Oid], haves: &[Oid]) -> BTreeSet<Oid> {
+    closure_of(sandbox, "project", HashKind::Sha1, wants, haves)
+        .into_iter()
+        .map(|item| item.id)
+        .collect()
 }
 
 #[test]
-fn objects_come_by_id_as_git_stores_them_and_the_unheld_are_named() {
-    let (sandbox, source, [c1, _, _, _, c4]) = history(bounds());
-    let tree = Commit::parse(&source.get(&c4).unwrap().unwrap().body, Hash::Sha1)
-        .unwrap()
-        .tree;
+fn a_closure_lists_every_object_of_a_history_and_never_its_bytes() {
+    let (sandbox, source, [_, _, _, _, c4]) = history(bounds());
+    let listed = closure_of(&sandbox, "project", HashKind::Sha1, &[c4], &[]);
+    let ids: BTreeSet<Oid> = listed.iter().map(|item| item.id).collect();
+    assert_eq!(ids, source.ids().copied().collect());
+    assert_eq!(ids.len(), listed.len(), "each object once");
+    for item in &listed {
+        assert_eq!(source.get(&item.id).unwrap().unwrap().kind, item.kind);
+    }
+}
+
+#[test]
+fn a_closure_stops_at_the_commits_the_client_holds() {
+    let (sandbox, source, [_, c2, side, c3, c4]) = history(bounds());
+    let (below_c3, _) = objects_of(&source, c3);
+    let (below_c4, _) = objects_of(&source, c4);
+    let mut expected: BTreeSet<Oid> = [c3, c4].into_iter().collect();
+    expected.extend(below_c3);
+    expected.extend(below_c4);
+    assert_eq!(listed_ids(&sandbox, &[c4], &[c2, side]), expected);
+    assert!(listed_ids(&sandbox, &[c4], &[c4]).is_empty());
+}
+
+#[test]
+fn a_closure_pages_under_the_read_budget_and_lists_the_same_objects() {
+    let (sandbox, _, [.., c4]) = history(bounds());
+    let whole = listed_ids(&sandbox, &[c4], &[]);
+    let (sandbox, _, [.., c4]) = history(Bounds {
+        tree_walk: 3,
+        ..bounds()
+    });
+    let first = closure_page(&sandbox, gitcore::walk::Walk::of(&[c4], &[]));
+    let Reply::Closure { listed, next, .. } = first else {
+        panic!("a closure answers Closure");
+    };
+    assert!(!listed.is_empty());
+    assert!(!next.parse(HashKind::Sha1).unwrap().is_done(), "{next:?}");
+    assert_eq!(listed_ids(&sandbox, &[c4], &[]), whole);
+}
+
+#[test]
+fn a_closure_names_each_object_by_the_blob_the_node_holds_it_as() {
+    let (sandbox, _, [.., c4]) = history(bounds());
+    for item in closure_of(&sandbox, "project", HashKind::Sha1, &[c4], &[]) {
+        let id = forge::blob_id_of(&item.id);
+        let held = sandbox.forge.borrow().blobs.get(&id).cloned();
+        let blob = held.unwrap_or_else(|| panic!("{} is held as {id:?}", item.id));
+        let framed = gitcore::oid_of(Hash::Sha1, item.kind, &blob.body).unwrap();
+        assert_eq!(framed, item.id);
+    }
+}
+
+#[test]
+fn a_closure_of_an_object_the_node_does_not_hold_is_refused() {
+    let (sandbox, _, _) = history(bounds());
     let absent = Oid::from_hex(Hash::Sha1, "ab".repeat(20)).unwrap();
-    let query = Query::Objects {
+    let query = Query::Closure {
         repo: "project".into(),
-        ids: [tree, absent, c1].iter().map(|id| id.to_hex()).collect(),
-        ancestors: false,
+        walk: forge::Walk::of(gitcore::walk::Walk::of(&[absent], &[])),
     };
-    let Reply::Objects {
-        objects, missing, ..
-    } = abi::decode(&ask(&sandbox, &query).unwrap()).unwrap()
-    else {
-        panic!("objects");
-    };
-    assert_eq!(missing, [absent.to_hex()]);
-    let held: Vec<_> = objects
-        .iter()
-        .map(|object| (object.oid.clone(), object.kind, object.body.clone()))
-        .collect();
-    let body = |id: &Oid| source.get(id).unwrap().unwrap().body;
-    assert_eq!(
-        held,
-        [
-            (tree.to_hex(), forge::ObjectKind::Tree, body(&tree)),
-            (c1.to_hex(), forge::ObjectKind::Commit, body(&c1)),
-        ]
+    assert_eq!(ask(&sandbox, &query).unwrap_err().code, code::NOT_FOUND);
+}
+
+/// A diff is held to `merge_cost` per file, and only an interleaved edit
+/// pays it: a file added, deleted or grown in one place shows whole at any
+/// length, a file whose edit is too long to search is answered `Oversize`,
+/// and either way the page it is on still comes.
+#[test]
+fn a_long_one_sided_edit_shows_and_a_too_long_search_marks_the_file() {
+    let sandbox = MemorySandbox::default();
+    Forge::init(
+        &sandbox.exec(1),
+        &abi::encode(&Bounds {
+            merge_cost: 1024,
+            ..bounds()
+        }),
+    )
+    .unwrap();
+    create(&sandbox, "project", HashKind::Sha1);
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    let line = |n: usize| format!("line {n}\n");
+    let text = |range: std::ops::Range<usize>| range.map(line).collect::<String>();
+    let mut shuffled = String::new();
+    for n in 0..1500 {
+        shuffled += &line(n);
+        shuffled += "x\n";
+    }
+    let before = text(0..1500);
+    let c1 = file_commit(
+        &mut source,
+        &[],
+        1,
+        &[
+            ("keep", b"k\n"),
+            ("mid", before.as_bytes()),
+            ("rewrite", before.as_bytes()),
+        ],
     );
+    let grown = text(0..700) + &text(5000..6500) + &text(700..1500);
+    let c2 = file_commit(
+        &mut source,
+        &[c1],
+        2,
+        &[
+            ("added", text(0..2000).as_bytes()),
+            ("keep", b"k\n"),
+            ("mid", grown.as_bytes()),
+            ("rewrite", shuffled.as_bytes()),
+        ],
+    );
+    push(
+        &sandbox,
+        OWNER,
+        "project",
+        &[(Hash::Sha1.zero(), c2, "refs/heads/main")],
+        &pack_of(&source, &all_ids(&source)),
+    )
+    .unwrap();
+    let query = Query::Diff {
+        repo: "project".into(),
+        base: Some(c1.to_hex()),
+        head: c2.to_hex(),
+        path: None,
+        page: PageRequest::first(128),
+    };
+    let Reply::Diff { page, .. } = abi::decode(&ask(&sandbox, &query).unwrap()).unwrap() else {
+        panic!("diff");
+    };
+    let file = |name: &str| {
+        page.items
+            .iter()
+            .find(|f| f.new_path.as_deref() == Some(name.as_bytes()))
+            .unwrap()
+    };
+    let (added, mid, rewrite) = (file("added"), file("mid"), file("rewrite"));
+    assert_eq!(
+        (added.content, added.additions, added.deletions),
+        (Content::Text, 2000, 0)
+    );
+    assert_eq!(
+        (mid.content, mid.additions, mid.deletions),
+        (Content::Text, 1500, 0)
+    );
+    assert_eq!(mid.hunks.len(), 1);
+    assert_eq!(
+        (rewrite.content, rewrite.hunks.len()),
+        (Content::Oversize, 0)
+    );
+    assert_eq!(page.items.len(), 3);
 }
 
-/// The budget is a query's read budget: `tree_walk` reads, `diff_bytes`
-/// bytes. An id past it is in neither list, to ask again; the first held
-/// object comes whatever its size, so no object is out of reach.
-#[test]
-fn the_read_budget_cuts_the_ids_and_the_first_held_comes_past_it() {
-    let (sandbox, _, [c1, c2, _, c3, c4]) = history(Bounds {
-        tree_walk: 3,
-        ..bounds()
-    });
-    assert_eq!(objects(&sandbox, &[c4, c3, c2, c1], false).0, [c4, c3, c2]);
-    let (sandbox, source, [c1, c2, ..]) = history(Bounds {
-        diff_bytes: 10,
-        blob_bytes: 10,
-        ..bounds()
-    });
-    assert!(source.get(&c1).unwrap().unwrap().body.len() > 10);
-    assert_eq!(objects(&sandbox, &[c1, c2], false), (vec![c1], vec![]));
+fn project(bounds: Bounds) -> MemorySandbox {
+    let sandbox = MemorySandbox::default();
+    Forge::init(&sandbox.exec(1), &abi::encode(&bounds)).unwrap();
+    create(&sandbox, "project", HashKind::Sha1);
+    sandbox
 }
 
-/// With `ancestors`, what the budget leaves brings the commits the named
-/// ones descend from, breadth first: only commits, each once.
+fn pushed_main(sandbox: &MemorySandbox, source: &MemoryObjects, tip: Oid) {
+    let report = push(
+        sandbox,
+        OWNER,
+        "project",
+        &[(Hash::Sha1.zero(), tip, "refs/heads/main")],
+        &pack_of(source, &all_ids(source)),
+    )
+    .unwrap();
+    assert_eq!(report, ["unpack ok", "ok refs/heads/main"]);
+}
+
 #[test]
-fn ancestors_come_breadth_first_while_the_budget_lasts() {
-    let (sandbox, _, [c1, c2, side, c3, c4]) = history(bounds());
-    assert_eq!(objects(&sandbox, &[c4], true).0, [c4, c3, side, c2, c1]);
-    assert_eq!(objects(&sandbox, &[c4], false).0, [c4]);
-    let (sandbox, _, [_, _, side, c3, c4]) = history(Bounds {
-        tree_walk: 3,
-        ..bounds()
-    });
-    assert_eq!(objects(&sandbox, &[c4], true).0, [c4, c3, side]);
+fn a_tree_wider_than_the_tree_walk_is_listed_in_one_page() {
+    let sandbox = project(bounds());
+    let mut source = MemoryObjects::new(Hash::Sha1);
+    let width = bounds().tree_walk as usize + 10;
+    let bodies: Vec<String> = (0..width).map(|n| format!("{n}\n")).collect();
+    let names: Vec<String> = (0..width).map(|n| format!("f{n:06}")).collect();
+    let files: Vec<(&str, &[u8])> = names
+        .iter()
+        .zip(&bodies)
+        .map(|(name, body)| (name.as_str(), body.as_bytes()))
+        .collect();
+    let tip = file_commit(&mut source, &[], 1, &files);
+    pushed_main(&sandbox, &source, tip);
+    let first = Query::Closure {
+        repo: "project".into(),
+        walk: forge::Walk::of(gitcore::walk::Walk::of(&[tip], &[])),
+    };
+    let Reply::Closure { listed, next, .. } = abi::decode(&ask(&sandbox, &first).unwrap()).unwrap()
+    else {
+        panic!("a closure answers Closure");
+    };
+    let listed: BTreeSet<String> = listed.into_iter().map(|item| item.oid).collect();
+    let all: BTreeSet<String> = all_ids(&source).iter().map(Oid::to_hex).collect();
+    assert_eq!(listed, all);
+    assert!(next.parse(HashKind::Sha1).unwrap().is_done());
 }

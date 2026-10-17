@@ -1,19 +1,19 @@
 //! Every read: the head or a minted snapshot resolved first, then its trees walked.
-//! A list, find or grep answers a page whose cursor stays on the snapshot it walked.
+//! A list, find or grep answers a page whose cursor stays on the snapshot it walked; an
+//! ownership read answers a path's creator, its write list and who writes it.
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
-use guest::{BlobId, Error, QueryCtx, capacity, invalid, not_found};
+use ::program::{BlobId, Error, QueryCtx, invalid, not_found};
 
 use crate::cursor::Walk;
-use crate::objects::{CHUNK, digest, file, read as read_file, tree};
-use crate::paths::{is_namespace_root, join, segments};
+use crate::objects::{digest, file, read as read_file, tree};
+use crate::paths::{Act, change_path, is_namespace_root, join, segments, writers};
 use crate::state::{HEAD, HISTORY, PINS, SNAPSHOTS, newest_first, resolve};
-use crate::tree::node_at;
+use crate::tree::{TreeEdit, node_at};
 use crate::{
-    Contents, DiffEntry, DiffKind, EntryInfo, Hit, MAX_DIFF_ENTRIES, MAX_GREP_HITS_PER_FILE,
-    MAX_GREP_LINE_BYTES, MAX_GREP_PATTERN_BYTES, MAX_GREP_SCAN_BYTES, MAX_HELD_IDS, MAX_READ_BYTES,
-    Node, PageRequest, PageResponse, PinRow, SnapshotRow,
+    Contents, DiffEntry, DiffKind, EntryInfo, Hit, Node, PageRequest, PageResponse, PathOwnership,
+    PinRow, SnapshotRow,
 };
 
 pub(crate) fn head(ctx: &QueryCtx) -> Result<Option<SnapshotRow>, Error> {
@@ -45,19 +45,22 @@ pub(crate) fn pin(ctx: &QueryCtx, name: &str) -> Result<Option<PinRow>, Error> {
     PINS.get(ctx, &name.to_owned())
 }
 
-pub(crate) fn held(ctx: &QueryCtx, chunks: &[BlobId]) -> Result<Vec<bool>, Error> {
-    if chunks.len() > MAX_HELD_IDS {
-        return Err(capacity(format!(
-            "ask about at most {MAX_HELD_IDS} chunks at once"
-        )));
-    }
-    Ok(chunks
-        .iter()
-        .map(|id| {
-            ctx.blob_stat(*id)
-                .is_some_and(|header| header.kind == CHUNK)
-        })
-        .collect())
+pub(crate) fn ownership(
+    ctx: &QueryCtx,
+    path: &str,
+    at: Option<&BlobId>,
+) -> Result<PathOwnership, Error> {
+    let segments = change_path(path)?;
+    let row = resolve(ctx, at)?;
+    let snapshot = row.as_ref().map(|row| row.id);
+    let along = TreeEdit::over(row.map(|row| row.root)).access_along(ctx, &segments)?;
+    let own = along.last().cloned().flatten().unwrap_or_default();
+    Ok(PathOwnership {
+        snapshot,
+        creator: own.creator,
+        write: own.write,
+        writers: writers(&segments, &along, Act::Write),
+    })
 }
 
 fn info(ctx: &QueryCtx, path: String, node: Node) -> Result<EntryInfo, Error> {
@@ -163,7 +166,6 @@ pub(crate) fn read(
     }
     let node = node_at(ctx, &row.root, &segments)?
         .ok_or_else(|| not_found(format!("nothing is at {path}")))?;
-    let len = len.min(MAX_READ_BYTES);
     let (size, bytes) = match node {
         Node::File { file: id, size, .. } => (size, read_file(ctx, &file(ctx, &id)?, offset, len)?),
         Node::Symlink { target } => {
@@ -272,7 +274,6 @@ struct Grepping<'a> {
     prefix: &'a str,
     after: Option<&'a str>,
     limit: usize,
-    left: u64,
     hits: Vec<Hit>,
     scanned: Option<String>,
     next: Option<String>,
@@ -286,11 +287,8 @@ pub(crate) fn grep(
     at: Option<&BlobId>,
     page: &PageRequest,
 ) -> Result<(Option<BlobId>, PageResponse<Hit>), Error> {
-    let pattern_fits = !pattern.is_empty() && pattern.len() <= MAX_GREP_PATTERN_BYTES;
-    if !pattern_fits {
-        return Err(invalid(format!(
-            "a pattern is 1 to {MAX_GREP_PATTERN_BYTES} bytes"
-        )));
+    if pattern.is_empty() {
+        return Err(invalid("a pattern is not empty"));
     }
     let row = resolve(ctx, at)?;
     let snapshot = row.as_ref().map(|row| row.id);
@@ -303,7 +301,6 @@ pub(crate) fn grep(
         prefix,
         after: walk.after.as_deref(),
         limit: walk.limit,
-        left: MAX_GREP_SCAN_BYTES,
         hits: Vec::new(),
         scanned: None,
         next: None,
@@ -348,46 +345,24 @@ fn grep_file(
     grepping: &mut Grepping,
 ) -> Result<(), Error> {
     let page_full = grepping.hits.len() >= grepping.limit;
-    let never_fits = size > MAX_GREP_SCAN_BYTES;
-    let over_what_is_left = size > grepping.left;
-    let ends_this_page = page_full || (over_what_is_left && !never_fits);
-    if ends_this_page {
+    if page_full {
         grepping.next = grepping.scanned.clone();
         grepping.done = true;
         return Ok(());
     }
-    if never_fits {
-        grepping.scanned = Some(path);
-        return Ok(());
-    }
-    grepping.left -= size;
     let bytes = read_file(ctx, &file(ctx, id)?, 0, size)?;
     for (index, line) in bytes.split(|&byte| byte == b'\n').enumerate() {
-        if grepping.hits.len() >= MAX_GREP_HITS_PER_FILE {
-            break;
-        }
         let text = String::from_utf8_lossy(line);
         if text.contains(grepping.pattern) {
             grepping.hits.push(Hit {
                 path: path.clone(),
                 line: index as u64 + 1,
-                text: clip(&text, MAX_GREP_LINE_BYTES),
+                text: text.into_owned(),
             });
         }
     }
     grepping.scanned = Some(path);
     Ok(())
-}
-
-fn clip(text: &str, max: usize) -> String {
-    if text.len() <= max {
-        return text.to_owned();
-    }
-    let mut end = max;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text[..end].to_owned()
 }
 
 pub(crate) fn diff(
@@ -432,7 +407,7 @@ fn diff_trees(
                 diff_trees(ctx, &old, &new, &path, prefix, out)?
             }
             (Some(old), Some(new)) => {
-                push(out, &path, DiffKind::Modified, prefix)?;
+                push(out, &path, DiffKind::Modified, prefix);
                 children(ctx, &path, &old, DiffKind::Removed, prefix, out)?;
                 children(ctx, &path, &new, DiffKind::Added, prefix, out)?;
             }
@@ -450,7 +425,7 @@ fn side(
     prefix: &str,
     out: &mut Vec<DiffEntry>,
 ) -> Result<(), Error> {
-    push(out, path, kind, prefix)?;
+    push(out, path, kind, prefix);
     children(ctx, path, node, kind, prefix, out)
 }
 
@@ -474,18 +449,12 @@ fn children(
     Ok(())
 }
 
-fn push(out: &mut Vec<DiffEntry>, path: &str, kind: DiffKind, prefix: &str) -> Result<(), Error> {
+fn push(out: &mut Vec<DiffEntry>, path: &str, kind: DiffKind, prefix: &str) {
     if !path.starts_with(prefix) {
-        return Ok(());
-    }
-    if out.len() == MAX_DIFF_ENTRIES {
-        return Err(capacity(format!(
-            "the diff is over {MAX_DIFF_ENTRIES} entries: narrow the prefix"
-        )));
+        return;
     }
     out.push(DiffEntry {
         path: path.to_owned(),
         kind,
     });
-    Ok(())
 }

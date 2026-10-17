@@ -2,7 +2,6 @@
 //! by field.
 use super::*;
 use gpui::{AbsoluteLength, DefiniteLength, Hsla, Length, StyleRefinement};
-use view_wire::{MAX_PIXELS, MAX_TEXT_PIXELS};
 
 fn in_range(value: f32, min: f32, max: f32) {
     assert!(
@@ -10,29 +9,26 @@ fn in_range(value: f32, min: f32, max: f32) {
         "{value} outside {min}..={max}"
     );
 }
-fn absolute_in(value: AbsoluteLength, max: f32) {
-    signed_absolute_in(value, max, false);
+fn length_in(value: f32, signed: bool) {
+    let min = if signed { f32::MIN } else { 0. };
+    in_range(value, min, f32::MAX);
 }
-/// `-max..=max` when `signed` (a margin, an inset), else `0..=max`.
-fn signed_absolute_in(value: AbsoluteLength, max: f32, signed: bool) {
-    let min = |max: f32| if signed { -max } else { 0. };
+fn absolute_in(value: AbsoluteLength) {
+    signed_absolute_in(value, false);
+}
+fn signed_absolute_in(value: AbsoluteLength, signed: bool) {
     match value {
-        AbsoluteLength::Pixels(value) => in_range(value.into(), min(max), max),
-        AbsoluteLength::Rems(value) => {
-            let max = (max / 32.).min(256.);
-            in_range(value.0, min(max), max)
-        }
+        AbsoluteLength::Pixels(value) => length_in(value.into(), signed),
+        AbsoluteLength::Rems(value) => length_in(value.0, signed),
     }
 }
-fn definite_in(value: DefiniteLength, max: f32, fraction: f32) {
-    signed_definite_in(value, max, fraction, false);
+fn definite_in(value: DefiniteLength) {
+    signed_definite_in(value, false);
 }
-fn signed_definite_in(value: DefiniteLength, max: f32, fraction: f32, signed: bool) {
+fn signed_definite_in(value: DefiniteLength, signed: bool) {
     match value {
-        DefiniteLength::Absolute(value) => signed_absolute_in(value, max, signed),
-        DefiniteLength::Fraction(value) => {
-            in_range(value, if signed { -fraction } else { 0. }, fraction)
-        }
+        DefiniteLength::Absolute(value) => signed_absolute_in(value, signed),
+        DefiniteLength::Fraction(value) => length_in(value, signed),
     }
 }
 fn color_in(value: Hsla) {
@@ -65,7 +61,7 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
     for (values, signed) in [(&sizes[..], false), (&signed[..], true)] {
         for value in values.iter().flatten() {
             if let Length::Definite(value) = value {
-                signed_definite_in(*value, MAX_PIXELS, 1., signed);
+                signed_definite_in(*value, signed);
             }
         }
     }
@@ -80,7 +76,7 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
     .into_iter()
     .flatten()
     {
-        definite_in(value, MAX_PIXELS, 1.);
+        definite_in(value);
     }
     for value in [
         style.border_widths.top,
@@ -96,12 +92,12 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
     .into_iter()
     .flatten()
     {
-        absolute_in(value, MAX_PIXELS);
+        absolute_in(value);
     }
     for (value, min, max) in [
-        (style.flex_grow, 0., 1024.),
-        (style.flex_shrink, 0., 1024.),
-        (style.aspect_ratio, 1. / 1024., 1024.),
+        (style.flex_grow, 0., f32::MAX),
+        (style.flex_shrink, 0., f32::MAX),
+        (style.aspect_ratio, f32::MIN_POSITIVE, f32::MAX),
         (style.opacity, 0., 1.),
     ] {
         if let Some(value) = value {
@@ -122,16 +118,15 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
         }
     }
     let shadows = style.box_shadow.as_deref().unwrap_or_default();
-    assert!(shadows.len() <= 4);
     for shadow in shadows {
         color_in(shadow.color);
-        in_range(shadow.offset.x.into(), -128., 128.);
-        in_range(shadow.offset.y.into(), -128., 128.);
-        in_range(shadow.blur_radius.into(), 0., 128.);
-        in_range(shadow.spread_radius.into(), -128., 128.);
+        length_in(shadow.offset.x.into(), true);
+        length_in(shadow.offset.y.into(), true);
+        length_in(shadow.blur_radius.into(), false);
+        length_in(shadow.spread_radius.into(), true);
     }
     for template in [style.grid_cols, style.grid_rows].into_iter().flatten() {
-        assert!((1..=64).contains(&template.repeat));
+        assert!(template.repeat >= 1);
     }
     if let Some(location) = &style.grid_location {
         for placement in [
@@ -141,9 +136,8 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
             &location.column.end,
         ] {
             match placement {
-                gpui::GridPlacement::Line(value) => assert!((-64..=64).contains(value)),
-                gpui::GridPlacement::Span(value) => assert!((1..=64).contains(value)),
-                gpui::GridPlacement::Auto => {}
+                gpui::GridPlacement::Span(value) => assert!(*value >= 1),
+                gpui::GridPlacement::Line(_) | gpui::GridPlacement::Auto => {}
             }
         }
     }
@@ -158,25 +152,28 @@ pub(super) fn check_native_style(style: &StyleRefinement) {
         color_in(color);
     }
     if let Some(size) = style.text.font_size {
-        absolute_in(size, MAX_TEXT_PIXELS);
+        absolute_in(size);
     }
     if let Some(height) = style.text.line_height {
-        definite_in(height, MAX_TEXT_PIXELS, 8.);
+        definite_in(height);
     }
     if let Some(weight) = style.text.font_weight {
         in_range(weight.0, 1., 1000.);
     }
     if let Some(clamp) = style.text.line_clamp {
-        assert!((1..=1024).contains(&clamp));
+        assert!(clamp >= 1);
+    }
+    if let Some(spacing) = style.text.letter_spacing {
+        length_in(spacing.into(), true);
     }
     if let Some(underline) = &style.text.underline {
-        in_range(underline.thickness.into(), 0., 32.);
+        length_in(underline.thickness.into(), false);
         if let Some(color) = underline.color {
             color_in(color);
         }
     }
     if let Some(strike) = &style.text.strikethrough {
-        in_range(strike.thickness.into(), 0., 32.);
+        length_in(strike.thickness.into(), false);
         if let Some(color) = strike.color {
             color_in(color);
         }
@@ -299,6 +296,7 @@ pub(super) fn gen_native_style(rng: &mut Rng) -> gpui::StyleRefinement {
         thickness: px(gen_f32(rng)),
         color: Some(gen_color(rng)),
     });
+    style.text.letter_spacing = Some(px(gen_f32(rng)));
     style
 }
 
@@ -366,5 +364,5 @@ fn a_style_entry_is_the_same_bytes_however_the_writer_walks_it() {
         feed(&entry);
     }
     assert_eq!(corpus.len(), 260);
-    assert_eq!(digest, 0xa384_0e9b_bfaf_0a93, "{digest:#018x}");
+    assert_eq!(digest, 0x025d_432c_889f_c584, "{digest:#018x}");
 }

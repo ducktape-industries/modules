@@ -4,9 +4,9 @@
 
 use std::collections::BTreeMap;
 
+use ::program::{Error, code};
+use ::program::{ExecCtx, QueryCtx, invalid, not_found};
 use gitcore::{Hash, Oid};
-use guest::{Error, code};
-use guest::{ExecCtx, QueryCtx, invalid, not_found};
 use store::{Item, Map, Set};
 
 use crate::contract::{Bounds, Change, Principal, Repo, Review, Revision, valid_repo_name};
@@ -187,12 +187,12 @@ fn next_message_number(ctx: &QueryCtx) -> Result<u64, Error> {
 }
 
 fn message_id(n: u64) -> String {
-    chat::namespace::id(crate::MODULE, &format!("{n:016x}"))
+    chat::namespace::id(crate::PROGRAM, &format!("{n:016x}"))
 }
 
 /// Change `n`'s hidden chat channel: `forge:<repo>:<n>`.
 pub(crate) fn channel_id(repo: &str, n: u64) -> String {
-    chat::namespace::id(crate::MODULE, &format!("{repo}:{n}"))
+    chat::namespace::id(crate::PROGRAM, &format!("{repo}:{n}"))
 }
 
 /// A counter one step on, refused rather than wrapped.
@@ -259,18 +259,4 @@ pub fn load_review(ctx: &QueryCtx, repo: &str, n: u64, id: u64) -> Result<Review
     REVIEWS
         .get(ctx, &(repo.to_owned(), n, id))?
         .ok_or_else(|| storage("authored review missing"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The longest ids forge gives chat fit chat's id limit, and
-    /// [`MAX_REPO_NAME`](crate::MAX_REPO_NAME) is the longest that does.
-    #[test]
-    fn longest_ids_fit_chat() {
-        let repo = "r".repeat(crate::MAX_REPO_NAME);
-        assert_eq!(channel_id(&repo, u64::MAX).len(), chat::MAX_ID_BYTES);
-        assert!(message_id(u64::MAX).len() <= chat::MAX_ID_BYTES);
-    }
 }

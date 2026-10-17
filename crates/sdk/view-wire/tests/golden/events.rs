@@ -218,6 +218,7 @@ pub fn every_event() -> Vec<Event> {
             },
         },
         Event::Theme { dark: true },
+        Event::Pointer { touch: true },
         Event::Viewport {
             width: 900.0,
             height: 501.0,
@@ -351,6 +352,7 @@ pub fn every_event() -> Vec<Event> {
                 },
             })),
         },
+        Event::Back { handler: 81 },
         Event::Web {
             handler: 17,
             state: WebState {
@@ -359,6 +361,30 @@ pub fn every_event() -> Vec<Event> {
                 loading: true,
                 can_go_back: true,
                 can_go_forward: true,
+            },
+        },
+        Event::Media {
+            handler: 18,
+            state: MediaState {
+                status: MediaStatus::Failed,
+                device: "FaceTime HD Camera".into(),
+                playback: Playback::Recording,
+                detail: "the driver stopped".into(),
+                speaking: true,
+                opens_settings: true,
+                monitor_stopped: true,
+                track: TrackState::Up { subscribers: 2 },
+            },
+        },
+        // a remote piece whose publisher left
+        Event::Media {
+            handler: 20,
+            state: MediaState {
+                status: MediaStatus::Gone,
+                track: TrackState::Ended {
+                    code: "track_ended".into(),
+                },
+                ..MediaState::default()
             },
         },
     ]
@@ -430,6 +456,7 @@ pub fn event_variant(event: &Event) -> &'static str {
         Event::TooltipRequest { .. } => "TooltipRequest",
         Event::Text { .. } => "Text",
         Event::Theme { .. } => "Theme",
+        Event::Pointer { .. } => "Pointer",
         Event::Viewport { .. } => "Viewport",
         Event::Offset { .. } => "Offset",
         Event::Select { .. } => "Select",
@@ -444,6 +471,8 @@ pub fn event_variant(event: &Event) -> &'static str {
         Event::Response { .. } => "Response",
         Event::Resync => "Resync",
         Event::A11yAction { .. } => "A11yAction",
+        Event::Back { .. } => "Back",
         Event::Web { .. } => "Web",
+        Event::Media { .. } => "Media",
     }
 }

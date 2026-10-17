@@ -3,12 +3,12 @@
 
 use std::collections::BTreeSet;
 
-use guest::Env;
-use guest::{Error, ExecCtx, QueryCtx, capacity, invalid, stale, unauthorized, wrong_state};
+use ::program::Env;
+use ::program::{Error, ExecCtx, QueryCtx, capacity, invalid, stale, unauthorized, wrong_state};
 
 use crate::contract::*;
 use crate::discussion::{self, Event};
-use crate::ops::{require_person_or_agent, require_writer};
+use crate::ops::{require_user_or_program_account, require_writer};
 use crate::state::{
     load_bounds, load_change, load_ref, load_repo, next, next_message, next_number, parse_oid,
     peek_message, repo_hash, resolve, save_change, save_review, set_ref,
@@ -111,7 +111,7 @@ pub(crate) fn edit(
         check_reviewers(ctx, &reviewers)?;
         change.reviewers = reviewers;
     }
-    touched(&mut change, env);
+    touched(&mut change, &env);
     fits(ctx, &change)?;
     save_change(ctx, repo, &change)?;
     Ok(OpReply::Change {
@@ -136,7 +136,7 @@ pub(crate) fn close(
     require_open(&change)?;
     change.state = ChangeState::Closed;
     change.closed_by = Some(actor.clone());
-    touched(&mut change, env);
+    touched(&mut change, &env);
     change.system_seq = next(change.system_seq)?;
     let message = next_message(ctx)?;
     save_change(ctx, repo, &change)?;
@@ -182,7 +182,7 @@ pub(crate) fn submit_review(
         .checked_add(review.draft.comments.len() as u64)
         .ok_or_else(|| capacity("comment counter exhausted"))?;
     count_verdict(&mut change.verdicts, review.draft.verdict)?;
-    touched(&mut change, env);
+    touched(&mut change, &env);
     change.system_seq = next(change.system_seq)?;
     fits(ctx, &change)?;
     let message = next_message(ctx)?;
@@ -247,7 +247,7 @@ pub(crate) fn merge_heads(
             source: expected_from.to_hex(),
             target: expected_into.to_hex(),
         });
-        touched(&mut change, env);
+        touched(&mut change, &env);
         change.system_seq = next(change.system_seq)?;
         fits(ctx, &change)?;
         let message = next_message(ctx)?;
@@ -296,23 +296,16 @@ fn fits(ctx: &QueryCtx, record: &impl borsh::BorshSerialize) -> Result<(), Error
 }
 
 fn check_title(title: &str) -> Result<(), Error> {
-    if title.trim().is_empty() || title.len() > MAX_TITLE_BYTES {
-        return Err(invalid(format!(
-            "a title is nonblank and at most {MAX_TITLE_BYTES} bytes"
-        )));
+    if title.trim().is_empty() {
+        return Err(invalid("a title is nonblank"));
     }
     Ok(())
 }
 
 fn check_reviewers(ctx: &QueryCtx, reviewers: &[Principal]) -> Result<(), Error> {
-    if reviewers.len() > MAX_REVIEWERS {
-        return Err(capacity(format!(
-            "a change asks at most {MAX_REVIEWERS} reviewers"
-        )));
-    }
     let mut seen = BTreeSet::new();
     for reviewer in reviewers {
-        require_person_or_agent(ctx, reviewer)?;
+        require_user_or_program_account(ctx, reviewer)?;
         if !seen.insert(reviewer) {
             return Err(invalid("each reviewer is asked once"));
         }
@@ -339,11 +332,6 @@ fn check_branch(name: &[u8]) -> Result<(), Error> {
 }
 
 fn check_comments(draft: &ReviewDraft) -> Result<(), Error> {
-    if draft.comments.len() > MAX_REVIEW_COMMENTS {
-        return Err(capacity(format!(
-            "a review carries at most {MAX_REVIEW_COMMENTS} line comments"
-        )));
-    }
     let mut anchors = BTreeSet::new();
     for comment in &draft.comments {
         check_path(&comment.path, false)?;
@@ -374,8 +362,7 @@ pub fn check_path(path: &[u8], root: bool) -> Result<(), Error> {
     if root && path.is_empty() {
         return Ok(());
     }
-    let well_formed = path.len() <= MAX_PATH_BYTES
-        && !path.contains(&0)
+    let well_formed = !path.contains(&0)
         && path
             .split(|b| *b == b'/')
             .all(|part| !part.is_empty() && part != b"." && part != b"..");

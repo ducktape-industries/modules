@@ -14,7 +14,7 @@
 //! not this crate's: it reads nothing.
 //!
 //! THE FIRST PATH SEGMENT NAMES A PROGRAM. This crate does not know which
-//! programs exist — the `modules` program's roster does — so it checks only the
+//! programs exist — the `programs` program's roster does — so it checks only the
 //! spelling (`program::is_name`: `1..=64` of `[a-z0-9_-]`) and keeps the tail as decoded segments,
 //! interpreting none of it. What a tail MEANS is the program's to say, and a
 //! view that names one copies that rule beside itself.
@@ -201,9 +201,9 @@ impl std::fmt::Display for Link {
 /// `duck://<chain>/<program>/<tail…>` from a session's chain id text
 /// (`<label>#<salt>`); `None` while the session names no chain, or when a
 /// part breaks [`Link::new`]'s rules.
-pub fn mint(chain: &str, module: &str, tail: &[&str]) -> Option<String> {
+pub fn mint(chain: &str, program: &str, tail: &[&str]) -> Option<String> {
     let tail = tail.iter().map(|segment| (*segment).to_owned()).collect();
-    Link::new(chain.parse().ok()?, module, tail)
+    Link::new(chain.parse().ok()?, program, tail)
         .ok()
         .map(|link| link.to_string())
 }

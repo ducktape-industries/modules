@@ -1,5 +1,5 @@
 //! The one rule function for what assistive technology cannot name, place
-//! or reach: the view tests ask [`audit`] of every frame (`ducktape-view-guest`
+//! or reach: the view tests ask [`audit`] of every frame (`view`
 //! testing); the host may, on a decoded frame.
 
 use crate::aria::{HOST_ACTIONS, view_role};
@@ -161,7 +161,6 @@ fn walk(
     };
     let children = node.children();
     for (index, child) in children.iter().enumerate() {
-        // Quadratic in a node's children, which `MAX_NODES` bounds.
         let duplicate = child.key().is_some_and(|key| {
             children[..index]
                 .iter()
@@ -256,7 +255,8 @@ fn rules(step: &Step<'_>, duplicate: bool, claimed: &mut bool) -> Rules {
     });
     let pictured = matches!(node, Node::Image { .. } | Node::Svg { .. });
     rules.check(
-        ((interactive || pictured) && role.is_some()) || matches!(node, Node::Overlay { .. }),
+        ((interactive || pictured) && role.is_some())
+            || matches!(node, Node::Overlay { .. } | Node::Sheet { .. }),
         Unnamed,
         || name().is_none(),
     );
@@ -415,9 +415,10 @@ fn name_of(node: &Node) -> Option<String> {
     }
     let own = match node {
         Node::Container(_) => None,
-        Node::Image { label, .. } | Node::Svg { label, .. } | Node::Overlay { label, .. } => {
-            label.as_deref().and_then(trimmed)
-        }
+        Node::Image { label, .. }
+        | Node::Svg { label, .. }
+        | Node::Overlay { label, .. }
+        | Node::Sheet { label, .. } => label.as_deref().and_then(trimmed),
         Node::Field { options, .. } => trimmed(&options.label),
         _ => None,
     };

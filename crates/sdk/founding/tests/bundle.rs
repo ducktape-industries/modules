@@ -83,6 +83,8 @@ fn release(dir: &Path) {
     for (program, view) in founding::PROGRAMS {
         fs::write(dir.join(format!("{program}.wasm")), module(program)).unwrap();
         fs::write(dir.join(format!("{view}.wasm")), module(view)).unwrap();
+        let notify = format!("{view}.notify");
+        fs::write(dir.join(format!("{notify}.wasm")), module(&notify)).unwrap();
         let describe = format!("{program}.describe");
         fs::write(dir.join(format!("{describe}.wasm")), module(&describe)).unwrap();
     }
@@ -109,11 +111,21 @@ fn the_bundle_names_every_file_it_holds_and_packs_each_program_with_its_own_view
         assert_eq!(section(&packed, founding::VIEW_SECTION), [module(view)]);
         let describe = module(&format!("{program}.describe"));
         assert_eq!(section(&packed, founding::DESCRIBE_SECTION), [describe]);
+        // chat and forge carry their notifier; the others none
+        let notifier = founding::NOTIFIERS
+            .iter()
+            .find(|(name, _)| *name == program)
+            .map(|(_, view)| module(&format!("{view}.notify")));
+        assert_eq!(
+            section(&packed, founding::NOTIFY_SECTION),
+            Vec::from_iter(notifier)
+        );
     }
     for program in founding::UNVIEWED {
         let packed = fs::read(out.path().join(format!("{program}.wasm"))).unwrap();
         assert_eq!(section(&packed, "tag"), [program.as_bytes().to_vec()]);
         assert!(section(&packed, founding::VIEW_SECTION).is_empty());
+        assert!(section(&packed, founding::NOTIFY_SECTION).is_empty());
         let describe = module(&format!("{program}.describe"));
         assert_eq!(section(&packed, founding::DESCRIBE_SECTION), [describe]);
     }
@@ -122,6 +134,16 @@ fn the_bundle_names_every_file_it_holds_and_packs_each_program_with_its_own_view
         abi::decode::<forge::Bounds>(&params).unwrap(),
         founding::forge_bounds()
     );
+    let params = fs::read(out.path().join("halo.params")).unwrap();
+    let lanes = abi::decode::<abi::role::halo::Genesis>(&params).unwrap();
+    assert_eq!(lanes, founding::halo_lanes());
+    // a node applies blocks over the blobs lane: no vote may take it away
+    let pinned: Vec<(&str, bool)> = lanes
+        .lanes
+        .iter()
+        .map(|lane| (lane.name.as_str(), lane.pinned))
+        .collect();
+    assert_eq!(pinned, [("ducktape/blobs", true), ("ducktape/live", false)]);
 
     let text = fs::read_to_string(out.path().join("founding.toml")).unwrap();
     let file: toml::Table = toml::from_str(&text).unwrap();

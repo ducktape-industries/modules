@@ -1,8 +1,8 @@
 //! What a view shows of an account. Who the reader is comes with the
 //! session (`Session.account`); no view asks identity for it.
 
-/// What an account is, as members and explorer label it: "Person",
-/// "Agent · managed by eddy · suspended", "Module · chat". The badge and
+/// What an account is, as members and explorer label it: "User",
+/// "Agent · managed by eddy · suspended", "Program · chat". The badge and
 /// the note are [`Kind`](crate::Kind)'s; `name_of` names the manager, or
 /// its number stands in.
 pub fn kind(
@@ -11,7 +11,7 @@ pub fn kind(
 ) -> String {
     let what = kind
         .badge(|manager| name_of(manager).unwrap_or_else(|| format!("#{manager}")))
-        .unwrap_or_else(|| "Person".into());
+        .unwrap_or_else(|| "User".into());
     match kind.note() {
         Some(note) => format!("{what} · {note}"),
         None => what,

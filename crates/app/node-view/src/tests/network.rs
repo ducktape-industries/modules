@@ -2,7 +2,7 @@
 //! node that is not voting shows, a refusal after an answer, a node that
 //! does not serve it, a silent node, and the narrow widths.
 use super::*;
-use crate::table::NO_NETWORK;
+use crate::words::NO_NETWORK;
 
 /// How the app refuses `chain.network` for a node without the route.
 fn unsupported(cx: &TestAppContext) {
@@ -107,7 +107,7 @@ fn a_node_that_is_not_voting_says_so() {
 /// "this node"), and the strip drawn on from there read as one with it.
 #[test]
 fn the_strip_keeps_a_gutter_from_this_nodes_address() {
-    use ducktape_view_guest::wire::{ContainerNode, Node};
+    use view::wire::{ContainerNode, Node};
     fn column(node: &Node) -> Option<&ContainerNode> {
         let Node::Container(container) = node else {
             return None;
@@ -136,8 +136,8 @@ fn table_min_width(cx: &TestAppContext) -> serde_json::Value {
 /// Where row `row`'s strip sits and its marks' gap: `true` where it is on
 /// a line of its own under the row's cells.
 fn strip_of(cx: &TestAppContext, row: &str) -> (bool, serde_json::Value) {
-    use ducktape_view_guest::wire::Node;
-    fn marks(node: &Node) -> Option<&ducktape_view_guest::wire::ContainerNode> {
+    use view::wire::Node;
+    fn marks(node: &Node) -> Option<&view::wire::ContainerNode> {
         match node {
             Node::Container(strip) if strip.children.len() == crate::recent::WINDOW as usize => {
                 Some(strip)
@@ -201,7 +201,7 @@ fn a_narrow_sheet_moves_the_strip_under_its_row() {
         ["0102", "—", "—", "—", "Doesn't propose"]
     );
     // a resident's line goes under its row as a validator's strip does
-    let Some(ducktape_view_guest::wire::Node::Container(resident)) = cx.find("nodes-row-3") else {
+    let Some(view::wire::Node::Container(resident)) = cx.find("nodes-row-3") else {
         panic!("no nodes-row-3");
     };
     assert_eq!(resident.children.len(), 2, "cells, then Doesn't propose");
@@ -230,7 +230,7 @@ fn a_refusal_after_an_answer_keeps_the_votes() {
     assert!(!cx.has_text(NO_NETWORK));
     assert!(
         cx.host()
-            .requests::<ducktape_view_guest::methods::HostLog>()
+            .requests::<view::methods::HostLog>()
             .iter()
             .any(|line| line.contains("could not be reached"))
     );
@@ -265,7 +265,7 @@ fn a_node_without_the_network_says_so_and_logs_once() {
     assert!(cx.find("nodes-footnote").is_none());
     let logged = cx
         .host()
-        .requests::<ducktape_view_guest::methods::HostLog>()
+        .requests::<view::methods::HostLog>()
         .iter()
         .filter(|line| line.contains("the validators' votes"))
         .count();
@@ -273,18 +273,13 @@ fn a_node_without_the_network_says_so_and_logs_once() {
         logged,
         1,
         "{:?}",
-        cx.host()
-            .requests::<ducktape_view_guest::methods::HostLog>()
+        cx.host().requests::<view::methods::HostLog>()
     );
 }
 
 /// Every status badge's text colour, in row order.
-fn badge_inks(
-    cx: &TestAppContext,
-    node: &ducktape_view_guest::wire::Node,
-    inks: &mut Vec<ducktape_view_guest::Hsla>,
-) {
-    use ducktape_view_guest::wire::{ElementIdWire, Node};
+fn badge_inks(cx: &TestAppContext, node: &view::wire::Node, inks: &mut Vec<view::Hsla>) {
+    use view::wire::{ElementIdWire, Node};
     if let Node::Container(container) = node {
         if let Some(ElementIdWire::NamedInteger(name, _)) = &container.id
             && name == "nodes-status-word"
@@ -313,7 +308,7 @@ fn a_silent_node_reads_not_answering() {
         "{:?}",
         cx.texts()
     );
-    let theme = ducktape_view_guest::Theme::light();
+    let theme = view::Theme::light();
     let inks = |cx: &TestAppContext| {
         let mut inks = Vec::new();
         badge_inks(cx, cx.find("nodes-table").expect("the table"), &mut inks);

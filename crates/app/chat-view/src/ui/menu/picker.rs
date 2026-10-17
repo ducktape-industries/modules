@@ -1,13 +1,15 @@
 //! The reaction picker: a search field that takes the keys, the reader's
 //! frequent row, one tab of emoji at a time, or the search's matches.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, Stateful};
+use view::prelude::*;
+use view::{Div, Stateful};
 
 use super::{
     CAPTION, CELL, COLUMNS, GRID_ROWS, PICKER_GAP, PICKER_INSET, Press, SEARCH, STACK_GAP, TABS,
     focus_key,
 };
+use crate::words;
 use crate::{Chat, Menu, Mode, emoji};
+use view::design::Ladder;
 
 /// The reaction picker: a search field that takes the keys, the reader's
 /// frequent row, one tab of emoji at a time under a strip of tabs, or the
@@ -17,6 +19,7 @@ pub(super) fn reactions(
     menu: &Menu,
     cx: &mut Context<Chat>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let picker = div()
         .id("chat-reaction-picker")
@@ -27,7 +30,7 @@ pub(super) fn reactions(
         .p(px(PICKER_INSET))
         .child(search_field(chat, menu, cx, theme));
     let body = match chat.picker.query.is_blank() {
-        true => browse(chat, menu.seq, cx, theme),
+        true => browse(chat, menu.seq, cx, theme, ladder),
         false => matches(chat, menu.seq, cx, theme),
     };
     picker.children(body).into_any_element()
@@ -56,7 +59,7 @@ fn search_field(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme)
         .border_color(theme.border_strong)
         .bg(theme.background)
         .text_size(design::text::SECONDARY)
-        .placeholder("Search emoji");
+        .placeholder(words::SEARCH_EMOJI);
     let first = emoji::search(&chat.picker.query.text()).first().copied();
     match first.filter(|_| chat.may_write()) {
         Some(first) => {
@@ -71,11 +74,17 @@ fn search_field(chat: &Chat, menu: &Menu, cx: &mut Context<Chat>, theme: &Theme)
 }
 
 /// With no search: the frequent row, the tabs, and the open tab's emoji.
-fn browse(chat: &Chat, seq: u64, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
+fn browse(
+    chat: &Chat,
+    seq: u64,
+    cx: &mut Context<Chat>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Vec<AnyElement> {
     let frequent = emoji::frequent(&chat.recent_emoji);
     let frequent = grid(
         "chat-reaction-frequent",
-        "Frequently used",
+        words::FREQUENTLY_USED,
         frequent
             .iter()
             .map(|emoji| (format!("chat-reaction-{emoji}"), emoji.clone()))
@@ -106,18 +115,18 @@ fn browse(chat: &Chat, seq: u64, cx: &mut Context<Chat>, theme: &Theme) -> Vec<A
         theme,
     );
     vec![
-        caption("Frequently used", theme).into_any_element(),
+        caption(words::FREQUENTLY_USED, theme).into_any_element(),
         frequent.into_any_element(),
-        tabs(tab, cx, theme).into_any_element(),
+        tabs(tab, cx, theme, ladder).into_any_element(),
         caption(category.name, theme).into_any_element(),
         cells.into_any_element(),
     ]
 }
 
 /// A tab per emoji category, `chosen` marked.
-fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElement {
+fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme, ladder: &Ladder) -> impl IntoElement {
     // one Tab stop; ← → open the next category
-    let mut tabs = design::composite("chat-reaction-tabs", Role::TabList, "Emoji categories")
+    let mut tabs = design::composite("chat-reaction-tabs", Role::TabList, words::EMOJI_CATEGORIES)
         .orientation(design::Orientation::Horizontal)
         .wrap()
         .active(chosen, emoji::CATEGORIES.len())
@@ -137,7 +146,7 @@ fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
         });
         let id = format!("chat-reaction-tab-{}", category.name);
         tabs = tabs.child(design::item(
-            design::tab(id, category.glyph, index == chosen, theme, open)
+            design::tab(id, category.glyph, index == chosen, ladder, theme, open)
                 .flex_1()
                 .h_full()
                 .justify_center()
@@ -156,7 +165,7 @@ fn tabs(chosen: usize, cx: &mut Context<Chat>, theme: &Theme) -> impl IntoElemen
 fn matches(chat: &Chat, seq: u64, cx: &mut Context<Chat>, theme: &Theme) -> Vec<AnyElement> {
     let found = emoji::search(&chat.picker.query.text());
     let count = match found.len() {
-        0 => "No emoji match".to_owned(),
+        0 => words::NO_EMOJI_MATCH.to_owned(),
         n => design::plural(n as u64, "match", "matches"),
     };
     let cells = grid(
@@ -308,7 +317,7 @@ impl RenderOnce for Reaction {
             .role(Role::Button)
             // named by its emoji, as the strip's "React with 👍": one name
             // for 48 cells told assistive technology nothing apart
-            .aria_label(format!("React with {}", self.emoji))
+            .aria_label(words::react_with(&self.emoji))
             .aria_disabled(!enabled)
             .child(self.emoji);
         match self.press {
