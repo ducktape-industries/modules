@@ -13,10 +13,10 @@ use crate::state::{
 };
 use crate::tests::{PNG, file};
 use crate::ui::Layout;
-use crate::upload::{UPLOAD_MOST, progress, puts, sent, uploads};
+use crate::upload::{UPLOAD_MOST, puts, sent, uploads};
 use crate::words;
-use crate::write::{Form, Write, built};
-use view::methods::Picked;
+use crate::write::{Form, Write, built, files_of};
+use view::methods::{BlobBody, NewBlob, Picked};
 
 const DEV: u64 = 7;
 const ADA: u64 = 8;
@@ -50,6 +50,7 @@ fn form(write: Write, name: &str, text: &str, message: &str) -> Form {
         name: TextField::new(name),
         text: TextField::new(text),
         upload: Vec::new(),
+        contents: Vec::new(),
         message: TextField::new(message),
         problem: None,
         refused: None,
@@ -166,10 +167,28 @@ fn a_new_folder_is_made_by_its_name_in_the_folder_on_screen() {
     );
 }
 
+/// A file's content as `files` holds it once its one chunk is put.
+fn one_chunk(size: u64) -> Content {
+    Content::Chunks {
+        size,
+        chunks: vec![BlobId::Sha256([7; 32])],
+    }
+}
+
 #[test]
-fn a_new_file_in_the_root_carries_its_text_and_the_typed_message() {
+fn a_new_file_in_the_root_puts_its_text_then_names_it_with_the_typed_message() {
     let write = Write::NewFile { folder: "/".into() };
-    let (message, [change]) = one(built(&form(write, "a.txt", "line", "First file")));
+    let mut form = form(write, "a.txt", "line", "First file");
+    assert_eq!(
+        files_of(&form),
+        [vec![NewBlob {
+            kind: files::CHUNK.into(),
+            body: BlobBody::Bytes(b"line".to_vec()),
+        }]],
+        "the text goes up as a chunk, apart from the commit"
+    );
+    form.contents.push(one_chunk(4));
+    let (message, [change]) = one(built(&form));
     assert_eq!(message, "First file");
     assert_eq!(
         change,
@@ -177,7 +196,7 @@ fn a_new_file_in_the_root_carries_its_text_and_the_typed_message() {
             path: "/a.txt".into(),
             exec: false,
             meta: BTreeMap::new(),
-            content: Content::Inline(b"line".to_vec()),
+            content: one_chunk(4),
         }
     );
 }
@@ -206,14 +225,16 @@ fn an_edit_keeps_the_files_mode_and_metadata() {
         exec: true,
         meta: meta.clone(),
     };
-    let (_, [change]) = one(built(&form(write, "", "echo hi", "")));
+    let mut form = form(write, "", "echo hi", "");
+    form.contents.push(one_chunk(7));
+    let (_, [change]) = one(built(&form));
     assert_eq!(
         change,
         Change::Put {
             path: "/shared/run.sh".into(),
             exec: true,
             meta,
-            content: Content::Inline(b"echo hi".to_vec()),
+            content: one_chunk(7),
         }
     );
 }
@@ -348,7 +369,7 @@ fn listed(path: &str, node: Node) -> EntryInfo {
 }
 
 #[test]
-fn an_upload_carries_small_files_in_its_commit_and_stages_the_rest() {
+fn an_upload_puts_each_file_it_sends_as_chunks_read_from_the_device() {
     let chunk = files::CHUNK_SIZE;
     let listed = [
         listed("/shared/old.txt", file()),
@@ -364,7 +385,6 @@ fn an_upload_carries_small_files_in_its_commit_and_stages_the_rest() {
         "/shared",
         vec![
             picked("a.png", 700 << 10),
-            // past what the commit still carries: staged
             picked("b.png", 700 << 10),
             picked("big.mov", 2 * chunk + 1),
             picked("huge.mov", UPLOAD_MOST + 1),
@@ -382,16 +402,37 @@ fn an_upload_carries_small_files_in_its_commit_and_stages_the_rest() {
     assert_eq!(paths[5], Err(words::held_by(&listed[1].node)));
     assert_eq!(paths[6], Err(words::PICKED_TWICE.into()));
     assert!(uploads[4].replaces && !uploads[0].replaces && !uploads[5].replaces);
-    assert_eq!(
-        progress(&uploads),
-        Some((0, 1 + 3)),
-        "b.png's one chunk, big.mov's three"
-    );
     assert_eq!(sent(&uploads), ["a.png", "b.png", "big.mov", "old.txt"]);
+    let big = |offset: u64, len: u64| NewBlob {
+        kind: files::CHUNK.into(),
+        body: BlobBody::Picked {
+            file: 0,
+            offset,
+            len,
+        },
+    };
     assert_eq!(
-        puts(&uploads),
-        Err(words::NOTHING_TO_UPLOAD.into()),
-        "nothing is read yet"
+        uploads[2].blobs(),
+        [big(0, chunk), big(chunk, chunk), big(2 * chunk, 1)],
+        "a chunk per CHUNK_SIZE of it, read by the host"
+    );
+    let puts = puts(&uploads, |index| one_chunk(index as u64)).unwrap();
+    let put: Vec<_> = puts
+        .iter()
+        .map(|change| match change {
+            Change::Put { path, content, .. } => (path.as_str(), content.clone()),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        put,
+        [
+            ("/shared/a.png", one_chunk(0)),
+            ("/shared/b.png", one_chunk(1)),
+            ("/shared/big.mov", one_chunk(2)),
+            ("/shared/old.txt", one_chunk(3)),
+        ],
+        "each file it sends, named by its own content"
     );
 }
 
@@ -399,7 +440,10 @@ fn an_upload_carries_small_files_in_its_commit_and_stages_the_rest() {
 fn an_upload_with_nothing_to_send_builds_no_commit() {
     let uploads = uploads("/shared", vec![picked("a/b", 1)], &[]);
     assert!(uploads[0].path.is_err(), "a name with a slash is no name");
-    assert_eq!(puts(&uploads), Err(words::NOTHING_TO_UPLOAD.into()));
+    assert_eq!(
+        puts(&uploads, |_| unreachable!("no file is sent")),
+        Err(words::NOTHING_TO_UPLOAD.into())
+    );
     assert_eq!(words::uploads(&["a.png"]), "Upload a.png");
     assert_eq!(words::uploads(&["a.png", "b.png"]), "Upload 2 files");
 }

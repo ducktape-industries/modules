@@ -7,7 +7,7 @@ use harness::{
     Forming, Frame, ModelRow, Partial, Principal, Said, Standing, Stop, ToolInfo, Usage, Window,
     Wire, WithheldFrame,
 };
-use view::methods::{Change, Changes, LinkOpen, Query, Session, Submitted};
+use view::methods::{BlobBody, Change, Changes, LinkOpen, OpPut, Query, Session, Submitted};
 use view::testing::TestAppContext;
 
 const EDDY: u64 = 7;
@@ -276,6 +276,17 @@ type Shared = Rc<RefCell<Net>>;
 fn seated(net: Net, me: u64) -> (TestAppContext, Shared) {
     let net = Rc::new(RefCell::new(net));
     let mut cx = TestAppContext::new();
+    // every config goes up as one chunk, held as its bytes' stand-in id
+    cx.host().handle::<OpPut>(|ask| {
+        Ok(ask
+            .blobs
+            .iter()
+            .map(|blob| match &blob.body {
+                BlobBody::Bytes(bytes) if blob.kind == files::CHUNK => held_as(bytes),
+                _ => panic!("a config goes up as chunk bytes: {blob:?}"),
+            })
+            .collect())
+    });
     let shared = net.clone();
     cx.host().handle::<Query<harness::Harness>>(move |query| {
         let net = shared.borrow();
@@ -785,6 +796,16 @@ fn files_take(cx: &TestAppContext) {
         .handle::<Submit<files::Files>>(|_| Ok(applied(Vec::new())));
 }
 
+/// The id the fake host answers a put chunk with: its bytes folded into
+/// 32, so a commit names the bytes that were put, not just any chunk.
+fn held_as(bytes: &[u8]) -> [u8; 32] {
+    let mut id = [0; 32];
+    for (at, byte) in bytes.iter().enumerate() {
+        id[at % 32] ^= byte;
+    }
+    id
+}
+
 fn edit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -> files::Op {
     files::Op::Commit {
         base,
@@ -793,7 +814,10 @@ fn edit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -
             path: path.into(),
             exec: false,
             meta: Default::default(),
-            content: files::Content::Inline(config.write().into_bytes()),
+            content: files::Content::Chunks {
+                size: config.write().len() as u64,
+                chunks: vec![BlobId::Sha256(held_as(config.write().as_bytes()))],
+            },
         }],
     }
 }

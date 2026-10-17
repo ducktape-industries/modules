@@ -1,22 +1,10 @@
-//! The writes besides a commit: staging one chunk of a large file, and naming a
-//! snapshot with a pin or dropping one.
+//! The writes besides a commit: naming a snapshot with a pin, or dropping one.
 use ::program::{
     BlobId, Error, ExecCtx, Principal, already_exists, invalid, not_found, unauthorized,
 };
 
-use crate::objects::put_chunk;
+use crate::PinRow;
 use crate::state::{PINS, minted};
-use crate::{CHUNK_SIZE, PinRow};
-
-pub(crate) fn stage(ctx: &ExecCtx, bytes: &[u8]) -> Result<(), Error> {
-    let fits = !bytes.is_empty() && bytes.len() as u64 <= CHUNK_SIZE;
-    if !fits {
-        return Err(invalid(format!("a chunk is 1 to {CHUNK_SIZE} bytes")));
-    }
-    let chunk = put_chunk(ctx, bytes)?;
-    ctx.set_return_data(abi::encode(&chunk));
-    Ok(())
-}
 
 pub(crate) fn pin(
     ctx: &ExecCtx,

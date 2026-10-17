@@ -8,7 +8,7 @@ mod model;
 mod phone;
 
 use files::{Change, Content, Op};
-use view::methods::{FILE_READ_MOST, FilePick, FileRead, HostSession, Picked, Session};
+use view::methods::{HostSession, Session};
 use view::rig::Network;
 use view::testing::TestAppContext;
 
@@ -31,12 +31,24 @@ pub(crate) const PNG: [u8; 67] = [
 /// on: pinned, so a byline drawn to the second is the same on every run.
 pub(crate) const T0: u64 = 1_790_000_000_000;
 
-pub(crate) fn put(path: &str, bytes: &[u8]) -> Change {
+/// `bytes` put at `path`, its chunks put on `net` first as a node's blob
+/// upload puts them.
+pub(crate) fn put(net: &Network, path: &str, bytes: &[u8]) -> Change {
+    let chunks = bytes
+        .chunks(files::CHUNK_SIZE as usize)
+        .map(|chunk| {
+            net.put_blob(files::CHUNK, chunk.to_vec())
+                .expect("a chunk blob")
+        })
+        .collect();
     Change::Put {
         path: path.into(),
         exec: false,
         meta: Default::default(),
-        content: Content::Inline(bytes.to_vec()),
+        content: Content::Chunks {
+            size: bytes.len() as u64,
+            chunks,
+        },
     }
 }
 
@@ -81,8 +93,8 @@ pub(crate) fn seeded() -> Network {
         dev,
         "Start my notes",
         vec![
-            put("/home/dev/notes.txt", b"hello"),
-            put("/home/dev/docs/plan.md", b"# Plan"),
+            put(&net, "/home/dev/notes.txt", b"hello"),
+            put(&net, "/home/dev/docs/plan.md", b"# Plan"),
         ],
     );
     net.at(T0 + 60_000);
@@ -91,10 +103,10 @@ pub(crate) fn seeded() -> Network {
         ada,
         "Share the readme",
         vec![
-            put("/home/ada/diary.txt", b"dear diary"),
-            put("/shared/readme.txt", b"read me"),
-            put("/shared/blob.bin", &NOT_TEXT),
-            put("/shared/dot.png", &PNG),
+            put(&net, "/home/ada/diary.txt", b"dear diary"),
+            put(&net, "/shared/readme.txt", b"read me"),
+            put(&net, "/shared/blob.bin", &NOT_TEXT),
+            put(&net, "/shared/dot.png", &PNG),
             Change::Symlink {
                 path: "/shared/latest".into(),
                 target: "/shared/readme.txt".into(),
@@ -106,7 +118,7 @@ pub(crate) fn seeded() -> Network {
         &net,
         dev,
         "Say more",
-        vec![put("/home/dev/notes.txt", NOTES.as_bytes())],
+        vec![put(&net, "/home/dev/notes.txt", NOTES.as_bytes())],
     );
     net.at(T0 + 180_000);
     let pin = Op::Pin {
@@ -116,33 +128,6 @@ pub(crate) fn seeded() -> Network {
     net.submit(dev, files::PROGRAM, &pin)
         .expect("a pin on a minted snapshot");
     net
-}
-
-/// The device's files, as the host's picker answers with them (handles
-/// from 1, in order) and `file.read` reads them a slice at a time.
-pub(crate) fn device(cx: &TestAppContext, files: &[(&str, &[u8])]) {
-    let picked: Vec<Picked> = files
-        .iter()
-        .zip(1..)
-        .map(|((name, bytes), file)| Picked {
-            name: (*name).into(),
-            size: bytes.len() as u64,
-            file,
-        })
-        .collect();
-    cx.host().handle::<FilePick>(move |_| Ok(picked.clone()));
-    let held: Vec<Vec<u8>> = files.iter().map(|(_, bytes)| bytes.to_vec()).collect();
-    cx.host().handle::<FileRead>(move |ask| {
-        let Some(bytes) = (ask.file as usize)
-            .checked_sub(1)
-            .and_then(|at| held.get(at))
-        else {
-            return Err(view::host::Error::new("malformed_request", "no such file"));
-        };
-        let start = (ask.offset as usize).min(bytes.len());
-        let end = (start + ask.len.min(FILE_READ_MOST) as usize).min(bytes.len());
-        Ok(bytes[start..end].to_vec())
-    });
 }
 
 /// A file node, for the words a file's kind is said in.

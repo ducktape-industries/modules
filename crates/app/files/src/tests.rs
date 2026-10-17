@@ -1,8 +1,8 @@
 //! The program natively over `MockHost`: commits, reads at the head and at older
-//! snapshots, staged chunks, paging, diffs and pins.
+//! snapshots, chunked files, paging, diffs and pins.
 use std::collections::BTreeMap;
 
-use ::program::{BlobId, Env, Error, MockHost, Program, code};
+use ::program::{BlobId, Env, Error, HashKind, MockHost, Program, code};
 use abi::role::identity::{Kind, Profile};
 
 use crate::*;
@@ -32,12 +32,29 @@ fn bo() -> Env {
     MockHost::env(PROGRAM).signed(vec![2; 32], Some(2))
 }
 
-fn put(path: &str, text: &str) -> Change {
+/// `bytes` as the network holds a file's bytes: chunk blobs, put apart
+/// from any transaction.
+fn chunks(host: &MockHost, bytes: &[u8]) -> Content {
+    let chunks = bytes
+        .chunks(CHUNK_SIZE as usize)
+        .map(|chunk| {
+            host.exec(ada())
+                .blob_put(HashKind::Sha256, CHUNK, chunk)
+                .unwrap()
+        })
+        .collect();
+    Content::Chunks {
+        size: bytes.len() as u64,
+        chunks,
+    }
+}
+
+fn put(host: &MockHost, path: &str, text: &str) -> Change {
     Change::Put {
         path: path.into(),
         exec: false,
         meta: BTreeMap::new(),
-        content: Content::Inline(text.as_bytes().to_vec()),
+        content: chunks(host, text.as_bytes()),
     }
 }
 
@@ -110,8 +127,8 @@ fn a_commit_writes_files_that_a_reader_lists_stats_and_reads() {
         ada(),
         None,
         vec![
-            put("/shared/a.txt", "hello\nworld"),
-            put("/home/ada/notes/n.md", "x"),
+            put(&host, "/shared/a.txt", "hello\nworld"),
+            put(&host, "/home/ada/notes/n.md", "x"),
         ],
     )
     .unwrap();
@@ -189,7 +206,7 @@ fn an_account_writes_only_under_its_own_home_or_shared_and_a_refusal_leaves_noth
         let op = Op::Commit {
             base: None,
             message: String::new(),
-            changes: vec![put(path, "x")],
+            changes: vec![put(&host, path, "x")],
         };
         let error = refused(&host, ada(), op);
         assert!(
@@ -204,31 +221,37 @@ fn an_account_writes_only_under_its_own_home_or_shared_and_a_refusal_leaves_noth
     let op = Op::Commit {
         base: None,
         message: String::new(),
-        changes: vec![put("/shared/x", "x")],
+        changes: vec![put(&host, "/shared/x", "x")],
     };
     assert_eq!(refused(&host, nobody, op).code, code::UNAUTHORIZED);
-    commit(&host, ada().root(), None, vec![put("/etc/motd", "hi")]).unwrap();
+    commit(
+        &host,
+        ada().root(),
+        None,
+        vec![put(&host, "/etc/motd", "hi")],
+    )
+    .unwrap();
     assert_eq!(text(&host, "/etc/motd", None).unwrap(), "hi");
 }
 
 #[test]
 fn a_base_is_stale_only_for_the_paths_that_changed_since() {
     let host = host();
-    let first = commit(&host, ada(), None, vec![put("/shared/x", "1")]).unwrap();
-    commit(&host, bo(), None, vec![put("/shared/y", "2")]).unwrap();
+    let first = commit(&host, ada(), None, vec![put(&host, "/shared/x", "1")]).unwrap();
+    commit(&host, bo(), None, vec![put(&host, "/shared/y", "2")]).unwrap();
     let op = Op::Commit {
         base: None,
         message: String::new(),
-        changes: vec![put("/shared/x", "3")],
+        changes: vec![put(&host, "/shared/x", "3")],
     };
     assert_eq!(refused(&host, bo(), op).code, code::STALE);
-    commit(&host, bo(), Some(first), vec![put("/shared/x", "3")]).unwrap();
+    commit(&host, bo(), Some(first), vec![put(&host, "/shared/x", "3")]).unwrap();
     assert_eq!(text(&host, "/shared/x", None).unwrap(), "3");
     assert_eq!(text(&host, "/shared/y", None).unwrap(), "2");
     let unknown = Op::Commit {
         base: Some(BlobId::Sha256([7; 32])),
         message: String::new(),
-        changes: vec![put("/shared/z", "")],
+        changes: vec![put(&host, "/shared/z", "")],
     };
     assert_eq!(refused(&host, ada(), unknown).code, code::NOT_FOUND);
 }
@@ -244,7 +267,7 @@ fn directories_are_made_moved_and_removed_and_each_rule_refuses_alone() {
             Change::Mkdir {
                 path: "/shared/d".into(),
             },
-            put("/shared/x", "x"),
+            put(&host, "/shared/x", "x"),
         ],
     )
     .unwrap();
@@ -294,7 +317,7 @@ fn directories_are_made_moved_and_removed_and_each_rule_refuses_alone() {
             },
             code::NOT_FOUND,
         ),
-        (put("/shared/d/x/y", "x"), code::WRONG_STATE),
+        (put(&host, "/shared/d/x/y", "x"), code::WRONG_STATE),
     ];
     for (change, expected) in cases {
         assert_eq!(
@@ -306,7 +329,7 @@ fn directories_are_made_moved_and_removed_and_each_rule_refuses_alone() {
     let twice = Op::Commit {
         base,
         message: String::new(),
-        changes: vec![put("/shared/a", "1"), put("/shared/a", "2")],
+        changes: vec![put(&host, "/shared/a", "1"), put(&host, "/shared/a", "2")],
     };
     assert_eq!(refused(&host, ada(), twice).code, code::INVALID_INPUT);
     commit(
@@ -322,27 +345,18 @@ fn directories_are_made_moved_and_removed_and_each_rule_refuses_alone() {
 }
 
 #[test]
-fn a_large_file_is_staged_in_chunks_and_read_across_them() {
+fn a_large_file_names_its_chunks_and_reads_across_them() {
     let host = host();
     let full = vec![b'a'; CHUNK_SIZE as usize];
     let tail = b"tail".to_vec();
-    let stage = |bytes: Vec<u8>| -> BlobId {
-        Files::execute(&host.exec(ada()), Op::Stage { bytes }).unwrap();
-        abi::decode(&host.take_output()).unwrap()
+    let put = |bytes: &[u8]| -> BlobId {
+        host.exec(ada())
+            .blob_put(HashKind::Sha256, CHUNK, bytes)
+            .unwrap()
     };
-    let first = stage(full.clone());
-    let last = stage(tail.clone());
+    let first = put(&full);
+    let last = put(&tail);
     let size = CHUNK_SIZE + 4;
-    let Reply::Held(held) = ask(
-        &host,
-        Query::Held {
-            chunks: vec![first, BlobId::Sha256([1; 32])],
-        },
-    )
-    .unwrap() else {
-        panic!()
-    };
-    assert_eq!(held, [true, false]);
     let chunks = |chunks: Vec<BlobId>, size: u64| Change::Put {
         path: "/shared/big".into(),
         exec: true,
@@ -358,12 +372,12 @@ fn a_large_file_is_staged_in_chunks_and_read_across_them() {
     assert_eq!(wrong_order.code, code::INVALID_INPUT);
     let wrong_count = refused(&host, ada(), attempt(chunks(vec![first], size)));
     assert_eq!(wrong_count.code, code::INVALID_INPUT);
-    let unstaged = refused(
+    let unheld = refused(
         &host,
         ada(),
         attempt(chunks(vec![first, BlobId::Sha256([1; 32])], size)),
     );
-    assert_eq!(unstaged.code, code::NOT_FOUND);
+    assert_eq!(unheld.code, code::NOT_FOUND);
     commit(&host, ada(), None, vec![chunks(vec![first, last], size)]).unwrap();
     let Reply::Contents(across) = ask(
         &host,
@@ -394,19 +408,46 @@ fn a_large_file_is_staged_in_chunks_and_read_across_them() {
     };
     assert!(matches!(entry.node, Node::File { size: s, exec: true, .. } if s == size));
     assert_eq!(entry.meta["type"], "bytes");
-    for bytes in [Vec::new(), vec![0; CHUNK_SIZE as usize + 1]] {
-        assert_eq!(
-            refused(&host, ada(), Op::Stage { bytes }).code,
-            code::INVALID_INPUT
-        );
+}
+
+#[test]
+fn file_bytes_in_a_transaction_are_refused() {
+    let host = host();
+    let staged = refused(
+        &host,
+        ada(),
+        Op::Stage {
+            bytes: b"x".to_vec(),
+        },
+    );
+    let inline = Op::Commit {
+        base: None,
+        message: String::new(),
+        changes: vec![Change::Put {
+            path: "/shared/x".into(),
+            exec: false,
+            meta: BTreeMap::new(),
+            content: Content::Inline(b"x".to_vec()),
+        }],
+    };
+    let inlined = refused(&host, ada(), inline);
+    for refusal in [staged, inlined] {
+        assert_eq!(refusal, carried());
     }
+    assert!(names(&host, "/shared", None).is_empty());
 }
 
 #[test]
 fn an_older_snapshot_keeps_its_tree_and_history_lists_newest_first() {
     let host = host();
-    let first = commit(&host, ada(), None, vec![put("/shared/x", "old")]).unwrap();
-    let second = commit(&host, ada(), Some(first), vec![put("/shared/x", "new")]).unwrap();
+    let first = commit(&host, ada(), None, vec![put(&host, "/shared/x", "old")]).unwrap();
+    let second = commit(
+        &host,
+        ada(),
+        Some(first),
+        vec![put(&host, "/shared/x", "new")],
+    )
+    .unwrap();
     assert_eq!(text(&host, "/shared/x", Some(first)).unwrap(), "old");
     assert_eq!(text(&host, "/shared/x", None).unwrap(), "new");
     let Reply::History(page) = ask(
@@ -443,7 +484,7 @@ fn find_and_grep_page_through_a_snapshot_and_keep_their_cursor_to_it() {
     let host = host();
     let files: Vec<Change> = ["/shared/a/1", "/shared/a/2", "/shared/a-b", "/shared/b/3"]
         .into_iter()
-        .map(|path| put(path, &format!("needle in {path}\nhay\nneedle again")))
+        .map(|path| put(&host, path, &format!("needle in {path}\nhay\nneedle again")))
         .collect();
     commit(&host, ada(), None, files).unwrap();
     let mut found = Vec::new();
@@ -528,9 +569,9 @@ fn a_diff_names_what_was_added_removed_and_modified_under_a_prefix() {
         ada(),
         None,
         vec![
-            put("/shared/keep", "k"),
-            put("/shared/edit", "1"),
-            put("/shared/gone/x", "x"),
+            put(&host, "/shared/keep", "k"),
+            put(&host, "/shared/edit", "1"),
+            put(&host, "/shared/gone/x", "x"),
         ],
     )
     .unwrap();
@@ -539,11 +580,11 @@ fn a_diff_names_what_was_added_removed_and_modified_under_a_prefix() {
         ada(),
         Some(from),
         vec![
-            put("/shared/edit", "2"),
+            put(&host, "/shared/edit", "2"),
             Change::Remove {
                 path: "/shared/gone".into(),
             },
-            put("/shared/new", "n"),
+            put(&host, "/shared/new", "n"),
         ],
     )
     .unwrap();
@@ -576,7 +617,7 @@ fn a_diff_names_what_was_added_removed_and_modified_under_a_prefix() {
 #[test]
 fn a_pin_names_a_minted_snapshot_and_only_its_owner_removes_it() {
     let host = host();
-    let id = commit(&host, ada(), None, vec![put("/shared/x", "x")]).unwrap();
+    let id = commit(&host, ada(), None, vec![put(&host, "/shared/x", "x")]).unwrap();
     Files::execute(
         &host.exec(ada()),
         Op::Pin {

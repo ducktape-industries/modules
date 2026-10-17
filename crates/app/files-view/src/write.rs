@@ -4,12 +4,14 @@
 //! move, a removal. Which of them the page on screen offers is
 //! [`Files::offered`]; a form opens with [`Files::begin`], its changes are
 //! built by [`built`] (pure, unit tested), sent by [`Files::submit`] and
-//! settled by `landed`. The app's confirm card is the yes for every op;
-//! nothing here asks again.
+//! settled by `landed`. A file's bytes never ride in the commit: each file
+//! it puts goes to the network first as `chunk` blobs (`op.put`, answered
+//! once the network holds them), and the commit names its chunks. The
+//! app's confirm card is the yes for every op; nothing here asks again.
 use std::collections::BTreeMap;
 
 use files::{BlobId, Change, Content, Node};
-use view::methods::Submitted;
+use view::methods::{BlobBody, NewBlob, OpPut, PutBlobs, Submitted};
 use view::prelude::*;
 
 use crate::state::{Note, Route, Sheet, child_of};
@@ -100,6 +102,9 @@ pub(crate) struct Form {
     pub(crate) text: TextField,
     /// an upload's files; empty for every other write
     pub(crate) upload: Vec<Upload>,
+    /// the content each file the commit puts has on the network, in the
+    /// order [`files_of`] lists them, as each is put
+    pub(crate) contents: Vec<Content>,
     /// the commit's message; left empty, [`words::message`] says it
     pub(crate) message: TextField,
     /// why the name or path is not one `files` takes: the field's own
@@ -120,6 +125,29 @@ impl Form {
         !self.sending && !empty
     }
 
+    /// How far an upload's sending is, while it sends: files on the
+    /// network, of all it sends.
+    pub(crate) fn progress(&self) -> Option<(u64, u64)> {
+        let Write::Upload { .. } = self.write else {
+            return None;
+        };
+        let all = upload::going(&self.upload).count() as u64;
+        Some((self.contents.len() as u64, all))
+    }
+
+    /// The content of the `index`th file the commit puts: its chunks once
+    /// put; until then none, which only the checks and the message read
+    /// before the commit is sent.
+    fn content(&self, index: usize) -> Content {
+        self.contents
+            .get(index)
+            .cloned()
+            .unwrap_or(Content::Chunks {
+                size: 0,
+                chunks: Vec::new(),
+            })
+    }
+
     /// What the message field says while it is empty: the message the
     /// commit would carry.
     pub(crate) fn placeholder(&self) -> String {
@@ -129,6 +157,38 @@ impl Form {
         }
         built(self).map_or_else(|_| words::MESSAGE.to_owned(), |(message, _)| message)
     }
+}
+
+/// The blobs of each file a form's commit puts, in order: a new or edited
+/// text file's text, an upload's files; none for any other write.
+pub(crate) fn files_of(form: &Form) -> Vec<Vec<NewBlob>> {
+    match &form.write {
+        Write::NewFile { .. } | Write::Edit { .. } => {
+            let text = form.text.text().into_bytes();
+            let chunks = text
+                .chunks(files::CHUNK_SIZE as usize)
+                .map(|chunk| NewBlob {
+                    kind: files::CHUNK.into(),
+                    body: BlobBody::Bytes(chunk.to_vec()),
+                });
+            vec![chunks.collect()]
+        }
+        Write::Upload { .. } => upload::going(&form.upload)
+            .map(|(upload, _)| upload.blobs())
+            .collect(),
+        Write::NewFolder { .. } | Write::Rename { .. } | Write::Remove { .. } => Vec::new(),
+    }
+}
+
+/// How many bytes `blobs` hold.
+fn size(blobs: &[NewBlob]) -> u64 {
+    blobs
+        .iter()
+        .map(|blob| match &blob.body {
+            BlobBody::Bytes(bytes) => bytes.len() as u64,
+            BlobBody::Picked { len, .. } => *len,
+        })
+        .sum()
 }
 
 /// A commit in flight: the form it came from, its changes and message.
@@ -226,18 +286,19 @@ impl Files {
             _ => String::new(),
         };
         self.forms += 1;
-        self.sheet = Some(Sheet::Write(Form {
+        self.sheet = Some(Sheet::Write(Box::new(Form {
             id: self.forms,
             write,
             base,
             name: TextField::new(name),
             text: TextField::new(text),
             upload: Vec::new(),
+            contents: Vec::new(),
             message: TextField::default(),
             problem: None,
             refused: None,
             sending: false,
-        }));
+        })));
         cx.notify();
     }
 
@@ -250,22 +311,24 @@ impl Files {
         cx: &mut Context<Self>,
     ) {
         self.forms += 1;
-        self.sheet = Some(Sheet::Write(Form {
+        self.sheet = Some(Sheet::Write(Box::new(Form {
             id: self.forms,
             write,
             base,
             name: TextField::default(),
             text: TextField::default(),
             upload,
+            contents: Vec::new(),
             message: TextField::default(),
             problem: None,
             refused: None,
             sending: false,
-        }));
+        })));
         cx.notify();
     }
 
-    /// Sends the open form's commit; a form that builds none says why.
+    /// Commit pressed: the open form's files go to the network, then its
+    /// commit; a form that builds none says why, before anything is put.
     pub(crate) fn submit(&mut self, cx: &mut Context<Self>) {
         let Some(Sheet::Write(form)) = &mut self.sheet else {
             return;
@@ -275,24 +338,51 @@ impl Files {
         }
         form.problem = None;
         form.refused = None;
-        // an upload's files are read, the large ones staged ahead of the
-        // commit, a slice at a time
-        if self.advance(cx) {
+        // the text may have changed since it was put
+        if form.write.takes_text() {
+            form.contents.clear();
+        }
+        if let Err(problem) = built(form) {
+            form.problem = Some(problem);
             cx.notify();
             return;
         }
+        self.send(cx);
+    }
+
+    /// Puts the open form's next file not on the network yet; every one
+    /// put, sends its commit.
+    fn send(&mut self, cx: &mut Context<Self>) {
         let Some(Sheet::Write(form)) = &mut self.sheet else {
             return;
         };
+        form.sending = true;
+        if let Some(blobs) = files_of(form).into_iter().nth(form.contents.len()) {
+            let size = size(&blobs);
+            // an empty file has no chunk to put
+            if blobs.is_empty() {
+                form.contents.push(Content::Chunks {
+                    size,
+                    chunks: Vec::new(),
+                });
+                return self.send(cx);
+            }
+            let id = form.id;
+            let ask = cx.host().ask::<OpPut>(PutBlobs { blobs });
+            cx.land(ask, move |view, answer, cx| view.held(id, size, answer, cx))
+                .detach();
+            cx.notify();
+            return;
+        }
         let (message, changes) = match built(form) {
             Ok(built) => built,
             Err(problem) => {
+                form.sending = false;
                 form.problem = Some(problem);
                 cx.notify();
                 return;
             }
         };
-        form.sending = true;
         let op = files::Op::Commit {
             base: form.base,
             message: message.clone(),
@@ -306,6 +396,43 @@ impl Files {
         let ask = cx.host().ask::<Submit<files::Files>>(op);
         cx.land(ask, move |view, answer, cx| view.landed(sent, answer, cx))
             .detach();
+        cx.notify();
+    }
+
+    /// A file of `size` bytes is on the network: its chunks are its
+    /// content, and the form goes on; else the form says why not. The form
+    /// closed meanwhile, nothing was committed, and the line says so.
+    fn held(
+        &mut self,
+        form: u64,
+        size: u64,
+        answer: Result<Vec<[u8; 32]>, Error>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(Sheet::Write(open)) = &mut self.sheet else {
+            return self.stopped(cx);
+        };
+        if open.id != form {
+            return self.stopped(cx);
+        }
+        match answer {
+            Ok(digests) => {
+                let chunks = digests.into_iter().map(BlobId::Sha256).collect();
+                open.contents.push(Content::Chunks { size, chunks });
+                self.send(cx);
+            }
+            Err(refusal) => {
+                open.sending = false;
+                open.refused = Some(design::sentence(&refusal));
+                cx.notify();
+            }
+        }
+    }
+
+    /// The form a put was for closed, or another opened: nothing of it
+    /// was committed.
+    fn stopped(&mut self, cx: &mut Context<Self>) {
+        self.note = Some(Note::Refused(words::STOPPED.into()));
         cx.notify();
     }
 
@@ -331,11 +458,6 @@ impl Files {
             (Some(problem), Some(form)) => {
                 form.sending = false;
                 form.refused = Some(problem);
-                // a staged chunk the network dropped: Commit again stages
-                // what it does not hold anew
-                if matches!(form.write, Write::Upload { .. }) && dropped_chunk(&answer) {
-                    self.recheck_staged(sent.form, cx);
-                }
             }
             (Some(problem), None) => self.note = Some(Note::Refused(problem)),
         }
@@ -366,7 +488,7 @@ impl Files {
 /// changes' own words) and its changes, one but for an upload's; or why
 /// it builds none.
 pub(crate) fn built(form: &Form) -> Result<(String, Vec<Change>), String> {
-    let text = || Content::Inline(form.text.text().into_bytes());
+    let text = || form.content(0);
     let change = match &form.write {
         Write::NewFolder { folder } => Change::Mkdir {
             path: path_in(folder, &form.name.text())?,
@@ -378,7 +500,7 @@ pub(crate) fn built(form: &Form) -> Result<(String, Vec<Change>), String> {
             content: text(),
         },
         Write::Upload { .. } => {
-            let puts = upload::puts(&form.upload)?;
+            let puts = upload::puts(&form.upload, |index| form.content(index))?;
             let said = words::uploads(&upload::sent(&form.upload));
             return Ok((message(form, said), puts));
         }
@@ -402,11 +524,6 @@ pub(crate) fn built(form: &Form) -> Result<(String, Vec<Change>), String> {
         Write::Remove { path, .. } => Change::Remove { path: path.clone() },
     };
     Ok((message(form, words::message(&change)), vec![change]))
-}
-
-/// Whether `files` refused a commit for a chunk it does not hold.
-fn dropped_chunk(answer: &Result<Submitted, Error>) -> bool {
-    matches!(answer, Ok(Submitted::Refused { refusal, .. }) if refusal.code == view::wire::code::NOT_FOUND)
 }
 
 /// The typed message, else `said`.
