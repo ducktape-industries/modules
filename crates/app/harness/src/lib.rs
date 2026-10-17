@@ -34,7 +34,7 @@ pub use store::{PageRequest, PageResponse};
 
 use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
-pub use gate::{agent_key, model_key, thread_key};
+pub use gate::{agent_key, conversation_key, model_key, thread_key};
 
 pub const PROGRAM: &str = "harness";
 pub const PART: &str = "part";

@@ -515,12 +515,12 @@ fn threads(
                 &theme,
             ))
     });
-    let manages = detail
-        .setup
-        .as_ref()
-        .is_some_and(|setup| view.me == Some(setup.manager));
+    let starts = match (&detail.conversation_writers, view.me) {
+        (Some(writers), Some(me)) => writers.allows(&[Party::Account(me)]),
+        _ => false,
+    };
     let agent = detail.setup.as_ref().map(|setup| setup.agent);
-    let actions = agent.filter(|_| manages).map(|agent| {
+    let actions = agent.filter(|_| starts).map(|agent| {
         let renew = cx.listener(move |view: &mut Agents, _: &ClickEvent, _, cx| {
             view.converse(harness::Op::NewThread { agent }, cx)
         });

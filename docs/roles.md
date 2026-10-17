@@ -174,11 +174,11 @@ What each program asks:
 | Program | Key | Ops that need it | Owner, default |
 |---|---|---|---|
 | `files` | the path; `files::pin_key(name)` for a pin | `Put`, `Mkdir`, `Symlink` write the path, `Remove` deletes it, `Move` writes both ends (and moves the lists with `access::Op::Move`); `Unpin` deletes the pin's key | the path's creator in the head tree, and for `/home/<name>` the one account named `<name>`; no default. A pin's owner is the account that made it, default `Owner` |
-| `forge` | `forge::repo_key(repo)`, `forge::settings_key(repo)` | `Push`, `Merge`, `Stage`, and `ChangeClose` by anyone but the change's author, write the repository's key; `Configure` writes its settings key | the repository's owner, default `Owner` |
+| `forge` | `forge::repo_key(repo)`, `forge::settings_key(repo)`, `forge::change_key(repo, n)` | `Push`, `Merge`, `Stage`, and `ChangeClose` by anyone but the change's author, write the repository's key; `Configure` writes its settings key; `ChangeEdit` writes the change's key | the repository's owner, the change's author; default `Owner` |
 | `identity` | `identity::account_key(n)` | `SetName`, `SetProfile`, `Suspend`, `Resume`, `Revoke`, `SetScript` write it | a user or a system account itself, a program account's manager; default `Owner` |
 | `chat` | the channel id; `chat::message_key(channel, seq)` | `RenameChannel`, `SetChannelArchived`, `SetMembership` write the channel; `EditMessage` writes the message, `DeleteMessage` deletes it | the channel's owner, the message's author; default `Owner` |
 | `egress` | `egress::service_key(name)`, `services/<name>` | `Assign` writes it | the service's owner, default `Owner` |
-| `harness` | `harness::agent_key(agent)`, `harness::thread_key(thread)`, `harness::model_key(id)` | `Close` writes the thread; `SetModel` of a model that exists writes it, `RemoveModel` deletes it. No op needs the agent's key: its list says whom the agent answers | the agent's or thread's manager, the model's owner; default `Owner` |
+| `harness` | `harness::agent_key(agent)`, `harness::conversation_key(agent)`, `harness::thread_key(thread)`, `harness::model_key(id)` | `NewThread` and `ForkThread` write the agent's conversation key; `Close` writes the thread; `SetModel` of a model that exists writes it, `RemoveModel` deletes it. No op needs the agent's key: its list says whom the agent answers | the agent's manager (agent, conversation, thread), the model's owner; default `Owner` |
 
 Keys, governance and signatures stay in their own programs: identity's
 keys, valset's votes and the programs role's grants.

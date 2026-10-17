@@ -9,7 +9,8 @@ use gitcore::server::{Policy, RefUpdate};
 use gitcore::{Error as GitError, Limits, server};
 
 use crate::contract::{
-    Bounds, Op, PACK_KIND, Principal, Repo, Settings, repo_key, settings_key, valid_repo_name,
+    Bounds, Op, PACK_KIND, Principal, Repo, Settings, change_key, repo_key, settings_key,
+    valid_repo_name,
 };
 use crate::objects::{ObjectWriter, object_not_held};
 use crate::state::{
@@ -110,11 +111,14 @@ pub(crate) fn needs(ctx: &QueryCtx, op: &Op) -> Result<Vec<Need>, Error> {
                 false => vec![Need::write(repo_key(repo))],
             }
         }
+        Op::ChangeEdit { repo, n, .. } => match load_change(ctx, repo, *n) {
+            Ok(_) => vec![Need::write(change_key(repo, *n))],
+            Err(_) => Vec::new(),
+        },
         Op::Create { .. }
         | Op::Grant { .. }
         | Op::Revoke { .. }
         | Op::ChangeOpen { .. }
-        | Op::ChangeEdit { .. }
         | Op::ReviewSubmit { .. }
         | Op::Migrate => Vec::new(),
     };
@@ -122,6 +126,9 @@ pub(crate) fn needs(ctx: &QueryCtx, op: &Op) -> Result<Vec<Need>, Error> {
 }
 
 pub(crate) fn resource(ctx: &QueryCtx, key: &str) -> Result<Resource, Error> {
+    if let Some((repo, n)) = change_of(key) {
+        return change_resource(ctx, repo, n);
+    }
     let name = key.strip_suffix("/settings").unwrap_or(key);
     if !repo_exists(ctx, name) {
         return Ok(Resource::default());
@@ -260,4 +267,23 @@ pub fn refusal_of(error: GitError) -> Error {
         GitError::MissingObject(id) | GitError::MissingBase(id) => object_not_held(id),
         other => invalid(other.to_string()),
     }
+}
+
+fn change_of(key: &str) -> Option<(&str, u64)> {
+    let (repo, n) = key.split_once("/changes/")?;
+    Some((repo, n.parse().ok()?))
+}
+
+fn change_resource(ctx: &QueryCtx, repo: &str, n: u64) -> Result<Resource, Error> {
+    let Ok(change) = load_change(ctx, repo, n) else {
+        return Ok(Resource::default());
+    };
+    let owner = match change.author {
+        Principal::Account(number) => Some(Party::Account(number)),
+        Principal::Root => None,
+    };
+    Ok(Resource {
+        owner,
+        default: Some(::program::Ownership::Owner),
+    })
 }

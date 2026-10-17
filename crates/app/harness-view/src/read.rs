@@ -186,6 +186,7 @@ pub(crate) struct Detail {
     pub setup: Option<AgentSetup>,
     pub ownership: Ownership,
     pub config_writers: Option<Writers>,
+    pub conversation_writers: Option<Writers>,
     /// newest first, each with what its turns used
     pub threads: Vec<(ThreadRow, Usage)>,
     pub tools: Vec<ToolInfo>,
@@ -210,6 +211,16 @@ pub(crate) async fn detail(host: Host, agent: u64) -> Result<Detail, Error> {
         ),
         None => None,
     };
+    let conversation_writers = match &setup {
+        Some(_) => Some(
+            host.query(access::ask::Writers {
+                program: harness::PROGRAM.to_owned(),
+                key: harness::conversation_key(agent),
+            })
+            .await?,
+        ),
+        None => None,
+    };
     let threads = host
         .query_all(|after| harness::ask::Threads {
             agent,
@@ -228,6 +239,7 @@ pub(crate) async fn detail(host: Host, agent: u64) -> Result<Detail, Error> {
         setup,
         ownership,
         config_writers,
+        conversation_writers,
         threads: used,
         tools,
     })

@@ -57,6 +57,10 @@ impl MemorySandbox {
         repo: &str,
         writers: &[Principal],
     ) -> Result<(), Error> {
+        self.list_on(owner, &forge::repo_key(repo), writers)
+    }
+
+    pub fn list_on(&self, owner: &[u8], key: &str, writers: &[Principal]) -> Result<(), Error> {
         let parties = writers
             .iter()
             .filter_map(Principal::account)
@@ -68,7 +72,7 @@ impl MemorySandbox {
         };
         let set = access::Op::Set {
             program: "forge".into(),
-            key: forge::repo_key(repo),
+            key: key.to_owned(),
             list,
         };
         self.chain

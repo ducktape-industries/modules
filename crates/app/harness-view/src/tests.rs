@@ -417,6 +417,18 @@ fn seated(net: Net, me: u64) -> (TestAppContext, Shared) {
                     list: identity::Ownership::Owner,
                 })
             }
+            access::Query::Writers { program, key } if program == harness::PROGRAM => {
+                let owner = net
+                    .setups
+                    .iter()
+                    .find(|setup| harness::conversation_key(setup.agent) == key)
+                    .map(|setup| identity::Party::Account(setup.manager));
+                access::Reply::Writers(program::Writers::Listed {
+                    at: key,
+                    owner,
+                    list: identity::Ownership::Owner,
+                })
+            }
             other => panic!("unexpected query: {other:?}"),
         })
     });
