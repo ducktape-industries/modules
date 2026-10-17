@@ -189,8 +189,9 @@ pub(crate) struct Nav {
     /// the open file: its path and blob oid
     pub blob: Option<(Vec<u8>, String)>,
     /// the folder the phone's Code tab shows on a page of its own, by
-    /// full path (Expo `code/[...path].tsx`); the desktop opens folders
-    /// in place (`expanded`)
+    /// full path, each of its levels a page of the stack ([`Nav::pages`],
+    /// Expo `code/[...path].tsx`); the desktop opens folders in place
+    /// (`expanded`)
     pub folder: Option<Vec<u8>>,
     /// a file a link named, opened once its folder's tree lands
     #[serde(skip)]
@@ -242,9 +243,14 @@ impl Nav {
         }
         match self.tab {
             RepoTab::Code => {
-                if self.folder.is_some() {
-                    pages.push(Page::Folder);
-                }
+                // a page per folder level, as Expo pushes a screen per
+                // folder: `a/b` is `b`'s page over `a`'s, so Back walks
+                // up one and a link into `a/b` lands with `a` under it
+                let levels = self
+                    .folder
+                    .as_ref()
+                    .map_or(0, |path| path.split(|byte| *byte == b'/').count());
+                pages.extend(std::iter::repeat_n(Page::Folder, levels));
                 if self.blob.is_some() {
                     pages.push(Page::Blob);
                 } else if self.missing.is_some() {
@@ -275,7 +281,7 @@ pub(crate) enum Page {
     File,
     /// one commit of a repository's or a change's log
     Commit,
-    /// one folder of the Code tab (the phone's)
+    /// one level of the phone's open folder in the Code tab: `a/b` is two
     Folder,
     /// one file of the Code tab
     Blob,

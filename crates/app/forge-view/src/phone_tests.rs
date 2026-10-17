@@ -564,6 +564,92 @@ fn a_folder_opens_on_its_own_page_and_its_crumb_goes_back() {
     assert!(cx.find("forge-page-repo").is_some());
 }
 
+/// `project` with folders `a/b/c` (no fixture nests a folder in a
+/// folder): the root's first page holds `a`, `a` holds `b`, `a/b` holds
+/// `c`, and each holds `src`'s files as well.
+fn nested_view() -> (TestAppContext, Entity<Forge>) {
+    let mut cx = TestAppContext::new();
+    configure(&mut cx, "default");
+    cx.host().handle::<Ask>(|query| {
+        let mut reply = answer(&query, "default");
+        let inner: &[u8] = match &query {
+            Query::Tree {
+                path,
+                page: PageRequest { after: None, .. },
+                ..
+            } => match path.as_slice() {
+                b"" => b"a",
+                b"a" => b"b",
+                b"a/b" => b"c",
+                _ => return Ok(reply),
+            },
+            _ => return Ok(reply),
+        };
+        if let Reply::Tree { page, .. } = &mut reply {
+            page.items.push(forge::TreeInfo {
+                name: inner.to_vec(),
+                oid: format!("{:040x}", inner[0]),
+                kind: forge::EntryKind::Directory,
+            });
+        }
+        Ok(reply)
+    });
+    let (mut cx, view) = seat_view(cx, Some(1));
+    press(&mut cx, "forge-repo-project");
+    press(&mut cx, "forge-tab-code");
+    (cx, view)
+}
+
+/// The depth the folder page on top crosses with, and the folder it is.
+fn folder_page(cx: &TestAppContext, view: &Entity<Forge>) -> (Option<u32>, Vec<u8>) {
+    let depth = cx.interactivity("forge-page-folder").page;
+    (
+        depth,
+        view.read(|forge| forge.nav().folder.clone()).unwrap(),
+    )
+}
+
+/// Each folder is a page of its own over its parent's, as Expo pushes a
+/// screen per folder (`code/[...path].tsx`): `a`, `a/b` and `a/b/c` sit
+/// one, two and three over the Code tab, so each opens with a push; Back
+/// walks up one folder at a time, each a pop, to the tab.
+#[test]
+fn each_folder_is_a_page_over_its_parent_and_back_walks_up_one() {
+    let (mut cx, view) = nested_view();
+    let root = cx.interactivity("forge-page-repo").page;
+    assert_eq!(root, Some(1), "the Code tab, over the repositories");
+    let deeper = |up: u32| root.map(|root| root + up);
+    for (up, path) in [(1, "a"), (2, "a/b"), (3, "a/b/c")] {
+        press(&mut cx, &format!("forge-tree-{path}"));
+        assert_eq!(folder_page(&cx, &view), (deeper(up), path.into()));
+    }
+    for (up, path) in [(2, "a/b"), (1, "a")] {
+        cx.simulate_back();
+        cx.run_until_parked();
+        assert_eq!(folder_page(&cx, &view), (deeper(up), path.into()));
+    }
+    cx.simulate_back();
+    cx.run_until_parked();
+    assert!(cx.find("forge-page-folder").is_none());
+    assert_eq!(cx.interactivity("forge-page-repo").page, root);
+}
+
+/// A link into `a/b` opens it at its own depth with `a`'s page under it:
+/// Back goes to `a`, then to the tab, as a tap down to `a/b` would.
+#[test]
+fn a_link_into_a_folder_lands_at_its_depth_over_its_parents() {
+    let (mut cx, view) = nested_view();
+    cx.update(&view, |forge, _, cx| forge.follow_link(b"", "a/b", cx));
+    cx.run_until_parked();
+    assert_eq!(folder_page(&cx, &view), (Some(3), b"a/b".to_vec()));
+    cx.simulate_back();
+    cx.run_until_parked();
+    assert_eq!(folder_page(&cx, &view), (Some(2), b"a".to_vec()));
+    cx.simulate_back();
+    cx.run_until_parked();
+    assert_eq!(cx.interactivity("forge-page-repo").page, Some(1));
+}
+
 #[test]
 fn a_file_shows_its_lines_and_wrap_flips() {
     let mut cx = repository("default");
