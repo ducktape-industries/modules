@@ -494,11 +494,14 @@ fn at_its_head(cx: &TestAppContext, view: &Entity<Chat>) {
     assert!(cx.find("chat-jump-latest").is_none());
 }
 
-/// #general's roots 1..=`roots`, then replies to the last of them up to
-/// `head`, the room list saying so. Seated, not opened.
-fn threaded_room(roots: u64, head: u64) -> (TestAppContext, Entity<Chat>) {
+/// #general up to `head`, each message a reply to the root `thread` names
+/// or a root itself; the room list says so. Seated, not opened.
+fn threaded_room(
+    head: u64,
+    thread: impl Fn(u64) -> Option<u64> + 'static,
+) -> (TestAppContext, Entity<Chat>) {
     let message = move |seq: u64| MsgRow {
-        thread: (seq > roots).then_some(roots),
+        thread: thread(seq),
         height: seq,
         ..row(seq, 7 + seq % 2, &format!("row {seq}"))
     };
@@ -514,11 +517,14 @@ fn threaded_room(roots: u64, head: u64) -> (TestAppContext, Entity<Chat>) {
                 let half = page.limit() / 2;
                 let lo = seq.saturating_sub(half).max(1);
                 let hi = seq.saturating_add(half).min(head);
-                Reply::Messages((lo..=hi).map(message).collect())
+                Reply::Messages((lo..=hi).map(&message).collect())
             }
             Query::Roots { .. } => Reply::Roots(::chat::PageResponse {
                 height: 1,
-                items: (1..=roots).map(message).collect(),
+                items: (1..=head)
+                    .map(&message)
+                    .filter(|row| row.thread.is_none())
+                    .collect(),
                 next: None,
             }),
             Query::Members { .. } => Reply::Members(page(Vec::new())),
@@ -530,30 +536,63 @@ fn threaded_room(roots: u64, head: u64) -> (TestAppContext, Entity<Chat>) {
     (cx, view)
 }
 
-/// A link far above the newest message, every message past its window a
-/// reply in one thread: a newer page the reader reads at the foot draws no
-/// row, so the list does not move and the host reports nothing new. The
-/// room reads on to its head all the same, and nothing offers to jump.
-#[test]
-fn newer_pages_of_replies_alone_read_on_to_the_head() {
-    let (mut cx, view) = threaded_room(100, 200);
-    open_link(&mut cx, 60);
-    view.read(|chat| assert!(chat.room.as_ref().unwrap().landed));
-    let wire::Node::List { item_count, .. } = timeline(&cx) else {
+/// A reply to root 100 from 101 on: the one thread past the room's roots.
+fn past_100(seq: u64) -> Option<u64> {
+    (seq > 100).then_some(100)
+}
+
+/// Opens a link to `seq` and reports the timeline settled at its foot.
+fn read_to_the_foot(cx: &mut TestAppContext, seq: u64) {
+    open_link(cx, seq);
+    let wire::Node::List { item_count, .. } = timeline(cx) else {
         unreachable!()
     };
     cx.simulate_range("chat-message-list", item_count - 10..item_count);
-    at_its_head(&cx, &view);
-    assert_eq!(seqs(&view).1, 200);
 }
 
-/// A block lands as a link to the room's newest message, a reply, opens
-/// the room on screen. The re-read of the room's tail the block set off is
-/// not the landed window's, and the window around the message holds the
-/// head: the room opens at it.
+/// A link far above the newest message, a thousand replies past its
+/// window: a newer page the reader reads at the foot draws no row, so the
+/// list does not move and the host reports nothing new. The room reads on
+/// to its head all the same, keeps the replies out and so its roots in,
+/// and nothing offers to jump.
+#[test]
+fn newer_pages_of_replies_alone_read_on_to_the_head() {
+    let (mut cx, view) = threaded_room(1_100, past_100);
+    read_to_the_foot(&mut cx, 60);
+    at_its_head(&cx, &view);
+    assert_eq!(seqs(&view), (1, 124, 124), "the window around 60, whole");
+}
+
+/// Roots past a run of replies longer than the window: the window cannot
+/// hold them beside the rows the reader is on, so it keeps them out and
+/// the room stays a landing, the way to the latest offered.
+#[test]
+fn roots_past_a_run_of_replies_longer_than_the_window_stay_out() {
+    let (mut cx, view) = threaded_room(510, |seq| (101..=500).contains(&seq).then_some(100));
+    read_to_the_foot(&mut cx, 60);
+    view.read(|chat| assert!(chat.room.as_ref().unwrap().landed));
+    assert_eq!(seqs(&view), (1, 124, 124), "the window around 60, whole");
+    assert!(cx.find("chat-jump-latest").is_some());
+}
+
+/// An older page of replies alone draws no row either; the rows the reader
+/// is on, the landed one among them, stay.
+#[test]
+fn an_older_page_of_replies_keeps_the_rows_the_reader_is_on() {
+    let (mut cx, view) = threaded_room(600, |seq| (11..=500).contains(&seq).then_some(10));
+    open_link(&mut cx, 550);
+    assert_eq!(seqs(&view), (486, 600, 115));
+    cx.simulate_range("chat-message-list", 0..10);
+    assert_eq!(seqs(&view), (421, 600, 180), "a page above, the rest kept");
+}
+
+/// A block lands, then a link to the room's newest message (a reply) opens
+/// the room: the re-read of the room's tail the block set off is not the
+/// landed window's, and the window around the message holds the head, so
+/// the room opens at it.
 #[test]
 fn a_link_opened_as_a_block_lands_opens_the_room_at_its_head() {
-    let (mut cx, view) = threaded_room(100, 120);
+    let (mut cx, view) = threaded_room(120, past_100);
     cx.simulate_click("chat-sidebar-channel-general");
     cx.run_until_parked();
     cx.host()

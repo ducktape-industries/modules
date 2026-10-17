@@ -222,6 +222,10 @@ pub struct Room {
     pub(crate) older_failed: Option<String>,
     #[serde(skip)]
     pub(crate) newer_loading: bool,
+    /// the newest seq a landed window has read: past its last row when the
+    /// pages after it held replies alone, which it keeps out
+    #[serde(skip)]
+    pub(crate) read_to: u64,
     /// opened around a landing seq: the window may not reach the head
     pub(crate) landed: bool,
     #[serde(skip)]
