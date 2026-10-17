@@ -1260,8 +1260,25 @@ fn a_right_press_on_the_room_under_the_rows_offers_what_is_made_in_the_folder() 
 fn a_folder_the_reader_cannot_write_opens_no_menu_on_its_room() {
     let net = seeded();
     let mut cx = linked(&net);
-    cx.simulate_click("files/place/everything");
+    open_home(&mut cx);
+    cx.simulate_click("home");
     cx.run_until_parked();
+    cx.simulate_click("files/entry/ada");
+    cx.run_until_parked();
+    right_press(&mut cx, "files-entries");
+    assert_eq!(menu(&cx), None, "{:?}", cx.texts());
+}
+
+#[test]
+fn a_home_in_the_folder_of_homes_opens_no_writes_and_its_room_no_menu() {
+    let net = seeded();
+    let mut cx = linked(&net);
+    open_home(&mut cx);
+    cx.simulate_click("home");
+    cx.run_until_parked();
+    right_press(&mut cx, "files/entry/dev");
+    assert_eq!(items(&cx), ["open", "copy-link"], "{:?}", cx.texts());
+    cx.simulate_key_down(MENU, "escape");
     right_press(&mut cx, "files-entries");
     assert_eq!(menu(&cx), None, "{:?}", cx.texts());
 }
