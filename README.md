@@ -72,7 +72,7 @@ update replaces a program's code under the same id. The system programs beyond t
 ## A program
 
 ```rust
-use program::{Error, ExecCtx, Need, Principal, Program, QueryCtx, Resource};
+use program::{Error, ExecCtx, Principal, Program, QueryCtx};
 
 /// A count per account.
 pub struct Counter;
@@ -93,14 +93,6 @@ impl Program for Counter {
     fn query(ctx: &QueryCtx, who: Principal) -> Result<u64, Error> {
         Ok(ctx.record(program::abi::encode(&who))?.unwrap_or(0))
     }
-
-    fn access(_: &QueryCtx, _: &u64) -> Result<Vec<Need>, Error> {
-        Ok(Vec::new())
-    }
-
-    fn resource(_: &QueryCtx, _: &str) -> Result<Resource, Error> {
-        Ok(Resource::default())
-    }
 }
 
 program::export!(Counter);
@@ -111,7 +103,8 @@ sets return data; `QueryCtx` reads) and nothing else: `ctx.env()` is the call's
 `Env`, and nothing reaches the host by any other path. `ctx.sender()` is who
 the write acts as, the account the host resolved or the chain. `access`
 answers what an op needs of the access program and `resource` who owns a
-key; a counter anyone may add to needs nothing and owns nothing. `export!`
+key; both answer nothing unless a program says otherwise, so a counter
+anyone may add to leaves them out. `export!`
 only emits the `alloc`/`call` exports. The same contexts run over a
 `MockHost` natively, so a program's test runs its real code
 (`crates/sdk/program/examples/counter.rs`); programs that emit to each other run
