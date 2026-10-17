@@ -53,16 +53,19 @@ impl Net {
     }
 
     async fn stream(&mut self, id: u64, events: &[Value], seqs: std::ops::Range<usize>) {
-        for seq in seqs {
-            let event = &events[seq];
-            let data = format!("event: {}\ndata: {event}", event["type"].as_str().unwrap());
-            let op = egress::Op::Event(egress::Event {
-                id,
-                seq: seq as u64,
-                data: data.into_bytes(),
-            });
-            self.apply(&public(NODE), egress::PROGRAM, &op).await;
-        }
+        let frame = seqs
+            .map(|seq| {
+                let event = &events[seq];
+                let data = format!("event: {}\ndata: {event}", event["type"].as_str().unwrap());
+                egress::Event {
+                    id,
+                    seq: seq as u64,
+                    data: data.into_bytes(),
+                }
+            })
+            .collect();
+        self.apply(&public(NODE), egress::PROGRAM, &egress::Op::Events(frame))
+            .await;
     }
 
     async fn end_stream(&mut self, id: u64, events: u64) {

@@ -987,7 +987,7 @@ pub mod role {
                 id: u64,
                 answer: Answer,
             },
-            Event(Event),
+            Events(Vec<Event>),
             EndStream {
                 id: u64,
                 events: u64,

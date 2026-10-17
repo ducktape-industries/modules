@@ -629,18 +629,18 @@ fn an_events_request_hears_each_event_and_its_call_answers_the_streams_end() {
         seq,
         data: data.to_vec(),
     };
-    let same_block = submit(&chain, &ADA, &Op::Event(event(0, b"a"))).unwrap_err();
+    let same_block = submit(&chain, &ADA, &Op::Events(vec![event(0, b"a")])).unwrap_err();
     assert_eq!(same_block.code, code::WRONG_STATE);
     chain.at(3, 0);
-    let other = submit(&chain, &BO, &Op::Event(event(0, b"a"))).unwrap_err();
+    let other = submit(&chain, &BO, &Op::Events(vec![event(0, b"a")])).unwrap_err();
     assert_eq!(other.code, code::UNAUTHORIZED);
-    submit(&chain, &ADA, &Op::Event(event(0, b"data: one"))).unwrap();
+    submit(&chain, &ADA, &Op::Events(vec![event(0, b"data: one")])).unwrap();
     // the expiry moved its wait past this block: from 6 to 8
     let moved = request_row(&chain, 1).unwrap();
     assert_eq!(entry(&chain, row.expiry), None);
     assert_eq!(entry(&chain, moved.expiry).unwrap().height, 3 + 5);
     chain.at(7, 0);
-    submit(&chain, &ADA, &Op::Event(event(1, b"data: two"))).unwrap();
+    submit(&chain, &ADA, &Op::Events(vec![event(1, b"data: two")])).unwrap();
     assert_eq!(
         heard(&chain),
         [event(0, b"data: one"), event(1, b"data: two")]
@@ -675,6 +675,28 @@ fn an_events_request_hears_each_event_and_its_call_answers_the_streams_end() {
 }
 
 #[test]
+fn events_in_one_frame_are_heard_in_its_order_and_move_the_expiry_once() {
+    let chain = chain();
+    serve(&chain, ADA, &[HTTP]).unwrap();
+    stream(&chain, http_request(HTTP, MESSAGES, Vec::new()), Some(5));
+    let before = request_row(&chain, 1).unwrap().expiry;
+    chain.at(3, 0);
+    let event = |seq: u64, data: &[u8]| Event {
+        id: 1,
+        seq,
+        data: data.to_vec(),
+    };
+    let empty = submit(&chain, &ADA, &Op::Events(Vec::new())).unwrap_err();
+    assert_eq!(empty.code, code::INVALID_INPUT);
+    let frame = vec![event(0, b"a"), event(1, b"b"), event(2, b"c")];
+    submit(&chain, &ADA, &Op::Events(frame.clone())).unwrap();
+    assert_eq!(heard(&chain), frame);
+    let moved = request_row(&chain, 1).unwrap().expiry;
+    assert_eq!(entry(&chain, before), None);
+    assert_eq!(entry(&chain, moved).unwrap().height, 3 + 5);
+}
+
+#[test]
 fn a_cut_stream_fails_its_call_and_a_whole_request_takes_no_event_or_end() {
     let chain = chain();
     serve(&chain, ADA, &[HTTP, RELAY]).unwrap();
@@ -685,11 +707,11 @@ fn a_cut_stream_fails_its_call_and_a_whole_request_takes_no_event_or_end() {
         reason: "stream_broken".into(),
     };
     let to_whole = [
-        Op::Event(Event {
+        Op::Events(vec![Event {
             id: 1,
             seq: 0,
             data: Vec::new(),
-        }),
+        }]),
         Op::EndStream {
             id: 1,
             events: 0,
@@ -773,7 +795,7 @@ fn a_refused_event_moves_nothing_and_the_next_one_is_heard() {
         seq,
         data: data.to_vec(),
     };
-    let refused = submit(&chain, &ADA, &Op::Event(event(0, REFUSED_EVENT))).unwrap_err();
+    let refused = submit(&chain, &ADA, &Op::Events(vec![event(0, REFUSED_EVENT)])).unwrap_err();
     assert_eq!(
         (refused.code.as_str(), refused.message.as_str()),
         (code::INVALID_INPUT, "the asker refuses this event")
@@ -790,7 +812,7 @@ fn a_refused_event_moves_nothing_and_the_next_one_is_heard() {
     ];
     for (height, seq, data) in sent {
         chain.at(height, 0);
-        submit(&chain, &ADA, &Op::Event(event(seq, data))).unwrap();
+        submit(&chain, &ADA, &Op::Events(vec![event(seq, data)])).unwrap();
     }
     let seqs: Vec<u64> = heard(&chain).iter().map(|event| event.seq).collect();
     assert_eq!(seqs, [0, 0, 1, 0]);

@@ -12,7 +12,7 @@ fn stream(chain: &MockChain, request: &RequestRow, events: &[Vec<u8>], seqs: &[u
             seq,
             data: events[seq as usize].clone(),
         };
-        node(chain, &egress::Op::Event(event)).unwrap();
+        node(chain, &egress::Op::Events(vec![event])).unwrap();
     }
 }
 
