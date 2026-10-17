@@ -566,8 +566,8 @@ fn a_folder_opens_on_its_own_page_and_its_crumb_goes_back() {
 
 /// `project` with folders `a/b/c` (no fixture nests a folder in a
 /// folder): the root's first page holds `a`, `a` holds `b`, `a/b` holds
-/// `c`, and each holds `src`'s files as well.
-fn nested_view() -> (TestAppContext, Entity<Forge>) {
+/// `c`, and each holds `src`'s files as well. Seated on the list.
+fn nested() -> (TestAppContext, Entity<Forge>) {
     let mut cx = TestAppContext::new();
     configure(&mut cx, "default");
     cx.host().handle::<Ask>(|query| {
@@ -594,10 +594,22 @@ fn nested_view() -> (TestAppContext, Entity<Forge>) {
         }
         Ok(reply)
     });
-    let (mut cx, view) = seat_view(cx, Some(1));
+    seat_view(cx, Some(1))
+}
+
+/// [`nested`] on `project`'s Code tab.
+fn nested_view() -> (TestAppContext, Entity<Forge>) {
+    let (mut cx, view) = nested();
     press(&mut cx, "forge-repo-project");
     press(&mut cx, "forge-tab-code");
     (cx, view)
+}
+
+/// `path`s, each pressed in turn: `a`, `a/b`, ... down the tree.
+fn walk(cx: &mut TestAppContext, paths: &[&str]) {
+    for path in paths {
+        press(cx, &format!("forge-tree-{path}"));
+    }
 }
 
 /// The depth the folder page on top crosses with, and the folder it is.
@@ -611,27 +623,42 @@ fn folder_page(cx: &TestAppContext, view: &Entity<Forge>) -> (Option<u32>, Vec<u
 
 /// Each folder is a page of its own over its parent's, as Expo pushes a
 /// screen per folder (`code/[...path].tsx`): `a`, `a/b` and `a/b/c` sit
-/// one, two and three over the Code tab, so each opens with a push; Back
-/// walks up one folder at a time, each a pop, to the tab.
+/// one, two and three over the Code tab, so each opens with a push, and a
+/// file of `a/b/c` one over that; Back walks up one page at a time, each
+/// a pop, to the tab.
 #[test]
 fn each_folder_is_a_page_over_its_parent_and_back_walks_up_one() {
     let (mut cx, view) = nested_view();
-    let root = cx.interactivity("forge-page-repo").page;
-    assert_eq!(root, Some(1), "the Code tab, over the repositories");
-    let deeper = |up: u32| root.map(|root| root + up);
+    assert_eq!(
+        cx.interactivity("forge-page-repo").page,
+        Some(1),
+        "the Code tab, over the repositories"
+    );
     for (up, path) in [(1, "a"), (2, "a/b"), (3, "a/b/c")] {
-        press(&mut cx, &format!("forge-tree-{path}"));
-        assert_eq!(folder_page(&cx, &view), (deeper(up), path.into()));
+        walk(&mut cx, &[path]);
+        assert_eq!(folder_page(&cx, &view), (Some(1 + up), path.into()));
     }
-    for (up, path) in [(2, "a/b"), (1, "a")] {
+    walk(&mut cx, &["a/b/c/lib.rs"]);
+    assert_eq!(cx.interactivity("forge-page-blob").page, Some(5));
+    for (up, path) in [(3, "a/b/c"), (2, "a/b"), (1, "a")] {
         cx.simulate_back();
         cx.run_until_parked();
-        assert_eq!(folder_page(&cx, &view), (deeper(up), path.into()));
+        assert_eq!(folder_page(&cx, &view), (Some(1 + up), path.into()));
     }
     cx.simulate_back();
     cx.run_until_parked();
     assert!(cx.find("forge-page-folder").is_none());
-    assert_eq!(cx.interactivity("forge-page-repo").page, root);
+    assert_eq!(cx.interactivity("forge-page-repo").page, Some(1));
+}
+
+/// A crumb goes up every folder it skips at once, as Expo's
+/// `router.dismiss(depth - i)`: `a` from `a/b/c` is a pop of two.
+#[test]
+fn a_crumb_pops_every_folder_under_it() {
+    let (mut cx, view) = nested_view();
+    walk(&mut cx, &["a", "a/b", "a/b/c"]);
+    press(&mut cx, "forge-crumb-1");
+    assert_eq!(folder_page(&cx, &view), (Some(2), b"a".to_vec()));
 }
 
 /// A link into `a/b` opens it at its own depth with `a`'s page under it:
@@ -648,6 +675,64 @@ fn a_link_into_a_folder_lands_at_its_depth_over_its_parents() {
     cx.simulate_back();
     cx.run_until_parked();
     assert_eq!(cx.interactivity("forge-page-repo").page, Some(1));
+}
+
+/// While a link's folder is still being read its page already stands
+/// where the path lands, so the link slides once (Expo's
+/// `code/[...path].tsx` before it reads its entry). Back from it goes to
+/// its folder and forgets the link, so the read landing later moves
+/// nothing.
+#[test]
+fn a_link_stands_at_its_depth_while_its_folder_is_read() {
+    let (mut cx, view) = nested_view();
+    cx.host().never::<Ask>();
+    cx.update(&view, |forge, _, cx| forge.follow_link(b"", "a/b", cx));
+    cx.run_until_parked();
+    assert_eq!(cx.interactivity("forge-page-landing").page, Some(3));
+    assert!(cx.has_text(crate::words::READING_TREE), "{:?}", cx.texts());
+    cx.simulate_back();
+    cx.run_until_parked();
+    assert_eq!(folder_page(&cx, &view), (Some(2), b"a".to_vec()));
+    view.read(|forge| assert_eq!(forge.nav().goto, None));
+}
+
+/// A route into a path of a repository (a file page's Copy link) opens
+/// it at its depth from anywhere: a folder over its parents, a file over
+/// its folder; a number after the name is still the change.
+#[test]
+fn a_route_into_a_path_opens_it_at_its_depth() {
+    let (mut cx, view) = nested();
+    let route = |cx: &mut TestAppContext, to: &str| {
+        cx.update(&view, |forge, _, cx| forge.open_route(to, cx));
+        cx.run_until_parked();
+    };
+    route(&mut cx, "project/a/b");
+    assert_eq!(folder_page(&cx, &view), (Some(3), b"a/b".to_vec()));
+    route(&mut cx, "project/a/b/lib.rs");
+    assert_eq!(cx.interactivity("forge-page-blob").page, Some(4));
+    cx.simulate_back();
+    cx.run_until_parked();
+    assert_eq!(folder_page(&cx, &view), (Some(3), b"a/b".to_vec()));
+    route(&mut cx, "project/1");
+    assert!(cx.find("forge-page-change").is_some(), "{:?}", cx.texts());
+}
+
+/// A link to the README from a file deep in the Code tab opens the
+/// README tab and leaves the Code tab's pages: its next press opens on
+/// its root, not on the file the link was pressed in.
+#[test]
+fn a_readme_link_leaves_the_code_tabs_pages() {
+    let (mut cx, view) = nested_view();
+    walk(&mut cx, &["a", "a/b", "a/b/lib.rs"]);
+    cx.update(&view, |forge, _, cx| {
+        forge.follow_link(b"a/b", "../../README.md", cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(cx.interactivity("forge-page-repo").page, Some(1));
+    view.read(|forge| assert_eq!(forge.nav().tab, RepoTab::Readme));
+    press(&mut cx, "forge-tab-code");
+    assert_eq!(cx.interactivity("forge-page-repo").page, Some(1));
+    assert!(cx.find("forge-tree-a").is_some(), "the Code tab's root");
 }
 
 #[test]

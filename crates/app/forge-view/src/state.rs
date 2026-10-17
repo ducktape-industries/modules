@@ -255,6 +255,8 @@ impl Nav {
                     pages.push(Page::Blob);
                 } else if self.missing.is_some() {
                     pages.push(Page::Missing);
+                } else if self.goto.is_some() {
+                    pages.push(Page::Landing);
                 }
             }
             RepoTab::Commits if self.commit.is_some() => pages.push(Page::Commit),
@@ -287,6 +289,10 @@ pub(crate) enum Page {
     Blob,
     /// a path a link named that the ref does not hold
     Missing,
+    /// a path a link named, until its folder's tree says what it is: it
+    /// stands where its folder, file or missing page will, so the link
+    /// slides once (Expo `code/[...path].tsx` before its `entry` is read)
+    Landing,
 }
 
 /// What lies over the phone's page, read from the model each frame

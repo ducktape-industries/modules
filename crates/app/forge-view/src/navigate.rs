@@ -78,6 +78,11 @@ impl Forge {
                 self.open_folder(up, cx);
             }
             Page::Blob | Page::Missing => self.nav_close_blob(cx),
+            // the link is forgotten, so its read landing later moves nothing
+            Page::Landing => {
+                self.nav.goto = None;
+                self.moved(cx);
+            }
         }
     }
 
@@ -96,13 +101,19 @@ impl Forge {
 
     /// A `host.route` item: `<name>` opens that repository, `<name>/<n>`
     /// its change `n` (the path chat links a change's room by, its id
-    /// `forge:<name>:<n>`); anything else opens the list.
+    /// `forge:<name>:<n>`), `<name>/<path…>` that file or folder of its
+    /// Code tab (a file page's Copy link) at the path's depth; anything
+    /// else opens the list.
     pub(crate) fn open_route(&mut self, route: &str, cx: &mut Context<Self>) {
         match route.split('/').collect::<Vec<_>>().as_slice() {
             [name] if !name.is_empty() => self.open_repo((*name).to_owned(), cx),
-            [name, n] if !name.is_empty() && n.parse::<u64>().is_ok() => {
+            [name, n] if !name.is_empty() && ducklink::number(n).is_some() => {
                 self.open_repo((*name).to_owned(), cx);
-                self.open_change(n.parse().ok(), cx);
+                self.open_change(ducklink::number(n), cx);
+            }
+            [name, path @ ..] if !name.is_empty() && !path.is_empty() => {
+                self.open_repo((*name).to_owned(), cx);
+                self.open_path(path.join("/").into_bytes(), cx);
             }
             _ => self.open_repos(cx),
         }
@@ -127,6 +138,13 @@ impl Forge {
         self.nav.folder = kept.folder;
         self.nav.goto = kept.goto;
         self.nav.tab = tab;
+        // the phone's folder and file pages stand over the Code tab alone:
+        // another tab (a README link from a file among them) leaves them,
+        // so the Code tab opens on its root again, not on a page left under
+        if self.touch && tab != RepoTab::Code {
+            self.nav.folder = None;
+            self.nav.blob = None;
+        }
         // the desktop stages its settings in a form saved by Save; the
         // phone saves each flip from what is on screen (`configure_with`)
         if tab == RepoTab::Settings && !self.touch {
