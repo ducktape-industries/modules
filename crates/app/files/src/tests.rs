@@ -357,16 +357,6 @@ fn a_large_file_names_its_chunks_and_reads_across_them() {
     let first = put(&full);
     let last = put(&tail);
     let size = CHUNK_SIZE + 4;
-    let Reply::Held(held) = ask(
-        &host,
-        Query::Held {
-            chunks: vec![first, BlobId::Sha256([1; 32])],
-        },
-    )
-    .unwrap() else {
-        panic!()
-    };
-    assert_eq!(held, [true, false]);
     let chunks = |chunks: Vec<BlobId>, size: u64| Change::Put {
         path: "/shared/big".into(),
         exec: true,

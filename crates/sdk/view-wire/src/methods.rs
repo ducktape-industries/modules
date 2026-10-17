@@ -1076,20 +1076,35 @@ methods! {
     /// its name alone.
     FilePick, "file.pick", Pick, Vec<Picked>;
     /// `op.put`: the blobs of a [`PutBlobs`] put on the network as one
-    /// bundle, signed by the person's account, answered with each blob's id
-    /// in order (`BlobId::Sha256` of the digest) once the network holds the
+    /// bundle in the person's name, answered once the network holds the
     /// bundle (the blobs role's `Held`), so an op naming them may follow at
-    /// once. The host frames
-    /// each blob with its kind and sends the bytes on the node's blob
-    /// upload: the bundle's op carries each blob's id, length and kind,
-    /// never its bytes. It is an op in the person's name (`op`); a
-    /// [`BlobBody::Picked`] names a handle only `file.pick` (`file`) makes.
-    /// The host builds the op itself, so a view can only ask it to keep
-    /// bytes, and no confirm card asks. No blob, a blob over [`BLOB_MOST`],
-    /// or a handle not of the latest pick is refused
-    /// [`refusal::MALFORMED_REQUEST`]; a picked file that cannot be read,
-    /// or whose size is no longer the one picked,
-    /// [`refusal::HOST_FAULT`]; a put the node refuses, with its refusal.
+    /// once. The answer is each blob's sha256 digest, in order, of the blob
+    /// framed with its kind (`<kind> <len>\0<body>`, as `program::blob_id`
+    /// makes it): `BlobId::Sha256(digest)` is the id an op names (files'
+    /// `Content::Chunks`), and `sha256:<hex>` the same id as `blob.get`
+    /// reads it.
+    ///
+    /// The host frames each blob and sends the bytes on the node's blob
+    /// upload: the bundle's op, signed by the person's key to the program
+    /// the blobs role binds, carries each blob's id, length and kind, never
+    /// its bytes. A [`BlobBody::Picked`] slice goes from the file to the
+    /// node, never through the view. The method is an op (`op`); its picked
+    /// bodies name handles only `file.pick` (`file`) makes. The host builds
+    /// the op itself, so a view can only ask it to keep bytes, and no
+    /// confirm card asks: as for an op to a program bound to no role, the
+    /// person's press that sent them is the yes. A held blob stays, and
+    /// anyone may read it by its id.
+    ///
+    /// Refused [`refusal::MALFORMED_REQUEST`]: no blob, a kind that is not
+    /// one word, a blob over [`BLOB_MOST`], a handle not of the latest
+    /// pick, or a slice past the file's size as picked.
+    /// [`refusal::HOST_FAULT`]: a picked file that cannot be read, or whose
+    /// size changed since the pick. `anchor`: no block carried the put by
+    /// the last its frame may land at. Any other refusal, the node's or the
+    /// blobs program's (a key with no account), passes on as it came. To
+    /// put again is safe: the same blobs are the same ids, in a bundle of
+    /// their own. The answer waits as long as the network takes to hold
+    /// the bundle.
     OpPut, "op.put", PutBlobs, Vec<[u8; 32]>;
 }
 
@@ -1143,9 +1158,9 @@ pub enum Capability {
     /// (`microphone.devices`) and plays the test chime on a speaker
     /// (`microphone.chime`).
     Microphone,
-    /// The view asks the person for files on this device (`file.pick`) and
-    /// puts them on the network (`op.put`): what they pick, by name, and
-    /// nothing else of the device's.
+    /// The view asks the person for files on this device (`file.pick`):
+    /// what they pick, by name, and nothing else of the device's. Putting
+    /// them on the network is an op (`op.put`), under [`Capability::Op`].
     File,
 }
 

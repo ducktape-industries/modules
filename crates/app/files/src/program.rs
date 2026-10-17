@@ -72,7 +72,6 @@ impl Program for Files {
             }
             Query::Pins { page } => Ok(Reply::Pins(queries::pins(ctx, &page)?)),
             Query::Pin { name } => Ok(Reply::Pin(queries::pin(ctx, &name)?)),
-            Query::Held { chunks } => Ok(Reply::Held(queries::held(ctx, &chunks))),
             Query::Ownership { path, at } => Ok(Reply::Ownership(queries::ownership(
                 ctx,
                 &path,

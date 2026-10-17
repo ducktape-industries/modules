@@ -102,7 +102,7 @@ pub enum Content {
 
 /// The refusal of file bytes in a transaction, [`Op::Stage`] or
 /// [`Content::Inline`]: a transaction names chunks, never carries them.
-pub fn carried() -> ::program::Error {
+pub(crate) fn carried() -> ::program::Error {
     ::program::invalid(
         "file bytes never ride in a transaction: put them as chunk blobs through the \
          node's blob upload and name them in Content::Chunks",
@@ -260,8 +260,6 @@ pub enum Query {
     #[ask(Reply::Pin(Option<PinRow>))]
     #[reads(state::PINS)]
     Pin { name: String },
-    #[ask(Reply::Held(Vec<bool>))]
-    Held { chunks: Vec<BlobId> },
     #[ask(Reply::Ownership(crate::PathOwnership))]
     #[reads(state::HEAD, state::HISTORY, state::SNAPSHOTS)]
     Ownership { path: String, at: Option<BlobId> },
@@ -288,7 +286,6 @@ pub enum Reply {
     Diff(Vec<DiffEntry>),
     Pins(PageResponse<PinRow>),
     Pin(Option<PinRow>),
-    Held(Vec<bool>),
     Ownership(PathOwnership),
 }
 

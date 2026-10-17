@@ -5,13 +5,14 @@ use std::rc::Rc;
 
 use files::{BlobId, DiffKind, Node};
 use view::methods::{
-    self, BlobBody, FilePick, Method, NewBlob, OpPut, Picked, PutBlobs, Query as Ask, Submit,
+    self, BlobBody, FilePick, Method, NewBlob, OpPut, PutBlobs, Query as Ask, Submit,
 };
 use view::prelude::Error;
 use view::wire;
 
 use super::*;
 use crate::state::{Holds, SHOW_MOST};
+use crate::upload::UPLOAD_MOST;
 use crate::words;
 
 /// The place in the texts on screen of the first text containing `part`.
@@ -898,23 +899,11 @@ fn a_file_too_big_is_left_out_and_said_why() {
     let net = seeded();
     let mut cx = desktop(&net);
     open_home(&mut cx);
-    net.device(&[("notes.txt", b"new")]);
-    let picked = vec![
-        Picked {
-            name: "huge.iso".into(),
-            size: 1 << 32,
-            file: 9,
-        },
-        Picked {
-            name: "notes.txt".into(),
-            size: 3,
-            file: 1,
-        },
-    ];
-    cx.host().handle::<FilePick>(move |_| Ok(picked.clone()));
+    let huge = vec![0; UPLOAD_MOST as usize + 1];
+    net.device(&[("huge.iso", &huge), ("notes.txt", b"new")]);
     begin(&mut cx, "upload");
     assert!(
-        shows(&cx, &words::too_big_to_upload(1 << 32)),
+        shows(&cx, &words::too_big_to_upload(UPLOAD_MOST + 1)),
         "{:?}",
         cx.texts()
     );

@@ -225,6 +225,8 @@ pub struct MockChain {
     parked: RefCell<BTreeMap<FrameId, Parked>>,
     /// The block every run is in: height and time.
     clock: Cell<(u64, u64)>,
+    /// The blobs [`MockChain::put_blob`] put: the network holds them.
+    held: RefCell<BTreeMap<BlobId, Blob>>,
 }
 
 impl Default for MockChain {
@@ -252,6 +254,7 @@ impl MockChain {
             next_frame: Cell::new(0),
             parked: RefCell::default(),
             clock: Cell::new((1, 0)),
+            held: RefCell::default(),
         }
     }
 
@@ -270,17 +273,12 @@ impl MockChain {
     }
 
     /// Puts `body` as a blob of `kind` the way the node's blob upload does,
-    /// apart from any frame: the network holds it, so every seated program
-    /// reads it.
+    /// apart from any frame: the network holds it, so every program, seated
+    /// now or later, reads it.
     pub fn put_blob(&self, kind: &str, body: Vec<u8>) -> Result<BlobId, Error> {
         let id = crate::blob_id(HashKind::Sha256, kind, &body)?;
-        for seat in self.seats.values() {
-            let blob = Blob {
-                kind: kind.to_owned(),
-                body: body.clone(),
-            };
-            seat.host.borrow_mut().blobs.insert(id, blob);
-        }
+        let kind = kind.to_owned();
+        self.held.borrow_mut().insert(id, Blob { kind, body });
         Ok(id)
     }
 
@@ -955,7 +953,7 @@ impl MockChain {
     }
 
     fn share_blobs(&self) {
-        let mut every = BTreeMap::new();
+        let mut every = self.held.borrow().clone();
         for seat in self.seats.values() {
             every.extend(seat.host.borrow().blobs.clone());
         }
