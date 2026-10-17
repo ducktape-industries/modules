@@ -105,7 +105,10 @@ fn a_long_archive_is_read_only_as_far_as_the_window() {
         limit: WINDOW as u32,
         most: 0,
     };
-    assert_eq!(cx.host().requests::<ChainBlocks>(), [window.clone()]);
+    assert_eq!(
+        cx.host().requests::<ChainBlocks>(),
+        std::slice::from_ref(&window)
+    );
     assert!(cx.has_text("52,000"), "the Height stat: {:?}", cx.texts());
     // back from a long sleep, the head is far past the window: still one
     // window's worth, not every block since
