@@ -10,7 +10,7 @@ mod tests;
 
 pub use program::Valset;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 pub use store::{PageRequest, PageResponse};
 
 pub use abi::role::validators::{
@@ -19,13 +19,13 @@ pub use abi::role::validators::{
 
 pub const PROGRAM: &str = "valset";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Role {
     Validator,
     Resident,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Membership {
     pub key: Vec<u8>,
     pub address: Option<String>,
@@ -43,7 +43,9 @@ impl Membership {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask,
+)]
 #[ask(Valset)]
 pub enum Query {
     #[ask(Reply::Validators(Vec<Vec<u8>>))]
@@ -66,7 +68,7 @@ pub enum Query {
     Voices { key: Vec<u8> },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     Validators(Vec<Vec<u8>>),
     Members(Vec<Member>),
@@ -81,7 +83,7 @@ pub enum Reply {
 
 /// A motion waiting for votes, and the validators that cast one: only
 /// those still seated, as the tally counts them.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Pending {
     pub motion: Motion,
     pub voters: Vec<Vec<u8>>,

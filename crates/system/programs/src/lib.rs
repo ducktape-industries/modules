@@ -23,7 +23,7 @@ pub use store::{PageRequest, PageResponse};
 
 use ::program::{AccountNumber, ProgramId, Roles};
 use abi::role::identity::{Kind, Profile};
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
 pub use abi::role::programs::{Entry, Genesis, View};
 
@@ -39,7 +39,7 @@ pub const NOTICE: u64 = 60;
 
 /// The names a grant covers: one id, which may run nothing yet (how a team
 /// adds a new program), or every id but those bound to a role the kernel calls.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Scope {
     Program(ProgramId),
     All,
@@ -65,7 +65,7 @@ impl std::fmt::Display for Scope {
 
 /// An account made a maintainer of `scope` by the validators' vote: its
 /// signed frames schedule and cancel changes to the names in it.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Grant {
     pub scope: Scope,
     pub account: AccountNumber,
@@ -73,7 +73,7 @@ pub struct Grant {
 
 /// A change waiting in the schedule, and the account whose grant made it;
 /// `None`: the validators' vote made it.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Pending {
     pub height: u64,
     pub change: Change,
@@ -124,7 +124,7 @@ pub fn grant_refused(grant: &Grant, roles: &Roles, profile: Option<&Profile>) ->
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Change {
     Set(Entry),
     Remove(ProgramId),
@@ -172,13 +172,13 @@ impl Change {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Scheduled {
     pub height: u64,
     pub change: Change,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Op {
     Schedule(Scheduled),
     Cancel {
@@ -191,7 +191,9 @@ pub enum Op {
     Revoke(Grant),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask,
+)]
 #[ask(Programs)]
 pub enum Query {
     #[ask(Reply::Programs(Vec<Entry>))]
@@ -219,7 +221,7 @@ pub enum Query {
     Roster,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     Programs(Vec<Entry>),
     Scheduled(PageResponse<Pending>),

@@ -111,17 +111,18 @@ files = { path = "crates/app/files" }
 # the key schemes it signs with (dev-dependencies only); the probe fixture it seats is a prebuilt wasm binary, `make
 # probe-fixture`, not a Cargo dependency (its `Step` script type is mirrored
 # in the `programs` crate's test, next to the binary it scripts)
-host = { git = "https://github.com/ducktape-industries/ducktape", rev = "ffffdfab45191bcff02ae466e4a6d384ffb15932" }
-blob = { git = "https://github.com/ducktape-industries/ducktape", rev = "ffffdfab45191bcff02ae466e4a6d384ffb15932" }
-keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "ffffdfab45191bcff02ae466e4a6d384ffb15932" }
+host = { git = "https://github.com/ducktape-industries/ducktape", rev = "bdd57a33fc3c3651dec6838bcefbbb2f22d6ad2d" }
+blob = { git = "https://github.com/ducktape-industries/ducktape", rev = "bdd57a33fc3c3651dec6838bcefbbb2f22d6ad2d" }
+keyscheme = { git = "https://github.com/ducktape-industries/ducktape", rev = "bdd57a33fc3c3651dec6838bcefbbb2f22d6ad2d" }
 commonware-cryptography = "2026.9.0"
 commonware-runtime = "2026.9.0"
 
 # ---- external
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# borsh — the one codec the program abi is written in.
-borsh = { version = "1", default-features = false, features = ["derive", "std"] }
+# borsh — the one codec the program abi is written in, with the schemas that describe a
+# program's ops, queries and replies to a reader that has no Rust type for them.
+borsh = { version = "1", default-features = false, features = ["derive", "std", "unstable__schema"] }
 sha1-checked = { version = "0.10", default-features = false }
 sha2 = "0.10"
 tempfile = "3"

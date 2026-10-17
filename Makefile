@@ -49,7 +49,7 @@ VIEW_FORBIDDEN := blst commonware-cryptography wasm-bindgen js-sys web-sys
 BUILD_TARGET := $(abspath $(or $(CARGO_TARGET_DIR),target))
 RELEASE := $(BUILD_TARGET)/wasm32-unknown-unknown/release
 # The artifacts wasm-modules leaves there (the target dir may hold others).
-ARTIFACTS := $(foreach a,$(PROGRAMS) $(VIEWS),$(subst -,_,$(a)).wasm) $(foreach p,$(PROGRAMS),$(subst -,_,$(p)).describe.wasm) $(foreach v,$(NOTIFIERS),$(subst -,_,$(v)).notify.wasm)
+ARTIFACTS := $(foreach a,$(PROGRAMS) $(VIEWS),$(subst -,_,$(a)).wasm) $(foreach p,$(PROGRAMS),$(subst -,_,$(p)).describe.wasm) $(foreach p,$(PROGRAMS),$(p).schema) $(foreach v,$(NOTIFIERS),$(subst -,_,$(v)).notify.wasm)
 
 # A wasm artifact is the same bytes from any checkout on any machine of one
 # host triple: panic locations would otherwise carry this checkout's, cargo's
@@ -156,11 +156,20 @@ wasm-describes:
 	@mkdir -p $(RELEASE)
 	@$(foreach p,$(PROGRAMS),$(call describe_build,$(p)) && cp $(call describe_artifact,$(p)) $(RELEASE)/$(subst -,_,$(p)).describe.wasm && python3 tools/check-describe-abi.py $(RELEASE)/$(subst -,_,$(p)).describe.wasm || exit 1;)
 
+.PHONY: wasm-schemas
+
+## writes every program's schema (its Op, Query and Reply as one borsh schema
+## container, from its crate linked natively) into $(RELEASE)/<name>.schema.
+## A founding packs each as the `ducktape.schema` section of its program.
+wasm-schemas:
+	@mkdir -p $(RELEASE)
+	@$(CARGO) run --locked -p founding --bin schemas -- $(RELEASE) $(PROGRAMS)
+
 .PHONY: wasm-modules wasm-reproducible wasm-publish
 
-## builds every program, its describe module, every view and every
+## builds every program, its describe module and schema, every view and every
 ## notifier under $(RELEASE)/, unpacked.
-wasm-modules: wasm-programs wasm-describes wasm-views wasm-notifiers
+wasm-modules: wasm-programs wasm-describes wasm-schemas wasm-views wasm-notifiers
 	@cd $(RELEASE) && ls -l $(ARTIFACTS)
 
 wasm-publish:

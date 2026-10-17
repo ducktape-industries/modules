@@ -1,12 +1,22 @@
 //! Pure conversation message types and Markdown parsing. No host or consensus runtime.
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 use crate::Principal;
 
 /// inline formatting applied to a [`Span`]. mentions are structured so
 /// hook parsing stays deterministic.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Mark {
     Bold,
@@ -20,7 +30,17 @@ pub enum Mark {
 }
 
 /// a run of text with uniform marks.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+)]
 #[serde(deny_unknown_fields)]
 pub struct Span {
     pub text: String,
@@ -38,7 +58,17 @@ impl Span {
 }
 
 /// one block of a message body.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Block {
     Paragraph(Vec<Span>),

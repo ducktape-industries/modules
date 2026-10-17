@@ -3,6 +3,7 @@
 mod chat;
 mod files;
 mod forge;
+mod interface;
 mod network;
 mod thread;
 
@@ -94,6 +95,9 @@ pub(crate) const CATALOG: &[Entry] = &[
     entry::<network::Accounts>(),
     entry::<network::Account>(),
     entry::<network::Activity>(),
+    entry::<interface::Schema>(),
+    entry::<interface::Query>(),
+    entry::<interface::Call>(),
     entry::<thread::Search>(),
     entry::<thread::Read>(),
 ];

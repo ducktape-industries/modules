@@ -1,10 +1,10 @@
 //! Who may act on something an account owns: its owner alone, its owner and the accounts
 //! listed by number, or anyone. identity says so of whom an agent answers, files of who writes a path.
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
 use crate::AccountNumber;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Ownership {
     #[default]
     Owner,

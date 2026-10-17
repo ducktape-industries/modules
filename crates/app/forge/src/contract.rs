@@ -1,6 +1,6 @@
 //! Borsh is the program contract; the view links these types as they are.
 use ::program::{BlobId, HashKind};
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
 use crate::state::{ACTIVITY, AUTHORED, CHANGES, INVOLVED, REFS, REPOS, REVIEWS, WRITERS};
 
@@ -9,7 +9,7 @@ pub use crate::review_contract::*;
 pub use ::program::Principal;
 pub use store::{PageRequest, PageResponse};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Bounds {
     pub max_objects: u64,
     pub max_delta_depth: u64,
@@ -33,7 +33,7 @@ pub struct Bounds {
     pub record_bytes: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Settings {
     pub head: Vec<u8>,
     pub allow_force: bool,
@@ -48,7 +48,7 @@ impl Default for Settings {
         }
     }
 }
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Repo {
     pub hash: HashKind,
     /// The person who created the repository: an account.
@@ -58,7 +58,7 @@ pub struct Repo {
     pub last_activity: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Op {
     Create {
         repo: String,
@@ -142,7 +142,18 @@ impl Op {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+)]
 pub enum Service {
     ReceivePack,
     UploadPack,
@@ -157,7 +168,16 @@ pub enum Service {
 /// objects follows `REFS`. The git client's own questions declare
 /// nothing: no view follows them.
 #[derive(
-    Clone, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize, ::program::Ask,
+    Clone,
+    Debug,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+    ::program::Ask,
 )]
 #[ask(crate::Forge)]
 pub enum Query {
@@ -310,12 +330,12 @@ impl Query {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct RepoInfo {
     pub name: String,
     pub repo: Repo,
 }
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct RefInfo {
     pub name: Vec<u8>,
     pub target: String,
@@ -324,7 +344,7 @@ pub struct RefInfo {
 /// One read's answer. A reply is decoded once and read in place, so its
 /// widest variant (a whole change record) is not boxed.
 #[allow(clippy::large_enum_variant)]
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     Repos {
         height: u64,
@@ -392,7 +412,16 @@ pub enum Reply {
 }
 
 #[derive(
-    Clone, Debug, Default, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
 )]
 pub struct Walk {
     pub haves: Vec<String>,
@@ -401,21 +430,25 @@ pub struct Walk {
     pub trees: Vec<PendingTree>,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize, BorshSchema,
+)]
 pub struct QueuedCommit {
     pub oid: String,
     pub time: i64,
     pub uninteresting: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize, BorshSchema,
+)]
 pub struct PendingTree {
     pub tree: String,
     pub against: Vec<String>,
     pub from: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Listed {
     pub oid: String,
     pub kind: ObjectKind,
@@ -511,7 +544,7 @@ fn oids(hash: gitcore::Hash, hexes: &[String]) -> Option<Vec<gitcore::Oid>> {
         .collect()
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum ObjectKind {
     Commit,
     Tree,

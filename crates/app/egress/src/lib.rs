@@ -20,11 +20,13 @@ pub use abi::role::identity::AccountNumber;
 pub use program::Egress;
 pub use store::{PageRequest, PageResponse};
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
 pub const PROGRAM: &str = "egress";
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask,
+)]
 #[ask(Egress)]
 pub enum Query {
     #[ask(Reply::Requests(Vec<RequestRow>))]
@@ -50,7 +52,7 @@ pub enum Query {
     Services { page: PageRequest },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     Requests(Vec<RequestRow>),
     Node(Option<NodeRow>),

@@ -15,7 +15,7 @@ mod tree;
 
 use std::collections::BTreeMap;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
 pub use ::program::{AccountNumber, BlobId, Ownership, Principal};
 pub use objects::{Access, CHUNK, FILE, FileObj, SNAPSHOT, SnapshotObj, TREE, Tree};
@@ -26,7 +26,7 @@ pub const PROGRAM: &str = "files";
 
 pub const CHUNK_SIZE: u64 = 1 << 20;
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Op {
     /// Retired: file bytes never ride in a transaction ([`carried`]), so
     /// it is always refused. It stays so the ops of older blocks still read
@@ -48,7 +48,7 @@ pub enum Op {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Change {
     Put {
         path: String,
@@ -89,7 +89,7 @@ impl Change {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Content {
     /// Retired as [`Op::Stage`] is: always refused, kept so older commits
     /// still read.
@@ -109,7 +109,7 @@ pub(crate) fn carried() -> ::program::Error {
     )
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Node {
     File { file: BlobId, size: u64, exec: bool },
     Dir { tree: BlobId, entries: u64 },
@@ -126,14 +126,14 @@ impl Node {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct EntryInfo {
     pub path: String,
     pub node: Node,
     pub meta: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct SnapshotRow {
     pub id: BlobId,
     pub seq: u64,
@@ -145,7 +145,7 @@ pub struct SnapshotRow {
     pub message: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct PinRow {
     pub name: String,
     pub snapshot: BlobId,
@@ -153,7 +153,7 @@ pub struct PinRow {
     pub height: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Contents {
     pub snapshot: BlobId,
     pub size: u64,
@@ -162,27 +162,27 @@ pub struct Contents {
     pub eof: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Hit {
     pub path: String,
     pub line: u64,
     pub text: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum DiffKind {
     Added,
     Removed,
     Modified,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct DiffEntry {
     pub path: String,
     pub kind: DiffKind,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Writers {
     Listed {
         path: String,
@@ -194,7 +194,7 @@ pub enum Writers {
     Chain,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct PathOwnership {
     pub snapshot: Option<BlobId>,
     pub creator: Option<AccountNumber>,
@@ -202,7 +202,9 @@ pub struct PathOwnership {
     pub writers: Writers,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask,
+)]
 #[ask(Files)]
 pub enum Query {
     #[ask(Reply::Head(Option<SnapshotRow>))]
@@ -265,7 +267,7 @@ pub enum Query {
     Ownership { path: String, at: Option<BlobId> },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     Head(Option<SnapshotRow>),
     Snapshot(Option<SnapshotRow>),

@@ -21,7 +21,7 @@ pub use abi::role::identity::{Category, Kind, Profile, Script, Standing};
 pub use program::Identity;
 
 use ::program::{BlobId, ProgramId, Scheme};
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 pub use store::{PageRequest, PageResponse};
 
 /// The name this program runs under.
@@ -29,7 +29,7 @@ pub const PROGRAM: &str = "identity";
 /// What a key signs to consent to a key joining an account ([`Admission`]).
 pub const CONSENT_NAMESPACE: &[u8] = b"ducktape:identity:consent";
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Key {
     pub scheme: Scheme,
     pub key: Vec<u8>,
@@ -38,7 +38,7 @@ pub struct Key {
 }
 
 /// One account: what it shows ([`Card`]) and who acts as it ([`Control`]).
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Account {
     pub number: AccountNumber,
     pub card: Card,
@@ -46,7 +46,7 @@ pub struct Account {
 }
 
 /// What an account shows of itself.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Card {
     pub name: String,
     pub avatar: Option<BlobId>,
@@ -56,7 +56,7 @@ pub struct Card {
 
 /// Who acts as an account, and with which keys. A system account has no
 /// keys to hold; a revoked program account has none left ([`Life`]).
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Control {
     /// A user: their own keys, which they add and remove.
     User { keys: Vec<Key> },
@@ -74,7 +74,7 @@ pub enum Control {
 
 /// Whether a program account acts. Suspended keeps its keys, so resuming
 /// issues none again; revoked is final and keeps none.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Life {
     Active { keys: Vec<Key> },
     Suspended { keys: Vec<Key> },
@@ -140,7 +140,7 @@ impl Account {
 /// signature over the [`Admission`]. For a user, `key` is one already on
 /// the account and the new key signs the frame; for a program account,
 /// `key` is the new key itself and the manager signs the frame.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Consent {
     pub key: Vec<u8>,
     pub account: AccountNumber,
@@ -164,7 +164,7 @@ impl Admission {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Op {
     /// The identity role's op (`abi::role::identity::Op`), first: the
     /// system gives an admitted program its account.
@@ -222,13 +222,15 @@ pub enum Op {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reference {
     Account(AccountNumber),
     Key(Vec<u8>),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask,
+)]
 #[ask(Identity)]
 pub enum Query {
     /// The identity role's queries (`abi::role::identity::Query`), first
@@ -268,7 +270,7 @@ pub enum Query {
     Ownership { number: AccountNumber },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     /// The identity role's replies (`abi::role::identity::Reply`), first
     /// and in its order.

@@ -1,33 +1,55 @@
 //! Immutable batched reviews, mutable changes, and the shared per-repo item counter.
 use crate::read_contract::Revision;
 use ::program::Principal;
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+)]
 pub enum ChangeState {
     Open,
     Closed,
     Merged,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Verdict {
     Approve,
     RequestChanges,
     Comment,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+)]
 pub enum Side {
     Old,
     New,
 }
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct LineComment {
     pub path: Vec<u8>,
     pub side: Side,
     pub line: u64,
     pub body: String,
 }
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct ReviewDraft {
     pub commit_oid: String,
     pub base_oid: Option<String>,
@@ -35,7 +57,7 @@ pub struct ReviewDraft {
     pub body: String,
     pub comments: Vec<LineComment>,
 }
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Review {
     pub id: u64,
     pub author: Principal,
@@ -45,7 +67,7 @@ pub struct Review {
     /// Look up this chat root by MessageById; all line discussions are chat replies.
     pub message_id: String,
 }
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Change {
     pub n: u64,
     pub from: Revision,
@@ -74,26 +96,37 @@ pub struct Change {
     pub system_seq: u64,
 }
 /// A merged change's two heads as the merge found them.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct MergedHeads {
     pub source: String,
     pub target: String,
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema,
+)]
 pub struct ReviewCounts {
     pub approve: u64,
     pub request_changes: u64,
     pub comment: u64,
 }
 #[derive(
-    Clone, Debug, Default, PartialEq, PartialOrd, Ord, Eq, BorshSerialize, BorshDeserialize,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
 )]
 pub struct ChangeFilter {
     pub state: Option<ChangeState>,
     pub author: Option<Principal>,
     pub involves: Option<Principal>,
 }
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct ChangeSummary {
     pub repo: String,
     pub n: u64,
@@ -107,14 +140,14 @@ pub struct ChangeSummary {
     pub comment_count: u64,
     pub verdicts: ReviewCounts,
 }
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct ReplyAttention {
     /// None for a conversation thread authored directly in chat.
     pub review: Option<u64>,
     pub root_seq: u64,
     pub last_reply_seq: u64,
 }
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Judgment {
     pub change: ChangeSummary,
     pub requested: bool,

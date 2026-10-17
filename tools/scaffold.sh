@@ -3,9 +3,9 @@
 # valset's shape (types and `describe` in lib.rs, the program in program.rs,
 # its rules over `store` in rules.rs, a native test over `program::MockHost`
 # in tests.rs; its wasm exports behind `program`, its describe module behind
-# `describe`) or a view in members-view's shape
-# (links its program with `program` off, `export_view!`, one screen test),
-# registered in the Makefile
+# `describe`, its schema in crates/sdk/founding) or a view in members-view's
+# shape (links its program with `program` off, `export_view!`, one screen
+# test), registered in the Makefile
 # and the workspace. `make scaffold-check` builds and tests both. Run from
 # the repo root.
 #   tools/scaffold.sh program <name> | view <name>-view
@@ -24,6 +24,10 @@ snake=$(echo "$name" | tr - _)
 # half-registers.
 MEMBERS='^    "crates/lib/gitcore",$'
 DEPS='^forge = { path = "crates/app/forge" }$'
+SCHEMAS=crates/sdk/founding/src/schema.rs
+SCHEMA='^        _ => return None,$'
+FOUNDING=crates/sdk/founding/Cargo.toml
+FOUNDING_DEPS='^harness = { workspace = true }$'
 anchor() { # <file> <pattern>
     test "$(grep -c "$2" "$1")" = 1 || { echo "$1: no single line matches '$2'; nothing was written. Fix the anchor in $0." >&2; exit 1; }
 }
@@ -45,6 +49,8 @@ program() {
     anchor Makefile '^VIEW_LINKABLE := '
     anchor Cargo.toml "$MEMBERS"
     anchor Cargo.toml "$DEPS"
+    anchor "$SCHEMAS" "$SCHEMA"
+    anchor "$FOUNDING" "$FOUNDING_DEPS"
     # The program type: TitleCase of the program name.
     title=$(echo "$name" | awk -F- '{ for (i = 1; i <= NF; i++) printf "%s%s", toupper(substr($i, 1, 1)), substr($i, 2) }')
     mkdir -p "$dir/src"
@@ -91,25 +97,25 @@ mod tests;
 
 pub use program::$title;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
 pub const PROGRAM: &str = "$name";
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Op {
     Bump { by: u64 },
 }
 
 /// A read. Each variant names the reply that answers it, so a view asks
 /// it alone (\`host.query($snake::ask::Count)\`) and gets that reply.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask)]
 #[ask($title)]
 pub enum Query {
     #[ask(Reply::Count(u64))]
     Count,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     Count(u64),
 }
@@ -224,8 +230,12 @@ EOF
     edit Makefile "s/^VIEW_LINKABLE := .*/& $name/"
     edit Cargo.toml "s|$DEPS|&\\
 $name = { path = \"$dir\" }|"
+    edit "$SCHEMAS" "s|$SCHEMA|        \"$name\" => interface::<$snake::$title>(),\\
+&|"
+    edit "$FOUNDING" "s|$FOUNDING_DEPS|&\\
+$name = { workspace = true }|"
     cat <<EOF
-$dir/{Cargo.toml,src/{lib,program,rules,tests}.rs}, PROGRAMS, VIEW_LINKABLE, workspace members and dependencies.
+$dir/{Cargo.toml,src/{lib,program,rules,tests}.rs}, PROGRAMS, VIEW_LINKABLE, workspace members and dependencies, its schema in $SCHEMAS.
 Next:
   1. write the contract (Op/Query/Reply and describe() in lib.rs, the program in program.rs, its rules in rules.rs); \`make dev P=$name\` builds and tests it
   2. \`make new-view NAME=$name-view\` for its screen
