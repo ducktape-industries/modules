@@ -29,15 +29,12 @@ impl Program for Forge {
     /// Runs one op as the signer's account (`ctx.sender()`).
     /// Every op names its repository; an accepted one marks it active.
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
-        let Some(repo) = op.repo().map(str::to_owned) else {
-            return crate::migrate::migrate(ctx);
-        };
+        let repo = op.repo().to_owned();
         let actor = &signed_account(ctx)?;
         let reply = match op {
             Op::Create { repo, hash } => create(ctx, actor, &repo, hash).map(|()| None),
             Op::Configure { repo, settings } => configure(ctx, &repo, settings).map(|()| None),
             Op::Grant { .. } | Op::Revoke { .. } => Err(retired()),
-            Op::Migrate => crate::migrate::migrate(ctx).map(|()| None),
             Op::Push {
                 repo,
                 request,

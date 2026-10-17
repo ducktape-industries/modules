@@ -30,7 +30,6 @@ mod changes;
 mod description;
 mod diffs;
 mod discussion;
-mod migrate;
 mod objects;
 mod ops;
 mod queries;
@@ -74,7 +73,6 @@ fn op_variants_only_append() {
             "ChangeClose",
             "ReviewSubmit",
             "Stage",
-            "Migrate",
         ]
     );
 }

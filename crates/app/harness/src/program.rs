@@ -73,7 +73,6 @@ impl Awaiting for Harness {
             Op::Streamed { thread, event } => streamed(&ctx, thread, event).await,
             Op::NewThread { agent } => new_thread(&ctx, agent),
             Op::ForkThread { agent } => fork_thread(&ctx, agent),
-            Op::Migrate => crate::migrate::migrate(&ctx),
         }
     }
 }
