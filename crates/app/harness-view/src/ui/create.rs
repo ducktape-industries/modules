@@ -1,15 +1,16 @@
 //! The create form: the ops a new agent takes, each with how far it got, the configuration
-//! file it writes (where, the model from harness's records, max output, wait, the system
-//! prompt) and who it answers. Editing is the same form, its fields filled from the agent's
+//! file it writes (where, the model from harness's records, max output, wait, thinking, the
+//! system prompt) and who it answers. Editing is the same form, its fields filled from the agent's
 //! file, saved as a new version of it.
 use view::design::Ladder;
 use view::design::{size, space};
 use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
-use super::{back, caption, waiting, window_words};
+use super::{back, caption, thinking_picker, waiting, window_words};
 use crate::create::{Answers, Draft, proposed_path};
 use crate::{Agents, Screen};
+use harness::Thinking;
 
 pub(super) fn render(
     view: &Agents,
@@ -231,6 +232,21 @@ fn fields(
                 .w(px(200.)),
             ),
     )
+    .child(labelled(
+        "Thinking",
+        "How hard the model thinks before it answers. Model's default sends nothing; Off turns thinking off; Low to Max ask for that much effort.",
+        div().flex().child(thinking_picker(
+            "create-thinking",
+            draft.thinking,
+            ladder,
+            theme,
+            cx.processor(|view: &mut Agents, thinking: Option<Thinking>, _, cx| {
+                view.draft.thinking = thinking;
+                cx.notify();
+            }),
+        )),
+        theme,
+    ))
     .child(labelled(
         "System prompt",
         "Harness sends each paragraph as its own system block, in order, then its ducktape resource manual (the agent's account, its manager, the conversation).",

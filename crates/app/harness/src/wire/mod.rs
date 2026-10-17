@@ -7,11 +7,12 @@ pub(crate) mod anthropic;
 
 use abi::role::egress::http::{Head, Response};
 
-use crate::{Flow, Frame, Partial, Role, Said, Stop, Usage, Wire};
+use crate::{Flow, Frame, Partial, Role, Said, Stop, Thinking, Usage, Wire};
 
 pub(crate) struct Header<'a> {
     pub name: &'a str,
     pub max_tokens: u32,
+    pub thinking: Option<Thinking>,
     pub system: &'a [String],
 }
 

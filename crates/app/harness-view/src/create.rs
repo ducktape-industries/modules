@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use view::methods::{BlobBody, NewBlob, OpPut, PutBlobs};
 use view::prelude::*;
 
-use harness::{AgentSetup, BlobId, Config, Configured};
+use harness::{AgentSetup, BlobId, Config, Configured, Thinking};
 use identity::{Identity, Ownership, Party, Script};
 
 use crate::{Agents, Screen, applied};
@@ -24,6 +24,7 @@ pub(crate) struct Draft {
     pub model: Option<String>,
     pub max_tokens: TextField,
     pub wait: TextField,
+    pub thinking: Option<Thinking>,
     pub system: TextField,
     pub answers: Answers,
     pub listed: TextField,
@@ -32,6 +33,7 @@ pub(crate) struct Draft {
     pub scripted: bool,
     pub answered: bool,
     pub again: bool,
+    pub rethink: bool,
     pub base: Option<[u8; 32]>,
     pub script_path: Option<String>,
     pub problem: Option<String>,
@@ -134,6 +136,7 @@ impl Draft {
                 model,
                 max_tokens,
                 wait,
+                thinking: self.thinking,
                 system: self.system.text().trim().to_owned(),
             },
             ownership,
@@ -156,6 +159,32 @@ impl Draft {
             return Next::Answer(agent, form.ownership.clone());
         }
         Next::Done(agent)
+    }
+}
+
+impl Draft {
+    fn editing(setup: &AgentSetup, name: &str) -> Draft {
+        let config = setup.configured.config().map(|(_, config)| config.clone());
+        let field = |text: Option<String>| TextField::new(text.unwrap_or_default());
+        Draft {
+            name: TextField::new(name),
+            path: TextField::new(setup.path.clone()),
+            model: config.as_ref().map(|config| config.model.clone()),
+            max_tokens: field(config.as_ref().map(|config| config.max_tokens.to_string())),
+            wait: field(
+                config
+                    .as_ref()
+                    .and_then(|config| config.wait)
+                    .map(|wait| wait.to_string()),
+            ),
+            thinking: config.as_ref().and_then(|config| config.thinking),
+            system: field(config.as_ref().map(|config| config.system.clone())),
+            created: Some(setup.agent),
+            again: true,
+            base: base_of(&setup.configured),
+            script_path: Some(setup.path.clone()),
+            ..Draft::default()
+        }
     }
 }
 
@@ -195,27 +224,26 @@ impl Agents {
     }
 
     pub(crate) fn edit(&mut self, setup: &AgentSetup, name: &str, cx: &mut Context<Self>) {
-        let config = setup.configured.config().map(|(_, config)| config.clone());
-        let field = |text: Option<String>| TextField::new(text.unwrap_or_default());
-        self.draft = Draft {
-            name: TextField::new(name),
-            path: TextField::new(setup.path.clone()),
-            model: config.as_ref().map(|config| config.model.clone()),
-            max_tokens: field(config.as_ref().map(|config| config.max_tokens.to_string())),
-            wait: field(
-                config
-                    .as_ref()
-                    .and_then(|config| config.wait)
-                    .map(|wait| wait.to_string()),
-            ),
-            system: field(config.as_ref().map(|config| config.system.clone())),
-            created: Some(setup.agent),
-            again: true,
-            base: base_of(&setup.configured),
-            script_path: Some(setup.path.clone()),
-            ..Draft::default()
-        };
+        self.draft = Draft::editing(setup, name);
         self.go(Screen::Create, cx);
+    }
+
+    pub(crate) fn rethink(
+        &mut self,
+        setup: &AgentSetup,
+        name: &str,
+        thinking: Option<Thinking>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.draft.sending.is_some() {
+            return;
+        }
+        self.draft = Draft {
+            thinking,
+            rethink: true,
+            ..Draft::editing(setup, name)
+        };
+        self.advance(cx);
     }
 
     pub(crate) fn advance(&mut self, cx: &mut Context<Self>) {

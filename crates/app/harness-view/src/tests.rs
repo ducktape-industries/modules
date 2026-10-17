@@ -1,3 +1,5 @@
+mod thinking;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -93,6 +95,7 @@ fn config_of(name: &str) -> Config {
         model: SONNET.into(),
         max_tokens: 4096,
         wait: None,
+        thinking: None,
         system: format!("You are {name}."),
     }
 }
@@ -853,6 +856,7 @@ fn rover() -> Config {
         model: SONNET.into(),
         max_tokens: 8192,
         wait: None,
+        thinking: None,
         system: "Answer about deploys.".into(),
     }
 }
