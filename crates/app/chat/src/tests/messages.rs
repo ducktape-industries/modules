@@ -74,7 +74,7 @@ fn a_reply_joins_its_root_and_the_authors_attention() {
 }
 
 #[test]
-fn only_the_author_edits_and_search_follows_the_edit() {
+fn an_edit_moves_search_with_it_and_a_deleted_message_takes_none() {
     let mut chat = Chat::with_channel(PostPolicy::Open);
     chat.post(&BO, "m1", "hello #launch", None);
     chat.ok(&BO, edit(1, "goodbye"));
@@ -88,8 +88,6 @@ fn only_the_author_edits_and_search_follows_the_edit() {
         (vec![], vec![1])
     );
     assert!(tagged(&chat, "launch").is_empty());
-    assert_eq!(chat.refused(&CY, edit(1, "mine")), code::UNAUTHORIZED);
-    assert_eq!(chat.refused(&ADA, edit(1, "owner")), code::UNAUTHORIZED);
     chat.ok(&BO, delete(1));
     assert_eq!(chat.refused(&BO, edit(1, "undead")), code::WRONG_STATE);
 }
@@ -110,11 +108,10 @@ fn a_row_keeps_its_posts_block_time_through_an_edit() {
 }
 
 #[test]
-fn the_author_or_the_owner_deletes_and_a_tombstone_stays() {
+fn a_delete_leaves_a_tombstone_that_holds_its_thread() {
     let mut chat = Chat::with_channel(PostPolicy::Open);
     chat.post(&BO, "m1", "hello #launch", None);
     chat.post(&BO, "m2", "hello again", Some(1));
-    assert_eq!(chat.refused(&CY, delete(1)), code::UNAUTHORIZED);
     chat.ok(&ADA, delete(1));
     let tombstone = chat.message(1);
     assert!(tombstone.deleted && tombstone.blocks.is_empty() && tombstone.text.is_empty());

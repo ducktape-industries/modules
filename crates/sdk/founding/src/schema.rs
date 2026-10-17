@@ -17,6 +17,7 @@ pub fn schema(program: &str) -> Option<BorshSchemaContainer> {
         "awaits" => interface::<awaits::Awaits>(),
         "halo" => interface::<halo::Halo>(),
         "scheduler" => interface::<scheduler::Scheduler>(),
+        "access" => interface::<access::Access>(),
         "chat" => interface::<chat::Chat>(),
         "forge" => interface::<forge::Forge>(),
         "files" => interface::<files::Files>(),

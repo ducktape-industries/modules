@@ -126,6 +126,7 @@ fn chain_with(roles: Roles) -> MockChain {
     chain.seat::<Valset>("valset");
     chain.seat::<awaits::Awaits>(awaits::PROGRAM);
     chain.seat::<::scheduler::Scheduler>(::scheduler::PROGRAM);
+    chain.seat::<access::Access>("access");
     chain.seat_awaiting::<Egress>(PROGRAM);
     chain.seat_awaiting::<Asker>(ASKER);
     let members = [ADA, BO].map(|key| Member {

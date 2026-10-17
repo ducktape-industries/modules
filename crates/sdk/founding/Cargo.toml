@@ -14,6 +14,7 @@ identity = { workspace = true }
 blobs = { workspace = true }
 awaits = { workspace = true }
 halo = { workspace = true }
+access = { workspace = true }
 scheduler = { workspace = true }
 chat = { workspace = true }
 forge = { workspace = true }

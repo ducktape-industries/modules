@@ -30,6 +30,7 @@ mod changes;
 mod description;
 mod diffs;
 mod discussion;
+mod migrate;
 mod objects;
 mod ops;
 mod queries;
@@ -49,7 +50,7 @@ pub use program::Forge;
 pub mod tables {
     pub use crate::state::{
         ACTIVITY, AUTHORED, BOUNDS, CHANGES, INVOLVED, MESSAGES, NUMBERS, REFS, REPOS, REVIEWS,
-        WRITERS, WRITES,
+        WRITES,
     };
 }
 
@@ -73,6 +74,7 @@ fn op_variants_only_append() {
             "ChangeClose",
             "ReviewSubmit",
             "Stage",
+            "Migrate",
         ]
     );
 }

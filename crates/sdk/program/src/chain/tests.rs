@@ -625,8 +625,7 @@ fn a_seated_identity_program_is_asked_as_the_kernel_asks_it() {
 /// whatever id it runs, and every frame carries that binding.
 #[test]
 fn the_chain_asks_the_roles_it_was_founded_with() {
-    let mut roles = MockHost::roles();
-    roles.bind(abi::role::IDENTITY, "people");
+    let roles = MockHost::roles_with(abi::role::IDENTITY, "people");
     let mut chain = MockChain::founded(roles.clone());
     chain.seat::<Bot>("a");
     chain.seat::<Ident>("people");

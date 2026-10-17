@@ -96,13 +96,7 @@ fn configure_is_the_owners_and_takes_a_ref_for_head() {
         },
     };
     rig.execute(&settings(b"refs/heads/feature")).unwrap();
-    let Reply::Repo { repo, .. } = reply(
-        &rig,
-        &Query::Repo {
-            repo: REPO.into(),
-            page: PageRequest::first(8),
-        },
-    ) else {
+    let Reply::Repo { repo, .. } = reply(&rig, &Query::Repo { repo: REPO.into() }) else {
         panic!()
     };
     assert_eq!(repo.repo.settings.head, b"refs/heads/feature");
@@ -114,51 +108,38 @@ fn configure_is_the_owners_and_takes_a_ref_for_head() {
 }
 
 #[test]
-fn grant_and_revoke_are_the_owners_and_name_a_person() {
+fn grant_and_revoke_are_retired_and_the_owner_lists_writers_in_access() {
     let (mut rig, _) = story();
-    let grant = |principal: Principal| Op::Grant {
+    let grant = Op::Grant {
         repo: REPO.into(),
-        principal,
+        principal: person(WRITER),
     };
-    let revoke = |principal: Principal| Op::Revoke {
+    assert_eq!(rig.refused(&grant).code, code::UNAUTHORIZED);
+    let configure = Op::Configure {
         repo: REPO.into(),
-        principal,
+        settings: Settings::default(),
     };
-    let writers = |rig: &Rig| {
-        let Reply::Repo { writers, .. } = reply(
-            rig,
-            &Query::Repo {
-                repo: REPO.into(),
-                page: PageRequest::first(8),
-            },
-        ) else {
-            panic!()
-        };
-        writers.items
-    };
-
-    rig.execute(&grant(person(WRITER))).unwrap();
-    rig.sandbox.hold(b"ninth", 9);
-    rig.execute(&grant(Principal::Account(9))).unwrap();
-    assert_eq!(writers(&rig), [Principal::Account(9), person(WRITER)]);
+    rig.sandbox
+        .list_writers(TESTER, REPO, &[person(WRITER)])
+        .unwrap();
     assert_eq!(
-        refused_as(&mut rig, WRITER, &revoke(person(WRITER))),
-        code::UNAUTHORIZED
+        refused_as(&mut rig, WRITER, &configure),
+        code::UNAUTHORIZED,
+        "a writer pushes, the owner configures"
     );
-    rig.execute(&revoke(person(WRITER))).unwrap();
-    rig.execute(&revoke(Principal::Account(9))).unwrap();
-    assert!(
-        writers(&rig).is_empty(),
-        "a revoked key leaves no row behind"
-    );
-
     assert_eq!(
-        refused_as(&mut rig, STRANGER, &grant(person(STRANGER))),
+        rig.sandbox
+            .list_writers(WRITER, REPO, &[person(STRANGER)])
+            .unwrap_err()
+            .code,
         code::UNAUTHORIZED
     );
     assert_eq!(
-        rig.refused(&grant(Principal::Root)).code,
-        code::INVALID_INPUT
+        rig.sandbox
+            .list_writers(TESTER, REPO, &[Principal::Account(404)])
+            .unwrap_err()
+            .code,
+        code::NOT_FOUND
     );
 }
 
@@ -290,11 +271,9 @@ fn close_is_the_authors_or_a_writers_and_happens_once() {
     assert_eq!(rig.refused(&close).code, code::WRONG_STATE);
 
     let second = opened(&mut rig, &story);
-    rig.execute(&Op::Grant {
-        repo: REPO.into(),
-        principal: person(WRITER),
-    })
-    .unwrap();
+    rig.sandbox
+        .list_writers(TESTER, REPO, &[person(WRITER)])
+        .unwrap();
     let by_writer = Op::ChangeClose {
         repo: REPO.into(),
         n: second,
@@ -424,5 +403,62 @@ fn a_merge_lands_its_change_once_and_only_over_the_heads_it_read() {
     assert_eq!(
         (source_head.as_deref(), target_head.as_deref()),
         (Some(merged.as_str()), Some(story.root.as_str()))
+    );
+}
+
+#[test]
+fn the_votes_migrate_moves_each_repositorys_writers_into_its_access_list() {
+    let (mut rig, story) = story();
+    let writers: store::Set<(String, Principal)> = store::Set::new("w/");
+    let ctx = rig.sandbox.exec(rig.height);
+    writers.insert(&ctx, &(REPO.to_owned(), person(WRITER)));
+    writers.insert(&ctx, &(REPO.to_owned(), Principal::Account(1)));
+    let close = |rig: &mut Rig, story: &Story| {
+        let n = opened(rig, story);
+        signed(
+            rig,
+            WRITER,
+            &Op::ChangeClose {
+                repo: REPO.into(),
+                n,
+            },
+        )
+    };
+    assert_eq!(
+        close(&mut rig, &story).unwrap_err().code,
+        code::UNAUTHORIZED
+    );
+    assert_eq!(
+        rig.sandbox
+            .chain
+            .submit(Origin::Signed(TESTER.to_vec()), "forge", &Op::Migrate)
+            .unwrap_err()
+            .code,
+        code::UNAUTHORIZED
+    );
+    rig.sandbox.chain.register("valset", 950);
+    rig.sandbox
+        .chain
+        .submit(Origin::Program("valset".into()), "forge", &Op::Migrate)
+        .unwrap();
+    close(&mut rig, &story).unwrap();
+    let ctx = rig.sandbox.reads(rig.height);
+    assert!(writers.all(&ctx).unwrap().is_empty());
+    let listed: access::Reply = rig
+        .sandbox
+        .chain
+        .query(
+            "access",
+            &access::Query::List {
+                program: "forge".into(),
+                key: REPO.into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        listed,
+        access::Reply::List(Some(program::Ownership::Listed(vec![
+            program::Party::Account(12)
+        ])))
     );
 }

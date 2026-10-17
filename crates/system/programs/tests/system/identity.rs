@@ -29,16 +29,16 @@ fn consent(
 
 /// The founding programs, in admission order: identity numbers their
 /// accounts first, so a person's account comes after them.
-const FOUNDED: [&str; 5] = [
+const FOUNDED: [&str; 6] = [
     programs::PROGRAM,
     valset::PROGRAM,
     identity::PROGRAM,
     blobs::PROGRAM,
+    "access",
     "probe",
 ];
 
-/// The first person's account: the founding programs hold 1..=8.
-const ALICE: AccountNumber = 9;
+const ALICE: AccountNumber = 10;
 
 impl Net {
     async fn account(&self, number: AccountNumber) -> identity::Account {

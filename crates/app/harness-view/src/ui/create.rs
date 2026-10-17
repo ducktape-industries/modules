@@ -101,10 +101,16 @@ fn steps(draft: &Draft, home: Option<&str>, theme: &Theme) -> impl IntoElement +
             created,
         ),
         (
-            "Write its configuration, which only you may change",
-            "files · Commit, write list: Owner",
+            "Write its configuration",
+            "files · Commit",
             draft.committed,
             committed,
+        ),
+        (
+            "Make it yours alone to change",
+            "access · Set, write list: Owner",
+            draft.kept,
+            None,
         ),
         (
             "Hand it to harness",
@@ -114,7 +120,7 @@ fn steps(draft: &Draft, home: Option<&str>, theme: &Theme) -> impl IntoElement +
         ),
         (
             "Who it answers, if more than you",
-            "identity · SetOwnership",
+            "access · Set, who it answers",
             draft.answered,
             None,
         ),

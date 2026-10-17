@@ -18,6 +18,7 @@ fn chain() -> MockChain {
     let mut chain = MockChain::default();
     chain.seat::<Attribution>(attribution::PROGRAM);
     chain.seat::<crate::Chat>(crate::PROGRAM);
+    chain.seat::<access::Access>("access");
     chain.register(attribution::PROGRAM, 900);
     chain.register(crate::PROGRAM, 901);
     for (key, number, name) in [(ADA, 1, "Ada"), (BO, 2, "Bo"), (CY, 3, "Cy")] {
@@ -239,6 +240,7 @@ fn a_thread_reply_relates_everyone_who_took_part_before_it() {
 fn a_post_stands_when_no_attribution_is_seated() {
     let mut chain = MockChain::default();
     chain.seat::<crate::Chat>(crate::PROGRAM);
+    chain.seat::<access::Access>("access");
     chain.hold(ADA.to_vec(), 1);
     let create = crate::Op::CreateChannel {
         channel_id: "general".into(),

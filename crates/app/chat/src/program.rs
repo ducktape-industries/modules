@@ -29,11 +29,11 @@ impl Program for Chat {
                 post_policy,
             } => create_channel(ctx, &sender, channel_id, name, post_policy),
             Op::CreateDmChannel { counterpart, name } => open_dm(ctx, &sender, counterpart, name),
-            Op::RenameChannel { channel_id, name } => rename(ctx, &sender, &channel_id, name),
+            Op::RenameChannel { channel_id, name } => rename(ctx, &channel_id, name),
             Op::SetChannelArchived {
                 channel_id,
                 archived,
-            } => set_archived(ctx, &sender, &channel_id, archived),
+            } => set_archived(ctx, &channel_id, archived),
             Op::PostMessage {
                 channel_id,
                 message_id,
@@ -61,12 +61,20 @@ impl Program for Chat {
                 channel_id,
                 principal,
                 member,
-            } => set_membership(ctx, &sender, &channel_id, principal, member),
+            } => set_membership(ctx, &channel_id, principal, member),
         }
     }
 
     fn reply(_ctx: &ExecCtx, _id: &MessageId, _outcome: &Outcome) -> Result<(), Error> {
         Ok(())
+    }
+
+    fn access(_: &QueryCtx, op: &Op) -> Result<Vec<::program::Need>, Error> {
+        Ok(crate::gate::needs(op))
+    }
+
+    fn resource(ctx: &QueryCtx, key: &str) -> Result<::program::Resource, Error> {
+        crate::gate::resource(ctx, key)
     }
 
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {

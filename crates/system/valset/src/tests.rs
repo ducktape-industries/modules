@@ -481,36 +481,6 @@ fn a_halo_role_motion_sends_its_op_to_the_halo_once_enacted() {
 }
 
 #[test]
-fn a_bind_motion_binds_or_unbinds_a_role_and_never_a_required_one() {
-    let store = founded();
-    let bind = Motion::Bind {
-        role: abi::role::EGRESS.into(),
-        program: Some("egress-b".into()),
-    };
-    pass(&store, &[1, 2], bind);
-    let unbind = Motion::Bind {
-        role: abi::role::EGRESS.into(),
-        program: None,
-    };
-    pass(&store, &[1, 2], unbind);
-    assert_eq!(
-        store.take_binds(),
-        [
-            (abi::role::EGRESS.to_owned(), Some("egress-b".into())),
-            (abi::role::EGRESS.to_owned(), None),
-        ]
-    );
-    for role in abi::role::REQUIRED {
-        let rebind = Motion::Bind {
-            role: role.to_string(),
-            program: Some("other".into()),
-        };
-        assert_eq!(refused(&store, 1, Op::Vote(rebind)), code::INVALID_INPUT);
-    }
-    assert!(motions(&store, 3).1.is_empty());
-}
-
-#[test]
 fn a_member_registers_a_halo_address_other_members_dial_and_moves_it_alone() {
     let store = founded();
     for unregistrable in [
@@ -585,9 +555,7 @@ fn role_asks_the_program_bound_to_the_validators_role() {
     let store = founded();
     store.sibling::<Valset>("third-party-valset", &store);
     let mut bound = env(Origin::Root);
-    bound
-        .roles
-        .bind(abi::role::VALIDATORS, "third-party-valset");
+    bound.roles = MockHost::roles_with(abi::role::VALIDATORS, "third-party-valset");
     assert_eq!(
         crate::role(&store.query(bound), &key(1)).unwrap(),
         Some(Role::Validator)
@@ -954,18 +922,8 @@ fn a_halo_vote_is_described_in_the_halos_words() {
 }
 
 #[test]
-fn a_bind_and_another_roles_op_are_described_by_the_role_name() {
+fn another_roles_op_is_described_by_the_role_name() {
     let title = |motion: Motion| crate::describe(&Op::Vote(motion)).title;
-    let bind = Motion::Bind {
-        role: abi::role::EGRESS.into(),
-        program: Some("egress".into()),
-    };
-    assert_eq!(title(bind), "Vote · bind egress to egress");
-    let unbind = Motion::Bind {
-        role: abi::role::SCHEDULER.into(),
-        program: None,
-    };
-    assert_eq!(title(unbind), "Vote · unbind scheduler");
     let other = Motion::Role {
         role: abi::role::EGRESS.into(),
         op: vec![1],

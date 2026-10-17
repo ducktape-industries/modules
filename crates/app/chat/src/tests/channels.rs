@@ -164,11 +164,10 @@ fn neither_dm_peer_reshapes_the_room() {
 }
 
 #[test]
-fn only_the_owner_renames() {
+fn a_rename_takes_a_name_and_a_channel_that_exists() {
     let mut chat = Chat::with_channel(PostPolicy::Open);
     chat.ok(&ADA, rename("General chat"));
     assert_eq!(chat.channel().name, "General chat");
-    assert_eq!(chat.refused(&BO, rename("mine")), code::UNAUTHORIZED);
     assert_eq!(chat.refused(&ADA, rename("")), code::INVALID_INPUT);
     let nowhere = Op::RenameChannel {
         channel_id: "nowhere".into(),
@@ -181,7 +180,6 @@ fn only_the_owner_renames() {
 fn an_archived_channel_takes_no_writes_until_unarchived() {
     let mut chat = Chat::with_channel(PostPolicy::Open);
     chat.post(&BO, "m1", "hello", None);
-    assert_eq!(chat.refused(&BO, archive(true)), code::UNAUTHORIZED);
     chat.ok(&ADA, archive(true));
     for op in [
         post("general", "m2", "late", None),
@@ -195,7 +193,7 @@ fn an_archived_channel_takes_no_writes_until_unarchived() {
 }
 
 #[test]
-fn the_owner_seats_and_unseats_members() {
+fn members_are_seated_and_unseated() {
     let mut chat = Chat::with_channel(PostPolicy::MembersOnly);
     assert_eq!(
         chat.refused(&BO, post("general", "m1", "hi", None)),
@@ -210,7 +208,6 @@ fn the_owner_seats_and_unseats_members() {
         panic!("members answer members");
     };
     assert_eq!(members.items[0].principal, BO);
-    assert_eq!(chat.refused(&BO, membership(CY, true)), code::UNAUTHORIZED);
     chat.ok(&ADA, membership(BO, false));
     assert!(!is_member(&chat, "general", BO));
     assert_eq!(

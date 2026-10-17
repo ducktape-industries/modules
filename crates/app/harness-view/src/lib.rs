@@ -123,6 +123,7 @@ impl View for Agents {
         identity::PROGRAM,
         egress::PROGRAM,
         files::PROGRAM,
+        access::PROGRAM,
     ];
     const MIN_WINDOW_WIDTH: u32 = 480;
 
@@ -172,6 +173,11 @@ impl View for Agents {
         cx.follow::<Changes<files::Files>>((), |view, change, cx| match change {
             Ok(_) => view.refresh(cx),
             Err(refusal) => cx.log_refused("files's live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<Changes<access::Access>>((), |view, change, cx| match change {
+            Ok(_) => view.refresh(cx),
+            Err(refusal) => cx.log_refused("access's live heads", &refusal),
         })
         .detach();
         self.refresh(cx);

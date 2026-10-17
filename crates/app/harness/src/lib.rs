@@ -10,6 +10,8 @@ mod calls;
 mod codec;
 pub mod config;
 mod conversations;
+mod gate;
+mod migrate;
 mod models;
 mod program;
 mod queries;
@@ -31,6 +33,8 @@ pub use program::Harness;
 pub use store::{PageRequest, PageResponse};
 
 use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
+
+pub use gate::{agent_key, model_key, thread_key};
 
 pub const PROGRAM: &str = "harness";
 pub const PART: &str = "part";
@@ -60,6 +64,7 @@ pub enum Op {
     ForkThread {
         agent: AccountNumber,
     },
+    Migrate,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
@@ -527,6 +532,7 @@ pub fn describe(op: &Op) -> describe::Description {
             format!("Event {} of thread {thread}'s model reply", event.seq),
             vec![field("data", Value::count(event.data.len() as u64))],
         ),
+        Op::Migrate => ("Migrate · whom agents answer".to_owned(), Vec::new()),
     };
     describe::Description { title, fields }
 }
@@ -544,7 +550,8 @@ fn op_variants_only_append() {
             "RemoveModel",
             "Streamed",
             "NewThread",
-            "ForkThread"
+            "ForkThread",
+            "Migrate"
         ]
     );
 }

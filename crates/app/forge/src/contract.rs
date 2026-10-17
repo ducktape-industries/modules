@@ -2,7 +2,7 @@
 use ::program::{BlobId, HashKind};
 use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
-use crate::state::{ACTIVITY, AUTHORED, CHANGES, INVOLVED, REFS, REPOS, REVIEWS, WRITERS};
+use crate::state::{ACTIVITY, AUTHORED, CHANGES, INVOLVED, REFS, REPOS, REVIEWS};
 
 pub use crate::read_contract::*;
 pub use crate::review_contract::*;
@@ -68,8 +68,6 @@ pub enum Op {
         repo: String,
         settings: Settings,
     },
-    /// Lets a person push, merge and close: an account, through any of its
-    /// keys.
     Grant {
         repo: String,
         principal: Principal,
@@ -121,12 +119,12 @@ pub enum Op {
         repo: String,
         pack: BlobId,
     },
+    Migrate,
 }
 
 impl Op {
-    /// The repository every op acts on.
-    pub fn repo(&self) -> &str {
-        match self {
+    pub fn repo(&self) -> Option<&str> {
+        let repo = match self {
             Op::Create { repo, .. }
             | Op::Configure { repo, .. }
             | Op::Grant { repo, .. }
@@ -138,8 +136,18 @@ impl Op {
             | Op::ChangeClose { repo, .. }
             | Op::ReviewSubmit { repo, .. }
             | Op::Stage { repo, .. } => repo,
-        }
+            Op::Migrate => return None,
+        };
+        Some(repo)
     }
+}
+
+pub fn repo_key(repo: &str) -> String {
+    repo.to_owned()
+}
+
+pub fn settings_key(repo: &str) -> String {
+    format!("{repo}/settings")
 }
 
 #[derive(
@@ -185,12 +193,9 @@ pub enum Query {
     Repos {
         page: PageRequest,
     },
-    /// Settings plus a page of granted writers; the owner is on the repo
-    /// record.
-    #[reads(REPOS, WRITERS)]
+    #[reads(REPOS)]
     Repo {
         repo: String,
-        page: PageRequest,
     },
     #[reads(REFS)]
     Refs {
@@ -291,7 +296,6 @@ impl Query {
     pub fn page(&self) -> Option<&PageRequest> {
         match self {
             Query::Repos { page }
-            | Query::Repo { page, .. }
             | Query::Refs { page, .. }
             | Query::Log { page, .. }
             | Query::Tree { page, .. }
@@ -301,6 +305,7 @@ impl Query {
             | Query::Judgment { page, .. } => Some(page),
             Query::Advertise { .. }
             | Query::Upload { .. }
+            | Query::Repo { .. }
             | Query::Blob { .. }
             | Query::Compare { .. }
             | Query::Activity { .. }
@@ -312,7 +317,6 @@ impl Query {
     pub fn page_mut(&mut self) -> Option<&mut PageRequest> {
         match self {
             Query::Repos { page }
-            | Query::Repo { page, .. }
             | Query::Refs { page, .. }
             | Query::Log { page, .. }
             | Query::Tree { page, .. }
@@ -322,6 +326,7 @@ impl Query {
             | Query::Judgment { page, .. } => Some(page),
             Query::Advertise { .. }
             | Query::Upload { .. }
+            | Query::Repo { .. }
             | Query::Blob { .. }
             | Query::Compare { .. }
             | Query::Activity { .. }
@@ -354,7 +359,6 @@ pub enum Reply {
         height: u64,
         repo: RepoInfo,
         bounds: Bounds,
-        writers: PageResponse<Principal>,
     },
     Refs {
         height: u64,

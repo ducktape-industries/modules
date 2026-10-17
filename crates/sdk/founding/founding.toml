@@ -4,16 +4,6 @@ epoch_length = 64
 block_time_ms = 1000
 hooks = ["activity"]
 
-[roles]
-programs = "programs"
-validators = "valset"
-identity = "identity"
-blobs = "blobs"
-awaits = "awaits"
-halo = "halo"
-egress = "egress"
-scheduler = "scheduler"
-
 [[validators]]
 key = "KEY"                   # this node's key: `ducktape identity`
 address = "ADDRESS"           # where peers dial it: tcp://, tls://, ws:// or wss://; drop the line if none can
@@ -22,31 +12,43 @@ halo = "HALO"                 # host:port other members dial it at over QUIC; th
 [[programs]]
 id = "programs"
 code = "programs.wasm"
+roles = ["programs"]
 
 [[programs]]
 id = "valset"
 code = "valset.wasm"
+roles = ["validators"]
 
 [[programs]]
 id = "identity"
 code = "identity.wasm"
+roles = ["identity"]
 
 [[programs]]
 id = "blobs"
 code = "blobs.wasm"
+roles = ["blobs"]
 
 [[programs]]
 id = "awaits"
 code = "awaits.wasm"
+roles = ["awaits"]
 
 [[programs]]
 id = "halo"
 code = "halo.wasm"
+roles = ["halo"]
 params = "halo.params"
 
 [[programs]]
 id = "scheduler"
 code = "scheduler.wasm"
+roles = ["scheduler"]
+
+[[programs]]
+id = "access"
+code = "access.wasm"
+roles = ["access"]
 
 [[programs]]
 id = "chat"
@@ -68,6 +70,7 @@ code = "files.wasm"
 [[programs]]
 id = "egress"
 code = "egress.wasm"
+roles = ["egress"]
 
 [[programs]]
 id = "attribution"

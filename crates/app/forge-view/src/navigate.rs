@@ -151,7 +151,7 @@ impl Forge {
             let head = self.default_head();
             let (allow_force, allow_delete) = self
                 .repo()
-                .map(|(info, _, _)| {
+                .map(|(info, _)| {
                     (
                         info.repo.settings.allow_force,
                         info.repo.settings.allow_delete,

@@ -4,9 +4,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use files::{
-    BlobId, DiffEntry, EntryInfo, Node, Party, PathOwnership, PinRow, SnapshotRow, Writers,
-};
+use abi::role::access::Writers;
+use files::{BlobId, DiffEntry, EntryInfo, Node, Party, PinRow, SnapshotRow};
 use serde::{Deserialize, Serialize};
 use view::borsh_bytes;
 use view::design::Pages;
@@ -201,12 +200,7 @@ impl Reader {
         let Some(account) = self.account else {
             return false;
         };
-        match writers {
-            Writers::Listed { creator, write, .. } => {
-                write.allows(*creator, &[Party::Account(account)])
-            }
-            Writers::Anyone => true,
-        }
+        writers.allows(&[Party::Account(account)])
     }
 }
 
@@ -224,14 +218,12 @@ pub struct Folder {
     pub entries: Vec<EntryInfo>,
     /// who writes the folder itself; `None` for `/`, which no change names
     #[serde(with = "borsh_bytes")]
-    pub ownership: Option<PathOwnership>,
+    pub writers: Option<Writers>,
 }
 
 impl Folder {
     pub fn children(&self) -> Writers {
-        self.ownership
-            .as_ref()
-            .map_or(Writers::Anyone, |own| own.writers.clone())
+        self.writers.clone().unwrap_or(Writers::Anyone)
     }
 
     pub fn holds_namespace_roots(&self) -> bool {
@@ -271,7 +263,7 @@ pub struct Opened {
     pub picture: Option<Arc<Image>>,
     /// who writes it
     #[serde(with = "borsh_bytes")]
-    pub ownership: Option<PathOwnership>,
+    pub writers: Option<Writers>,
 }
 
 impl Opened {

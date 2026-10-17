@@ -7,8 +7,7 @@ use abi::role::identity::{Kind, Profile};
 
 use crate::*;
 
-mod homes;
-mod ownership;
+mod lists;
 
 fn profile(number: u64, name: &str) -> Profile {
     Profile {
@@ -623,7 +622,7 @@ fn a_diff_names_what_was_added_removed_and_modified_under_a_prefix() {
 }
 
 #[test]
-fn a_pin_names_a_minted_snapshot_and_only_its_owner_removes_it() {
+fn a_pin_names_a_minted_snapshot_and_its_unpin_needs_its_key() {
     let host = host();
     let id = commit(&host, ada(), None, vec![put(&host, "/shared/x", "x")]).unwrap();
     Files::execute(
@@ -654,10 +653,13 @@ fn a_pin_names_a_minted_snapshot_and_only_its_owner_removes_it() {
         panic!()
     };
     assert_eq!((pin.snapshot, pin.owner), (id, Principal::Account(1)));
-    let by_bo = Op::Unpin {
+    let unpin = Op::Unpin {
         name: "release".into(),
     };
-    assert_eq!(refused(&host, bo(), by_bo).code, code::UNAUTHORIZED);
+    assert_eq!(
+        Files::access(&host.query(bo()), &unpin).unwrap(),
+        [::program::Need::delete(crate::gate::pin_key("release"))]
+    );
     Files::execute(
         &host.exec(ada()),
         Op::Unpin {

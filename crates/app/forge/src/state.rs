@@ -22,8 +22,6 @@ pub const WRITES: Item<u64> = Item::new("writes");
 pub const REPOS: Map<String, Repo> = Map::new("p/");
 /// Index: every repository by its last activity, newest first.
 pub const ACTIVITY: Set<(u64, String)> = Set::new("a/");
-/// The principals the owner granted writes to, by repository.
-pub const WRITERS: Set<(String, Principal)> = Set::new("w/");
 /// Each repository's refs and the oid bytes each points at.
 pub const REFS: Map<(String, Vec<u8>), Vec<u8>> = Map::new("r/");
 /// The last change number each repository gave out.
@@ -97,10 +95,6 @@ fn newest_first(height: u64) -> u64 {
 
 pub fn repo_hash(repo: &Repo) -> Hash {
     hash_of(repo.hash)
-}
-
-pub fn is_writer(ctx: &QueryCtx, name: &str, principal: &Principal) -> bool {
-    WRITERS.has(ctx, &(name.to_owned(), principal.clone()))
 }
 
 pub fn ref_key(name: &str, reference: &[u8]) -> (String, Vec<u8>) {

@@ -439,7 +439,7 @@ fn a_refused_answer_says_why_in_the_sheet() {
     let (mut cx, answers) = answering(identity::Ownership::Owner);
     on_phone(&mut cx);
     cx.host()
-        .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
+        .refuse::<Submit<Access>>("unauthorized", "account 7 does not manage account 12");
     cx.simulate_click("settings/agents/12");
     cx.simulate_click("settings/agents/12/answers/open");
     cx.simulate_click("settings/agents/12/answers/anyone");
@@ -604,7 +604,7 @@ fn a_refused_choice_has_its_own_line() {
     let (mut cx, _) = answering(listed(&[8]));
     on_phone(&mut cx);
     cx.host()
-        .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
+        .refuse::<Submit<Access>>("unauthorized", "account 7 does not manage account 12");
     cx.simulate_click("settings/agents/12");
     cx.simulate_click("settings/agents/12/answers/open");
     cx.simulate_click("settings/agents/12/answers/anyone");
@@ -657,7 +657,12 @@ fn a_remove_waits_for_a_choice_that_is_out() {
             .is_none()
     );
     cx.run_until_parked();
-    assert_eq!(sent(&cx).len(), 1, "a Remove went out: {:?}", sent(&cx));
+    assert_eq!(
+        answers_sent(&cx).len(),
+        1,
+        "a Remove went out: {:?}",
+        answers_sent(&cx)
+    );
     assert_eq!(*answers.borrow(), identity::Ownership::Anyone);
 }
 

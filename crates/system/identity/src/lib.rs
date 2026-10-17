@@ -1,9 +1,9 @@
 //! The `identity` program: accounts, and who acts as each. Everything that
 //! acts is an account: a user (the keys they hold), a program account (the
 //! keys its manager, a user, adds, and the script that runs its actions) and
-//! a system account (the one the kernel registers as it admits a program). An agent's
-//! manager also sets whom it answers, an [`Ownership`] whose `Owner` is the manager and whose
-//! list names accounts and programs. The types, rules and [`Identity`] program are
+//! a system account (the one the kernel registers as it admits a program). Who edits an
+//! account is its key's list in the access program, owned by the user, the program account's
+//! manager or the system account itself. The types, rules and [`Identity`] program are
 //! always built; a view links them with `program` off (`view.rs` is what a
 //! view shows of an account). The `program` feature adds its wasm exports.
 //!
@@ -11,6 +11,7 @@
 //! op, queries and replies are the first variants of [`Op`], [`Query`] and
 //! [`Reply`]. Who may do what, op by op: `docs/roles.md` at the repository
 //! root.
+mod migrate;
 mod program;
 mod rules;
 #[cfg(test)]
@@ -20,6 +21,7 @@ pub mod view;
 pub use ::program::{AccountNumber, Ownership, Party};
 pub use abi::role::identity::{Category, Kind, Profile, Script, Standing};
 pub use program::Identity;
+pub use rules::account_key;
 
 use ::program::{BlobId, ProgramId, Scheme};
 use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
@@ -221,6 +223,7 @@ pub enum Op {
         account: AccountNumber,
         script: Option<Script>,
     },
+    Migrate,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
@@ -400,6 +403,7 @@ pub fn describe(op: &Op) -> describe::Description {
                 None => vec![account(number), field("script", Value::text("—"))],
             },
         ),
+        Op::Migrate => ("Migrate · who agents answer".into(), vec![]),
     };
     describe::Description { title, fields }
 }
@@ -425,6 +429,7 @@ fn op_variants_only_append() {
             "Revoke",
             "SetOwnership",
             "SetScript",
+            "Migrate",
         ]
     );
 }

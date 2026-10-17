@@ -81,7 +81,12 @@ impl View for Forge {
         Capability::Link,
         Capability::Clipboard,
     ];
-    const TARGETS: &'static [&'static str] = &[forge::PROGRAM, chat::PROGRAM, identity::PROGRAM];
+    const TARGETS: &'static [&'static str] = &[
+        forge::PROGRAM,
+        chat::PROGRAM,
+        identity::PROGRAM,
+        access::PROGRAM,
+    ];
     // at 560 the repository tab bar's About toggle is past the right edge
     const MIN_WINDOW_WIDTH: u32 = 640;
 
@@ -124,6 +129,11 @@ impl View for Forge {
         cx.follow::<Changes<Identity>>((), |forge, change, cx| match change {
             Ok(_) => forge.reread_names(cx),
             Err(refusal) => cx.log_refused("identity's live heads", &refusal),
+        })
+        .detach();
+        cx.follow::<Changes<access::Access>>((), |forge, change, cx| match change {
+            Ok(_) => forge.reread_writers(cx),
+            Err(refusal) => cx.log_refused("access's live heads", &refusal),
         })
         .detach();
         cx.follow::<HostVisible>((), |forge, shown, cx| match shown {

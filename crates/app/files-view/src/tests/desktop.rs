@@ -196,15 +196,9 @@ fn a_new_text_file_picked_only_mine_is_committed_with_its_list() {
     assert!(!cx.has_text(words::AS_ITS_FOLDER_NOTE));
     commit_form(&mut cx);
     assert!(cx.find("files/write").is_none(), "the form closes");
-    let asked = files::Query::Ownership {
-        path: "/shared/mine.txt".into(),
-        at: None,
-    };
-    let Ok(files::Reply::Ownership(owned)) = net.query(files::PROGRAM, &asked) else {
-        panic!("files answers a path's ownership")
-    };
-    assert_eq!(owned.write, Some(files::Ownership::Owner));
-    assert_eq!(owned.creator, Some(net.me()));
+    let (list, owner) = list_at(&net, "/shared/mine.txt");
+    assert_eq!(list, Some(files::Ownership::Owner));
+    assert_eq!(owner, Some(files::Party::Account(net.me())));
 }
 
 #[test]
@@ -222,15 +216,9 @@ fn a_new_folder_listed_for_accounts_and_programs_is_made_with_its_list() {
     cx.simulate_input("files/write/listed", &format!("{ada}, files"));
     commit_form(&mut cx);
     assert!(cx.find("files/write").is_none(), "the form closes");
-    let asked = files::Query::Ownership {
-        path: "/home/dev/team".into(),
-        at: None,
-    };
-    let Ok(files::Reply::Ownership(owned)) = net.query(files::PROGRAM, &asked) else {
-        panic!("files answers a path's ownership")
-    };
+    let (list, _) = list_at(&net, "/home/dev/team");
     assert_eq!(
-        owned.write,
+        list,
         Some(files::Ownership::Listed(vec![
             files::Party::Account(ada),
             files::Party::Program(files::PROGRAM.into()),
@@ -823,7 +811,7 @@ fn carries_bytes(op: &files::Op) -> bool {
                 }
             )
         }),
-        files::Op::Pin { .. } | files::Op::Unpin { .. } => false,
+        files::Op::Pin { .. } | files::Op::Unpin { .. } | files::Op::Migrate => false,
     }
 }
 

@@ -79,6 +79,25 @@ fn entry(program: &str, code: BlobId) -> Entry {
     }
 }
 
+fn genesis(programs: Vec<Entry>, views: Vec<View>, hooks: Vec<String>) -> Genesis {
+    let roles = MockHost::roles();
+    let seats: std::collections::BTreeSet<String> =
+        roles.iter().map(|(_, program)| program.clone()).collect();
+    let seats = seats
+        .into_iter()
+        .map(|program| entry(&program, BlobId::Sha256([3; 32])));
+    Genesis {
+        programs: programs.into_iter().chain(seats).collect(),
+        views,
+        hooks,
+        roles,
+    }
+}
+
+fn seat(program: &str) -> bool {
+    crate::role_bound(&MockHost::roles(), program)
+}
+
 fn founded() -> (MockHost, BlobId) {
     let (store, blobs) = founded_with_blobs();
     (store, held(&blobs, CODE_KIND, b"wasm"))
@@ -88,14 +107,14 @@ fn founded_with_blobs() -> (MockHost, MockHost) {
     let store = MockHost::default();
     crate::rules::init(
         &store.exec(env(0, Origin::Root)),
-        Genesis {
-            programs: vec![entry("boot", BlobId::Sha256([1; 32]))],
-            views: vec![View {
+        genesis(
+            vec![entry("boot", BlobId::Sha256([1; 32]))],
+            vec![View {
                 name: "lens".into(),
                 view: BlobId::Sha256([2; 32]),
             }],
-            hooks: vec!["boot".into()],
-        },
+            vec!["boot".into()],
+        ),
     );
     let blobs = blobs_role(&store);
     fold_to(&store, 1);
@@ -104,7 +123,11 @@ fn founded_with_blobs() -> (MockHost, MockHost) {
 
 fn programs(store: &MockHost, height: u64) -> Vec<String> {
     match Programs::query(&store.query(env(height, Origin::Root)), Query::At(height)).unwrap() {
-        Reply::Programs(entries) => entries.into_iter().map(|e| e.program).collect(),
+        Reply::Programs(entries) => entries
+            .into_iter()
+            .map(|e| e.program)
+            .filter(|program| !seat(program))
+            .collect(),
         other => panic!("{other:?}"),
     }
 }
@@ -213,7 +236,11 @@ fn roster(store: &MockHost, height: u64) -> (u64, Vec<String>, Vec<String>) {
             views,
         } => (
             height,
-            programs.into_iter().map(|e| e.program).collect(),
+            programs
+                .into_iter()
+                .map(|e| e.program)
+                .filter(|program| !seat(program))
+                .collect(),
             views.into_iter().map(|v| v.name).collect(),
         ),
         other => panic!("{other:?}"),
@@ -454,28 +481,109 @@ fn scheduled_heights(store: &MockHost) -> Vec<u64> {
     }
 }
 
+fn roles(store: &MockHost, height: u64) -> ::program::Roles {
+    match Programs::query(&store.query(env(height, Origin::Root)), Query::Roles).unwrap() {
+        Reply::Roles(roles) => roles,
+        other => panic!("{other:?}"),
+    }
+}
+
+fn publish(program: &str, code: BlobId, roles: &[&str]) -> Change {
+    Change::Publish {
+        entry: entry(program, code),
+        roles: roles.iter().map(|role| (*role).to_owned()).collect(),
+    }
+}
+
 #[test]
-fn the_roles_are_answered_as_the_kernel_binds_them() {
-    let (store, _) = founded();
-    // not the suite's defaults: the answer is the env's, never a name assumed
-    let roles = ::program::Roles::from_iter([
-        (abi::role::PROGRAMS, "programs-b"),
-        (abi::role::VALIDATORS, "validators-b"),
-        (abi::role::IDENTITY, "identity-b"),
-        (abi::role::BLOBS, "blobs-b"),
-        (abi::role::AWAITS, "awaits-b"),
-        (abi::role::EGRESS, "egress-b"),
-        (abi::role::HALO, "halo-b"),
-        ("later", "later-b"),
-    ]);
-    let asked = Env {
-        roles: roles.clone(),
-        ..env(1, Origin::Root)
-    };
+fn the_roles_are_the_table_genesis_fills_and_the_votes_publishes_change() {
+    let (store, code) = founded();
+    assert_eq!(roles(&store, 1), MockHost::roles());
+    let egress = MockHost::role(abi::role::EGRESS);
+    schedule(
+        &store,
+        5,
+        publish("egress-b", code, &[abi::role::EGRESS, "later"]),
+    )
+    .unwrap();
+    let moved = roles(&store, 5);
+    assert_eq!(moved.get(abi::role::EGRESS), Some(&"egress-b".to_owned()));
+    assert_eq!(moved.get("later"), Some(&"egress-b".to_owned()));
+    assert_eq!(roles(&store, 4).get(abi::role::EGRESS), Some(&egress));
+    schedule(&store, 6, publish("egress-b", code, &["later"])).unwrap();
+    assert_eq!(roles(&store, 6).get(abi::role::EGRESS), None);
+    schedule(&store, 7, Change::Remove("egress-b".into())).unwrap();
+    fold_to(&store, 7);
+    assert_eq!(roles(&store, 7).get("later"), None);
+    assert_eq!(programs(&store, 7), ["boot"]);
+}
+
+#[test]
+fn no_change_leaves_a_required_role_unfilled_or_naming_a_program_that_does_not_run() {
+    let (store, code) = founded();
+    let identity = MockHost::role(abi::role::IDENTITY);
+    for (what, change) in [
+        (
+            "its program published with no role",
+            publish(&identity, code, &[]),
+        ),
+        ("its program removed", Change::Remove(identity.clone())),
+    ] {
+        let refused = schedule(&store, 5, change).unwrap_err();
+        assert_eq!(refused.code, code::INVALID_INPUT, "{what}");
+    }
+    for (what, roles) in [
+        (
+            "a role named twice",
+            vec![abi::role::EGRESS, abi::role::EGRESS],
+        ),
+        ("no role name", vec!["Not A Role"]),
+    ] {
+        let refused = schedule(&store, 5, publish("new", code, &roles)).unwrap_err();
+        assert_eq!(refused.code, code::INVALID_INPUT, "{what}");
+    }
+    schedule(
+        &store,
+        5,
+        publish("identity-b", code, &[abi::role::IDENTITY]),
+    )
+    .unwrap();
+    schedule(&store, 6, Change::Remove(identity)).unwrap();
     assert_eq!(
-        Programs::query(&store.query(asked), Query::Roles).unwrap(),
-        Reply::Roles(roles)
+        roles(&store, 6).get(abi::role::IDENTITY),
+        Some(&"identity-b".to_owned())
     );
+}
+
+#[test]
+fn the_votes_migrate_copies_the_kernels_table_and_nothing_else_runs_it() {
+    let store = MockHost::default();
+    crate::rules::init(
+        &store.exec(env(0, Origin::Root)),
+        Genesis {
+            programs: vec![entry("boot", BlobId::Sha256([1; 32]))],
+            views: vec![],
+            hooks: vec![],
+            roles: ::program::Roles::default(),
+        },
+    );
+    fold_to(&store, 1);
+    assert_eq!(roles(&store, 1), ::program::Roles::default());
+    for origin in [Origin::Root, Origin::Signed(vec![9])] {
+        let refused =
+            store.refused(|| Programs::execute(&store.exec(env(1, origin.clone())), Op::Migrate));
+        assert_eq!(refused.code, code::UNAUTHORIZED);
+    }
+    let unfilled = Env {
+        roles: ::program::Roles::from_iter([(abi::role::VALIDATORS, "valset")]),
+        ..authority(1)
+    };
+    let refused = store.refused(|| Programs::execute(&store.exec(unfilled), Op::Migrate));
+    assert_eq!(refused.code, code::INVALID_INPUT);
+    for _ in 0..2 {
+        Programs::execute(&store.exec(authority(1)), Op::Migrate).unwrap();
+    }
+    assert_eq!(roles(&store, 1), MockHost::roles());
 }
 
 #[test]
@@ -506,11 +614,7 @@ fn an_id_lands_only_in_its_one_spelling() {
     let store = MockHost::default();
     crate::rules::init(
         &store.exec(env(0, Origin::Root)),
-        Genesis {
-            programs: vec![entry("System", code)],
-            views: vec![],
-            hooks: vec![],
-        },
+        genesis(vec![entry("System", code)], vec![], vec![]),
     );
     schedule(&store, 5, Change::Remove("System".into())).unwrap();
 }

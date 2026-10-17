@@ -5,6 +5,7 @@ use view::prelude::*;
 use crate::queries::Found;
 use crate::state::{Answering, Choice, Form, Problem, Section, Sheet, TTL};
 use crate::{Settings, queries};
+use access::Access;
 use identity::{Identity, Ownership, Party};
 
 impl Settings {
@@ -321,14 +322,20 @@ impl Settings {
         // the last change's problem goes with the next
         answering.pick.problem = None;
         answering.form.problem = None;
-        let op = identity::Op::SetOwnership {
-            account: number,
-            ownership,
+        let list = match ownership {
+            Ownership::Owner => None,
+            Ownership::Listed(_) | Ownership::Anyone => Some(ownership),
         };
-        self.submit_agent_op(
-            op,
+        let op = access::Op::Set {
+            program: harness::PROGRAM.into(),
+            key: harness::agent_key(number),
+            list,
+        };
+        self.land_agent_op(
+            move |host| host.ask::<Submit<Access>>(op),
             move |v| which(v.answering.entry(number).or_default()),
             from,
+            Some(number),
             cx,
         );
     }
@@ -385,6 +392,25 @@ impl Settings {
         from: Option<Sheet>,
         cx: &mut Context<Self>,
     ) {
+        self.land_agent_op(
+            move |host| host.ask::<Submit<Identity>>(op),
+            form,
+            from,
+            None,
+            cx,
+        );
+    }
+
+    fn land_agent_op<Asked>(
+        &mut self,
+        submit: impl FnOnce(&Host) -> Asked,
+        form: impl Fn(&mut Settings) -> &mut Form + 'static,
+        from: Option<Sheet>,
+        answered: Option<u64>,
+        cx: &mut Context<Self>,
+    ) where
+        Asked: Future<Output = Result<Submitted, view::host::Error>> + 'static,
+    {
         if form(self).busy {
             return;
         }
@@ -392,13 +418,7 @@ impl Settings {
         pending.busy = true;
         pending.problem = None;
         cx.notify();
-        // whom an agent answers: a change that lands takes the person typed
-        // for it (dev's one form; Expo unmounts the field)
-        let answered = match &op {
-            identity::Op::SetOwnership { account, .. } => Some(*account),
-            _ => None,
-        };
-        let ask = cx.host().ask::<Submit<Identity>>(op);
+        let ask = submit(&cx.host());
         cx.land(ask, move |view, result, cx| {
             let problem = design::failure(&result);
             let landed = problem.is_none();

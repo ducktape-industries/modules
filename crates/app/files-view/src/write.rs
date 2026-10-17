@@ -229,6 +229,7 @@ struct Sent {
     form: u64,
     changes: Vec<Change>,
     message: String,
+    list: Option<access::Op>,
 }
 
 impl Files {
@@ -255,8 +256,8 @@ impl Files {
                         folder: path.clone(),
                     });
                 }
-                let own = folder.ownership.as_ref();
-                let moves = own.is_some_and(|own| self.reader.writes(&own.writers));
+                let own = folder.writers.as_ref();
+                let moves = own.is_some_and(|own| self.reader.writes(own));
                 if moves && !is_namespace_root(path) {
                     offered.push(Write::Rename { path: path.clone() });
                     offered.push(Write::Remove {
@@ -269,10 +270,10 @@ impl Files {
                 let Some(file) = self.file_at(path) else {
                     return offered;
                 };
-                let (Some(entry), Some(own)) = (file.file(), &file.ownership) else {
+                let (Some(entry), Some(own)) = (file.file(), &file.writers) else {
                     return offered;
                 };
-                let writes = self.reader.writes(&own.writers);
+                let writes = self.reader.writes(own);
                 if !writes || is_namespace_root(path) {
                     return offered;
                 }
@@ -390,7 +391,7 @@ impl Files {
         if form.write.takes_text() {
             form.contents.clear();
         }
-        if let Err(problem) = built(form) {
+        if let Err(problem) = built(form).and_then(|_| write_list(form)) {
             form.problem = Some(problem);
             cx.notify();
             return;
@@ -422,8 +423,10 @@ impl Files {
             cx.notify();
             return;
         }
-        let (message, changes) = match built(form) {
-            Ok(built) => built,
+        let made =
+            built(form).and_then(|(message, changes)| Ok((message, changes, write_list(form)?)));
+        let (message, changes, list) = match made {
+            Ok(made) => made,
             Err(problem) => {
                 form.sending = false;
                 form.problem = Some(problem);
@@ -440,6 +443,7 @@ impl Files {
             form: form.id,
             changes,
             message,
+            list,
         };
         let ask = cx.host().ask::<Submit<files::Files>>(op);
         cx.land(ask, move |view, answer, cx| view.landed(sent, answer, cx))
@@ -502,12 +506,29 @@ impl Files {
                 sent.changes.iter().for_each(|change| self.follow(change));
                 self.note = Some(Note::Committed(sent.message));
                 self.read_all(cx);
+                if let Some(op) = sent.list {
+                    self.set_list(op, cx);
+                }
             }
             (Some(problem), Some(form)) => {
                 form.sending = false;
                 form.refused = Some(problem);
             }
             (Some(problem), None) => self.note = Some(Note::Refused(problem)),
+        }
+        cx.notify();
+    }
+
+    fn set_list(&mut self, op: access::Op, cx: &mut Context<Self>) {
+        let ask = cx.host().ask::<Submit<access::Access>>(op);
+        cx.land(ask, |view, answer, cx| view.list_set(answer, cx))
+            .detach();
+    }
+
+    fn list_set(&mut self, answer: Result<Submitted, Error>, cx: &mut Context<Self>) {
+        match design::failure(&answer) {
+            None => self.read_all(cx),
+            Some(problem) => self.note = Some(Note::Refused(problem)),
         }
         cx.notify();
     }
@@ -571,16 +592,17 @@ pub(crate) fn built(form: &Form) -> Result<(String, Vec<Change>), String> {
         }
         Write::Remove { path, .. } => Change::Remove { path: path.clone() },
     };
-    let said = message(form, words::message(&change));
-    let listed = match (form.write.takes_list(), &change) {
-        (true, Change::Mkdir { path } | Change::Put { path, .. }) => list(form, path)?,
-        _ => None,
-    };
-    Ok((said, std::iter::once(change).chain(listed).collect()))
+    Ok((message(form, words::message(&change)), vec![change]))
 }
 
-fn list(form: &Form, path: &str) -> Result<Option<Change>, String> {
-    let write = match form.list {
+pub(crate) fn write_list(form: &Form) -> Result<Option<access::Op>, String> {
+    let folder = match &form.write {
+        Write::NewFolder { folder } | Write::NewFile { folder } => folder,
+        Write::Upload { .. } | Write::Edit { .. } | Write::Rename { .. } | Write::Remove { .. } => {
+            return Ok(None);
+        }
+    };
+    let list = match form.list {
         ListChoice::AsItsFolder => return Ok(None),
         ListChoice::OnlyMe => Ownership::Owner,
         ListChoice::Anyone => Ownership::Anyone,
@@ -592,9 +614,10 @@ fn list(form: &Form, path: &str) -> Result<Option<Change>, String> {
             Ownership::Listed(parties)
         }
     };
-    Ok(Some(Change::SetOwnership {
-        path: path.to_owned(),
-        write: Some(write),
+    Ok(Some(access::Op::Set {
+        program: files::PROGRAM.into(),
+        key: path_in(folder, &form.name.text())?,
+        list: Some(list),
     }))
 }
 

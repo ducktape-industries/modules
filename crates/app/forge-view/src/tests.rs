@@ -13,7 +13,7 @@ use view::methods::{Query as ProgramQuery, Submit};
 use view::testing::{StreamSender, TestAppContext};
 use view::{Entity, Theme, wire};
 
-use identity::Identity;
+use identity::{Identity, Ownership, Party};
 use view::methods::{Change, Changes};
 
 #[path = "../../forge/fixtures/loader.rs"]
@@ -284,6 +284,39 @@ fn chat_answer(query: chat::Query) -> chat::Reply {
     }
 }
 
+fn access_answer(query: access::Query) -> access::Reply {
+    match query {
+        access::Query::List { program, key }
+            if program == forge::PROGRAM && key == forge::repo_key("project") =>
+        {
+            access::Reply::List(Some(Ownership::Listed(vec![Party::Account(9)])))
+        }
+        access::Query::List { .. } => access::Reply::List(None),
+        other => panic!("unexpected access query: {other:?}"),
+    }
+}
+
+pub(crate) fn set_lists(cx: &TestAppContext) -> Vec<Option<Ownership>> {
+    cx.host()
+        .requests::<Submit<access::Access>>()
+        .into_iter()
+        .filter_map(|op| match op {
+            access::Op::Set { program, key, list }
+                if program == forge::PROGRAM && key == forge::repo_key("project") =>
+            {
+                Some(list)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+pub(crate) fn listed(accounts: &[u64]) -> Option<Ownership> {
+    Some(Ownership::Listed(
+        accounts.iter().copied().map(Party::Account).collect(),
+    ))
+}
+
 pub(crate) fn configure(cx: &mut TestAppContext, mode: &'static str) {
     cx.host()
         .handle::<Ask>(move |query| Ok(answer(&query, mode)));
@@ -293,6 +326,10 @@ pub(crate) fn configure(cx: &mut TestAppContext, mode: &'static str) {
         .handle::<Submit<::chat::Chat>>(|_| Ok(view::testing::applied(Vec::new())));
     cx.host()
         .handle::<SubmitForge>(|_| Ok(view::testing::applied(Vec::new())));
+    cx.host()
+        .handle::<ProgramQuery<access::Access>>(|query| Ok(access_answer(query)));
+    cx.host()
+        .handle::<Submit<access::Access>>(|_| Ok(view::testing::applied(Vec::new())));
     cx.host().handle::<HostId>(|kind| Ok(format!("{kind}-1")));
 }
 
@@ -1556,12 +1593,10 @@ fn settings_shows_only_what_the_contract_exposes_and_grants_by_account() {
         Op::Configure { repo, settings }
             if repo == "project" && settings.allow_force && settings.head == b"refs/heads/clean"
     )));
-    cx.simulate_input("forge-settings-grant-input", "acct:1");
+    cx.simulate_input("forge-settings-grant-input", "acct:4");
     cx.simulate_click("forge-settings-grant");
     cx.run_until_parked();
-    assert!(cx.host().requests::<SubmitForge>().iter().any(
-        |op| matches!(op, Op::Grant { principal, .. } if *principal == forge::Principal::Account(1))
-    ));
+    assert_eq!(set_lists(&cx), [listed(&[9, 4])]);
     // a name searches the roster; picking fills the number Grant sends
     cx.simulate_input("forge-settings-grant-input", "ra");
     cx.run_until_parked();
@@ -1581,15 +1616,18 @@ fn settings_shows_only_what_the_contract_exposes_and_grants_by_account() {
     );
     cx.simulate_click("forge-settings-grant");
     cx.run_until_parked();
-    assert!(cx.host().requests::<SubmitForge>().iter().any(
-        |op| matches!(op, Op::Grant { principal, .. } if *principal == forge::Principal::Account(2))
-    ));
+    assert_eq!(set_lists(&cx)[1], listed(&[9, 2]));
+    cx.simulate_input("forge-settings-grant-input", "acct:9");
+    cx.simulate_click("forge-settings-grant");
+    cx.run_until_parked();
+    assert_eq!(set_lists(&cx).len(), 2, "a writer is granted nothing more");
+    assert!(cx.has_text(words::WRITES_ALREADY));
     cx.simulate_click("forge-settings-revoke-acct-9");
     cx.run_until_parked();
-    assert!(
-        cx.host().requests::<SubmitForge>().iter().any(
-            |op| matches!(op, Op::Revoke { principal, .. } if *principal == forge::Principal::Account(9))
-        )
+    assert_eq!(
+        set_lists(&cx)[2],
+        None,
+        "the last writer revoked clears the list"
     );
 }
 
@@ -1603,9 +1641,7 @@ fn enter_in_the_grant_field_grants_for_the_owner_only() {
     cx.simulate_input("forge-settings-grant-input", "acct:7");
     cx.simulate_submit("forge-settings-grant-input");
     cx.run_until_parked();
-    assert!(cx.host().requests::<SubmitForge>().iter().any(
-        |op| matches!(op, forge::Op::Grant { principal, .. } if *principal == forge::Principal::Account(7))
-    ));
+    assert_eq!(set_lists(&cx), [listed(&[9, 7])]);
     let (mut cx, _) = opened_as("default", 2);
     cx.simulate_click("forge-tab-settings");
     cx.run_until_parked();

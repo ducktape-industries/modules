@@ -19,7 +19,7 @@ fn the_create_form_writes_the_thinking_level_it_picks() {
     };
     assert_eq!(
         cx.host().requests::<Submit<files::Files>>(),
-        [commit_of(
+        [edit_of(
             "/home/Eddy/agents/rover.md",
             &thinks,
             None,

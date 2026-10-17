@@ -179,6 +179,7 @@ struct Net {
     partials: Vec<(u64, Partial)>,
     serving: Vec<(String, usize)>,
     services: Vec<egress::ServiceRow>,
+    answers: Vec<(u64, identity::Ownership)>,
 }
 
 impl Default for Net {
@@ -278,6 +279,7 @@ impl Default for Net {
                 nodes: vec![vec![1], vec![2]],
                 registered: 5,
             }],
+            answers: Vec::new(),
         }
     }
 }
@@ -388,36 +390,38 @@ fn seated(net: Net, me: u64) -> (TestAppContext, Shared) {
         let net = shared.borrow();
         Ok(match query {
             identity::Query::List { .. } => identity::Reply::Accounts(page(net.accounts.clone())),
-            identity::Query::Ownership { .. } => {
-                identity::Reply::Ownership(identity::Ownership::Owner)
-            }
             other => panic!("unexpected query: {other:?}"),
         })
     });
     let shared = net.clone();
-    cx.host().handle::<Query<files::Files>>(move |query| {
+    cx.host().handle::<Query<access::Access>>(move |query| {
         let net = shared.borrow();
         Ok(match query {
-            files::Query::Ownership { path, .. } => {
-                let creator = net
+            access::Query::List { program, key } if program == harness::PROGRAM => {
+                let answers = net
+                    .answers
+                    .iter()
+                    .find(|(agent, _)| harness::agent_key(*agent) == key)
+                    .map(|(_, list)| list.clone());
+                access::Reply::List(answers)
+            }
+            access::Query::Writers { program, key } if program == files::PROGRAM => {
+                let owner = net
                     .setups
                     .iter()
-                    .find(|setup| setup.path == path)
-                    .map(|setup| setup.manager);
-                files::Reply::Ownership(files::PathOwnership {
-                    snapshot: Some(SNAPSHOT),
-                    creator,
-                    write: Some(files::Ownership::Owner),
-                    writers: files::Writers::Listed {
-                        path,
-                        creator,
-                        write: files::Ownership::Owner,
-                    },
+                    .find(|setup| setup.path == key)
+                    .map(|setup| identity::Party::Account(setup.manager));
+                access::Reply::Writers(program::Writers::Listed {
+                    at: key,
+                    owner,
+                    list: identity::Ownership::Owner,
                 })
             }
             other => panic!("unexpected query: {other:?}"),
         })
     });
+    cx.host()
+        .handle::<Submit<access::Access>>(|_| Ok(applied(Vec::new())));
     let shared = net.clone();
     cx.host().handle::<Query<egress::Egress>>(move |query| {
         let net = shared.borrow();
@@ -834,23 +838,19 @@ fn edit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -
     }
 }
 
-fn commit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -> files::Op {
-    let files::Op::Commit {
-        base,
-        message,
-        mut changes,
-    } = edit_of(path, config, base, message)
-    else {
-        unreachable!()
-    };
-    changes.push(files::Change::SetOwnership {
-        path: path.into(),
-        write: Some(files::Ownership::Owner),
-    });
-    files::Op::Commit {
-        base,
-        message,
-        changes,
+fn kept(path: &str) -> access::Op {
+    access::Op::Set {
+        program: files::PROGRAM.into(),
+        key: path.into(),
+        list: Some(identity::Ownership::Owner),
+    }
+}
+
+fn answering(agent: u64, list: identity::Ownership) -> access::Op {
+    access::Op::Set {
+        program: harness::PROGRAM.into(),
+        key: harness::agent_key(agent),
+        list: Some(list),
     }
 }
 
@@ -890,7 +890,7 @@ fn the_create_flow_sends_its_ops_in_order() {
     cx.run_until_parked();
     assert_eq!(
         cx.host().requests::<Submit<files::Files>>(),
-        [commit_of(
+        [edit_of(
             "/home/Eddy/agents/rover.md",
             &rover(),
             None,
@@ -910,10 +910,13 @@ fn the_create_flow_sends_its_ops_in_order() {
                     config: "/home/Eddy/agents/rover.md".into(),
                 })
             },
-            identity::Op::SetOwnership {
-                account: ROVER,
-                ownership: identity::Ownership::Anyone
-            },
+        ]
+    );
+    assert_eq!(
+        cx.host().requests::<Submit<access::Access>>(),
+        [
+            kept("/home/Eddy/agents/rover.md"),
+            answering(ROVER, identity::Ownership::Anyone),
         ]
     );
     assert!(cx.host().requests::<Submit<harness::Harness>>().is_empty());
@@ -932,16 +935,16 @@ fn the_create_flow_lists_accounts_and_programs_it_answers() {
     cx.simulate_input("create-accounts", "7, forge");
     cx.simulate_click("create-next");
     cx.run_until_parked();
-    let answered = cx.host().requests::<Submit<Identity>>().pop();
+    let answered = cx.host().requests::<Submit<access::Access>>().pop();
     assert_eq!(
         answered,
-        Some(identity::Op::SetOwnership {
-            account: ROVER,
-            ownership: identity::Ownership::Listed(vec![
+        Some(answering(
+            ROVER,
+            identity::Ownership::Listed(vec![
                 identity::Party::Account(7),
                 identity::Party::Program("forge".into()),
-            ]),
-        })
+            ])
+        ))
     );
 }
 
@@ -964,7 +967,7 @@ fn a_path_typed_in_the_form_is_the_one_committed_and_scripted() {
     };
     assert_eq!(
         cx.host().requests::<Submit<files::Files>>(),
-        [commit_of(
+        [edit_of(
             "/home/Eddy/rover.md",
             &waits,
             None,
@@ -980,6 +983,10 @@ fn a_path_typed_in_the_form_is_the_one_committed_and_scripted() {
                 config: "/home/Eddy/rover.md".into(),
             })
         })
+    );
+    assert_eq!(
+        cx.host().requests::<Submit<access::Access>>(),
+        [kept("/home/Eddy/rover.md")]
     );
 }
 
@@ -1094,6 +1101,7 @@ fn edit_commits_a_new_version_of_the_file_and_scripts_only_a_moved_path() {
         )]
     );
     assert!(cx.host().requests::<Submit<Identity>>().is_empty());
+    assert!(cx.host().requests::<Submit<access::Access>>().is_empty());
     assert!(
         cx.has_text("/home/Eddy/agents/scout.md"),
         "{:?}",
@@ -1107,12 +1115,16 @@ fn edit_commits_a_new_version_of_the_file_and_scripts_only_a_moved_path() {
     cx.run_until_parked();
     assert_eq!(
         cx.host().requests::<Submit<files::Files>>().last(),
-        Some(&commit_of(
+        Some(&edit_of(
             "/home/Eddy/scout.md",
             &config_of("Scout"),
             Some(SNAPSHOT),
             "Configure agent Scout (account 12)".into()
         )),
+    );
+    assert_eq!(
+        cx.host().requests::<Submit<access::Access>>(),
+        [kept("/home/Eddy/scout.md")],
         "a moved file gets its own list"
     );
     assert_eq!(
@@ -1211,6 +1223,28 @@ fn the_agent_shows_its_configuration_model_threads_and_usage() {
     ] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
     }
+}
+
+#[test]
+fn an_agent_that_answers_more_than_its_manager_names_whom() {
+    let net = Net {
+        answers: vec![(
+            SCOUT,
+            identity::Ownership::Listed(vec![
+                identity::Party::Account(ADA),
+                identity::Party::Program("forge".into()),
+            ]),
+        )],
+        ..Net::default()
+    };
+    let (mut cx, _) = seated(net, EDDY);
+    cx.simulate_click("agent-12");
+    cx.run_until_parked();
+    assert!(
+        cx.has_text("Its manager, Ada, the forge program"),
+        "{:?}",
+        cx.texts()
+    );
 }
 
 #[test]

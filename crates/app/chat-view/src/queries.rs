@@ -41,8 +41,6 @@ pub(crate) async fn roster(host: Host) -> Result<Names, Error> {
     ::chat::view::roster(move |ask| host.query(ask)).await
 }
 
-/// Whom each agent that acts answers besides its manager, as identity
-/// keeps it: one ask per agent the roster names.
 pub(crate) async fn ownerships(
     host: Host,
     names: &Names,
@@ -53,7 +51,13 @@ pub(crate) async fn ownerships(
     let asks = agents.map(|number| {
         let host = host.clone();
         async move {
-            let ownership = host.query(identity::ask::Ownership { number }).await?;
+            let list = host
+                .query(access::ask::List {
+                    program: harness::PROGRAM.to_owned(),
+                    key: harness::agent_key(number),
+                })
+                .await?;
+            let ownership = list.unwrap_or(Ownership::Owner);
             Ok::<_, Error>((number, ownership))
         }
     });

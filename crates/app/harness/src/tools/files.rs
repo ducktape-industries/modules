@@ -320,7 +320,6 @@ pub(crate) struct WriteArgs {
     path: String,
     content: String,
     executable: Option<bool>,
-    write: Option<WriteList>,
     base: Option<String>,
     message: Option<String>,
 }
@@ -357,12 +356,12 @@ impl From<WriteList> for Ownership {
 fn write_list_schema() -> Value {
     json!({
         "type": "object",
-        "description": "who may write the file from this commit on, set in the same commit. Only the file's creator sets it, so give it for a new file, or for one your account made. Omitted, the file keeps the list it has, if any",
+        "description": "who may write the path and everything beneath it that sets no list of its own",
         "properties": {
             "who": {
                 "type": "string",
                 "enum": ["creator", "listed", "anyone"],
-                "description": "creator: its creator alone; listed: its creator and the accounts and programs listed; anyone: everyone"
+                "description": "creator: its owner alone; listed: its owner and the accounts and programs listed; anyone: everyone"
             },
             "accounts": { "type": "array", "items": { "type": "integer", "minimum": 1 }, "description": "with listed: account numbers that may write it" },
             "programs": { "type": "array", "items": { "type": "string" }, "description": "with listed: programs, by id, whose writes may change it, whatever account they act as" },
@@ -372,6 +371,43 @@ fn write_list_schema() -> Value {
 }
 
 pub(crate) struct Write;
+
+#[derive(Deserialize)]
+pub(crate) struct SetListArgs {
+    path: String,
+    write: Option<WriteList>,
+}
+
+pub(crate) struct SetList;
+
+impl Tool for SetList {
+    const NAME: &'static str = "files_set_list";
+    const DESCRIPTION: &'static str = "Set who may write a path of the network's filesystem and everything beneath it that sets no list of its own, or clear its list with no `write`. Only the path's owner sets it: the account that made it, or for /home/<name> the account named so. The list lives in the access program, which checks every write against the nearest list at or above a path.";
+    const WRITES: bool = true;
+    type Args = SetListArgs;
+
+    fn schema() -> Value {
+        object(
+            json!({
+                "path": { "type": "string", "description": "an absolute path" },
+                "write": write_list_schema(),
+            }),
+            &["path"],
+        )
+    }
+
+    fn run(ctx: &ExecCtx, _seat: &Seat, args: SetListArgs) -> Result<Run, Error> {
+        let set = access::Op::Set {
+            program: files::PROGRAM.into(),
+            key: args.path,
+            list: args.write.map(Ownership::from),
+        };
+        Ok(Run::Write(vec![super::Write {
+            target: ctx.env().role(abi::role::ACCESS)?.clone(),
+            payload: abi::encode(&set),
+        }]))
+    }
+}
 
 /// `bytes` as `files` keeps a file's: `chunk` blobs this program puts,
 /// which the commit names; its bytes never ride in the commit.
@@ -388,7 +424,7 @@ fn chunked(ctx: &ExecCtx, bytes: &[u8]) -> Result<Content, Error> {
 
 impl Tool for Write {
     const NAME: &'static str = "files_write";
-    const DESCRIPTION: &'static str = "Write a text file to the network's filesystem, creating its directories, in one commit. Anyone writes a path that no write list covers; where the path or a folder above it carries a write list, the nearest list decides: its creator alone, its creator and the accounts and programs it lists, or anyone. A program on a list allows every write harness makes, for any agent. A refusal names the list and whom it allows. /home, /shared and each /home/<name> folder itself are the network's; write inside them. Pass `write` to set the file's own list in the same commit.";
+    const DESCRIPTION: &'static str = "Write a text file to the network's filesystem, creating its directories, in one commit. Anyone writes a path that no write list covers; where the path or a folder above it carries a write list, the nearest list decides: its owner alone, its owner and the accounts and programs it lists, or anyone. A program on a list allows every write harness makes, for any agent. A refusal names the list and whom it allows. /home, /shared and each /home/<name> folder itself are the network's; write inside them. Set a list with files_set_list.";
     const WRITES: bool = true;
     type Args = WriteArgs;
 
@@ -413,12 +449,7 @@ impl Tool for Write {
             meta: BTreeMap::new(),
             content: chunked(ctx, args.content.as_bytes())?,
         };
-        let listed = args.write.map(|write| Change::SetOwnership {
-            path: args.path,
-            write: Some(write.into()),
-        });
-        let changes = std::iter::once(put).chain(listed).collect();
-        commit(ctx, seat, &args.base, args.message, changes)
+        commit(ctx, seat, &args.base, args.message, vec![put])
     }
 
     fn render(output: &[u8]) -> Value {

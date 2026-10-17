@@ -14,6 +14,7 @@ use super::parts;
 use super::tabs;
 use crate::Forge;
 use crate::id;
+use crate::select::Writer;
 use crate::state::{Menu, RepoTab, Sheet};
 use crate::words::{self, ref_label};
 
@@ -28,7 +29,7 @@ pub(super) fn render(
     let mut page = design::page("forge-page-repo", name.clone(), nav, ladder, theme)
         .trailing(copy_button(forge, &name, cx, ladder, theme))
         .trailing(about_button(cx, ladder, theme));
-    if let Some((info, _, _)) = forge.repo() {
+    if let Some((info, _)) = forge.repo() {
         page = page.caption(words::repo_facts(
             &forge.principal_name(&info.repo.owner),
             info.repo.refs_count,
@@ -189,7 +190,7 @@ pub(super) fn about_sheet(
 }
 
 fn about(forge: &Forge, ladder: &Ladder, theme: &Theme) -> AnyElement {
-    let Some((info, bounds, writers)) = forge.repo() else {
+    let Some((info, bounds)) = forge.repo() else {
         return parts::quiet(
             id("forge-about-loading"),
             words::READING_REPOSITORY,
@@ -198,12 +199,13 @@ fn about(forge: &Forge, ladder: &Ladder, theme: &Theme) -> AnyElement {
         )
         .into_any_element();
     };
-    let access = match writers.items.is_empty() {
-        true => words::ONLY_THE_OWNER.to_owned(),
-        false => writers
-            .items
+    let writers = forge.writers().map(Writer::rows);
+    let access = match writers.as_deref() {
+        None => words::READING_WRITERS.to_owned(),
+        Some([]) => words::ONLY_THE_OWNER.to_owned(),
+        Some(writers) => writers
             .iter()
-            .map(|key| forge.principal_name(key))
+            .map(|writer| forge.writer_name(writer))
             .collect::<Vec<_>>()
             .join(", "),
     };

@@ -56,6 +56,7 @@ pub(crate) fn listed(chain: &MockChain, codes: &[(&str, Vec<u8>)]) {
         programs,
         views: Vec::new(),
         hooks: Vec::new(),
+        roles: ::program::Roles::default(),
     };
     chain.init(programs::PROGRAM, &genesis).unwrap();
 }

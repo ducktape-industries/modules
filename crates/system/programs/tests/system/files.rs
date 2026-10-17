@@ -4,7 +4,7 @@
 //! root itself; a write list set on a folder decides who writes under it.
 use super::*;
 
-use files::{BlobId, CHUNK_SIZE, Change, Content, Op, Ownership, Party, Query, Reply, Writers};
+use files::{BlobId, CHUNK_SIZE, Change, Content, Op, Ownership, Party, Query, Reply};
 
 const ADA_KEY: u64 = 11;
 const BO_KEY: u64 = 12;
@@ -171,34 +171,40 @@ fn a_write_list_on_a_shared_folder_lets_its_creator_and_the_listed_accounts_writ
             numbers.push(number);
         }
         let [ada, bo, _] = numbers[..] else { panic!() };
-        let team = Change::SetOwnership {
-            path: "/shared/team".into(),
-            write: Some(Ownership::Listed(vec![Party::Account(bo)])),
-        };
         let plan = net.chunks(b"ada").await;
         let first: BlobId = abi::decode(
             &net.apply(
                 &public(ADA_KEY),
                 files::PROGRAM,
-                &commit(None, vec![put("/shared/team/plan", plan), team]),
+                &commit(None, vec![put("/shared/team/plan", plan)]),
             )
             .await,
         )
         .unwrap();
-        let asked = Query::Ownership {
-            path: "/shared/team/plan".into(),
-            at: None,
+        let team = access::Op::Set {
+            program: files::PROGRAM.into(),
+            key: "/shared/team".into(),
+            list: Some(Ownership::Listed(vec![Party::Account(bo)])),
         };
-        let Reply::Ownership(owned) = net.ask(files::PROGRAM, &asked).await else {
+        assert_eq!(
+            net.refuse(&public(BO_KEY), access::PROGRAM, &team).await,
+            reason::UNAUTHORIZED,
+            "only the folder's creator lists its writers"
+        );
+        net.apply(&public(ADA_KEY), access::PROGRAM, &team).await;
+        let asked = access::Query::Writers {
+            program: files::PROGRAM.into(),
+            key: "/shared/team/plan".into(),
+        };
+        let access::Reply::Writers(writers) = net.ask(access::PROGRAM, &asked).await else {
             panic!()
         };
-        assert_eq!(owned.creator, Some(ada));
         assert_eq!(
-            owned.writers,
-            Writers::Listed {
-                path: "/shared/team".into(),
-                creator: Some(ada),
-                write: Ownership::Listed(vec![Party::Account(bo)]),
+            writers,
+            ::program::Writers::Listed {
+                at: "/shared/team".into(),
+                owner: Some(Party::Account(ada)),
+                list: Ownership::Listed(vec![Party::Account(bo)]),
             }
         );
         let bo_plan = net.chunks(b"bo").await;

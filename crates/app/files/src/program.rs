@@ -25,8 +25,17 @@ impl Program for Files {
                 changes,
             } => commit(ctx, writer, base, message, changes),
             Op::Pin { name, snapshot } => pin(ctx, writer, name, snapshot),
-            Op::Unpin { name } => unpin(ctx, &writer, name),
+            Op::Unpin { name } => unpin(ctx, name),
+            Op::Migrate => crate::migrate::migrate(ctx),
         }
+    }
+
+    fn access(_: &QueryCtx, op: &Op) -> Result<Vec<::program::Need>, Error> {
+        Ok(crate::gate::needs(op))
+    }
+
+    fn resource(ctx: &QueryCtx, key: &str) -> Result<::program::Resource, Error> {
+        crate::gate::resource(ctx, key)
     }
 
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
@@ -72,11 +81,6 @@ impl Program for Files {
             }
             Query::Pins { page } => Ok(Reply::Pins(queries::pins(ctx, &page)?)),
             Query::Pin { name } => Ok(Reply::Pin(queries::pin(ctx, &name)?)),
-            Query::Ownership { path, at } => Ok(Reply::Ownership(queries::ownership(
-                ctx,
-                &path,
-                at.as_ref(),
-            )?)),
         }
     }
 }

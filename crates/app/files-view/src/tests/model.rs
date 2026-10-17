@@ -3,7 +3,8 @@
 //! its pages out.
 use std::collections::BTreeMap;
 
-use files::{BlobId, Change, Content, EntryInfo, Node, Ownership, Party, PathOwnership, Writers};
+use abi::role::access::Writers;
+use files::{BlobId, Change, Content, EntryInfo, Node, Ownership, Party};
 use view::ImageFormat;
 use view::TextField;
 use view::prelude::Loadable;
@@ -15,7 +16,7 @@ use crate::tests::{PNG, file};
 use crate::ui::Layout;
 use crate::upload::{UPLOAD_MOST, puts, sent, uploads};
 use crate::words;
-use crate::write::{Form, ListChoice, Write, built, files_of};
+use crate::write::{Form, ListChoice, Write, built, files_of, write_list};
 use view::methods::{BlobBody, NewBlob, Picked};
 
 const DEV: u64 = 7;
@@ -33,12 +34,7 @@ fn folder(path: &str, writers: Option<Writers>) -> Folder {
         path: path.into(),
         snapshot: None,
         entries: Vec::new(),
-        ownership: writers.map(|writers| PathOwnership {
-            snapshot: None,
-            creator: None,
-            write: None,
-            writers,
-        }),
+        writers,
     }
 }
 
@@ -83,7 +79,7 @@ fn opened(bytes: &[u8], whole: bool) -> Opened {
         bytes: bytes.to_vec(),
         whole,
         picture: None,
-        ownership: None,
+        writers: None,
     }
 }
 
@@ -113,27 +109,27 @@ fn only_the_folder_of_homes_holds_namespace_roots() {
 
 #[test]
 fn a_write_list_over_a_folder_decides_for_what_is_made_in_it() {
-    let listed = Writers::Listed {
-        path: "/home/ada/team".into(),
-        creator: Some(ADA),
-        write: Ownership::Listed(vec![Party::Account(DEV)]),
+    let team = Writers::Listed {
+        at: "/home/ada/team".into(),
+        owner: Some(Party::Account(ADA)),
+        list: Ownership::Listed(vec![Party::Account(DEV)]),
     };
-    let children = folder("/home/ada/team/plans", Some(listed.clone())).children();
-    assert_eq!(children, listed);
+    let children = folder("/home/ada/team/plans", Some(team.clone())).children();
+    assert_eq!(children, team);
     assert!(
         dev().writes(&children),
         "the list names dev, though the home is ada's"
     );
     let owners_only = Writers::Listed {
-        path: "/shared/ada".into(),
-        creator: Some(ADA),
-        write: Ownership::Owner,
+        at: "/shared/ada".into(),
+        owner: Some(Party::Account(ADA)),
+        list: Ownership::Owner,
     };
     assert!(!dev().writes(&folder("/shared/ada", Some(owners_only)).children()));
     let a_program = Writers::Listed {
-        path: "/shared/bots".into(),
-        creator: Some(ADA),
-        write: Ownership::Listed(vec![Party::Program("harness".into())]),
+        at: "/shared/bots".into(),
+        owner: Some(Party::Account(ADA)),
+        list: Ownership::Listed(vec![Party::Program("harness".into())]),
     };
     assert!(
         !dev().writes(&a_program),
@@ -157,38 +153,46 @@ fn a_reader_identity_names_no_way_writes_where_anyone_may() {
 }
 
 #[test]
-fn a_new_file_or_folder_carries_the_write_list_picked_in_the_same_commit() {
+fn a_new_file_or_folder_sets_the_write_list_picked_once_it_is_made() {
     let new_file = Write::NewFile {
         folder: "/shared".into(),
     };
     let new_folder = Write::NewFolder {
         folder: "/shared".into(),
     };
-    let picked = |write: Write, list: ListChoice, listed: &str| {
+    let picked = |write: Write, list: ListChoice, typed: &str| {
         let mut form = form(write, "x", "", "");
         form.list = list;
-        form.listed = TextField::new(listed);
-        built(&form)
+        form.listed = TextField::new(typed);
+        let (_, changes) = built(&form)?;
+        assert_eq!(changes.len(), 1, "the commit makes the path alone");
+        write_list(&form)
     };
-    let set = |write: Ownership| Change::SetOwnership {
-        path: "/shared/x".into(),
-        write: Some(write),
+    let set = |list: Ownership| access::Op::Set {
+        program: files::PROGRAM.into(),
+        key: "/shared/x".into(),
+        list: Some(list),
     };
-    let (_, changes) = picked(new_file.clone(), ListChoice::AsItsFolder, "").unwrap();
-    assert_eq!(changes.len(), 1, "no list of its own");
-    let (_, changes) = picked(new_file.clone(), ListChoice::OnlyMe, "").unwrap();
-    assert_eq!(changes[1..], [set(Ownership::Owner)]);
-    let (_, changes) = picked(new_folder.clone(), ListChoice::Anyone, "").unwrap();
-    assert!(matches!(changes[0], Change::Mkdir { .. }));
-    assert_eq!(changes[1..], [set(Ownership::Anyone)]);
-    let (_, changes) = picked(new_folder.clone(), ListChoice::Listed, " 9, harness 12 ").unwrap();
     assert_eq!(
-        changes[1..],
-        [set(Ownership::Listed(vec![
+        picked(new_file.clone(), ListChoice::AsItsFolder, ""),
+        Ok(None),
+        "no list of its own"
+    );
+    assert_eq!(
+        picked(new_file.clone(), ListChoice::OnlyMe, ""),
+        Ok(Some(set(Ownership::Owner)))
+    );
+    assert_eq!(
+        picked(new_folder.clone(), ListChoice::Anyone, ""),
+        Ok(Some(set(Ownership::Anyone)))
+    );
+    assert_eq!(
+        picked(new_folder.clone(), ListChoice::Listed, " 9, harness 12 "),
+        Ok(Some(set(Ownership::Listed(vec![
             Party::Account(9),
             Party::Program("harness".into()),
             Party::Account(12),
-        ]))]
+        ]))))
     );
     assert_eq!(
         picked(new_file, ListChoice::Listed, " , "),
@@ -203,8 +207,11 @@ fn a_new_file_or_folder_carries_the_write_list_picked_in_the_same_commit() {
         "",
     );
     rename.list = ListChoice::OnlyMe;
-    let (_, changes) = built(&rename).unwrap();
-    assert_eq!(changes.len(), 1, "only a new path takes a list");
+    assert_eq!(
+        write_list(&rename),
+        Ok(None),
+        "only a new path takes a list"
+    );
 }
 
 #[test]

@@ -18,6 +18,7 @@ pub use abi::role::egress::{
 };
 pub use abi::role::identity::AccountNumber;
 pub use program::Egress;
+pub use rules::service_key;
 pub use store::{PageRequest, PageResponse};
 
 use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};

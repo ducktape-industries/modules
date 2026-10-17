@@ -261,6 +261,23 @@ impl QueryCtx {
         }
     }
 
+    pub fn resource(
+        &self,
+        program: impl Into<ProgramId>,
+        key: impl Into<String>,
+    ) -> Result<crate::Resource, Error> {
+        match self.host(HostOp::Resource {
+            program: program.into(),
+            key: key.into(),
+        }) {
+            HostReply::Query(answer) => {
+                let bytes = answer.map_err(crate::kernel::error_from)?;
+                abi::decode(&bytes).map_err(crate::kernel::error_from)
+            }
+            other => protocol("resource answer", other),
+        }
+    }
+
     /// Another program's answer to `request`, borsh both ways.
     pub fn query<Q: BorshSerialize, R: BorshDeserialize>(
         &self,
@@ -467,20 +484,6 @@ impl ExecCtx {
             frame,
             ticket,
             answer,
-        }) {
-            HostReply::Done => Ok(()),
-            HostReply::Refused(refusal) => Err(crate::kernel::error_from(refusal)),
-            other => protocol("done", other),
-        }
-    }
-
-    /// Binds `program` to `role` in the network's roles table, or unbinds
-    /// the role when `program` is `None`; the validators role's alone, on
-    /// its vote, and never a role in `abi::role::REQUIRED`.
-    pub fn bind(&self, role: impl Into<String>, program: Option<ProgramId>) -> Result<(), Error> {
-        match self.host(HostOp::Bind {
-            role: role.into(),
-            program,
         }) {
             HostReply::Done => Ok(()),
             HostReply::Refused(refusal) => Err(crate::kernel::error_from(refusal)),

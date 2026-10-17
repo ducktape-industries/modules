@@ -12,13 +12,14 @@ pub struct MemorySandbox {
     pub chain: MockChain,
     pub forge: MockHost,
     pub chat: MockHost,
+    pub access: MockHost,
 }
 
 /// The person every agent of the roster is managed by.
 pub const AGENT_MANAGER: u64 = 11;
 
 /// The account identity registered for each program.
-pub const PROGRAMS: [(&str, u64); 2] = [("forge", 900), ("chat", 901)];
+pub const PROGRAMS: [(&str, u64); 3] = [("forge", 900), ("chat", 901), ("access", 902)];
 
 /// The program whose account `number` is.
 pub fn program_of(number: u64) -> Option<&'static str> {
@@ -33,17 +34,48 @@ impl Default for MemorySandbox {
         let mut chain = MockChain::default();
         let forge = chain.seat::<forge::Forge>("forge");
         let chat = chain.seat::<chat::Chat>("chat");
+        let access = chain.seat::<access::Access>("access");
         for (key, account) in super::HOLDERS {
             chain.hold(key, account);
         }
         for (program, number) in PROGRAMS {
             chain.register(program, number);
         }
-        MemorySandbox { chain, forge, chat }
+        MemorySandbox {
+            chain,
+            forge,
+            chat,
+            access,
+        }
     }
 }
 
 impl MemorySandbox {
+    pub fn list_writers(
+        &self,
+        owner: &[u8],
+        repo: &str,
+        writers: &[Principal],
+    ) -> Result<(), Error> {
+        let parties = writers
+            .iter()
+            .filter_map(Principal::account)
+            .map(program::Party::Account)
+            .collect::<Vec<_>>();
+        let list = match parties.is_empty() {
+            true => None,
+            false => Some(program::Ownership::Listed(parties)),
+        };
+        let set = access::Op::Set {
+            program: "forge".into(),
+            key: forge::repo_key(repo),
+            list,
+        };
+        self.chain
+            .submit(Origin::Signed(owner.to_vec()), "access", &set)
+            .map(drop)
+    }
+
     /// Seats `key` in `account`, as identity would.
     pub fn hold(&self, key: &[u8], account: u64) {
         self.chain.hold(key, account);

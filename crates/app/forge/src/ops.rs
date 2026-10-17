@@ -1,17 +1,19 @@
-//! The execute path: who acts, which op, and the repository ops (create,
-//! configure, grant, revoke, push, stage). Change ops live in `changes`.
+//! The execute path: who acts, which op, what it needs of the access program, and the
+//! repository ops (create, configure, push, stage). Change ops live in `changes`.
 
-use ::program::{BlobId, Error, HashKind};
+use ::program::{BlobId, Error, HashKind, Need, Party, Resource};
 use ::program::{
     ExecCtx, QueryCtx, already_exists, capacity, decoded, invalid, not_found, unauthorized,
 };
 use gitcore::server::{Policy, RefUpdate};
 use gitcore::{Error as GitError, Limits, server};
 
-use crate::contract::{Bounds, PACK_KIND, Principal, Repo, Settings, valid_repo_name};
+use crate::contract::{
+    Bounds, Op, PACK_KIND, Principal, Repo, Settings, repo_key, settings_key, valid_repo_name,
+};
 use crate::objects::{ObjectWriter, object_not_held};
 use crate::state::{
-    WRITERS, delete_ref, is_writer, load_bounds, load_refs, load_repo, repo_exists, repo_hash,
+    delete_ref, load_bounds, load_change, load_refs, load_repo, repo_exists, repo_hash,
     save_bounds, save_repo, set_ref, storage,
 };
 
@@ -77,14 +79,8 @@ pub(crate) fn create(
     save_repo(ctx, name, &repo)
 }
 
-pub(crate) fn configure(
-    ctx: &ExecCtx,
-    actor: &Principal,
-    name: &str,
-    settings: Settings,
-) -> Result<(), Error> {
+pub(crate) fn configure(ctx: &ExecCtx, name: &str, settings: Settings) -> Result<(), Error> {
     let mut repo = load_repo(ctx, name)?;
-    require_owner(&repo, actor)?;
     let head_is_a_ref = server::valid_ref_name(&settings.head);
     if !head_is_a_ref {
         return Err(invalid("head names a ref under refs/"));
@@ -93,28 +89,48 @@ pub(crate) fn configure(
     save_repo(ctx, name, &repo)
 }
 
-pub(crate) fn grant(
-    ctx: &ExecCtx,
-    actor: &Principal,
-    name: &str,
-    principal: Principal,
-) -> Result<(), Error> {
-    require_owner(&load_repo(ctx, name)?, actor)?;
-    require_user_or_program_account(ctx, &principal)?;
-    WRITERS.insert(ctx, &(name.to_owned(), principal));
-    Ok(())
+pub(crate) fn retired() -> Error {
+    unauthorized(
+        "a repository's writers are its list in the access program: set it there, as the owner",
+    )
 }
 
-pub(crate) fn revoke(
-    ctx: &ExecCtx,
-    actor: &Principal,
-    name: &str,
-    principal: Principal,
-) -> Result<(), Error> {
-    require_owner(&load_repo(ctx, name)?, actor)?;
-    require_named(&principal)?;
-    WRITERS.remove(ctx, &(name.to_owned(), principal));
-    Ok(())
+pub(crate) fn needs(ctx: &QueryCtx, op: &Op) -> Result<Vec<Need>, Error> {
+    let needs = match op {
+        Op::Configure { repo, .. } => vec![Need::write(settings_key(repo))],
+        Op::Push { repo, .. } | Op::Merge { repo, .. } | Op::Stage { repo, .. } => {
+            vec![Need::write(repo_key(repo))]
+        }
+        Op::ChangeClose { repo, n } => {
+            let sender = ctx.env().sender.clone();
+            let authored = load_change(ctx, repo, *n)
+                .is_ok_and(|change| sender.as_ref() == Some(&change.author));
+            match authored {
+                true => Vec::new(),
+                false => vec![Need::write(repo_key(repo))],
+            }
+        }
+        Op::Create { .. }
+        | Op::Grant { .. }
+        | Op::Revoke { .. }
+        | Op::ChangeOpen { .. }
+        | Op::ChangeEdit { .. }
+        | Op::ReviewSubmit { .. }
+        | Op::Migrate => Vec::new(),
+    };
+    Ok(needs)
+}
+
+pub(crate) fn resource(ctx: &QueryCtx, key: &str) -> Result<Resource, Error> {
+    let name = key.strip_suffix("/settings").unwrap_or(key);
+    if !repo_exists(ctx, name) {
+        return Ok(Resource::default());
+    }
+    let owner = load_repo(ctx, name)?.owner.account().map(Party::Account);
+    Ok(Resource {
+        owner,
+        default: Some(::program::Ownership::Owner),
+    })
 }
 
 /// A git receive-pack: once the pack unpacks, its objects land as blobs and
@@ -125,13 +141,11 @@ pub(crate) fn revoke(
 /// sends less. A pack that does not unpack stores nothing.
 pub(crate) fn push(
     ctx: &ExecCtx,
-    actor: &Principal,
     name: &str,
     request: &[u8],
     pack: Option<BlobId>,
 ) -> Result<(), Error> {
     let mut repo = load_repo(ctx, name)?;
-    require_writer(ctx, name, &repo, actor)?;
     let pack = match pack {
         Some(id) => held_pack(ctx, id)?,
         None => Vec::new(),
@@ -180,14 +194,8 @@ pub(crate) fn push(
 /// The objects half of a push: the pack's objects land as blobs, checked as
 /// a push checks them (bounds, deltas against what is held, every object
 /// they name held), and no ref moves.
-pub(crate) fn stage(
-    ctx: &ExecCtx,
-    actor: &Principal,
-    name: &str,
-    pack: BlobId,
-) -> Result<(), Error> {
+pub(crate) fn stage(ctx: &ExecCtx, name: &str, pack: BlobId) -> Result<(), Error> {
     let repo = load_repo(ctx, name)?;
-    require_writer(ctx, name, &repo, actor)?;
     let pack = held_pack(ctx, pack)?;
     let bounds = load_bounds(ctx)?;
     let hash = repo_hash(&repo);
@@ -209,28 +217,6 @@ fn held_pack(ctx: &ExecCtx, id: BlobId) -> Result<Vec<u8>, Error> {
         )));
     }
     Ok(blob.body)
-}
-
-fn require_owner(repo: &Repo, actor: &Principal) -> Result<(), Error> {
-    if repo.owner != *actor {
-        return Err(unauthorized("only the owner changes a repository"));
-    }
-    Ok(())
-}
-
-pub(crate) fn require_writer(
-    ctx: &QueryCtx,
-    name: &str,
-    repo: &Repo,
-    actor: &Principal,
-) -> Result<(), Error> {
-    let may_write = repo.owner == *actor || is_writer(ctx, name, actor);
-    if !may_write {
-        return Err(unauthorized(
-            "only the owner and its writers push, merge and close",
-        ));
-    }
-    Ok(())
 }
 
 /// Whom an op names (a writer, a reviewer): an account, never the system.

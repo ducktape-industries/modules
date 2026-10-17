@@ -80,6 +80,34 @@ fn chat_round_trips() {
 }
 
 #[test]
+fn access_round_trips() {
+    let access = roots(interface::<access::Access>());
+    let set = access.op(&access::Op::Set {
+        program: "files".into(),
+        key: "/shared".into(),
+        list: Some(Ownership::Listed(vec![
+            Party::Account(2),
+            Party::Program("harness".into()),
+        ])),
+    });
+    assert_eq!(
+        set["Set"]["list"],
+        json!({ "Listed": [{ "Account": 2 }, { "Program": "harness" }] })
+    );
+    access.op(&access::Op::Set {
+        program: "harness".into(),
+        key: "agents/4".into(),
+        list: Some(Ownership::Anyone),
+    });
+    access.query(&access::Query::Writers {
+        program: "files".into(),
+        key: "/shared/a.md".into(),
+    });
+    access.reply(&access::Reply::List(Some(Ownership::Owner)));
+    access.shapes();
+}
+
+#[test]
 fn files_round_trips() {
     let files = roots(interface::<files::Files>());
     let commit = files.op(&files::Op::Commit {
@@ -95,12 +123,8 @@ fn files_round_trips() {
                     chunks: vec![blob(8)],
                 },
             },
-            files::Change::SetOwnership {
-                path: "/shared".into(),
-                write: Some(Ownership::Listed(vec![
-                    Party::Account(2),
-                    Party::Program("harness".into()),
-                ])),
+            files::Change::Mkdir {
+                path: "/shared/b".into(),
             },
             files::Change::Remove {
                 path: "/tmp".into(),
@@ -116,8 +140,8 @@ fn files_round_trips() {
         json!([["mime", "text/markdown"]])
     );
     assert_eq!(
-        commit["Commit"]["changes"][1]["SetOwnership"]["write"],
-        json!({ "Listed": [{ "Account": 2 }, { "Program": "harness" }] })
+        commit["Commit"]["changes"][1]["Mkdir"]["path"],
+        json!("/shared/b")
     );
     files.op(&files::Op::Unpin { name: "v1".into() });
     files.query(&files::Query::Read {
@@ -170,10 +194,6 @@ fn identity_round_trips() {
             config: "/a.md".into(),
         }),
     });
-    identity.op(&identity::Op::SetOwnership {
-        account: 4,
-        ownership: Ownership::Anyone,
-    });
     identity.query(&identity::Query::Profiles {
         after: Some(3),
         limit: 10,
@@ -225,10 +245,7 @@ fn valset_round_trips() {
         halo: "node.example.org:9100".into(),
         invite: None,
     });
-    valset.op(&valset::Op::Vote(valset::Motion::Bind {
-        role: "egress".into(),
-        program: Some("egress".into()),
-    }));
+    valset.op(&valset::Op::Vote(valset::Motion::Door { open: true }));
     valset.query(&valset::Query::Validators);
     valset.reply(&valset::Reply::Validators(vec![vec![1; 32]]));
     valset.shapes();

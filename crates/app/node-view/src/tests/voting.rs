@@ -471,6 +471,39 @@ fn every_motion_reads_in_words() {
         (
             Motion::Role {
                 role: abi::role::PROGRAMS.into(),
+                op: abi::encode(&programs::Op::Schedule(Scheduled {
+                    height: 9,
+                    change: Change::Publish {
+                        entry: entry("access", CODE),
+                        roles: vec![abi::role::ACCESS.into()],
+                    },
+                })),
+            },
+            "Publish access at code sha256:7e7e7e7e…7e7e at block 9 · a new program · fills access",
+        ),
+        (
+            Motion::Role {
+                role: abi::role::PROGRAMS.into(),
+                op: abi::encode(&programs::Op::Schedule(Scheduled {
+                    height: 9,
+                    change: Change::Publish {
+                        entry: entry("forge", CODE),
+                        roles: Vec::new(),
+                    },
+                })),
+            },
+            "Publish forge at code sha256:7e7e7e7e…7e7e at block 9 · a new program · no role",
+        ),
+        (
+            Motion::Role {
+                role: abi::role::PROGRAMS.into(),
+                op: abi::encode(&programs::Op::Migrate),
+            },
+            "Copy the kernel's role table into the programs role",
+        ),
+        (
+            Motion::Role {
+                role: abi::role::PROGRAMS.into(),
                 op: b"not an op".to_vec(),
             },
             "A program change this screen can't read",
@@ -533,20 +566,6 @@ fn every_motion_reads_in_words() {
                 op: vec![1, 2],
             },
             "An op for the egress role",
-        ),
-        (
-            Motion::Bind {
-                role: abi::role::EGRESS.into(),
-                program: Some("egress".into()),
-            },
-            "Bind the egress role to egress",
-        ),
-        (
-            Motion::Bind {
-                role: abi::role::SCHEDULER.into(),
-                program: None,
-            },
-            "Unbind the scheduler role",
         ),
     ];
     let names = Names::from([(12, "carol".into()), (13, "release-bot".into())]);

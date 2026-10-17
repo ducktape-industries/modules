@@ -8,9 +8,46 @@ use view::methods::Submitted;
 use view::prelude::*;
 
 use crate::api::SubmitForge;
+use crate::select::Writer;
 use crate::state::{Answer, ChangeForm, Forge, NewRepo, Pending, Progress, change_key};
 use crate::words;
 use forge::{Mergeability, Op, Principal, Revision, Settings, valid_repo_name};
+use identity::{Ownership, Party};
+
+fn with_writer(list: &Ownership, party: Party) -> Option<Ownership> {
+    match list {
+        Ownership::Owner => Some(Ownership::Listed(vec![party])),
+        Ownership::Listed(parties) => {
+            let listed = parties.contains(&party);
+            if listed {
+                return None;
+            }
+            let mut parties = parties.clone();
+            parties.push(party);
+            Some(Ownership::Listed(parties))
+        }
+        Ownership::Anyone => None,
+    }
+}
+
+fn without_writer(list: &Ownership, writer: &Writer) -> Option<Ownership> {
+    let Writer::Party(party) = writer else {
+        return None;
+    };
+    match list {
+        Ownership::Listed(parties) => {
+            let rest: Vec<Party> = parties
+                .iter()
+                .filter(|listed| *listed != party)
+                .cloned()
+                .collect();
+            let emptied = rest.is_empty();
+            (!emptied).then_some(Ownership::Listed(rest))
+        }
+        Ownership::Owner => None,
+        Ownership::Anyone => Some(Ownership::Anyone),
+    }
+}
 
 /// Why a change cannot merge from this view.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -334,7 +371,7 @@ impl Forge {
         change: impl FnOnce(&mut Settings),
         cx: &mut Context<Self>,
     ) {
-        let Some((info, _, _)) = self.repo() else {
+        let Some((info, _)) = self.repo() else {
             return;
         };
         let mut settings = info.repo.settings.clone();
@@ -368,23 +405,51 @@ impl Forge {
 
     /// Write access for `principal` in the open repository.
     pub(crate) fn grant_to(&mut self, principal: Principal, cx: &mut Context<Self>) {
-        let repo = self.repo_name();
-        self.submit(
-            Op::Grant { repo, principal },
-            "settings".into(),
-            "Granting write access",
-            cx,
-        );
+        let Some(number) = principal.account() else {
+            self.notice = "Grant takes an account number".into();
+            cx.notify();
+            return;
+        };
+        let Some(list) = self.writers() else {
+            self.notice = words::READING_WRITERS.into();
+            cx.notify();
+            return;
+        };
+        let Some(list) = with_writer(list, Party::Account(number)) else {
+            self.notice = words::WRITES_ALREADY.into();
+            cx.notify();
+            return;
+        };
+        self.set_writers(Some(list), "Granting write access", cx);
     }
 
-    pub(crate) fn revoke(&mut self, principal: forge::Principal, cx: &mut Context<Self>) {
-        let repo = self.repo_name();
-        self.submit(
-            Op::Revoke { repo, principal },
-            "settings".into(),
-            "Revoking write access",
-            cx,
-        );
+    pub(crate) fn revoke(&mut self, writer: Writer, cx: &mut Context<Self>) {
+        let Some(list) = self.writers() else {
+            self.notice = words::READING_WRITERS.into();
+            cx.notify();
+            return;
+        };
+        let list = without_writer(list, &writer);
+        self.set_writers(list, "Revoking write access", cx);
+    }
+
+    fn set_writers(&mut self, list: Option<Ownership>, label: &str, cx: &mut Context<Self>) {
+        let op = access::Op::Set {
+            program: forge::PROGRAM.to_owned(),
+            key: forge::repo_key(&self.repo_name()),
+            list,
+        };
+        let id = self.issue("settings".into(), label, cx);
+        let submit = cx.host().ask::<Submit<access::Access>>(op);
+        cx.land(submit, move |forge, answer, cx| {
+            cx.notify();
+            if !forge.settle(id, answer) {
+                return;
+            }
+            forge.pending.retain(|op| op.id != id);
+            forge.reread_writers(cx);
+        })
+        .detach();
     }
 
     // ------------------------------------------------------ conversation

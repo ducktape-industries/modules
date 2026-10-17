@@ -25,6 +25,7 @@ impl Forge {
             self.names = Loadable::Idle;
             cx.load(self, queries::roster(cx.host()), |forge| &mut forge.names);
             self.data.clear();
+            self.writers.clear();
             self.logs.clear();
             self.rereading.clear();
         }
@@ -61,6 +62,28 @@ impl Forge {
     pub(crate) fn refresh(&mut self, cx: &mut Context<Self>) {
         self.reread(|_| true, cx);
         self.reread_conversations(None, cx);
+        self.reread_writers(cx);
+    }
+
+    pub(crate) fn reread_writers(&mut self, cx: &mut Context<Self>) {
+        let again: Vec<String> = self
+            .writers
+            .iter()
+            .filter(|(_, slot)| !matches!(slot, Loadable::Idle | Loadable::Loading(_)))
+            .map(|(repo, _)| repo.clone())
+            .collect();
+        for repo in again {
+            let list = queries::writers(cx.host(), repo.clone());
+            cx.load(self, list, move |forge| {
+                forge.writers.entry(repo.clone()).or_default()
+            });
+        }
+    }
+
+    pub(crate) fn retry_writers(&mut self, cx: &mut Context<Self>) {
+        self.writers.clear();
+        self.sync(cx);
+        cx.notify();
     }
 
     /// A forge block landed: retire the ops it carried, then ask again for
@@ -224,6 +247,7 @@ impl Forge {
             self.read(query, cx);
         }
         self.settle_badge(cx);
+        self.sync_writers(cx);
         let Some(channel) = self.open_channel() else {
             self.messages.clear();
             self.rereading_messages.clear();
@@ -236,6 +260,21 @@ impl Forge {
                 forge.messages.entry(landing.clone()).or_default()
             });
         }
+    }
+
+    fn sync_writers(&mut self, cx: &mut Context<Self>) {
+        let open = self.nav.repo.clone();
+        self.writers.retain(|repo, _| open.as_ref() == Some(repo));
+        let Some(repo) = open else {
+            return;
+        };
+        if self.writers.contains_key(&repo) {
+            return;
+        }
+        let list = queries::writers(cx.host(), repo.clone());
+        cx.load(self, list, move |forge| {
+            forge.writers.entry(repo.clone()).or_default()
+        });
     }
 
     /// The host's badge for this program: a dot (1) while a change waits

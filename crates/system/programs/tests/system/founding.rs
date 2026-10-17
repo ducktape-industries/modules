@@ -83,6 +83,7 @@ fn founding_seats_the_validators_and_every_program_answers() {
                 program(valset::PROGRAM),
                 program(identity::PROGRAM),
                 program(blobs::PROGRAM),
+                program("access"),
                 program("probe"),
                 program(awaits::PROGRAM),
                 program(halo::PROGRAM),

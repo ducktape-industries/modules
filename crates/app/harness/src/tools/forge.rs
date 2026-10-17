@@ -54,10 +54,7 @@ fn spelled(revision: &Revision) -> String {
 }
 
 fn head_of(ctx: &ExecCtx, repo: &str) -> Result<Revision, Error> {
-    let asked = Query::Repo {
-        repo: repo.into(),
-        page: PageRequest::first(1),
-    };
+    let asked = Query::Repo { repo: repo.into() };
     match ask(ctx, asked)? {
         Reply::Repo { repo, .. } => Ok(Revision::Ref(repo.repo.settings.head)),
         other => Err(unexpected(forge::PROGRAM, "Repo", &other)),

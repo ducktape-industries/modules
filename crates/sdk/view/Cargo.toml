@@ -18,6 +18,7 @@ rig = [
     "dep:valset",
     "dep:programs",
     "dep:blobs",
+    "dep:access",
     "dep:commonware-cryptography",
     "dep:keyscheme",
     "dep:sha1",
@@ -44,6 +45,7 @@ identity = { workspace = true, optional = true }
 valset = { workspace = true, optional = true }
 programs = { workspace = true, optional = true }
 blobs = { workspace = true, optional = true }
+access = { workspace = true, optional = true }
 commonware-cryptography = { workspace = true, optional = true }
 keyscheme = { workspace = true, optional = true }
 sha1 = { version = "0.10", optional = true }

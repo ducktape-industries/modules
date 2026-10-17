@@ -196,12 +196,9 @@ fn a_key_writes_only_once_it_holds_an_account() {
         code::UNAUTHORIZED,
         "not a writer yet"
     );
-    rig.actor = TESTER.to_vec();
-    rig.execute(&Op::Grant {
-        repo: REPO.into(),
-        principal: Principal::Account(5),
-    })
-    .unwrap();
+    rig.sandbox
+        .list_writers(TESTER, REPO, &[Principal::Account(5)])
+        .unwrap();
     rig.actor = b"loose".to_vec();
     rig.execute(&close).unwrap();
     assert_eq!(record(&rig, n).0.closed_by, Some(Principal::Account(5)));
@@ -304,28 +301,4 @@ fn a_programs_account_is_neither_reviewer_nor_writer() {
         reviewers: Some(vec![chat.clone()]),
     };
     assert_eq!(rig.refused(&edit).code, code::INVALID_INPUT);
-    let grant = Op::Grant {
-        repo: REPO.into(),
-        principal: chat,
-    };
-    assert_eq!(rig.refused(&grant).code, code::INVALID_INPUT);
-}
-
-/// Nor is an account identity has none of, nor an agent that does not act:
-/// the profile of each says so, and only an active agent is asked.
-#[test]
-fn an_absent_account_and_an_idle_agent_are_neither_reviewer_nor_writer() {
-    use abi::role::identity::Standing;
-    let (mut rig, _) = story();
-    let grant = |number| Op::Grant {
-        repo: REPO.into(),
-        principal: Principal::Account(number),
-    };
-    assert_eq!(rig.refused(&grant(404)).code, code::INVALID_INPUT);
-    for (agent, standing) in [(31, Standing::Suspended), (32, Standing::Revoked)] {
-        rig.sandbox.agent(agent, standing);
-        assert_eq!(rig.refused(&grant(agent)).code, code::WRONG_STATE);
-    }
-    rig.sandbox.agent(33, Standing::Active);
-    rig.execute(&grant(33)).unwrap();
 }

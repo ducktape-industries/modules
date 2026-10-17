@@ -86,7 +86,8 @@ seating and unseating (the fixture's `seat`/`unseat`) change the answers.
 **programs**: `Query::At` and `Reply::Programs` are the program's at tag
 0, and `Query::Hooks` and `Reply::Hooks` at tag 5;
 `At` answers the founding programs as founded and no view, which the
-program lists apart (the fixture's `views`); held code scheduled for a
+program lists apart (the fixture's `views`); `Roles` answers the role table
+the founding's `Genesis.roles` names; held code scheduled for a
 height (the fixture's `hold`/`set`) runs from that height and not
 before, admitting a new program or swapping a running one's code; a
 program scheduled to stop (`remove`) runs until its height and not from

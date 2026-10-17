@@ -3,9 +3,9 @@
 use ::program::{Error, ExecCtx, Program, QueryCtx};
 
 use crate::rules::{
-    ACCOUNTS, MANAGED, OF_PROGRAM, account, add_key, create, create_agent, generation, of_key,
-    ownership, profiles, register_program, remove_key, resolve, resume, revoke, runs, set_name,
-    set_ownership, set_profile, set_script, suspend,
+    ACCOUNTS, MANAGED, OF_PROGRAM, account, add_key, create, create_agent, generation, needs,
+    of_key, profiles, register_program, remove_key, resolve, resource, resume, revoke, runs,
+    set_name, set_profile, set_script, suspend,
 };
 use crate::{Op, Query, Reply};
 
@@ -37,9 +37,20 @@ impl Program for Identity {
             Op::Suspend { account } => suspend(ctx, account),
             Op::Resume { account } => resume(ctx, account),
             Op::Revoke { account } => revoke(ctx, account),
-            Op::SetOwnership { account, ownership } => set_ownership(ctx, account, ownership),
+            Op::SetOwnership { .. } => Err(::program::unauthorized(
+                "whom an agent answers is its list in the access program: set it there",
+            )),
+            Op::Migrate => crate::migrate::migrate(ctx),
             Op::SetScript { account, script } => set_script(ctx, account, script),
         }
+    }
+
+    fn access(_: &QueryCtx, op: &Op) -> Result<Vec<::program::Need>, Error> {
+        Ok(needs(op))
+    }
+
+    fn resource(ctx: &QueryCtx, key: &str) -> Result<::program::Resource, Error> {
+        resource(ctx, key)
     }
 
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
@@ -67,7 +78,9 @@ impl Program for Identity {
                     .range_of(ctx, &by, &page)?
                     .try_map(|(_, number)| account(ctx, number))?,
             ),
-            Query::Ownership { number } => Reply::Ownership(ownership(ctx, number)?),
+            Query::Ownership { number } => {
+                Reply::Ownership(crate::migrate::ownership(ctx, number)?)
+            }
         })
     }
 }

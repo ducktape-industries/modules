@@ -1,6 +1,7 @@
 //! The programs role: which code runs at a height. [`run`] checks every
 //! rule below.
 
+use abi::Roles;
 use abi::role::programs::{Entry, Genesis, Query, Reply, View};
 use program::{BlobId, Error, MockHost, Program, ProgramId};
 
@@ -39,6 +40,7 @@ pub trait Fixture {
 pub fn run(fixture: &impl Fixture) {
     the_role_is_the_programs_bytes(fixture);
     genesis_programs_run_and_views_are_apart(fixture);
+    genesis_roles_are_answered(fixture);
     a_set_lands_at_its_height_and_not_before(fixture);
     a_remove_drops_at_its_height(fixture);
     a_hook_lands_at_its_height_and_goes_with_its_program(fixture);
@@ -63,7 +65,13 @@ fn lens() -> View {
     }
 }
 
-/// A host founded with programs `a` and `b` and the view `lens`.
+fn roles() -> Roles {
+    abi::role::REQUIRED
+        .iter()
+        .map(|role| (*role, "a"))
+        .collect()
+}
+
 fn founded<F: Fixture>() -> MockHost {
     let host = MockHost::default();
     let genesis = Genesis {
@@ -73,6 +81,7 @@ fn founded<F: Fixture>() -> MockHost {
         ],
         views: vec![lens()],
         hooks: vec!["a".into()],
+        roles: roles(),
     };
     init::<F::Program>(&host, &program(), &genesis);
     host
@@ -164,6 +173,18 @@ pub fn genesis_programs_run_and_views_are_apart<F: Fixture>(fixture: &F) {
         [lens()],
         "programs: the founding view is listed apart"
     );
+}
+
+pub fn genesis_roles_are_answered<F: Fixture>(_: &F) {
+    let host = founded::<F>();
+    match ask::<F::Program, Reply>(&host, &program(), 1, &Query::Roles) {
+        Ok(Reply::Roles(answered)) => assert_eq!(
+            answered,
+            roles(),
+            "programs: Roles answers the founding's table"
+        ),
+        other => panic!("programs: Roles answers Roles, not {other:?}"),
+    }
 }
 
 /// Held code scheduled for a height runs from that height, not

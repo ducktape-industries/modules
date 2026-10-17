@@ -172,14 +172,8 @@ fn a_new_text_file_from_its_sheet_carries_the_list_picked() {
     tap(&mut cx, "files/write/list/anyone");
     tap(&mut cx, "files/write/submit");
     assert!(cx.find("files/write").is_none());
-    let asked = files::Query::Ownership {
-        path: "/shared/open.md".into(),
-        at: None,
-    };
-    let Ok(files::Reply::Ownership(owned)) = net.query(files::PROGRAM, &asked) else {
-        panic!("files answers a path's ownership")
-    };
-    assert_eq!(owned.write, Some(files::Ownership::Anyone));
+    let (list, _) = list_at(&net, "/shared/open.md");
+    assert_eq!(list, Some(files::Ownership::Anyone));
 }
 
 #[test]

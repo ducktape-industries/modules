@@ -1,6 +1,7 @@
 //! Every read the screens make: the roster (the accounts whose script calls harness, what
 //! harness resolves for each, their threads, and how many member nodes serve each model's
-//! service and relay), one agent in full with who may change its configuration file, one thread's transcript with the reply its model is
+//! service and relay), one agent in full with who may change its configuration file and whom it
+//! answers, both read from access, one thread's transcript with the reply its model is
 //! streaming back, the model records, and the services the models form offers.
 use std::collections::HashMap;
 
@@ -9,6 +10,7 @@ use harness::{
     AgentSetup, Body, CallRow, Frame, ModelRow, Partial, ThreadRow, ToolInfo, Usage, WithheldFrame,
 };
 use identity::{Category, Kind, Ownership, PageRequest};
+use program::Writers;
 use view::prelude::*;
 
 fn page(after: Option<Vec<u8>>) -> PageRequest {
@@ -183,7 +185,7 @@ pub(crate) struct Detail {
     /// `None` once no script hands the account to harness
     pub setup: Option<AgentSetup>,
     pub ownership: Ownership,
-    pub config_writers: Option<files::Writers>,
+    pub config_writers: Option<Writers>,
     /// newest first, each with what its turns used
     pub threads: Vec<(ThreadRow, Usage)>,
     pub tools: Vec<ToolInfo>,
@@ -192,16 +194,19 @@ pub(crate) struct Detail {
 pub(crate) async fn detail(host: Host, agent: u64) -> Result<Detail, Error> {
     let setup = setup(&host, agent).await?;
     let ownership = host
-        .query(identity::ask::Ownership { number: agent })
-        .await?;
+        .query(access::ask::List {
+            program: harness::PROGRAM.to_owned(),
+            key: harness::agent_key(agent),
+        })
+        .await?
+        .unwrap_or(Ownership::Owner);
     let config_writers = match &setup {
         Some(setup) => Some(
-            host.query(files::ask::Ownership {
-                path: setup.path.clone(),
-                at: None,
+            host.query(access::ask::Writers {
+                program: files::PROGRAM.to_owned(),
+                key: setup.path.clone(),
             })
-            .await?
-            .writers,
+            .await?,
         ),
         None => None,
     };

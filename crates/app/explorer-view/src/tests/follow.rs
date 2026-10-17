@@ -89,6 +89,10 @@ fn programs_swapping(program: &str, at: u64) -> (program::MockHost, BlobId, Blob
         programs: vec![entry(running)],
         views: Vec::new(),
         hooks: Vec::new(),
+        roles: abi::role::REQUIRED
+            .iter()
+            .map(|role| (*role, program))
+            .collect(),
     };
     Programs::init(
         &store.exec(programs_env(0, Origin::Root)),

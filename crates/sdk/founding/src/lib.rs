@@ -41,6 +41,7 @@ pub const UNVIEWED: &[&str] = &[
     "awaits",
     "halo",
     "scheduler",
+    "access",
     "activity",
     "egress",
     "attribution",

@@ -27,4 +27,5 @@ store = { workspace = true }
 unicode-normalization = { workspace = true }
 
 [dev-dependencies]
+access = { workspace = true }
 store = { workspace = true }

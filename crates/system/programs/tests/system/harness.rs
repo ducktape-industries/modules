@@ -163,18 +163,21 @@ fn model_reply(content: Value, stop: &str) -> Vec<u8> {
 }
 
 async fn configured(net: &mut Net, config: &harness::Config) -> Vec<files::Change> {
-    vec![
-        files::Change::Put {
-            path: CONFIG.into(),
-            exec: false,
-            meta: Default::default(),
-            content: net.chunks(config.write().as_bytes()).await,
-        },
-        files::Change::SetOwnership {
-            path: CONFIG.into(),
-            write: Some(files::Ownership::Owner),
-        },
-    ]
+    vec![files::Change::Put {
+        path: CONFIG.into(),
+        exec: false,
+        meta: Default::default(),
+        content: net.chunks(config.write().as_bytes()).await,
+    }]
+}
+
+async fn kept(net: &mut Net, key: &[u8]) {
+    let owner_only = access::Op::Set {
+        program: files::PROGRAM.into(),
+        key: CONFIG.into(),
+        list: Some(files::Ownership::Owner),
+    };
+    net.apply(key, access::PROGRAM, &owner_only).await;
 }
 
 struct Scout {
@@ -222,6 +225,7 @@ async fn mentioned(net: &mut Net) -> Scout {
     };
     let snapshot: BlobId =
         abi::decode(&net.apply(&public(ADA), files::PROGRAM, &commit).await).unwrap();
+    kept(net, &public(ADA)).await;
     let script = identity::Op::SetScript {
         account: agent,
         script: Some(identity::Script {
@@ -310,19 +314,20 @@ fn an_agents_configuration_is_its_managers_to_change_whoever_takes_the_managers_
                 .await,
         )
         .unwrap();
-        let asked = files::Query::Ownership {
-            path: CONFIG.into(),
-            at: None,
+        kept(&mut net, &public(ADA)).await;
+        let asked = access::Query::Writers {
+            program: files::PROGRAM.into(),
+            key: CONFIG.into(),
         };
-        let files::Reply::Ownership(owned) = net.ask(files::PROGRAM, &asked).await else {
+        let access::Reply::Writers(writers) = net.ask(access::PROGRAM, &asked).await else {
             panic!()
         };
         assert_eq!(
-            owned.writers,
-            files::Writers::Listed {
-                path: CONFIG.into(),
-                creator: Some(ada),
-                write: files::Ownership::Owner,
+            writers,
+            ::program::Writers::Listed {
+                at: CONFIG.into(),
+                owner: Some(files::Party::Account(ada)),
+                list: files::Ownership::Owner,
             }
         );
 
@@ -604,11 +609,12 @@ fn a_streamed_post_shows_as_it_arrives_and_a_mention_in_it_is_heard_once_it_is_w
             }),
         };
         net.apply(&public(ADA), identity::PROGRAM, &script).await;
-        let anyone = identity::Op::SetOwnership {
-            account: echo,
-            ownership: identity::Ownership::Anyone,
+        let anyone = access::Op::Set {
+            program: harness::PROGRAM.into(),
+            key: harness::agent_key(echo),
+            list: Some(identity::Ownership::Anyone),
         };
-        net.apply(&public(ADA), identity::PROGRAM, &anyone).await;
+        net.apply(&public(ADA), access::PROGRAM, &anyone).await;
 
         let piece = |json: String| {
             json!({

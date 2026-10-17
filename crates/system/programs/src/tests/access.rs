@@ -34,16 +34,16 @@ fn seated() -> (MockHost, BlobId) {
     let store = MockHost::default();
     crate::rules::init(
         &store.exec(env(0, Origin::Root)),
-        Genesis {
-            programs: ["chat", "forge", "activity"]
+        genesis(
+            ["chat", "forge", "activity"]
                 .map(|program| entry(program, BlobId::Sha256([1; 32])))
                 .into(),
-            views: vec![View {
+            vec![View {
                 name: "lens".into(),
                 view: BlobId::Sha256([2; 32]),
             }],
-            hooks: vec!["activity".into()],
-        },
+            vec!["activity".into()],
+        ),
     );
     let blobs = blobs_role(&store);
     store.identity(vec![
