@@ -1,15 +1,61 @@
 //! A borsh value in a view's serde snapshot, as its bytes:
 //! `#[serde(with = "view::borsh_bytes")]` on a field whose
 //! type is a program's (borsh-only) type, kept as it came.
+//!
+//! The bytes go as one byte string (`serialize_bytes`), never as a `Vec<u8>`:
+//! serde writes a `Vec<u8>` as a sequence of numbers, one call a byte, and a
+//! phone snapshots its views every second (a megabyte of program params cost
+//! the explorer 60 fuel a byte, past the whole tick on garage).
+use std::fmt;
+use std::marker::PhantomData;
+
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::de::{self, Visitor};
+use serde::{Deserializer, Serializer};
 
 pub fn serialize<T: BorshSerialize, S: Serializer>(value: &T, s: S) -> Result<S::Ok, S::Error> {
     let bytes = borsh::to_vec(value).map_err(serde::ser::Error::custom)?;
-    Serialize::serialize(&bytes, s)
+    s.serialize_bytes(&bytes)
 }
 
 pub fn deserialize<'de, T: BorshDeserialize, D: Deserializer<'de>>(d: D) -> Result<T, D::Error> {
-    let bytes = <Vec<u8> as Deserialize>::deserialize(d)?;
-    borsh::from_slice(&bytes).map_err(serde::de::Error::custom)
+    d.deserialize_bytes(Borsh(PhantomData))
+}
+
+struct Borsh<T>(PhantomData<T>);
+
+impl<T: BorshDeserialize> Visitor<'_> for Borsh<T> {
+    type Value = T;
+
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("a borsh value's bytes")
+    }
+
+    fn visit_bytes<E: de::Error>(self, bytes: &[u8]) -> Result<T, E> {
+        borsh::from_slice(bytes).map_err(E::custom)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct Kept {
+        #[serde(with = "super")]
+        params: Vec<u8>,
+    }
+
+    /// A borsh value is one byte string in a snapshot: its size is its own
+    /// bytes, not a number a byte (two bytes each past 127), and it reads
+    /// back as it was.
+    #[test]
+    fn a_borsh_value_is_kept_as_one_byte_string() {
+        let kept = Kept {
+            params: vec![0xff; 1 << 16],
+        };
+        let bytes = crate::wire::try_encode(&kept).unwrap();
+        assert!(bytes.len() < (1 << 16) + 32, "{} bytes", bytes.len());
+        assert_eq!(crate::wire::decode::<Kept>(&bytes).unwrap(), kept);
+    }
 }
