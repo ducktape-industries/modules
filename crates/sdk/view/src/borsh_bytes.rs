@@ -2,10 +2,9 @@
 //! `#[serde(with = "view::borsh_bytes")]` on a field whose
 //! type is a program's (borsh-only) type, kept as it came.
 //!
-//! The bytes go as one byte string (`serialize_bytes`), never as a `Vec<u8>`:
-//! serde writes a `Vec<u8>` as a sequence of numbers, one call a byte, and a
-//! phone snapshots its views every second (a megabyte of program params cost
-//! the explorer 60 fuel a byte, past the whole tick on garage).
+//! The bytes go as one byte string (`serialize_bytes`): one call, their own
+//! length. A `Vec<u8>` would go as serde writes any sequence, one call a byte
+//! and up to two bytes each, and a phone snapshots its views every second.
 use std::fmt;
 use std::marker::PhantomData;
 
