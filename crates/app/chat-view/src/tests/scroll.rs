@@ -586,6 +586,28 @@ fn an_older_page_of_replies_keeps_the_rows_the_reader_is_on() {
     assert_eq!(seqs(&view), (421, 600, 180), "a page above, the rest kept");
 }
 
+/// Older pages that let go of the window's newer end, after a newer read
+/// that kept roots out: the next newer page reads from the window's end
+/// again, so the roots let go come back.
+#[test]
+fn older_pages_that_trim_the_newer_end_read_it_again() {
+    let (mut cx, view) = threaded_room(700, |seq| (301..=600).contains(&seq).then_some(300));
+    read_to_the_foot(&mut cx, 280);
+    view.read(|chat| assert!(chat.room.as_ref().unwrap().landed));
+    for _ in 0..3 {
+        cx.simulate_range("chat-message-list", 0..10);
+    }
+    assert!(seqs(&view).1 < 300, "the newer end let go");
+    let wire::Node::List { item_count, .. } = timeline(&cx) else {
+        unreachable!()
+    };
+    cx.simulate_range("chat-message-list", item_count - 10..item_count);
+    view.read(|chat| {
+        let rows = chat.room.as_ref().unwrap().messages.ready().unwrap();
+        assert!(rows.iter().any(|row| row.seq == 300), "root 300 read again");
+    });
+}
+
 /// A block lands, then a link to the room's newest message (a reply) opens
 /// the room: the re-read of the room's tail the block set off is not the
 /// landed window's, and the window around the message holds the head, so

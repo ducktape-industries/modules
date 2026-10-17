@@ -739,7 +739,12 @@ impl Room {
                 let Some(first) = rows.first().map(|row| row.seq) else {
                     return;
                 };
+                let held = rows.len();
                 rows.retain(|row| row.seq - first < SPAN as u64);
+                // the newer end let go: newer pages read it again
+                if rows.len() < held {
+                    self.read_to = 0;
+                }
             }
             Side::Newer => {
                 rows.extend(page);
