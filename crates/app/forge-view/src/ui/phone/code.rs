@@ -70,7 +70,7 @@ pub(super) fn missing(
 
 /// A path a link named while its folder's tree is read: a file's head
 /// over the read, as Expo's `code/[...path].tsx` shows before it knows
-/// the entry.
+/// the entry ("Resolving the ref…" before the ref names a tree to read).
 pub(super) fn landing(
     forge: &Forge,
     nav: Nav,
@@ -80,17 +80,26 @@ pub(super) fn landing(
 ) -> AnyElement {
     let path = forge.nav().goto.clone().unwrap_or_default();
     let dir = forge.nav().folder.clone().unwrap_or_default();
-    let reading = forge.tree_query(dir).and_then(|tree| {
-        let read = parts::stage(
+    let reading = match forge.tree_query(dir) {
+        Some(tree) => parts::stage(
             forge,
             &tree,
             "forge-landing",
             words::READING_TREE,
             cx,
             (ladder, theme),
-        );
-        read.err()
-    });
+        )
+        .err(),
+        None => Some(
+            parts::quiet(
+                id("forge-landing-resolving"),
+                words::RESOLVING_REF,
+                ladder,
+                theme,
+            )
+            .into_any_element(),
+        ),
+    };
     file_page(
         "forge-page-landing",
         &path_text(&path),

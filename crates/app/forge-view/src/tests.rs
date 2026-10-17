@@ -2330,8 +2330,19 @@ fn a_forge_link_opens_its_repository() {
             (Some("project"), Some(1))
         )
     });
-    // a route forge does not read falls back to the list
-    routes.send("project/extra".into());
+    // a file's Copy link links here as `<repo>/<path…>`: that path in
+    // the Code tab
+    routes.send("project/src/lib.rs".into());
+    cx.run_until_parked();
+    view.read(|forge| {
+        let open = forge.nav().blob.as_ref().map(|(path, _)| path.clone());
+        assert_eq!(
+            (forge.nav().tab, open),
+            (RepoTab::Code, Some(b"src/lib.rs".to_vec()))
+        )
+    });
+    // a link to forge itself, no repository named: the list
+    routes.send(String::new());
     cx.run_until_parked();
     view.read(|forge| assert!(forge.nav().repo.is_none()));
 }
