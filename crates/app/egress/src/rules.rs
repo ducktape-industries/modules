@@ -307,30 +307,36 @@ pub(crate) async fn answer(ctx: &Ctx, id: u64, answer: Answer) -> Result<(), Err
     close(ctx, stored, answered)
 }
 
-/// One event of an events request, handed to its requester as `deliver` followed by the
-/// encoded event, its own op; a refusal there refuses this frame, which moves nothing, and the
-/// node goes on to the next. The request's expiry moves `wait` blocks past this block.
-///
 /// `seq` is passed through as the node sent it, never checked: it counts from 0 per call the
 /// node makes, so a repeated `seq` is a repeat (a frame sent again beside the one already
 /// relayed) and a `seq` back at 0 is the node calling the service again after a restart, which
 /// voids what came before. Only the requester can act on either; a check here would hide them
 /// (a strict next-`seq` wedges the stream after one refused event, a rising one splices a
 /// restarted call onto the old one's prefix).
-pub(crate) async fn event(ctx: &Ctx, event: Event) -> Result<(), Error> {
-    let mut stored = from_its_node(ctx, event.id)?;
-    let deliver = streamed(&stored)?.to_vec();
-    let expires = expiry_height(ctx.env().height, stored.wait)?;
-    ctx.cancel(stored.row.expiry).await?;
-    stored.row.expiry = ctx
-        .schedule(expires, PROGRAM, &Op::Expire { id: event.id })
-        .await?;
-    ctx.emit_raw(
-        stored.row.requester.clone(),
-        event.payload(&deliver),
-        ::program::Reply::None,
-    );
-    REQUESTS.put(ctx, &event.id, &stored);
+pub(crate) async fn events(ctx: &Ctx, events: Vec<Event>) -> Result<(), Error> {
+    if events.is_empty() {
+        return Err(invalid("an Events op carries at least one event"));
+    }
+    let mut events = events.into_iter().peekable();
+    while let Some(first) = events.next() {
+        let id = first.id;
+        let mut stored = from_its_node(ctx, id)?;
+        let deliver = streamed(&stored)?.to_vec();
+        let expires = expiry_height(ctx.env().height, stored.wait)?;
+        ctx.cancel(stored.row.expiry).await?;
+        stored.row.expiry = ctx.schedule(expires, PROGRAM, &Op::Expire { id }).await?;
+        let same_request = std::iter::once(first).chain(std::iter::from_fn(|| {
+            events.next_if(|event| event.id == id)
+        }));
+        for event in same_request {
+            ctx.emit_raw(
+                stored.row.requester.clone(),
+                event.payload(&deliver),
+                ::program::Reply::None,
+            );
+        }
+        REQUESTS.put(ctx, &id, &stored);
+    }
     Ok(())
 }
 
