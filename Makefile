@@ -76,6 +76,9 @@ RUSTC_COMMIT := $(shell rustc -vV | sed -n 's/^commit-hash: //p')
 WASM_RUSTFLAGS := --remap-path-prefix=$(CURDIR)=/build --remap-path-prefix=$(CARGO_HOME_DIR)=/cargo --remap-path-prefix=$(SYSROOT)=/rustc --remap-path-prefix=$(SYSROOT)/lib/rustlib/src/rust=/rustc/$(RUSTC_COMMIT)
 WASM_CARGO := RUSTFLAGS="$(WASM_RUSTFLAGS)" $(CARGO) build --target wasm32-unknown-unknown
 WASM_BUILD = $(WASM_CARGO) --profile $(WASM_PROFILE)
+# The view gate: wasm-opt, then the ABI check; `--fast` skips wasm-opt for
+# any profile but release (tools/view-gate.sh).
+VIEW_GATE = tools/view-gate.sh $(if $(filter release,$(WASM_PROFILE)),,--fast)
 
 # A workspace member with a cdylib crate type gets no metadata hash in its
 # output name, so `chat` built with `program` (the program, a root) and `chat`
@@ -209,7 +212,7 @@ probe-fixture:
 ## before wasm-opt stay beside it as <name>.wasm.unoptimized; a fast build
 ## is not optimized), ABI-checked and its size printed: `name  bytes`.
 wasm-views:
-	@$(foreach v,$(VIEWS),$(WASM_BUILD) --target-dir $(BUILD_TARGET) -p $(v) && tools/view-gate.sh $(v) $(WASM_OUT)/$(subst -,_,$(v)).wasm || exit 1;)
+	@$(foreach v,$(VIEWS),$(WASM_BUILD) --target-dir $(BUILD_TARGET) -p $(v) && $(VIEW_GATE) $(v) $(WASM_OUT)/$(subst -,_,$(v)).wasm || exit 1;)
 
 # Each notifier builds in a target dir of its own, for the reason
 # `PROGRAM_TARGET` gives: the view crate with `notifier` on is another unit.
@@ -221,7 +224,7 @@ notifier_artifact = $(call NOTIFY_TARGET,$1)/wasm32-unknown-unknown/$(WASM_PROFI
 ## a view is, ABI-checked (alloc/init/tick) and its size printed.
 wasm-notifiers:
 	@mkdir -p $(WASM_OUT)
-	@$(foreach v,$(NOTIFIERS),$(call notifier_build,$(v)) && cp $(call notifier_artifact,$(v)) $(WASM_OUT)/$(subst -,_,$(v)).notify.wasm && tools/view-gate.sh $(v).notify $(WASM_OUT)/$(subst -,_,$(v)).notify.wasm notifier || exit 1;)
+	@$(foreach v,$(NOTIFIERS),$(call notifier_build,$(v)) && cp $(call notifier_artifact,$(v)) $(WASM_OUT)/$(subst -,_,$(v)).notify.wasm && $(VIEW_GATE) $(v).notify $(WASM_OUT)/$(subst -,_,$(v)).notify.wasm notifier || exit 1;)
 
 ## builds every VIEW_LINKABLE crate for wasm32-unknown-unknown, plus the
 ## exported view probe of view, the example view and every notifier, then fails

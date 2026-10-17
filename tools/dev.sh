@@ -18,6 +18,9 @@ rebuilt() {
     grep -q '"reason":"compiler-artifact","package_id":"path+file://[^"]*/'"$1"'#[^"]*".*"fresh":false' "$log"
 }
 artifact() { echo "$WASM_OUT/$(echo "$1" | tr - _).wasm"; }
+# The gate optimizes release bytes and leaves fast ones as cargo wrote them.
+fast=
+[ "$WASM_PROFILE" = release ] || fast=yes
 commas() {
     echo "$1" | awk '{ s = $1; r = ""; while (length(s) > 3) { r = "," substr(s, length(s) - 2) r; s = substr(s, 1, length(s) - 3) } print s r }'
 }
@@ -58,11 +61,11 @@ for v in $views; do
     eval "$WASM_BUILD" --target-dir "$BUILD_TARGET" -p "$v" --message-format=json-render-diagnostics > "$log"
     # Fresh, and for release bytes the artifact is the optimized one a
     # finished gate left (the gate leaves fast bytes as cargo wrote them).
-    if ! rebuilt "$v" && { [ "$WASM_PROFILE" != release ] || cmp -s "$a" "$a.optimized"; }; then
+    if ! rebuilt "$v" && { [ -n "$fast" ] || cmp -s "$a" "$a.optimized"; }; then
         echo "$v  unchanged"
         continue
     fi
-    if ! "$here/view-gate.sh" "$v" "$a" > "$log" 2>&1; then
+    if ! "$here/view-gate.sh" ${fast:+--fast} "$v" "$a" > "$log" 2>&1; then
         cat "$log"
         exit 1
     fi
