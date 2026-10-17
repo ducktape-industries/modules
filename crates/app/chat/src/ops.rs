@@ -4,6 +4,7 @@
 use ::program::{Error, ExecCtx, Origin, already_exists, invalid, unauthorized, wrong_state};
 
 use crate::attributed::report;
+use crate::mentions::resolve_typed;
 use crate::rules;
 use crate::state::{
     ANSWERED, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS, REPLIES, ROOTS, channel,
@@ -152,6 +153,7 @@ pub(crate) fn post(
     if MESSAGE_IDS.has(ctx, &message_id) {
         return Err(already_exists(format!("message {message_id} exists")));
     }
+    let blocks = resolve_typed(ctx, blocks)?;
     let seq = HEADS.get(ctx, &channel_id)?.unwrap_or(0) + 1;
     let row = MsgRow {
         channel_id: channel_id.clone(),
@@ -217,6 +219,7 @@ pub(crate) fn edit(
     rules::writable(ctx, &channel(ctx, channel_id)?, sender)?;
     let old = message(ctx, channel_id, seq)?;
     rules::editable(&old, sender)?;
+    let blocks = resolve_typed(ctx, blocks)?;
     let row = MsgRow {
         text: plain_text(&blocks),
         tags: tags(&blocks),

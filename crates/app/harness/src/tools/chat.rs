@@ -217,7 +217,7 @@ pub(crate) struct Post;
 
 impl Tool for Post {
     const NAME: &'static str = "chat_post";
-    const DESCRIPTION: &'static str = "Post a message to a chat channel, or a reply in a message's thread. Markdown works; `<@N>` mentions account N. The message is yours, and chat allows it where it allows your account.";
+    const DESCRIPTION: &'static str = "Post a message to a chat channel, or a reply in a message's thread. Markdown works; `<@N>` mentions account N, and `@name` mentions the one account named so. The message is yours, and chat allows it where it allows your account.";
     const WRITES: bool = true;
     type Args = PostArgs;
 

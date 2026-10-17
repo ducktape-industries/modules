@@ -162,7 +162,7 @@ impl Names {
 }
 
 /// A user picks a user or a program account that acts.
-fn picks(kind: &Kind) -> bool {
+pub(crate) fn picks(kind: &Kind) -> bool {
     match kind {
         Kind::User => true,
         Kind::Program { standing, .. } => *standing == Standing::Active,

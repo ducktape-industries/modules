@@ -14,6 +14,8 @@
 //! - `origin.rs`: the identity role's roster
 //! - `queries.rs`: one short function per question
 //! - `text.rs`: what search and tags read out of a message
+//! - `mentions.rs`: a typed `@name` made the mention of the one account
+//!   that holds the name, as a message is posted or edited
 //! - `view.rs`: the reads a view makes of chat, folded into [`view::Names`]
 //! - `description.rs`: [`describe()`], an op in a person's words
 //!
@@ -22,6 +24,7 @@
 //! its wasm exports.
 pub mod attributed;
 mod description;
+mod mentions;
 pub mod message;
 mod ops;
 mod origin;

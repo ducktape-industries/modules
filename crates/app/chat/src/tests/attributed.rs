@@ -97,15 +97,19 @@ fn direct() -> Reason {
     Reason::Defined(DIRECT.into())
 }
 
-#[test]
-fn chat_reports_each_messages_mentions_and_a_direct_messages_counterpart() {
-    let chain = chain();
+fn open_general(chain: &MockChain) {
     let create = crate::Op::CreateChannel {
         channel_id: "general".into(),
         name: "general".into(),
         post_policy: crate::PostPolicy::Open,
     };
     chain.submit(signed(ADA), crate::PROGRAM, &create).unwrap();
+}
+
+#[test]
+fn chat_reports_each_messages_mentions_and_a_direct_messages_counterpart() {
+    let chain = chain();
+    open_general(&chain);
     post(&chain, ADA, "general", "plain", "no one in particular");
     assert_eq!(relations(&chain, chat_source("plain")), None);
 
@@ -161,6 +165,24 @@ fn chat_reports_each_messages_mentions_and_a_direct_messages_counterpart() {
     let Change { actor, cause, .. } = changes(&chain, asked).remove(0);
     assert_eq!(actor, Actor::Account(2));
     assert!(matches!(cause, Cause::Message(_)));
+}
+
+#[test]
+fn a_typed_name_reaches_attribution_as_a_picked_mention_does() {
+    let chain = chain();
+    open_general(&chain);
+    post(&chain, ADA, "general", "typed", "thanks @bo.");
+    assert_eq!(held(&chain, chat_source("typed")), [(2, Reason::Mention)]);
+    post(&chain, ADA, "general", "unknown", "thanks @nobody");
+    assert_eq!(relations(&chain, chat_source("unknown")), None);
+    let edit = crate::Op::EditMessage {
+        channel_id: "general".into(),
+        seq: 2,
+        blocks: crate::parse_message("thanks @Ada and @bo"),
+        base_rev: Some(0),
+    };
+    chain.submit(signed(ADA), crate::PROGRAM, &edit).unwrap();
+    assert_eq!(held(&chain, chat_source("unknown")), [(2, Reason::Mention)]);
 }
 
 #[test]
