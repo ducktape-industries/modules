@@ -5,10 +5,11 @@
 use std::ops::Range;
 
 use view::prelude::*;
-use view::{Div, FontWeight, Stateful};
+use view::{Div, FontWeight, Paged, Stateful};
 
 use crate::chain::{Line, lines};
 use crate::decode::{ago, date, grouped, plural, short};
+use crate::state::landed;
 use crate::words::{self, unindexed};
 use crate::{BlockRow, Cx, Explorer, Route, TxRow};
 use design::{empty_state, mono};
@@ -310,6 +311,9 @@ struct Rows {
     routes: Vec<Route>,
     children: Vec<AnyElement>,
     paint: Option<Painter>,
+    /// the line a painted list ends with while its listing reads on
+    /// ([`Rows::more`])
+    more: Option<&'static str>,
 }
 
 /// Paints a range of a list's rows, each a [`row`], off the view they are
@@ -329,6 +333,7 @@ fn rows(id: &'static str, label: &'static str, view: &Explorer) -> Rows {
         routes: Vec::new(),
         children: Vec::new(),
         paint: None,
+        more: None,
     }
 }
 
@@ -361,6 +366,13 @@ impl Rows {
         self.paint = Some(Box::new(paint));
         self
     }
+    /// The line the painted rows end with, a row of their height that is
+    /// no option: the listing goes on past them. The painter is asked for
+    /// its index too, which is how it hears the list reached its end.
+    fn more(mut self, line: Option<&'static str>) -> Self {
+        self.more = line;
+        self
+    }
     /// The painted rows built now, drawn whole: for a list in a page that
     /// scrolls (the Overview's panels, a block's transactions, an account's
     /// activity), which is laid out by its rows; a list sized by its box
@@ -386,6 +398,7 @@ impl Rows {
             routes,
             children,
             paint,
+            more,
         } = self;
         let count = routes.len();
         let active = active.min(count.saturating_sub(1));
@@ -413,13 +426,29 @@ impl Rows {
         let theme = *cx.global::<Theme>();
         let window = uniform_list(
             SharedString::from(format!("{id}-rows")),
-            count,
+            count + usize::from(more.is_some()),
             cx.processor(move |view: &mut Explorer, range: Range<usize>, _, cx| {
-                paint(view, range.clone(), cx, &theme)
+                let mut rows: Vec<AnyElement> = paint(view, range.clone(), cx, &theme)
                     .into_iter()
-                    .zip(range)
+                    .zip(range.clone())
                     .map(|(row, index)| option(row, index == active, &theme))
-                    .collect::<Vec<_>>()
+                    .collect();
+                if let Some(line) = more.filter(|_| range.end > count) {
+                    rows.push(
+                        div()
+                            .id(SharedString::from(format!("{id}-more")))
+                            .h(ROW_H)
+                            .px_5()
+                            .flex()
+                            .items_center()
+                            .border_b_1()
+                            .border_color(theme.border)
+                            .text_color(theme.faint)
+                            .child(line)
+                            .into_any_element(),
+                    );
+                }
+                rows
             }),
         )
         .track_scroll(&scroll)
@@ -579,21 +608,42 @@ fn tx_route(tx: &TxRow) -> Route {
     }
 }
 
+/// The frames `select` picks of those `listing` holds, in order, as a
+/// [`Rows`] list. A list painted past them (its [`Rows::more`] line) reads
+/// the listing's next page, and the next while that line stays in view:
+/// until the rows fill the list or the listing ends.
 fn frame_rows(
     list: Rows,
-    view: &Explorer,
-    select: impl Fn(&Explorer) -> Vec<&activity::Frame> + 'static,
+    listing: &Entity<Paged<activity::Frame>>,
+    select: impl Fn(&[activity::Frame]) -> Vec<&activity::Frame> + 'static,
 ) -> Rows {
-    let routes = select(view)
-        .iter()
-        .map(|frame| frame_route(frame))
-        .collect();
+    let routes = listing.read(|listing| {
+        let picked = select(listing.rows());
+        picked.into_iter().map(frame_route).collect()
+    });
+    let listing = listing.clone();
     list.shown(routes, move |view, range, cx, theme| {
-        let frames = select(view);
-        range
-            .map(|index| frame_row(view, frames[index], cx, theme))
-            .collect()
+        let (rows, picked) = listing.read(|listing| {
+            let picked = select(listing.rows());
+            let rows = picked.get(range.start..range.end.min(picked.len()));
+            let rows = rows.unwrap_or_default().iter();
+            let rows = rows
+                .map(|frame| frame_row(view, frame, cx, theme))
+                .collect();
+            (rows, picked.len())
+        });
+        if range.end > picked {
+            listing.update(cx, read_older);
+        }
+        rows
     })
+}
+
+/// The listing's next page, if it goes on: asked as the page past the
+/// rows held, which [`Paged::show`] reads once.
+fn read_older(listing: &mut Paged<activity::Frame>, cx: &mut Context<Paged<activity::Frame>>) {
+    let held = listing.rows().len();
+    listing.show(held..held + 1, cx);
 }
 
 fn frame_route(frame: &activity::Frame) -> Route {

@@ -67,6 +67,7 @@ impl Explorer {
         let top = self.pages.top();
         self.left[top.tab()] = Some(top.clone());
         self.read_page(cx);
+        self.start_over(cx);
         self.read_acted(cx);
         self.note = None;
         self.cursor = None;

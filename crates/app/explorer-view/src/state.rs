@@ -1,6 +1,7 @@
 //! The state Explorer keeps: where it is, and what it read. Rows are the
 //! programs' own types, worded only when drawn (`ui/`).
 use serde::{Deserialize, Serialize};
+use view::Paged;
 use view::borsh_bytes;
 use view::design::Pages;
 use view::methods::CarriedView;
@@ -114,6 +115,21 @@ pub(crate) fn hash_of(text: &str) -> Option<[u8; 32]> {
     abi::unhex(text)?.try_into().ok()
 }
 
+/// A listing of activity's frames once its first page has landed; until
+/// then its refusal, or `None` while it is on its way.
+pub(crate) fn landed(
+    listing: Option<&Entity<Paged<activity::Frame>>>,
+) -> Result<&Entity<Paged<activity::Frame>>, Option<Error>> {
+    let listing = listing.ok_or(None)?;
+    if let Some(refusal) = listing.read(|listing| listing.failed().cloned()) {
+        return Err(Some(refusal));
+    }
+    if listing.read(Paged::is_loading) {
+        return Err(None);
+    }
+    Ok(listing)
+}
+
 /// Every account identity lists, as identity answers them.
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Accounts {
@@ -125,19 +141,6 @@ pub struct Accounts {
 pub struct Used {
     #[serde(with = "borsh_bytes")]
     pub list: Vec<activity::Used>,
-}
-
-#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct Frames {
-    #[serde(with = "borsh_bytes")]
-    pub list: Vec<activity::Frame>,
-}
-
-#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct Acted {
-    pub account: u64,
-    #[serde(with = "borsh_bytes")]
-    pub frames: Vec<activity::Frame>,
 }
 
 /// What the programs role runs, lists and will change, and who may change it,
@@ -219,8 +222,14 @@ pub struct Explorer {
     pub(crate) validators: Loadable<Vec<Vec<u8>>>,
     pub(crate) network: Loadable<Network>,
     pub(crate) used: Loadable<Used>,
-    pub(crate) frames: Loadable<Frames>,
-    pub(crate) acted: Loadable<Acted>,
+    /// every transaction, newest first, a page at a time (`read_frames`):
+    /// read again on a restore, so a snapshot carries no frame
+    #[serde(skip)]
+    pub(crate) frames: Option<Entity<Paged<activity::Frame>>>,
+    /// what the account page on screen did, newest first, a page at a
+    /// time (`read_acted`), and whose it is
+    #[serde(skip)]
+    pub(crate) acted: Option<(u64, Entity<Paged<activity::Frame>>)>,
     /// a block opened outside the window
     pub(crate) opened: Loadable<Option<(BlockRow, Vec<TxRow>)>>,
     /// what the code of the program page on screen declares (`blob.manifest`),
@@ -235,9 +244,9 @@ pub struct Explorer {
     /// newest frames, read by their place (`read_rows`)
     #[serde(skip)]
     pub(crate) acted_rows: Loadable<Vec<TxRow>>,
-    /// the account and the count of frames `acted_rows` was read for
+    /// the account and the places of the frames `acted_rows` was read for
     #[serde(skip)]
-    pub(crate) rows_of: Option<(u64, usize)>,
+    pub(crate) rows_of: Option<(u64, Vec<(u64, u32)>)>,
     /// a `chain.blocks` page is in flight
     #[serde(skip)]
     pub(crate) pulling: bool,
@@ -432,12 +441,6 @@ impl Explorer {
         })
     }
 
-    pub(crate) fn frame_list(&self) -> &[activity::Frame] {
-        self.frames
-            .ready()
-            .map_or(&[][..], |frames| frames.list.as_slice())
-    }
-
     pub(crate) fn used_by(&self, number: u64) -> Option<Vec<&activity::Used>> {
         let used = self.used.ready()?;
         Some(
@@ -471,10 +474,21 @@ impl Explorer {
         self.chain.txs.iter().filter(|tx| tx.target == name).count() as u64
     }
 
-    pub(crate) fn acted(&self, number: u64) -> Option<&[activity::Frame]> {
-        let acted = self.acted.ready()?;
-        let this_account = acted.account == number;
-        this_account.then_some(acted.frames.as_slice())
+    /// What account `number` did, as far as it is read; `None` while no
+    /// page of it is asked.
+    pub(crate) fn acted(&self, number: u64) -> Option<&Entity<Paged<activity::Frame>>> {
+        let (account, acted) = self.acted.as_ref()?;
+        (*account == number).then_some(acted)
+    }
+
+    /// When account `number` last signed with `key`, among the frames of it
+    /// read: its newest page, or as far as its page was read on. A key
+    /// last used further back reads as not used lately.
+    pub(crate) fn last_signed(&self, number: u64, key: &[u8]) -> Option<u64> {
+        self.acted(number)?.read(|acted| {
+            let frame = acted.rows().iter().find(|frame| frame.signer == key);
+            frame.map(|frame| frame.time)
+        })
     }
 
     /// Whether the programs role runs `program`.

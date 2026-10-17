@@ -75,24 +75,39 @@ fn account_row(view: &Explorer, account: &Account, cx: Cx, theme: &Theme) -> Sta
     )
 }
 
+/// Its newest activity, a page at a time: the rows read so far, drawn in
+/// the page that scrolls, and a press that reads the page past them.
 fn acted(view: &Explorer, number: u64, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
-    let Some(acted) = view.acted(number) else {
-        return match &view.acted {
-            Loadable::Failed(refusal) => failed(&design::sentence(refusal), cx, theme, ladder),
-            _ => quiet("explorer-activity-loading", words::READING_ACTIVITY, theme),
-        };
+    let acted = match landed(view.acted(number)) {
+        Ok(acted) => acted,
+        Err(Some(refusal)) => return failed(&design::sentence(&refusal), cx, theme, ladder),
+        Err(None) => return quiet("explorer-activity-loading", words::READING_ACTIVITY, theme),
     };
-    if acted.is_empty() {
+    let (none, more) =
+        acted.read(|acted| (acted.rows().is_empty(), acted.count() > acted.rows().len()));
+    if none {
         return quiet("explorer-no-activity", words::NO_ACTIVITY, theme);
     }
     let list = rows("explorer-activity-list", "Activity", view);
-    frame_rows(list, view, move |view| {
-        view.acted(number)
-            .map_or_else(Vec::new, |frames| frames.iter().collect())
-    })
-    .whole(view, cx, theme)
-    .build(cx)
-    .into_any_element()
+    let older = more.then(|| {
+        let acted = acted.clone();
+        let read = move |_: &mut Explorer, cx: &mut Context<Explorer>| acted.update(cx, read_older);
+        div().px_5().py_2().child(press(
+            "explorer-activity-older",
+            words::SHOW_OLDER,
+            cx,
+            theme,
+            read,
+        ))
+    });
+    div()
+        .child(
+            frame_rows(list, acted, |frames| frames.iter().collect())
+                .whole(view, cx, theme)
+                .build(cx),
+        )
+        .children(older)
+        .into_any_element()
 }
 
 pub(super) fn account(
@@ -198,9 +213,8 @@ fn title(view: &Explorer, account: &Account, cx: Cx, theme: &Theme) -> impl Into
 
 fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
     let now = view.chain.now();
-    let sent = view.acted(account.number).unwrap_or_default();
     let devices = account.keys().iter().enumerate().map(|(index, key)| {
-        let last = sent.iter().find(|frame| frame.signer == key.key);
+        let last = view.last_signed(account.number, &key.key);
         let label = key.label.clone().unwrap_or_else(|| words::device(index));
         div()
             .flex()
@@ -218,7 +232,7 @@ fn side(view: &Explorer, account: &Account, theme: &Theme) -> impl IntoElement {
                     .text_color(theme.faint),
             )
             .child(
-                mono(words::last_used(now, last.map(|frame| frame.time)))
+                mono(words::last_used(now, last))
                     .text_size(design::text::CAPTION)
                     .text_color(theme.muted),
             )

@@ -187,14 +187,10 @@ fn latest_txs(
     .text_size(design::text::SECONDARY)
     .into_any_element();
     let list = rows("explorer-latest-txs-list", "Latest transactions", view);
-    let txs = match &view.frames {
-        Loadable::Ready(frames) | Loadable::Reloading(frames, _) => {
-            latest(view, &frames.list, list, cx, theme)
-        }
-        Loadable::Failed(refusal) => failed(&design::sentence(refusal), cx, theme, ladder),
-        Loadable::Idle | Loadable::Loading(_) => {
-            quiet("explorer-txs-loading", "Reading transactions…", theme)
-        }
+    let txs = match landed(view.frames.as_ref()) {
+        Ok(frames) => latest(view, frames, list, cx, theme),
+        Err(Some(refusal)) => failed(&design::sentence(&refusal), cx, theme, ladder),
+        Err(None) => quiet("explorer-txs-loading", "Reading transactions…", theme),
     };
     div()
         .id("explorer-latest-txs")
@@ -208,21 +204,21 @@ fn latest_txs(
         .child(txs)
 }
 
+/// The newest of the listing's first page.
 fn latest(
     view: &Explorer,
-    frames: &[activity::Frame],
+    frames: &Entity<Paged<activity::Frame>>,
     list: Rows,
     cx: Cx,
     theme: &Theme,
 ) -> AnyElement {
-    let none = frames.is_empty();
+    // a first page with nothing on it is a listing with nothing on it
+    let none = frames.read(|frames| frames.rows().is_empty());
     if none {
         return quiet("explorer-no-txs", "No transactions recorded.", theme);
     }
-    frame_rows(list, view, |view| {
-        view.frame_list().iter().take(LATEST).collect()
-    })
-    .whole(view, cx, theme)
-    .build(cx)
-    .into_any_element()
+    frame_rows(list, frames, |frames| frames.iter().take(LATEST).collect())
+        .whole(view, cx, theme)
+        .build(cx)
+        .into_any_element()
 }

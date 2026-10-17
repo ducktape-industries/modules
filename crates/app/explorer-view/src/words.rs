@@ -45,6 +45,11 @@ pub(crate) const NO_BLOCK_TRANSACTIONS: &str = "No transactions in this block.";
 pub(crate) const NO_TRANSACTION: &str = "Transaction not found";
 pub(crate) const NO_ACCOUNT_HERE: &str = "Identity holds no account by this number.";
 pub(crate) const NO_ACTIVITY: &str = "No activity recorded.";
+/// The line a list of transactions ends with while activity goes on past
+/// the rows read: it reads the next page as it comes into view.
+pub(crate) const READING_OLDER: &str = "Reading older transactions…";
+/// The press under an account's newest activity that reads the page past it.
+pub(crate) const SHOW_OLDER: &str = "Show older";
 pub(crate) const NO_PROGRAM_HERE: &str = "The programs role runs and lists nothing by this name.";
 pub(crate) const RUNS_NOTHING: &str = "The programs role of this network runs nothing yet.";
 pub(crate) const NOTHING_SCHEDULED: &str = "Nothing is scheduled against the programs role.";
@@ -253,6 +258,16 @@ pub(crate) fn in_block(height: u64) -> String {
 /// A device's name where its key carries no label: `Device 2`.
 pub(crate) fn device(index: usize) -> String {
     format!("Device {}", index + 1)
+}
+
+/// How far back a program's transactions were looked for, while activity
+/// goes on past the rows read: `3 of the newest 150 transactions`.
+pub(crate) fn of_the_newest(matching: u64, read: u64) -> String {
+    format!(
+        "{} of the newest {}",
+        grouped(matching),
+        plural(read, "transaction", "transactions")
+    )
 }
 
 pub(crate) fn transactions_to(program: &str) -> String {

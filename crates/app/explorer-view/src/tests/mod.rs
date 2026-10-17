@@ -279,6 +279,27 @@ fn whole<T>(items: Vec<T>) -> activity::PageResponse<T> {
     }
 }
 
+/// The page of `rows` `asked` asks, as activity answers it: `limit` rows
+/// past the place its cursor carries (here their offset), and the cursor
+/// of the rest while rows remain.
+fn page_of<T>(
+    rows: impl Iterator<Item = T>,
+    asked: &activity::PageRequest,
+) -> activity::PageResponse<T> {
+    let start = asked.after.as_ref().map_or(0, |cursor| {
+        u64::from_be_bytes(cursor.as_slice().try_into().expect("an offset")) as usize
+    });
+    let mut rows = rows.skip(start);
+    let items: Vec<T> = rows.by_ref().take(asked.limit() as usize).collect();
+    let end = (start + items.len()) as u64;
+    let next = rows.next().map(|_| end.to_be_bytes().to_vec());
+    activity::PageResponse {
+        height: 1,
+        items,
+        next,
+    }
+}
+
 /// The `activity` program over `chain`, as the kernel's hook would have
 /// told it of every frame.
 pub(crate) fn index(cx: &TestAppContext, chain: impl Fn() -> Vec<Block> + 'static) {
@@ -302,11 +323,8 @@ pub(crate) fn index(cx: &TestAppContext, chain: impl Fn() -> Vec<Block> + 'stati
         });
         Ok(match query {
             activity::Query::Frames { page: asked } => {
-                let every = frames
-                    .map(|(_, frame)| frame)
-                    .take(asked.limit() as usize)
-                    .collect();
-                activity::Reply::Frames(whole(every))
+                let every = frames.map(|(_, frame)| frame);
+                activity::Reply::Frames(page_of(every, &asked))
             }
             activity::Query::Acted {
                 account,
@@ -314,10 +332,8 @@ pub(crate) fn index(cx: &TestAppContext, chain: impl Fn() -> Vec<Block> + 'stati
             } => {
                 let acted = frames
                     .filter(|(holder, _)| *holder == Some(account))
-                    .map(|(_, frame)| frame)
-                    .take(asked.limit() as usize)
-                    .collect();
-                activity::Reply::Frames(whole(acted))
+                    .map(|(_, frame)| frame);
+                activity::Reply::Frames(page_of(acted, &asked))
             }
             activity::Query::Used { .. } => {
                 let mut used: Vec<activity::Used> = Vec::new();

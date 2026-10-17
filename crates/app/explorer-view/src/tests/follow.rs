@@ -364,7 +364,7 @@ fn an_accounts_activity_past_the_window_lists_its_frames_and_reads_no_transactio
     assert_eq!(
         cx.host().requests::<Query<Activity>>().len(),
         asked + 3,
-        "every frame, the counts and the open account are read again"
+        "the first page of every frame, the counts and the open account's"
     );
     assert!(cx.host().requests::<ChainTx>().is_empty());
     cx.simulate_click("explorer-tx-11-0");

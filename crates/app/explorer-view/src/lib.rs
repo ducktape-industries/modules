@@ -9,11 +9,12 @@
 //! What the node does not keep is not shown: there is no per-block state
 //! root or write set. The block list is the last [`WINDOW`] blocks, read a
 //! page at a time and then followed at the head as `chain.heads` pushes
-//! it; the transaction list is every frame `activity` recorded, read again
-//! on each of its writes. A row in any transaction list, a block's own
-//! included, shows only what its read carries: how the transaction ran,
-//! its program, its signer's account and its place. An op's title shows
-//! only on that transaction's page.
+//! it; the transaction list is the frames `activity` recorded, newest
+//! first, read a page at a time as it is scrolled, its first page read
+//! again on each of activity's writes. A row in any transaction list, a
+//! block's own included, shows only what its read carries: how the
+//! transaction ran, its program, its signer's account and its place. An
+//! op's title shows only on that transaction's page.
 //!
 //! The state is one struct (`state.rs`) and the window (`chain.rs`). Reads
 //! are typed (`queries.rs`) and loaded in `load.rs`, re-read on the live
