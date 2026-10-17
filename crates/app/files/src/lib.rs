@@ -28,6 +28,9 @@ pub const CHUNK_SIZE: u64 = 1 << 20;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {
+    /// Retired: file bytes never ride in a transaction ([`carried`]), so
+    /// it is always refused. It stays so the ops of older blocks still read
+    /// (`op_variants_only_append`).
     Stage {
         bytes: Vec<u8>,
     },
@@ -88,8 +91,22 @@ impl Change {
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Content {
+    /// Retired as [`Op::Stage`] is: always refused, kept so older commits
+    /// still read.
     Inline(Vec<u8>),
+    /// `size` bytes in `chunks`, in order: blobs of kind [`CHUNK`] the
+    /// network holds, each [`CHUNK_SIZE`] but the last. Their bytes go up
+    /// through the node's blob upload, apart from any transaction.
     Chunks { size: u64, chunks: Vec<BlobId> },
+}
+
+/// The refusal of file bytes in a transaction, [`Op::Stage`] or
+/// [`Content::Inline`]: a transaction names chunks, never carries them.
+pub fn carried() -> ::program::Error {
+    ::program::invalid(
+        "file bytes never ride in a transaction: put them as chunk blobs through the \
+         node's blob upload and name them in Content::Chunks",
+    )
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
