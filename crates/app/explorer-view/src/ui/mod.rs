@@ -639,6 +639,31 @@ fn frame_rows(
     })
 }
 
+/// The line over a list whose listing is behind the rows written above
+/// it: Show newest reads it anew from its first page.
+fn newer(cx: Cx, theme: &Theme) -> impl IntoElement {
+    let show = |view: &mut Explorer, cx: &mut Context<Explorer>| view.show_newest(cx);
+    div()
+        .id("explorer-newer")
+        .flex()
+        .items_center()
+        .gap_3()
+        .px_5()
+        .py_2()
+        .border_b_1()
+        .border_color(theme.border)
+        .bg(theme.surface)
+        .text_color(theme.muted)
+        .child(div().flex_1().child(words::NEWER))
+        .child(press(
+            "explorer-show-newest",
+            words::SHOW_NEWEST,
+            cx,
+            theme,
+            show,
+        ))
+}
+
 /// The listing's next page, if it goes on: asked as the page past the
 /// rows held, which [`Paged::show`] reads once.
 fn read_older(listing: &mut Paged<activity::Frame>, cx: &mut Context<Paged<activity::Frame>>) {

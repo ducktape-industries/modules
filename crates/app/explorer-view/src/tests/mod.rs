@@ -279,20 +279,24 @@ fn whole<T>(items: Vec<T>) -> activity::PageResponse<T> {
     }
 }
 
-/// The page of `rows` `asked` asks, as activity answers it: `limit` rows
-/// past the place its cursor carries (here their offset), and the cursor
-/// of the rest while rows remain.
-fn page_of<T>(
-    rows: impl Iterator<Item = T>,
+/// The page of `frames` (newest first) `asked` asks, as activity answers
+/// it: `limit` frames past the one its cursor names, and the cursor of
+/// the last while frames remain. A cursor is a frame's key, newest first
+/// (activity's `newest_first`), so a frame landed above the frames read
+/// moves no page below them.
+fn page_of(
+    frames: impl Iterator<Item = activity::Frame>,
     asked: &activity::PageRequest,
-) -> activity::PageResponse<T> {
-    let start = asked.after.as_ref().map_or(0, |cursor| {
-        u64::from_be_bytes(cursor.as_slice().try_into().expect("an offset")) as usize
-    });
-    let mut rows = rows.skip(start);
-    let items: Vec<T> = rows.by_ref().take(asked.limit() as usize).collect();
-    let end = (start + items.len()) as u64;
-    let next = rows.next().map(|_| end.to_be_bytes().to_vec());
+) -> activity::PageResponse<activity::Frame> {
+    let key = |frame: &activity::Frame| {
+        let height = (u64::MAX - frame.height).to_be_bytes();
+        let position = (u32::MAX - frame.position).to_be_bytes();
+        [&height[..], &position[..]].concat()
+    };
+    let after = |frame: &activity::Frame| asked.after.as_ref().is_none_or(|at| key(frame) > *at);
+    let mut frames = frames.filter(after);
+    let items: Vec<activity::Frame> = frames.by_ref().take(asked.limit() as usize).collect();
+    let next = frames.next().and(items.last()).map(key);
     activity::PageResponse {
         height: 1,
         items,

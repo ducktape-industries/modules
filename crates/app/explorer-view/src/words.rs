@@ -50,6 +50,13 @@ pub(crate) const NO_ACTIVITY: &str = "No activity recorded.";
 pub(crate) const READING_OLDER: &str = "Reading older transactions…";
 /// The press under an account's newest activity that reads the page past it.
 pub(crate) const SHOW_OLDER: &str = "Show older";
+/// Over a list read on past its first page once rows were written above
+/// it, and the press that reads it anew from them.
+pub(crate) const NEWER: &str = "Newer transactions";
+pub(crate) const SHOW_NEWEST: &str = "Show newest";
+/// Under a program's transactions once they read back as far as they read
+/// by themselves: the press that reads further.
+pub(crate) const LOOK_FURTHER: &str = "Look further back";
 pub(crate) const NO_PROGRAM_HERE: &str = "The programs role runs and lists nothing by this name.";
 pub(crate) const RUNS_NOTHING: &str = "The programs role of this network runs nothing yet.";
 pub(crate) const NOTHING_SCHEDULED: &str = "Nothing is scheduled against the programs role.";
@@ -261,13 +268,14 @@ pub(crate) fn device(index: usize) -> String {
 }
 
 /// How far back a program's transactions were looked for, while activity
-/// goes on past the rows read: `3 of the newest 150 transactions`.
+/// goes on past the rows read: `3 of the newest 150 transactions`, `None
+/// in the newest 1,000 transactions`.
 pub(crate) fn of_the_newest(matching: u64, read: u64) -> String {
-    format!(
-        "{} of the newest {}",
-        grouped(matching),
-        plural(read, "transaction", "transactions")
-    )
+    let read = plural(read, "transaction", "transactions");
+    match matching {
+        0 => format!("None in the newest {read}"),
+        _ => format!("{} of the newest {read}", grouped(matching)),
+    }
 }
 
 pub(crate) fn transactions_to(program: &str) -> String {

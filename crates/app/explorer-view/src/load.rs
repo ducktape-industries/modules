@@ -3,11 +3,14 @@
 //! says it does (`program.describe`). A list is read with `cx.load`,
 //! which keeps what is on screen while it reads again and draws only what
 //! changed.
+use std::future::Future;
+
 use view::Paged;
+use view::host::Page;
 use view::prelude::*;
 
 use crate::chain::{self, BlockRow, TxRow};
-use crate::state::{Route, blob_ref};
+use crate::state::{Listing, Route, blob_ref};
 use crate::{Explorer, WINDOW, decode, queries};
 
 /// The newest frames of an account a phone reads the transactions of
@@ -16,6 +19,12 @@ const ACTED: usize = queries::PAGE as usize;
 /// The payload a row's transaction is read with (Expo `ROW_PAYLOAD`,
 /// `query/page.ts:10`): past it, the row is titled by its size.
 const ROW_PAYLOAD: u32 = 4 << 10;
+/// The rows a program's transactions read back by themselves before they
+/// ask to look further: twenty pages. Activity lists no transaction by
+/// program, so one with few would otherwise read all of activity, a page
+/// a tick (garage's 60k frames: 1,200 pages, 9 MB held and walked on every
+/// draw).
+pub(crate) const LOOK_BACK: usize = 1_000;
 
 impl Explorer {
     /// Everything, again: the boot, a restore, a retry.
@@ -124,14 +133,16 @@ impl Explorer {
     /// Every transaction, newest first, a page at a time: the Overview
     /// shows the first page, the Transactions tab reads on as it is
     /// scrolled. Asked again (a write to activity, a retry), it reads its
-    /// first page again ([`reread_first`]).
+    /// first page again as [`reread_first`](Self::reread_first) says.
     pub(crate) fn read_frames(&mut self, cx: &mut Context<Self>) {
-        if let Some(frames) = &self.frames {
-            return reread_first(frames, cx);
-        }
         let host = cx.host();
+        if self.frames.is_some() {
+            let first = move || queries::frames(host, None);
+            return self.reread_first(first, |view| view.frames.as_mut(), cx);
+        }
         let page = move |after| queries::frames(host.clone(), after);
-        self.frames = Some(cx.new(|cx| Paged::new(page, cx)));
+        self.frames = Some(Listing::new(page, cx));
+        self.reach = LOOK_BACK;
     }
 
     pub(crate) fn read_used(&mut self, cx: &mut Context<Self>) {
@@ -140,29 +151,101 @@ impl Explorer {
     }
 
     /// What the account page on screen did, newest first, a page at a time;
-    /// its first page again when it is asked again ([`reread_first`]).
+    /// its first page again when it is asked again, as
+    /// [`reread_first`](Self::reread_first) says.
     pub(crate) fn read_acted(&mut self, cx: &mut Context<Self>) {
         let Route::Account(number) = *self.pages.top() else {
             return;
         };
-        if let Some(acted) = self.acted(number) {
-            return reread_first(acted, cx);
-        }
         let host = cx.host();
+        if self.acted(number).is_some() {
+            let first = move || queries::acted(host, number, None);
+            return self.reread_first(
+                first,
+                move |view| {
+                    let (account, acted) = view.acted.as_mut()?;
+                    (*account == number).then_some(acted)
+                },
+                cx,
+            );
+        }
         let page = move |after| queries::acted(host.clone(), number, after);
-        self.acted = Some((number, cx.new(|cx| Paged::new(page, cx))));
+        self.acted = Some((number, Listing::new(page, cx)));
+    }
+
+    /// A write to activity, for the listing `listing` picks: its first page
+    /// again. While that is all it holds, it is read again in place
+    /// ([`Paged::reread`]), the rows on screen staying until it lands. A
+    /// listing read on past it is not: `reread` reads every page held from
+    /// the first, and with a write nearly every block (garage's bots) a
+    /// listing read far enough never lands that read before the next write
+    /// starts it again, nor reads on while it is out. Its first page is
+    /// asked alone instead (`first`), and one that starts with a row it
+    /// does not hold marks it [`behind`](Listing::behind) until it starts
+    /// over ([`show_newest`](Self::show_newest), or arriving on a page). A
+    /// listing whose first page is still on its way is left to land.
+    fn reread_first<F>(
+        &mut self,
+        first: impl FnOnce() -> F,
+        listing: impl Fn(&mut Explorer) -> Option<&mut Listing> + 'static,
+        cx: &mut Context<Self>,
+    ) where
+        F: Future<Output = Result<Page<activity::Frame>, Error>> + 'static,
+    {
+        let Some(held) = listing(self) else {
+            return;
+        };
+        if held.behind || held.rows.read(Paged::is_loading) {
+            return;
+        }
+        if !held.past_first_page() {
+            return held.rows.update(cx, |rows, cx| rows.reread(cx));
+        }
+        let newest = held.rows.read(|rows| rows.rows().first().cloned());
+        let checked = cx.land(first(), move |view, page, cx| match page {
+            Ok((rows, _)) => {
+                if rows.first() != newest.as_ref()
+                    && let Some(listing) = listing(view)
+                {
+                    listing.behind = true;
+                    cx.notify();
+                }
+            }
+            Err(refusal) => cx.log_refused("activity's newest frames", &refusal),
+        });
+        held.checking = Some(checked);
     }
 
     /// A listing read on past its first page starts over at it: the page
-    /// the reader arrives on opens at its top, and a listing that starts
-    /// over is again one a write reads ([`reread_first`]).
+    /// the reader arrives on opens at its top.
     pub(crate) fn start_over(&mut self, cx: &mut Context<Self>) {
-        if self.frames.as_ref().is_some_and(read_on) {
+        self.start_over_where(Listing::past_first_page, cx);
+    }
+
+    /// Show newest: a listing behind the rows written above it starts over
+    /// at its first page, its list at the top.
+    pub(crate) fn show_newest(&mut self, cx: &mut Context<Self>) {
+        self.start_over_where(|listing| listing.behind, cx);
+        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+        cx.notify();
+    }
+
+    /// Look further back: a program's transactions read [`LOOK_BACK`] rows
+    /// further by themselves.
+    pub(crate) fn look_further(&mut self, cx: &mut Context<Self>) {
+        self.reach += LOOK_BACK;
+        cx.notify();
+    }
+
+    /// The listings `stale` picks, read anew from their first page.
+    fn start_over_where(&mut self, stale: impl Fn(&Listing) -> bool, cx: &mut Context<Self>) {
+        if self.frames.as_ref().is_some_and(&stale) {
             self.frames = None;
             self.read_frames(cx);
         }
-        if self.acted.as_ref().is_some_and(|(_, acted)| read_on(acted)) {
+        if self.acted.as_ref().is_some_and(|(_, acted)| stale(acted)) {
             self.acted = None;
+            self.read_acted(cx);
         }
     }
 
@@ -369,7 +452,7 @@ impl Explorer {
         let Some(acted) = self.acted(number) else {
             return;
         };
-        let places = acted.read(|acted| {
+        let places = acted.rows.read(|acted| {
             let read = !acted.is_loading() && acted.failed().is_none();
             let newest = acted.rows().iter().take(ACTED);
             read.then(|| {
@@ -488,23 +571,4 @@ fn unread(target: &str, size: u64) -> Description {
         title: decode::sized(target, size),
         fields: Vec::new(),
     }
-}
-
-/// A listing of activity's frames read again from its first page, while
-/// that is all it holds: the rows on screen stay until it lands. A listing
-/// read on past its first page is left as the reader reads it, its top
-/// not read again: [`Paged::reread`] reads every page held from the first,
-/// and with a write nearly every block (garage's bots) a listing read far
-/// enough never lands that read before the next write starts it again,
-/// nor reads on while it is out. It starts over at its first page when
-/// the reader arrives on a page ([`Explorer::start_over`]).
-fn reread_first(listing: &Entity<Paged<activity::Frame>>, cx: &mut Context<Explorer>) {
-    if !read_on(listing) {
-        listing.update(cx, |listing, cx| listing.reread(cx));
-    }
-}
-
-/// The listing holds more than its first page.
-fn read_on(listing: &Entity<Paged<activity::Frame>>) -> bool {
-    listing.read(|listing| listing.rows().len() > queries::PAGE as usize)
 }

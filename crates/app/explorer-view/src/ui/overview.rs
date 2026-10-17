@@ -188,7 +188,7 @@ fn latest_txs(
     .into_any_element();
     let list = rows("explorer-latest-txs-list", "Latest transactions", view);
     let txs = match landed(view.frames.as_ref()) {
-        Ok(frames) => latest(view, frames, list, cx, theme),
+        Ok(frames) => latest(view, &frames.rows, list, cx, theme),
         Err(Some(refusal)) => failed(&design::sentence(&refusal), cx, theme, ladder),
         Err(None) => quiet("explorer-txs-loading", "Reading transactions…", theme),
     };

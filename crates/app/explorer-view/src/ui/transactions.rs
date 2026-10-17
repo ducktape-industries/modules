@@ -6,8 +6,11 @@ use view::design::Ladder;
 /// Every transaction, newest first, or those sent to `program`: the rows
 /// read so far, and a line that reads on past them as it comes into view.
 /// Activity lists no transaction by program, so the program's are the
-/// rows held that went to it, its pages read on until they fill the list
-/// or activity ends; the caption says how far back that looked.
+/// rows held that went to it, its pages read on until they fill the list,
+/// activity ends or `load::LOOK_BACK` more rows are
+/// read, when Look further back reads on; the caption says how far back
+/// that looked. Rows written above a listing read on past its first page
+/// show as Newer transactions (`Listing::behind`).
 pub(super) fn transactions(
     view: &Explorer,
     program: Option<String>,
@@ -20,7 +23,7 @@ pub(super) fn transactions(
         Err(Some(refusal)) => return failed(&design::sentence(&refusal), cx, theme, ladder),
         Err(None) => return quiet("explorer-txs-loading", "Reading transactions…", theme),
     };
-    let (matching, held, more) = frames.read(|frames| {
+    let (matching, held, more) = frames.rows.read(|frames| {
         let matching = sent_to(frames.rows(), program.as_deref()).count();
         (
             matching,
@@ -28,27 +31,42 @@ pub(super) fn transactions(
             frames.count() > frames.rows().len(),
         )
     });
+    // a program's list reads back by itself as far as `reach`, then asks
+    let further = program.is_some() && more && held >= view.reach;
+    let reading_on = more && !further;
     let list = rows("explorer-transactions-list", "Transactions", view);
-    let rows = (matching > 0 || more).then(|| {
+    let rows = (matching > 0 || reading_on).then(|| {
         let program = program.clone();
-        frame_rows(list, frames, move |frames| {
+        frame_rows(list, &frames.rows, move |frames| {
             sent_to(frames, program.as_deref()).collect()
         })
-        .more(more.then_some(words::READING_OLDER))
+        .more(reading_on.then_some(words::READING_OLDER))
         .build(cx)
     });
     let title = match &program {
         Some(program) => words::transactions_to(program),
         None => "Transactions".into(),
     };
-    // a count is a total only once activity is read to its end
+    // a count is a total only once activity is read to its end, and only
+    // while nothing was written above the rows read
     let count = match (more, &program) {
+        _ if frames.behind => None,
         (false, _) => Some(plural(matching as u64, "transaction", "transactions")),
         (true, Some(_)) => Some(words::of_the_newest(matching as u64, held as u64)),
         (true, None) => None,
     };
-    let empty = (matching == 0 && !more)
+    let empty = (matching == 0 && !more && !frames.behind)
         .then(|| quiet("explorer-no-txs", "No transactions recorded.", theme));
+    let further = further.then(|| {
+        let look = |view: &mut Explorer, cx: &mut Context<Explorer>| view.look_further(cx);
+        div().px_5().py_2().child(press(
+            "explorer-look-further",
+            words::LOOK_FURTHER,
+            cx,
+            theme,
+            look,
+        ))
+    });
     div()
         .id("explorer-transactions")
         .flex_1()
@@ -66,8 +84,10 @@ pub(super) fn transactions(
             )
             .mr(design::size::SCROLLBAR),
         )
+        .children(frames.behind.then(|| newer(cx, theme)))
         .children(rows)
         .children(empty)
+        .children(further)
         .into_any_element()
 }
 

@@ -262,7 +262,7 @@ fn activity(view: &Explorer, number: u64, cx: Cx, k: &Look) -> Vec<AnyElement> {
     // the newest frames, then each one's transaction (`read_rows`), as
     // Expo reads them in one query
     let rows = match landed(view.acted(number)) {
-        Ok(acted) if acted.read(|acted| acted.rows().is_empty()) => Ok(&[][..]),
+        Ok(acted) if acted.rows.read(|acted| acted.rows().is_empty()) => Ok(&[][..]),
         Ok(_) => match &view.acted_rows {
             Loadable::Ready(rows) | Loadable::Reloading(rows, _) => Ok(rows.as_slice()),
             Loadable::Failed(refusal) => Err(Some(refusal.clone())),

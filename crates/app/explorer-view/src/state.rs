@@ -1,9 +1,12 @@
 //! The state Explorer keeps: where it is, and what it read. Rows are the
 //! programs' own types, worded only when drawn (`ui/`).
+use std::future::Future;
+
 use serde::{Deserialize, Serialize};
 use view::Paged;
 use view::borsh_bytes;
 use view::design::Pages;
+use view::host::Page;
 use view::methods::CarriedView;
 use view::prelude::*;
 use view::wire::manifest::Manifest;
@@ -115,16 +118,51 @@ pub(crate) fn hash_of(text: &str) -> Option<[u8; 32]> {
     abi::unhex(text)?.try_into().ok()
 }
 
-/// A listing of activity's frames once its first page has landed; until
-/// then its refusal, or `None` while it is on its way.
-pub(crate) fn landed(
-    listing: Option<&Entity<Paged<activity::Frame>>>,
-) -> Result<&Entity<Paged<activity::Frame>>, Option<Error>> {
+/// A listing of activity's frames, read a page at a time, and whether
+/// rows were written above the ones it holds that it has not read
+/// (`Explorer::reread_first`).
+pub(crate) struct Listing {
+    pub(crate) rows: Entity<Paged<activity::Frame>>,
+    /// a write landed rows above those held, and the listing, read on past
+    /// its first page, was not read again for it: its list offers the
+    /// newest and shows no total
+    pub(crate) behind: bool,
+    /// the first page asked to tell whether it is behind; dropped with the
+    /// listing, which cancels it
+    pub(crate) checking: Option<Task<()>>,
+}
+
+impl Listing {
+    /// The listing `ask` reads a page of; its first page is asked now.
+    pub(crate) fn new<F>(
+        ask: impl Fn(Option<Vec<u8>>) -> F + 'static,
+        cx: &mut Context<Explorer>,
+    ) -> Listing
+    where
+        F: Future<Output = Result<Page<activity::Frame>, Error>> + 'static,
+    {
+        Listing {
+            rows: cx.new(|cx| Paged::new(ask, cx)),
+            behind: false,
+            checking: None,
+        }
+    }
+
+    /// It holds more than its first page.
+    pub(crate) fn past_first_page(&self) -> bool {
+        let page = crate::queries::PAGE as usize;
+        self.rows.read(|rows| rows.rows().len() > page)
+    }
+}
+
+/// A listing once its first page has landed; until then its refusal, or
+/// `None` while it is on its way.
+pub(crate) fn landed(listing: Option<&Listing>) -> Result<&Listing, Option<Error>> {
     let listing = listing.ok_or(None)?;
-    if let Some(refusal) = listing.read(|listing| listing.failed().cloned()) {
+    if let Some(refusal) = listing.rows.read(|rows| rows.failed().cloned()) {
         return Err(Some(refusal));
     }
-    if listing.read(Paged::is_loading) {
+    if listing.rows.read(Paged::is_loading) {
         return Err(None);
     }
     Ok(listing)
@@ -225,11 +263,16 @@ pub struct Explorer {
     /// every transaction, newest first, a page at a time (`read_frames`):
     /// read again on a restore, so a snapshot carries no frame
     #[serde(skip)]
-    pub(crate) frames: Option<Entity<Paged<activity::Frame>>>,
+    pub(crate) frames: Option<Listing>,
+    /// how many rows of `frames` a program's transactions read back by
+    /// themselves (`LOOK_BACK`, and that more at each Look further back);
+    /// `LOOK_BACK` again whenever `frames` starts over
+    #[serde(skip)]
+    pub(crate) reach: usize,
     /// what the account page on screen did, newest first, a page at a
     /// time (`read_acted`), and whose it is
     #[serde(skip)]
-    pub(crate) acted: Option<(u64, Entity<Paged<activity::Frame>>)>,
+    pub(crate) acted: Option<(u64, Listing)>,
     /// a block opened outside the window
     pub(crate) opened: Loadable<Option<(BlockRow, Vec<TxRow>)>>,
     /// what the code of the program page on screen declares (`blob.manifest`),
@@ -476,7 +519,7 @@ impl Explorer {
 
     /// What account `number` did, as far as it is read; `None` while no
     /// page of it is asked.
-    pub(crate) fn acted(&self, number: u64) -> Option<&Entity<Paged<activity::Frame>>> {
+    pub(crate) fn acted(&self, number: u64) -> Option<&Listing> {
         let (account, acted) = self.acted.as_ref()?;
         (*account == number).then_some(acted)
     }
@@ -485,7 +528,7 @@ impl Explorer {
     /// read: its newest page, or as far as its page was read on. A key
     /// last used further back reads as not used lately.
     pub(crate) fn last_signed(&self, number: u64, key: &[u8]) -> Option<u64> {
-        self.acted(number)?.read(|acted| {
+        self.acted(number)?.rows.read(|acted| {
             let frame = acted.rows().iter().find(|frame| frame.signer == key);
             frame.map(|frame| frame.time)
         })

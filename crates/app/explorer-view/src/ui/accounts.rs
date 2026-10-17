@@ -76,21 +76,24 @@ fn account_row(view: &Explorer, account: &Account, cx: Cx, theme: &Theme) -> Sta
 }
 
 /// Its newest activity, a page at a time: the rows read so far, drawn in
-/// the page that scrolls, and a press that reads the page past them.
+/// the page that scrolls, and a press that reads the page past them; over
+/// them, Newer transactions once rows were written above them
+/// (`Listing::behind`).
 fn acted(view: &Explorer, number: u64, cx: Cx, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let acted = match landed(view.acted(number)) {
         Ok(acted) => acted,
         Err(Some(refusal)) => return failed(&design::sentence(&refusal), cx, theme, ladder),
         Err(None) => return quiet("explorer-activity-loading", words::READING_ACTIVITY, theme),
     };
-    let (none, more) =
-        acted.read(|acted| (acted.rows().is_empty(), acted.count() > acted.rows().len()));
+    let (none, more) = acted
+        .rows
+        .read(|acted| (acted.rows().is_empty(), acted.count() > acted.rows().len()));
     if none {
         return quiet("explorer-no-activity", words::NO_ACTIVITY, theme);
     }
     let list = rows("explorer-activity-list", "Activity", view);
     let older = more.then(|| {
-        let acted = acted.clone();
+        let acted = acted.rows.clone();
         let read = move |_: &mut Explorer, cx: &mut Context<Explorer>| acted.update(cx, read_older);
         div().px_5().py_2().child(press(
             "explorer-activity-older",
@@ -101,8 +104,9 @@ fn acted(view: &Explorer, number: u64, cx: Cx, theme: &Theme, ladder: &Ladder) -
         ))
     });
     div()
+        .children(acted.behind.then(|| newer(cx, theme)))
         .child(
-            frame_rows(list, acted, |frames| frames.iter().collect())
+            frame_rows(list, &acted.rows, |frames| frames.iter().collect())
                 .whole(view, cx, theme)
                 .build(cx),
         )

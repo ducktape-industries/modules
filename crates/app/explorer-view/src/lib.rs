@@ -10,9 +10,11 @@
 //! root or write set. The block list is the last [`WINDOW`] blocks, read a
 //! page at a time and then followed at the head as `chain.heads` pushes
 //! it; the transaction list is the frames `activity` recorded, newest
-//! first, read a page at a time as it is scrolled, its first page read
-//! again on each of activity's writes. A row in any transaction list, a
-//! block's own included, shows only what its read carries: how the
+//! first, read a page at a time as it is scrolled. A write to activity
+//! reads a list's first page again in place while that is all it holds,
+//! and tells a list read on past it that newer rows landed above it
+//! (`Explorer::reread_first` in `load.rs`). A row in any transaction list,
+//! a block's own included, shows only what its read carries: how the
 //! transaction ran, its program, its signer's account and its place. An
 //! op's title shows only on that transaction's page.
 //!
