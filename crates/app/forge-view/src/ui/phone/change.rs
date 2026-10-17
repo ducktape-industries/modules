@@ -46,7 +46,7 @@ pub(super) fn render(
     let page = design::page("forge-page-change", title, nav, ladder, theme)
         .caption(caption)
         .trailing(design::icon_button(
-            id("forge-change-more"),
+            id("forge-change-actions"),
             design::icon("ellipsis-vertical", ladder.icon),
             words::ACTIONS,
             ladder,
@@ -1100,10 +1100,15 @@ pub(super) fn actions_sheet(
         true => close_for_good(cx, ladder, theme),
         false => actions(forge, cx, ladder, theme),
     };
-    design::sheet(id("forge-change-actions"), words::ACTIONS, ladder, theme)
-        .on_dismiss(dismiss)
-        .child(body)
-        .into_any_element()
+    design::sheet(
+        id("forge-change-actions-sheet"),
+        words::ACTIONS,
+        ladder,
+        theme,
+    )
+    .on_dismiss(dismiss)
+    .child(body)
+    .into_any_element()
 }
 
 fn actions(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> Div {
@@ -1150,7 +1155,7 @@ fn actions(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &Them
 }
 
 /// Close asked again (`Dialog`): closing is final; Close for good, or
-/// Cancel. Asked inside the More sheet, in Expo's words, until the SDK
+/// Cancel. Asked inside the Actions sheet, in Expo's words, until the SDK
 /// draws a dialog.
 // SDK gap: the kit's `Dialog` (`kit/Dialog.tsx`); the SDK builds it later
 fn close_for_good(cx: &mut Context<Forge>, ladder: &Ladder, theme: &Theme) -> Div {

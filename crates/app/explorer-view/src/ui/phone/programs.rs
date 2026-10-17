@@ -1,7 +1,7 @@
 //! Expo `src/network/explorer/programs.tsx` (mobile dev 266633c): the
 //! Programs page under the strip. What the programs role will change
 //! (Scheduled), runs (Running) and lists (Views), and who changes each name
-//! (Access); a program's sheet, and More. Reads the programs role, the
+//! (Access); a program's sheet, and Add. Reads the programs role, the
 //! accounts, the status and the reader's grants and voices (`acting`);
 //! writes a Cancel, a Step down or a revoke (`press`), which sheet is open
 //! (`sheet`) and the form a sheet opens (`open_form`).
@@ -72,7 +72,7 @@ pub(super) fn add(view: &Explorer, page: design::Page, cx: Cx, k: &Look) -> desi
         cx.notify();
     });
     page.trailing(design::icon_button(
-        "explorer-more",
+        "explorer-add-menu",
         design::icon("plus", k.ladder.icon),
         words::ADD,
         &k.ladder,
@@ -408,11 +408,11 @@ pub(super) fn add_sheet(view: &Explorer, cx: Cx, k: &Look) -> AnyElement {
         )
         .hint(words::BY_VOTE)
     });
-    design::sheet("explorer-more-sheet", words::ADD, &k.ladder, &k.theme)
+    design::sheet("explorer-add-menu-sheet", words::ADD, &k.ladder, &k.theme)
         .on_dismiss(closes(cx))
         .child(
             div()
-                .id("explorer-more-rows")
+                .id("explorer-add-menu-rows")
                 .flex()
                 .flex_col()
                 .children(add)

@@ -1,6 +1,6 @@
 //! Expo `app/(tabs)/explorer/index.tsx`, board `09-explorer`: Explorer's
 //! root. The title row says "Explorer" over the network and the reader,
-//! with Search (and More on the Programs page); Search turns the row into
+//! with Search (and Add on the Programs page); Search turns the row into
 //! the field. Under it the five pages on a strip, the notice, and the
 //! page's list ([`pages::body`]). Reads the session, the root page and the
 //! search field; writes the root page (`go`), the search (`search`) and

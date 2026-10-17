@@ -671,7 +671,7 @@ fn a_name_the_programs_role_does_not_hold_says_so() {
 fn add_offers_a_grant_to_a_reader_with_voices() {
     let mut cx = reader(Some(3), ADA, true, grants(), waiting());
     phone(&mut cx);
-    click(&mut cx, "explorer-more");
+    click(&mut cx, "explorer-add-menu");
     shows(&cx, "Propose a grant");
     assert!(
         cx.find("explorer-add").is_none(),
@@ -683,9 +683,9 @@ fn add_offers_a_grant_to_a_reader_with_voices() {
 fn add_offers_a_program_to_a_holder_of_every_program() {
     let mut cx = reader(Some(5), STRANGER, false, grants(), waiting());
     phone(&mut cx);
-    click(&mut cx, "explorer-more");
+    click(&mut cx, "explorer-add-menu");
     assert!(
-        matches!(cx.node("explorer-more-sheet"),
+        matches!(cx.node("explorer-add-menu-sheet"),
             view::wire::Node::Sheet { label: Some(label), .. } if label == "Add"),
         "the sheet is named as its control"
     );
@@ -701,9 +701,9 @@ fn add_is_a_plus_not_the_capsules_more() {
     phone(&mut cx);
     let row = format!("{:?}", cx.node("explorer-root-title"));
     assert!(!row.contains("icons/ellipsis.svg"), "{row}");
-    let add = format!("{:?}", cx.node("explorer-more"));
+    let add = format!("{:?}", cx.node("explorer-add-menu"));
     assert!(add.contains("icons/plus.svg"), "{add}");
-    let name = &cx.interactivity("explorer-more").aria.label;
+    let name = &cx.interactivity("explorer-add-menu").aria.label;
     assert_eq!(name.as_deref(), Some("Add"));
 }
 
@@ -711,7 +711,7 @@ fn add_is_a_plus_not_the_capsules_more() {
 fn a_reader_with_no_grant_and_no_voice_has_no_add() {
     let mut cx = reader(None, STRANGER, false, grants(), waiting());
     phone(&mut cx);
-    assert!(cx.find("explorer-more").is_none());
+    assert!(cx.find("explorer-add-menu").is_none());
 }
 
 #[test]
@@ -860,11 +860,11 @@ fn every_press_that_writes_is_off_while_a_write_is_out() {
 
 // ---------- the form (`form.rs`) ----------
 
-/// Ada with voices, the grant form open from More.
+/// Ada with voices, the grant form open from Add.
 fn grant_form() -> TestAppContext {
     let mut cx = reader(Some(3), ADA, true, grants(), waiting());
     phone(&mut cx);
-    click(&mut cx, "explorer-more");
+    click(&mut cx, "explorer-add-menu");
     click(&mut cx, "explorer-propose-grant");
     cx
 }
@@ -988,7 +988,7 @@ fn back_closes_a_sheet_before_it_leaves_the_page() {
 fn the_add_form_asks_what_it_adds_and_lands_its_schedule() {
     let mut cx = reader(Some(5), STRANGER, false, grants(), waiting());
     phone(&mut cx);
-    click(&mut cx, "explorer-more");
+    click(&mut cx, "explorer-add-menu");
     click(&mut cx, "explorer-add");
     assert!(
         cx.find("explorer-form-params").is_some(),
@@ -1023,7 +1023,7 @@ fn the_add_form_asks_what_it_adds_and_lands_its_schedule() {
 
 #[test]
 fn every_screen_fits_a_phone() {
-    // voices and a grant over every program: More offers Add and a grant
+    // voices and a grant over every program: Add offers a program and a grant
     let mut cx = reader(Some(5), STRANGER, true, grants(), waiting());
     testing::sweep(&mut cx, |cx| {
         // the strip is a finger's 44 (Expo `theme.ts:81` `size.strip`) and
@@ -1046,10 +1046,10 @@ fn every_screen_fits_a_phone() {
         back(cx);
         back(cx);
         click(cx, "explorer-tab-programs");
-        click(cx, "explorer-more");
+        click(cx, "explorer-add-menu");
         click(cx, "explorer-add");
         back(cx);
-        click(cx, "explorer-more");
+        click(cx, "explorer-add-menu");
         click(cx, "explorer-propose-grant");
         back(cx);
         click(cx, "explorer-program-chat");
