@@ -1,5 +1,6 @@
-//! attribution founded beside chat on ducktape's host: a mention and a direct message are
-//! recorded in the frame that posts them, and a post stands where nothing is recorded.
+//! attribution founded beside chat on ducktape's host: a mention, picked or typed as a name,
+//! and a direct message are recorded in the frame that posts them, and a post stands where
+//! nothing is recorded.
 use super::*;
 
 use attribution::{Kind, Object, Query, Reason, Reply, Source};
@@ -66,6 +67,12 @@ fn chat_reports_mentions_and_direct_messages_to_attribution_as_they_are_posted()
             &post("general", "m2", "nobody"),
         )
         .await;
+        net.apply(
+            &public(ADA),
+            chat::PROGRAM,
+            &post("general", "m3", "thanks @bo."),
+        )
+        .await;
         let dm = chat::Op::CreateDmChannel {
             counterpart: bo,
             name: "us".into(),
@@ -97,6 +104,7 @@ fn chat_reports_mentions_and_direct_messages_to_attribution_as_they_are_posted()
         };
         assert_eq!(held(message("m1")).await, Some(vec![(bo, Reason::Mention)]));
         assert_eq!(held(message("m2")).await, None);
+        assert_eq!(held(message("m3")).await, Some(vec![(bo, Reason::Mention)]));
         let direct = Reason::Defined(chat::attributed::DIRECT.into());
         assert_eq!(held(message("d1")).await, Some(vec![(ada, direct)]));
         let asked = Query::ChangesTo {
@@ -107,6 +115,6 @@ fn chat_reports_mentions_and_direct_messages_to_attribution_as_they_are_posted()
             panic!()
         };
         let kinds: Vec<Kind> = page.items.into_iter().map(|change| change.kind).collect();
-        assert_eq!(kinds, [Kind::Added]);
+        assert_eq!(kinds, [Kind::Added, Kind::Added]);
     });
 }

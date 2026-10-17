@@ -357,7 +357,6 @@ fn reference_at(chars: &[char], at: usize) -> Option<(String, String, usize)> {
 }
 
 /// A canonical `<@account>` token at `at` as a mention mark, and its length.
-/// Display names are never interpreted as recipient identities.
 pub fn mention_at(chars: &[char], at: usize) -> Option<(Principal, usize)> {
     let opens = chars.get(at) == Some(&'<') && chars.get(at + 1) == Some(&'@');
     if !opens {
