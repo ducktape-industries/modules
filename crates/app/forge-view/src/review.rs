@@ -1,8 +1,8 @@
 //! Writing a review: what is staged, at which anchor, and the one operation
 //! it all becomes. A refusal keeps every draft.
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
-use crate::state::{Forge, PendingComment, ReviewSession, change_key};
+use crate::state::{Forge, PendingComment, ReviewRefusal, ReviewSession, change_key};
 use forge::{Op, ReviewDraft, Verdict};
 
 impl Forge {
@@ -40,12 +40,13 @@ impl Forge {
     }
 
     /// The gutter number is the button: it opens the composer for one anchor,
-    /// carrying whatever is already staged there.
+    /// carrying whatever is already staged there, under its line.
     pub(crate) fn open_comment(
         &mut self,
         path: Vec<u8>,
         new_side: bool,
         line: u64,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(key) = self.review_key() else { return };
@@ -57,7 +58,7 @@ impl Forge {
             .get(&key)
             .and_then(|review| review.staged(&path, new_side, line).cloned());
         if let Some(review) = self.reviews.get_mut(&key) {
-            review.error.clear();
+            review.refused = None;
             // a new document each time, whatever the field showed before
             let body = TextField::new(staged.map(|staged| staged.body.text()).unwrap_or_default());
             review.open = Some(PendingComment {
@@ -67,6 +68,8 @@ impl Forge {
                 body,
             });
         }
+        crate::ui::diff::reveal_composer(self);
+        window.focus(crate::id("forge-comment-body"));
         cx.notify();
     }
 
@@ -80,16 +83,6 @@ impl Forge {
         };
         if open.body.is_blank() {
             review.comments.retain(|staged| !staged.anchors(&open));
-        } else if review.comments.len() >= forge::MAX_REVIEW_COMMENTS
-            && review
-                .staged(&open.path, open.new_side, open.line)
-                .is_none()
-        {
-            review.error = format!(
-                "A review carries at most {} line comments",
-                forge::MAX_REVIEW_COMMENTS
-            );
-            review.open = Some(open);
         } else {
             review.stage(open);
         }
@@ -132,7 +125,7 @@ impl Forge {
         let comments = review.line_comments();
         if matches!(verdict, Verdict::Comment) && review.body.is_blank() && comments.is_empty() {
             if let Some(review) = self.reviews.get_mut(&key) {
-                review.error = "A comment review needs a body or a line comment".into();
+                review.refused = Some(ReviewRefusal::EmptyComment);
             }
             cx.notify();
             return;
@@ -146,7 +139,7 @@ impl Forge {
         };
         if let Some(review) = self.reviews.get_mut(&key) {
             review.finishing = false;
-            review.error.clear();
+            review.refused = None;
         }
         self.submit(
             Op::ReviewSubmit {

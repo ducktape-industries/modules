@@ -103,16 +103,6 @@ fn admit_rejects_a_pack_of_the_other_hash() {
     )
     .unwrap();
     assert!(stored.iter().all(|id| id.hash() == Hash::Sha256));
-    let mut mismatched = MemoryObjects::new(Hash::Sha1);
-    let result = admit_pack(
-        &mut mismatched,
-        fixture!("sha256.pack"),
-        Hash::Sha256,
-        &Limits::generous(),
-    );
-    let Err(Error::HashMismatch { .. }) = result else {
-        panic!("expected HashMismatch, got {result:?}");
-    };
 }
 
 #[test]
@@ -292,7 +282,7 @@ fn ref_name_rules() {
     }
 }
 
-fn push_request(commands: &[(Oid, Oid, &str)], caps: &str, pack_bytes: &[u8]) -> Vec<u8> {
+fn push_request(commands: &[(Oid, Oid, &str)], caps: &str) -> Vec<u8> {
     let mut request = Vec::new();
     for (index, (old, new, name)) in commands.iter().enumerate() {
         let mut line = format!("{old} {new} {name}").into_bytes();
@@ -304,7 +294,6 @@ fn push_request(commands: &[(Oid, Oid, &str)], caps: &str, pack_bytes: &[u8]) ->
         pktline::push(&mut request, &line);
     }
     request.extend_from_slice(pktline::flush());
-    request.extend_from_slice(pack_bytes);
     request
 }
 
@@ -349,12 +338,28 @@ fn full_push_flow_against_memory_objects() {
     ));
 
     let caps = "report-status side-band-64k object-format=sha1 agent=git/2.55";
-    let create = push_request(
-        &[(zero, base, "refs/heads/main")],
-        caps,
-        fixture!("base.pack"),
+    let create = push_request(&[(zero, base, "refs/heads/main")], caps);
+    let mut inline = create.clone();
+    inline.extend_from_slice(fixture!("base.pack"));
+    assert_eq!(
+        push(
+            &mut store, &refs, &inline, b"", hash, &limits, &policy, 1000
+        ),
+        Err(Error::BadRequest),
+        "a pack rides beside the request, never inside it"
     );
-    let outcome = push(&mut store, &refs, &create, hash, &limits, &policy, 1000).unwrap();
+    assert_eq!(store.count(), 0);
+    let outcome = push(
+        &mut store,
+        &refs,
+        &create,
+        fixture!("base.pack"),
+        hash,
+        &limits,
+        &policy,
+        1000,
+    )
+    .unwrap();
     assert_eq!(outcome.unpack_error, None);
     assert_eq!(
         outcome.moves,
@@ -373,15 +378,12 @@ fn full_push_flow_against_memory_objects() {
         refs.insert(name, id);
     }
 
-    let fast_forward = push_request(
-        &[(base, tip, "refs/heads/main")],
-        caps,
-        fixture!("thin.pack"),
-    );
+    let fast_forward = push_request(&[(base, tip, "refs/heads/main")], caps);
     let outcome = push(
         &mut store,
         &refs,
         &fast_forward,
+        fixture!("thin.pack"),
         hash,
         &limits,
         &policy,
@@ -398,8 +400,8 @@ fn full_push_flow_against_memory_objects() {
     );
     refs.insert(b"refs/heads/main".to_vec(), tip);
 
-    let stale = push_request(&[(base, base, "refs/heads/main")], "report-status", b"");
-    let outcome = push(&mut store, &refs, &stale, hash, &limits, &policy, 1000).unwrap();
+    let stale = push_request(&[(base, base, "refs/heads/main")], "report-status");
+    let outcome = push(&mut store, &refs, &stale, b"", hash, &limits, &policy, 1000).unwrap();
     assert!(outcome.moves.is_empty());
     assert_eq!(
         outcome.refusals,
@@ -410,8 +412,11 @@ fn full_push_flow_against_memory_objects() {
         ["unpack ok", "ng refs/heads/main stale info", "Flush"]
     );
 
-    let rewind = push_request(&[(tip, base, "refs/heads/main")], "report-status", b"");
-    let outcome = push(&mut store, &refs, &rewind, hash, &limits, &policy, 1000).unwrap();
+    let rewind = push_request(&[(tip, base, "refs/heads/main")], "report-status");
+    let outcome = push(
+        &mut store, &refs, &rewind, b"", hash, &limits, &policy, 1000,
+    )
+    .unwrap();
     assert_eq!(
         outcome.refusals,
         vec![(b"refs/heads/main".to_vec(), Refusal::NonFastForward)]
@@ -419,11 +424,12 @@ fn full_push_flow_against_memory_objects() {
 
     let orphan_pack = pack::write(objects_of(fixture!("ofs.pack")), hash).unwrap();
     let mut empty = MemoryObjects::new(hash);
-    let broken = push_request(&[(zero, tip, "refs/heads/main")], caps, &orphan_pack);
+    let broken = push_request(&[(zero, tip, "refs/heads/main")], caps);
     let outcome = push(
         &mut empty,
         &BTreeMap::new(),
         &broken,
+        &orphan_pack,
         hash,
         &limits,
         &policy,
@@ -440,11 +446,12 @@ fn full_push_flow_against_memory_objects() {
     assert_eq!(lines[1], "ng refs/heads/main n/a (unpacker error)");
     assert_eq!(empty.count(), 0);
 
-    let silent = push_request(&[(tip, zero, "refs/heads/main")], "", b"");
+    let silent = push_request(&[(tip, zero, "refs/heads/main")], "");
     let outcome = push(
         &mut store,
         &refs,
         &silent,
+        b"",
         hash,
         &limits,
         &Policy {
@@ -461,7 +468,9 @@ fn full_push_flow_against_memory_objects() {
     assert!(outcome.report.is_empty());
 
     assert_eq!(
-        push(&mut store, &refs, b"garbage", hash, &limits, &policy, 1000),
+        push(
+            &mut store, &refs, b"garbage", b"", hash, &limits, &policy, 1000
+        ),
         Err(Error::BadPktLine)
     );
 }

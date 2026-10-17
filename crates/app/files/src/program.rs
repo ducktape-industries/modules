@@ -1,26 +1,24 @@
-//! The module: every op acts as the account the host resolved, and every op and
+//! The program: every op acts as the account the host resolved, and every op and
 //! query is handed to its function in `ops.rs`, `commit.rs` or `queries.rs`.
-use guest::{Error, ExecCtx, Module, Program, QueryCtx};
+use ::program::{Error, ExecCtx, Program, QueryCtx};
 
 use crate::commit::commit;
-use crate::ops::{pin, stage, unpin};
+use crate::ops::{pin, unpin};
 use crate::queries;
-use crate::{Op, Query, Reply};
+use crate::{Op, Query, Reply, carried};
 
 pub struct Files;
 
 impl Program for Files {
-    const NAME: &'static str = crate::MODULE;
+    const NAME: &'static str = crate::PROGRAM;
     type Op = Op;
     type Query = Query;
     type Reply = Reply;
-}
 
-impl Module for Files {
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
         let writer = ctx.sender()?;
         match op {
-            Op::Stage { bytes } => stage(ctx, &bytes),
+            Op::Stage { .. } => Err(carried()),
             Op::Commit {
                 base,
                 message,
@@ -74,10 +72,14 @@ impl Module for Files {
             }
             Query::Pins { page } => Ok(Reply::Pins(queries::pins(ctx, &page)?)),
             Query::Pin { name } => Ok(Reply::Pin(queries::pin(ctx, &name)?)),
-            Query::Held { chunks } => Ok(Reply::Held(queries::held(ctx, &chunks)?)),
+            Query::Ownership { path, at } => Ok(Reply::Ownership(queries::ownership(
+                ctx,
+                &path,
+                at.as_ref(),
+            )?)),
         }
     }
 }
 
-#[cfg(feature = "module")]
-guest::export!(Files);
+#[cfg(feature = "program")]
+::program::export!(Files);

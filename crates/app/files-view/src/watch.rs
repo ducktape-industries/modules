@@ -1,0 +1,33 @@
+//! What Files follows while it is open: the session (who reads), and every
+//! block that wrote to `files` or identity. Every follower says what a
+//! refusal means to it; none ends on one.
+use identity::Identity;
+use view::prelude::*;
+
+use crate::Files;
+
+impl Files {
+    /// Follows each of them for as long as the view runs.
+    pub(crate) fn watch(&mut self, cx: &mut Context<Self>) {
+        cx.follow::<HostSession>((), |view, session, cx| match session {
+            Ok(session) => view.session_changed(session, cx),
+            Err(refusal) => cx.log_refused("the session", &refusal),
+        })
+        .detach();
+        // a commit or a pin, by anyone: everything on screen reads again
+        cx.follow::<Changes<files::Files>>((), |view, change, cx| match change {
+            Ok(_) => view.read_all(cx),
+            Err(refusal) => cx.log_refused("files' live heads", &refusal),
+        })
+        .detach();
+        // an account named or renamed: its home and its snapshots' author
+        cx.follow::<Changes<Identity>>((), |view, change, cx| match change {
+            Ok(_) => {
+                view.read_reader(cx);
+                view.read_names(cx);
+            }
+            Err(refusal) => cx.log_refused("identity's live heads", &refusal),
+        })
+        .detach();
+    }
+}

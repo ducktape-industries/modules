@@ -2,11 +2,11 @@
 //! (identity), the account a typed name or number is, and whether each of
 //! its keys validates (valset). Rows keep what the programs said; they are
 //! worded only when drawn.
-use ducktape_view_guest::host::malformed;
-use ducktape_view_guest::prelude::*;
-use identity::{Audience, Control, Kind, PageRequest, Reference, Standing};
+use identity::{Control, Kind, Ownership, PageRequest, Reference, Standing};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use view::host::malformed;
+use view::prelude::*;
 
 /// Who the seated key is.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -26,11 +26,11 @@ pub enum Seat {
 pub struct Account {
     pub number: u64,
     pub name: String,
-    /// what identity says it is: a person, an agent, a module
-    #[serde(with = "ducktape_view_guest::borsh_bytes")]
+    /// what identity says it is: a person, an agent, a program
+    #[serde(with = "view::borsh_bytes")]
     pub kind: Kind,
     pub keys: Vec<Key>,
-    /// a person's account manages agents; an agent's or a module's none
+    /// a user's account manages agents; a program or system account none
     pub manages: bool,
     pub agents: Vec<Agent>,
 }
@@ -41,19 +41,41 @@ pub struct Agent {
     pub number: u64,
     pub name: String,
     pub keys: usize,
-    /// what identity says it is: always `Kind::Managed` (checked on read)
-    #[serde(with = "ducktape_view_guest::borsh_bytes")]
+    /// what identity says it is: always `Kind::Program` (checked on read)
+    #[serde(with = "view::borsh_bytes")]
     pub kind: Kind,
-    #[serde(with = "ducktape_view_guest::borsh_bytes")]
-    pub audience: Audience,
+    #[serde(with = "view::borsh_bytes")]
+    pub ownership: Ownership,
     pub names: BTreeMap<u64, String>,
 }
 
 impl Agent {
     pub fn standing(&self) -> Standing {
         match self.kind {
-            Kind::Managed { standing, .. } => standing,
-            Kind::Person | Kind::Module(_) => Standing::Active,
+            Kind::Program { standing, .. } => standing,
+            Kind::User | Kind::System(_) => Standing::Active,
+        }
+    }
+
+    /// What its manager can do to its standing short of revoking it: a
+    /// suspended agent resumes, any other is suspended. The control's slug,
+    /// its word, and the op it sends.
+    pub fn standing_toggle(&self) -> (&'static str, &'static str, identity::Op) {
+        let account = self.number;
+        match self.standing() {
+            Standing::Suspended => ("resume", "Resume", identity::Op::Resume { account }),
+            Standing::Active | Standing::Revoked => {
+                ("suspend", "Suspend", identity::Op::Suspend { account })
+            }
+        }
+    }
+
+    /// A person this agent answers, by name, or `#number` while identity
+    /// names nobody by it.
+    pub fn person_name(&self, person: u64) -> String {
+        match self.names.get(&person) {
+            Some(name) => name.clone(),
+            None => format!("#{person}"),
         }
     }
 }
@@ -98,7 +120,7 @@ pub(crate) async fn account(
     for key in account.keys() {
         keys.push(read_key(&host, key.key.clone(), key.label.clone()).await?);
     }
-    let manages = matches!(account.control, Control::Person { .. });
+    let manages = matches!(account.control, Control::User { .. });
     let agents = if manages {
         agents(&host, number).await?
     } else {
@@ -136,29 +158,29 @@ async fn agents(host: &Host, manager: u64) -> Result<Vec<Agent>, Error> {
         .await?;
     let mut agents = Vec::new();
     for agent in listed {
-        let kind @ Kind::Managed { .. } = agent.kind() else {
+        let kind @ Kind::Program { .. } = agent.kind() else {
             return Err(malformed(format!(
                 "identity lists account {} as managed, and it is not",
                 agent.number
             )));
         };
         let number = agent.number;
-        let audience = host.query(identity::ask::Audience { number }).await?;
-        let names = names(host, &audience).await?;
+        let ownership = host.query(identity::ask::Ownership { number }).await?;
+        let names = names(host, &ownership).await?;
         agents.push(Agent {
             number,
             keys: agent.keys().len(),
             name: agent.card.name,
             kind,
-            audience,
+            ownership,
             names,
         });
     }
     Ok(agents)
 }
 
-async fn names(host: &Host, audience: &Audience) -> Result<BTreeMap<u64, String>, Error> {
-    let Audience::Accounts(numbers) = audience else {
+async fn names(host: &Host, ownership: &Ownership) -> Result<BTreeMap<u64, String>, Error> {
+    let Ownership::Accounts(numbers) = ownership else {
         return Ok(BTreeMap::new());
     };
     let mut names = BTreeMap::new();
@@ -194,8 +216,8 @@ pub(crate) async fn find(host: Host, typed: String) -> Result<Found, Error> {
             .query(identity::ask::Profiles { after, limit: 100 })
             .await?;
         let named = profiles.into_iter().filter(|profile| {
-            let module = matches!(profile.kind, Kind::Module(_));
-            !module && profile.name.to_lowercase() == wanted
+            let system = matches!(profile.kind, Kind::System(_));
+            !system && profile.name.to_lowercase() == wanted
         });
         matched.extend(named.map(|profile| profile.number));
         let Some(next) = next else { break };

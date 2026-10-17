@@ -1,6 +1,6 @@
 //! Message search: `#tag` pages through the tag index, anything else is a
 //! full-text search the program caps.
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::queries::search_hits;
 use crate::{Chat, Hits, Search};
@@ -52,7 +52,8 @@ impl Chat {
             let (rows, _, next_after) = match result {
                 Ok(page) => page,
                 Err(refusal) => {
-                    chat.notice = format!("Couldn’t search further: {}", refusal.message);
+                    chat.notice =
+                        format!("Couldn’t search further: {}", design::sentence(&refusal));
                     return;
                 }
             };
@@ -75,6 +76,14 @@ impl Chat {
 
     pub(crate) fn search_clear(&mut self) {
         self.search = Search::default();
+    }
+
+    /// The search's field and hits emptied; its page stays open.
+    pub(crate) fn search_empty(&mut self) {
+        self.search = Search {
+            shown: self.search.shown,
+            ..Search::default()
+        };
     }
 
     /// A hit opens its room around the message.

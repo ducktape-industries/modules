@@ -1,11 +1,12 @@
 //! The open room: opening, landing, paging history, the thread beside it and
 //! what the reader has read.
 use chat::{ChannelInfo, MsgRow, PageRequest, Principal, ask};
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::composer::Target;
 use crate::queries::{self, Side};
-use crate::{Chat, Drawn, PAGE, Pane, Room, SPAN, Thread, WINDOW, links};
+use crate::words;
+use crate::{Chat, Drawn, PAGE, Pane, Room, SPAN, Thread, WINDOW};
 
 const EDGE_ROWS: usize = 4;
 
@@ -15,15 +16,27 @@ enum Reread {
 }
 
 impl Chat {
-    /// A room the reader chose: opened here, and named to the host so its
-    /// tray, links and notices follow.
+    /// The composer's placeholder: who or where a message goes
+    /// (`Message #general`, `Message Priya Nair`).
+    pub(crate) fn composer_hint(&self, room: &Room) -> String {
+        format!("Message {}", self.room_name(&room.id))
+    }
+
+    /// A pane's refused read, asked again: the open thread, or the room
+    /// from its newest message.
+    pub(crate) fn retry_read(&mut self, pane: Pane, cx: &mut Context<Self>) {
+        let Some(room) = &self.room else { return };
+        match (pane, room.thread.as_ref().map(|thread| thread.root)) {
+            (Pane::Thread, Some(root)) => self.open_thread(root, cx),
+            _ => self.open(room.id.clone(), cx),
+        }
+    }
+
+    /// A room the reader chose: opened here, and only here. Named to the
+    /// host as a link, its route would reach another chat window too.
     pub(crate) fn choose(&mut self, id: String, cx: &mut Context<Self>) {
         self.create = None;
         self.search_clear();
-        match links::channel_link(&self.session.chain_id, &id, None) {
-            Some(link) => cx.host().open_link(&link),
-            None => cx.host().log("no room link: the session names no chain"),
-        }
         self.open(id, cx);
         // read to the head this view knows now, not at the next list: a
         // reader who opens a room and quits has read it
@@ -31,7 +44,6 @@ impl Chat {
             self.channels_arrived(list, cx);
             self.save_reads(cx);
         }
-        self.settle_badge(cx);
     }
 
     pub(crate) fn open(&mut self, id: String, cx: &mut Context<Self>) {
@@ -62,6 +74,7 @@ impl Chat {
             };
         }
         room.landed = land > 0;
+        room.opened_at_message = land > 0;
         room.target = land;
         room.at_tail = land == 0;
         room.older_loading = false;
@@ -293,6 +306,7 @@ impl Chat {
             match result {
                 Ok((older, has_older)) => {
                     room.has_older = has_older;
+                    room.older_failed = None;
                     if let Some(rows) = room.messages.ready_mut() {
                         let mut all = older;
                         all.append(rows);
@@ -300,9 +314,7 @@ impl Chat {
                     }
                     room.settle();
                 }
-                Err(refusal) => {
-                    chat.notice = format!("Couldn’t read this room: {}", refusal.message)
-                }
+                Err(refusal) => room.older_failed = Some(design::sentence(&refusal)),
             }
         })
         .detach();
@@ -340,11 +352,18 @@ impl Chat {
             }
             let page = match result {
                 Ok(page) => page,
+                Err(refusal) if side == Side::Older => {
+                    room.older_failed = Some(design::sentence(&refusal));
+                    return;
+                }
                 Err(refusal) => {
-                    chat.notice = format!("Couldn’t read this room: {}", refusal.message);
+                    chat.notice = words::unreadable_room(&design::sentence(&refusal));
                     return;
                 }
             };
+            if side == Side::Older {
+                room.older_failed = None;
+            }
             let at_head = side == Side::Newer && page.is_empty();
             if at_head {
                 chat.reached_head(cx);
@@ -362,7 +381,6 @@ impl Chat {
             self.channels_arrived(list, cx);
             self.save_reads(cx);
         }
-        self.settle_badge(cx);
     }
 
     /// Settled native list geometry drives paging and tail state. Wheel deltas
@@ -371,7 +389,7 @@ impl Chat {
     pub(crate) fn list_scrolled(
         &mut self,
         pane: Pane,
-        event: &ducktape_view_guest::ListScrollEvent,
+        event: &view::ListScrollEvent,
         cx: &mut Context<Self>,
     ) {
         let at_top = event.visible_range.start <= EDGE_ROWS;
@@ -400,7 +418,19 @@ impl Chat {
         }
     }
 
+    /// The thread under `root`, read and shown; the keys stay where they
+    /// are.
     pub(crate) fn open_thread(&mut self, root: u64, cx: &mut Context<Self>) {
+        self.load_thread(root, false, cx);
+    }
+
+    /// The thread under `root`, its reply field taking the keys once it
+    /// can be typed in.
+    pub(crate) fn reply_in_thread(&mut self, root: u64, cx: &mut Context<Self>) {
+        self.load_thread(root, true, cx);
+    }
+
+    fn load_thread(&mut self, root: u64, reply: bool, cx: &mut Context<Self>) {
         let viewer = self.viewer();
         self.details = None;
         self.menu = None;
@@ -429,13 +459,14 @@ impl Chat {
                         thread.has_more = next.is_some();
                         thread.next = next;
                         room_of(chat).settle();
-                        // the reply field takes the keys once it can be typed in
-                        let key = Target::Post {
-                            channel: id,
-                            thread: Some(root),
+                        if reply {
+                            let key = Target::Post {
+                                channel: id,
+                                thread: Some(root),
+                            }
+                            .key();
+                            crate::composer::focus(window, &key);
                         }
-                        .key();
-                        crate::composer::focus(window, &key);
                     }
                     Err(refusal) => thread.replies = Loadable::Failed(refusal),
                 }
@@ -477,7 +508,8 @@ impl Chat {
                     room_of(chat).settle();
                 }
                 Err(refusal) => {
-                    chat.notice = format!("Couldn’t read this thread: {}", refusal.message)
+                    chat.notice =
+                        format!("Couldn’t read this thread: {}", design::sentence(&refusal))
                 }
             }
         })
@@ -619,7 +651,7 @@ impl Chat {
     pub(crate) fn settle_title(&mut self, cx: &mut Context<Self>) {
         let title = match &self.room {
             Some(room) if chat::dm_peers(&room.id).is_some() => {
-                crate::ui::sidebar::dm_peer(self).map(|(peer, _)| peer)
+                self.dm_peer().map(|(peer, _)| peer)
             }
             Some(room) => self
                 .info(&room.id)

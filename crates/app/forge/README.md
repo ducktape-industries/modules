@@ -25,17 +25,17 @@ only.
   The kernel runs each emission once the handler returns Ok, in the same frame,
   so the record and its channel land in one block or not at all.
 - A review is one immutable operation: verdict, body, pinned head and base, and
-  up to `MAX_REVIEW_COMMENTS` line comments. An anchor is `(path, side, line)`;
+  its line comments. An anchor is `(path, side, line)`;
   `Old` addresses `base_oid`, `New` addresses `commit_oid`. Both are retained.
   Compare the review's head to `Change.source_head` to show outdated; never move
   positions. A stale draft may be submitted against its original pin.
 - All UI lists take `cursor` and `limit`; all UI replies, including refusals,
   carry the answering `height`. No unbounded nested review history is returned.
-- Chat's colon namespace is reserved to its exact module prefix (or Root).
+- Chat's colon namespace is reserved to its exact program prefix (or Root).
   External keys/accounts cannot create these channels or reserve system-message
   IDs. Hide colon channels in the view's rail/search; they are not private rooms.
 - Forge's messages to chat act as forge's own account (the identity role's
-  `OfModule`), which the kernel registered as it admitted forge.
+  `OfProgram`), which the kernel registered as it admitted forge.
 
 ## Common types and pagination
 
@@ -79,11 +79,25 @@ and decode a `forge::Reply` from the concatenated `Respond` bytes.
 | `Change { repo: r, n: 1, cursor: None, limit: 20 }` | full change record/body/channel, optional current source/target heads, `reviews: PageResponse<Review>` |
 | `Judgment { principal: reviewer, cursor: None, limit: 20 }` | `page<Judgment>`: open changes requesting this account at the current head or containing an answered thread it authored |
 | `Advertise { repo: r, service: Service::UploadPack }` | raw Git protocol v2 advertisement |
-| `Upload { repo: r, request: git_v2_request_bytes }` | streamed raw Git protocol response/pack |
+| `Upload { repo: r, request: git_v2_ls_refs_bytes }` | raw Git protocol v2 `ls-refs` response |
+| `Closure { repo: r, walk: Walk::of(gitcore::walk::Walk::of(&wants, &haves)) }` | `listed`: the ids and kinds of the objects `wants` reach less what `haves` reach, and `next`, the walk to send back for the next page |
 
-`Advertise` and `Upload` are the existing smart-HTTP protocol, with Git's own
-framing. They cannot carry a Borsh height envelope without breaking real Git.
-They are not UI list APIs. Fetch/walk bounds continue to apply to them.
+`Advertise` and `Upload` speak Git's own smart-HTTP framing, so they carry no
+Borsh height envelope. They are not UI list APIs. `Upload` answers `ls-refs`
+and refuses `fetch`: a git client fetches by listing the objects with
+`Closure` and reading their bytes from its node's blobs.
+
+`Closure` lists ids, never bytes. Each page reads at most `Bounds.tree_walk`
+objects and `Bounds.diff_bytes` bytes. Commits are walked newest first, as
+git's upload-pack walks them: a commit `haves` reaches is the client's, and so
+are its ancestors, so the walk stops wherever the client's history begins,
+not only at the commits it named. Each listed commit's tree is compared with
+its parents' trees, so an unchanged subtree is not listed again. The client
+keeps the walk: it sends `next` back, less the objects it has already been
+listed, until `next` is done (`gitcore::walk::Listing`). A git object is stored as the blob git
+would hash it as (`<kind> <len>\0<body>`), under the repository's hash, so an
+object's blob id is its oid: `forge::blob_id_of(&oid)` names the blob a node
+serves at `/v1/blobs`.
 
 An unborn ref returns `not_found`; an empty directory/list is a successful empty
 page. Missing current change refs are `None` on the detail, so a deleted branch
@@ -113,8 +127,9 @@ merge-base diff, first use `Compare.base`, then `Diff { base, head: from, ... }`
 An optional path selects one exact changed file. Each file carries old/new paths,
 OIDs, modes, sizes, status, content classification, additions/deletions and hunks.
 Renames appear as delete/add, with no heuristic rename tracking. Gitlinks have
-headers, not blob reads. Binary/oversize files have no hunks; line stats are zero
-and not applicable to those classifications.
+headers, not blob reads. A file is `Oversize` when either side is above
+`blob_bytes` or its edit is too long to search under `merge_cost`. Binary/oversize
+files have no hunks; line stats are zero and not applicable to those classifications.
 
 Hunks have three context lines on each edge. A range starts at a **one-based**
 line, except a zero-length range names the preceding line (0 at file start).
@@ -144,25 +159,42 @@ Closing is terminal; there is no reopen operation.
 | `Configure { repo: r, settings: Settings::default() }` | owner configures default ref and force/delete policy; empty output |
 | `Grant { repo: r, principal: writer }` | owner grants writes to an account; empty output |
 | `Revoke { repo: r, principal: writer }` | owner revokes writes; empty output |
-| `Push { repo: r, request: receive_pack_bytes }` | existing Git receive-pack operation/report |
+| `Push { repo: r, request: receive_pack_commands, pack: Some(pack) }` | Git receive-pack: the ref commands in `request`, the objects in the held `pack`; Git's report |
+| `Stage { repo: r, pack }` | stores the held pack's objects and moves no ref; empty output |
 | `ChangeOpen { repo: r, from: feature, into: b"refs/heads/main".to_vec(), title: "Fix parser".into(), body: "Why this changes".into(), reviewers: vec![reviewer] }` | assigns `n`, stores body, queues channel/opened line; `OpReply::Change { height, n }` |
 | `ChangeEdit { repo: r, n: 1, title: None, body: Some("Updated rationale".into()), reviewers: None }` | `None` leaves a field unchanged; `Some(vec![])` clears requests; `OpReply::Change` |
 | `ChangeClose { repo: r, n: 1 }` | open to closed, queues system line; `OpReply::Change` |
 | `ReviewSubmit { repo: r, n: 1, review: ReviewDraft { commit_oid: b, base_oid: Some(a), verdict: Verdict::RequestChanges, body: "Please check this".into(), comments: vec![LineComment { path: b"src/lib.rs".to_vec(), side: Side::New, line: 12, body: "Check this bound".into() }] } }` | one immutable review and all comments, one chat root; `OpReply::Review { height, n, id }` |
 | `Merge { repo: r, into: b"refs/heads/main".to_vec(), from: feature, expected_into: a, expected_from: b, result: client_result_oid, change: Some(1) }` | both-head CAS and open to merged together; `OpReply::Merged { height, oid, change }` |
 
+A push's objects never ride inside its frame. The client puts git's pack as a
+blob of kind `pack` (`forge::PACK_KIND`) with `ducktape blob put FILE --kind
+pack --wait`, which returns once two thirds of the current validators hold it,
+then submits the op naming the blob. `request` holds only git's ref commands
+and capabilities, through their flush; a request with bytes after the flush is
+refused. forge reads the pack, checks it as git's receive-pack does, and puts
+each object. A pack the blobs role does not hold is `not_found`; a held blob
+of another kind is `invalid`.
+
+A pack may go in parts: each part a `Stage`, then a
+`Push` with the last part moves the refs. Every object a part names must be
+held when the part lands, in that part or already stored, so the parts go in
+the order git's objects reference each other: blobs and trees before the
+commits naming them. A delta may be against an object already stored. The
+owner and its writers push and stage.
+
 A merge requires a nonzero result that advances the target, correct endpoint
 hash kinds, writer authority and matching current heads. It does not validate
 ancestry or possession of the client result; the writer is responsible for
 publishing it first (e.g. push a prepared result ref). `change: None` changes only
-the target ref. The prior message-only guest-computed merge operation is removed.
+the target ref. The prior message-only program-computed merge operation is removed.
 
 Review OIDs and anchors receive syntactic validation, not object reads in
 consensus. Paths must be relative, lines positive, bodies nonblank, and anchors
 distinct within a batch. Old-side comments require a base. Empty approve/request
 verdicts are valid; a comment verdict needs body text or line comments. Clients
 validate positions against the displayed endpoint bytes, stage one draft per
-anchor, read the exported cap, and preserve drafts on failed submission.
+anchor, and preserve drafts on failed submission.
 
 ## Bounds, refusals, and the current host seam
 
@@ -174,11 +206,10 @@ refuses rather than inventing partial ancestry; each page repeats the bounded
 walk. `tree_walk` bounds object reads in tree/blob/diff queries; log and compare
 have derived read budgets (`2 * log_walk + 1` and `8 * log_walk + tree_walk`).
 `diff_bytes` bounds aggregate object bytes read, including metadata; existing
-`merge_cost` bounds Myers edit distance per file. `record_bytes` bounds each
-encoded change/review; `MAX_REVIEW_COMMENTS`, `MAX_REVIEWERS`, `MAX_TITLE_BYTES`,
-`MAX_PATH_BYTES` and `MAX_REPO_NAME`
-are exported contract constants; a configured head is at most `MAX_PATH_BYTES`. Repo names
-are at most `MAX_REPO_NAME`, derived from chat's `MAX_ID_BYTES` so even `forge:<repo>:<u64::MAX>` fits.
+`merge_cost` bounds the Myers edit distance searched per file: the common head and
+tail are matched first and a one-sided middle (a file added, deleted or grown in one
+place) is not searched; a file past it is answered `Oversize`, the rest of its page
+comes. `record_bytes` bounds each encoded change/review.
 
 A UI query failure is an ABI `Refusal { reason, sentence }`. Stable reasons
 include `object_not_held`, `capacity`, `invalid_input`, `not_found`, `stale`, and
@@ -188,8 +219,8 @@ requests and Git protocol failures use the ABI refusal path.
 
 The current kernel revision `5d1d1f61d89960164cab919dfbb16a1d8cdb3b36` distinguishes
 unrostered blobs (`None`) from rostered blobs absent locally (`BlobUnavailable`).
-The latter is a host error before the guest receives a usable reply: `BlobStat`
-is not a local-availability probe either. The guest therefore returns
+The latter is a host error before the program receives a usable reply: `BlobStat`
+is not a local-availability probe either. The program therefore returns
 `object_not_held` on every observable missing-object result, with **no retry or
 wait loop in a query**, but cannot intercept the host's required-blob failure.
 Core/SDK must provide a query-local nonblocking blob read/stat, or convert
@@ -199,7 +230,7 @@ into refusals. This limitation is not proven away by the in-process smoke in qa.
 Likewise, `send` commits an outbox item, not the receiver's execution. The guarded
 chat namespace and validated payloads prevent ordinary delivery refusals, but
 chat must be seated as `chat` and forge as `forge`. Truly simultaneous record+
-channel creation would require a host transaction spanning both modules; this
+channel creation would require a host transaction spanning both programs; this
 version proves atomic record+queue and next-block delivery, including restart.
 
 ## View and SDK handoff
@@ -222,7 +253,7 @@ version proves atomic record+queue and next-block delivery, including restart.
   last-reviewed filtering in view state. Do not silently retarget draft anchors.
 - Deploy the matching chat adapter: it exposes `MessageById` and `ThreadAttention`
   and answers attention by account. Screenshots and live app walks are outside
-  this module task.
+  this program task.
 
-See [the fixture manifest](fixtures/FIXTURES.md) for the module's real
+See [the fixture manifest](fixtures/FIXTURES.md) for the program's real
 response bytes and the regeneration command.

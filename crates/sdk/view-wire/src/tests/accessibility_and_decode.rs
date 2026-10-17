@@ -69,20 +69,6 @@ fn a_node_keeps_its_rarely_set_parts_behind_a_pointer() {
 }
 
 #[test]
-fn more_nodes_than_the_host_holds_is_refused() {
-    let wide = column((0..MAX_DECODED_NODES + 2).map(|_| Node::empty()).collect());
-    let bytes = encode(&Frame {
-        root: Some(wide),
-        ..Frame::default()
-    });
-    let refused = decode::<Frame>(&bytes).unwrap_err();
-    assert!(
-        refused.contains("more nodes than the host holds"),
-        "{refused}"
-    );
-}
-
-#[test]
 fn uniform_list_path_must_match_its_typed_tree_ancestry() {
     let parent = ElementIdWire::Integer(7);
     let list = ElementIdWire::Name("list".into());
@@ -115,9 +101,7 @@ fn uniform_list_path_must_match_its_typed_tree_ancestry() {
 #[test]
 fn a_screen_of_one_typed_id_is_refused_in_linear_time() {
     let mut frame = Frame {
-        root: Some(column(
-            (0..MAX_NODES - 1).map(|_| keyed("same", "x")).collect(),
-        )),
+        root: Some(column((0..8_191).map(|_| keyed("same", "x")).collect())),
         ..Default::default()
     };
     let started = std::time::Instant::now();

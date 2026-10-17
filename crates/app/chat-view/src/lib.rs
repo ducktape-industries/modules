@@ -7,40 +7,78 @@
 //! lands in the handlers of `room`, `actions`, `search` and `compose`. The
 //! rich editor is the composer (`composer.rs`, `composer/`), over the SDK's
 //! text field.
+//!
+//! What becomes a notice is chat's NOTIFIER's (`notifier.rs`): the host runs
+//! it once per network, open panes or none, and a pane posts nothing. The
+//! `notifier` feature builds it alone, with the modules it reads
+//! (`links`, `message`, `names`), in place of the view.
+#![cfg_attr(feature = "notifier", allow(dead_code))]
+#[cfg(not(feature = "notifier"))]
 mod actions;
+#[cfg(not(feature = "notifier"))]
 mod compose;
+#[cfg(not(feature = "notifier"))]
 mod composer;
+#[cfg(not(feature = "notifier"))]
 mod emoji;
+#[cfg(not(feature = "notifier"))]
 mod kept;
 mod links;
+#[cfg(not(feature = "notifier"))]
+mod listing;
 mod message;
 mod names;
+#[cfg(not(feature = "notifier"))]
 mod notices;
+mod notifier;
+#[cfg(not(feature = "notifier"))]
 mod queries;
+#[cfg(not(feature = "notifier"))]
 mod room;
+#[cfg(not(feature = "notifier"))]
+mod room_list;
+#[cfg(not(feature = "notifier"))]
 mod search;
+#[cfg(not(feature = "notifier"))]
 mod session;
+#[cfg(not(feature = "notifier"))]
 mod state;
+#[cfg(not(feature = "notifier"))]
 mod ui;
+#[cfg(not(feature = "notifier"))]
 mod watch;
+mod words;
 
+pub use notifier::ChatNotices;
+#[cfg(feature = "notifier")]
+view::export_notifier!(ChatNotices);
+
+#[cfg(not(feature = "notifier"))]
 pub use state::*;
 
-use ducktape_view_guest::prelude::*;
+#[cfg(not(feature = "notifier"))]
+use view::prelude::*;
 
 /// Rows asked per page.
+#[cfg(not(feature = "notifier"))]
 const PAGE: usize = 64;
 /// Rows a room keeps on screen before paging older.
+#[cfg(not(feature = "notifier"))]
 const WINDOW: usize = 256;
-const SPAN: usize = chat::PageRequest::MAX_LIMIT as usize;
+#[cfg(not(feature = "notifier"))]
+const SPAN: usize = WINDOW;
 
+#[cfg(not(feature = "notifier"))]
 impl View for Chat {
-    const NAME: &'static str = "Chat";
+    const NAME: &'static str = words::CHAT;
     const DESCRIPTION: &'static str =
         "Channels, direct messages, threads, search and the live call of this workspace.";
     const ICON: &'static str = "icons/messages-square.svg";
+    const TINT: Tint = Tint::Blue;
     const CAPABILITIES: &'static [Capability] = &[
-        Capability::Module,
+        // the heads' time: which day "Today" is
+        Capability::Chain,
+        Capability::Program,
         Capability::Op,
         Capability::Host,
         Capability::Link,
@@ -48,10 +86,7 @@ impl View for Chat {
         Capability::Notify,
         Capability::Store,
     ];
-    const TARGETS: &'static [&'static str] = &[
-        chat::MODULE,
-        <program::role::Identity as ducktape_view_guest::methods::Program>::NAME,
-    ];
+    const TARGETS: &'static [&'static str] = &[chat::PROGRAM, identity::PROGRAM];
     // at 480 an agent message's head line is cut at the room's edge
     const MIN_WINDOW_WIDTH: u32 = 560;
 
@@ -76,7 +111,7 @@ impl View for Chat {
             let (id, thread) = (room.id.clone(), room.thread.as_ref().map(|t| t.root));
             self.open(id, cx);
             if let Some(root) = thread {
-                self.open_thread(root, cx);
+                self.reply_in_thread(root, cx);
             }
         }
         if !self.search.query.is_empty() {
@@ -85,21 +120,29 @@ impl View for Chat {
     }
 }
 
+#[cfg(not(feature = "notifier"))]
 impl Render for Chat {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // the pane's size, as the host lays the frame out: the panes
         // clamp to it before the frame that shows them
         let size = window.viewport_size();
         self.layout.viewport = (size.width.into(), size.height.into());
-        self.layout.clamp();
         self.seat_drafts();
         // names land async: the frame is the one place that sees each
         self.settle_title(cx);
-        ui::render(self, cx)
+        self.settle_showing(cx);
+        // the one pick: a phone draws the Expo app's own screens, every
+        // other window the desktop's (STRUCTURE v2)
+        if window.touch() {
+            ui::phone::render(self, cx)
+        } else {
+            ui::render(self, cx).into_any_element()
+        }
     }
 }
 
+#[cfg(not(feature = "notifier"))]
 export_view!(Chat);
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "notifier")))]
 mod tests;

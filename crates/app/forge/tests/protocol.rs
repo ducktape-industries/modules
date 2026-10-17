@@ -66,7 +66,7 @@ fn advertisement_lists_refs_for_receive_and_capabilities_for_upload() {
 }
 
 #[test]
-fn ls_refs_and_fetch_serve_what_was_pushed() {
+fn ls_refs_and_a_closure_fetch_serve_what_was_pushed() {
     let sandbox = founded();
     create(&sandbox, "project", HashKind::Sha1);
     let mut source = MemoryObjects::new(Hash::Sha1);
@@ -100,14 +100,17 @@ fn ls_refs_and_fetch_serve_what_was_pushed() {
         ]
     );
 
-    let clone = ask(
+    let fetch_request = v2_request("fetch", Hash::Sha1, &[format!("want {tip}"), "done".into()]);
+    let upload = ask(
         &sandbox,
         &Query::Upload {
             repo: "project".into(),
-            request: v2_request("fetch", Hash::Sha1, &[format!("want {tip}"), "done".into()]),
+            request: fetch_request.clone(),
         },
-    )
-    .unwrap();
+    );
+    assert_eq!(upload.unwrap_err().code, code::INVALID_INPUT);
+
+    let clone = fetch(&sandbox, "project", HashKind::Sha1, &fetch_request);
     let (sections, pack_bytes) = fetched_pack(&clone);
     assert_eq!(sections, ["packfile", "<flush>"]);
     assert_eq!(
@@ -115,28 +118,26 @@ fn ls_refs_and_fetch_serve_what_was_pushed() {
         source.ids().copied().collect()
     );
 
-    let update = ask(
+    let update = fetch(
         &sandbox,
-        &Query::Upload {
-            repo: "project".into(),
-            request: v2_request(
-                "fetch",
-                Hash::Sha1,
-                &[format!("want {tip}"), format!("have {root}")],
-            ),
-        },
-    )
-    .unwrap();
+        "project",
+        HashKind::Sha1,
+        &v2_request(
+            "fetch",
+            Hash::Sha1,
+            &[format!("want {tip}"), format!("have {root}")],
+        ),
+    );
     let (sections, pack_bytes) = fetched_pack(&update);
     assert_eq!(
         sections,
         [
-            "acknowledgments".to_string(),
-            format!("ACK {root}"),
-            "ready".into(),
-            "<delim>".into(),
-            "packfile".into(),
-            "<flush>".into(),
+            "acknowledgments",
+            "NAK",
+            "ready",
+            "<delim>",
+            "packfile",
+            "<flush>"
         ]
     );
     let served = ids_in_pack(&pack_bytes, Hash::Sha1);

@@ -1,24 +1,12 @@
 //! Lossless payloads for GPUI element listeners.
 //!
-//! These values describe the platform event data that a guest callback can
+//! These values describe the platform event data that a view callback can
 //! observe. They intentionally do not contain native hitboxes, focus handles,
 //! windows, or action objects: those stay on the host side of the wire.
 
 use crate::{click, keyboard, mouse};
 use gpui::{Pixels, Point};
 use serde::{Deserialize, Serialize};
-
-/// The most keystrokes one node's key-down listeners consume.
-pub const MAX_CONSUMED_KEYS: usize = 16;
-/// The longest consumed keystroke: gpui's longest, `ctrl-alt-shift-cmd-fn-`
-/// and a key name, fits with room to spare.
-pub const MAX_KEYSTROKE_BYTES: usize = 64;
-
-pub(crate) fn decode_consumed_keys<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Vec<gpui::SharedString>, D::Error> {
-    crate::bounded_vec(deserializer, MAX_CONSUMED_KEYS, "too many consumed keys")
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DispatchPhase {
@@ -134,7 +122,7 @@ pub struct Tooltip {
     pub delay_ms: u64,
 }
 
-/// What the guest built for a tooltip request: the content for the route,
+/// What the view built for a tooltip request: the content for the route,
 /// or `None` where the builder had nothing to show.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TooltipResponse {

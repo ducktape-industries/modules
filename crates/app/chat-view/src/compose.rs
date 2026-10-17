@@ -2,9 +2,9 @@
 //! sends it makes, and which drafts are kept.
 use crate::composer::{Draft, Event, MentionChoice, Outcome, Send, Target, pending_row};
 use crate::names::mention_token;
-use crate::{Chat, Mode};
+use crate::{Chat, Mode, words};
 use chat::MsgRow;
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 impl Chat {
     /// Who the composer offers after `@`: the roster, and the room's members.
@@ -21,6 +21,9 @@ impl Chat {
             .into_iter()
             .map(|choice| MentionChoice {
                 token: mention_token(&choice.principal),
+                hint: self
+                    .unanswered(&choice.principal)
+                    .map(|why| format!("Answers {why}")),
                 label: choice.label,
             })
             .collect()
@@ -30,7 +33,7 @@ impl Chat {
         &mut self,
         target: Target,
         event: Event,
-        window: &mut ducktape_view_guest::Window,
+        window: &mut view::Window,
         cx: &mut Context<Self>,
     ) {
         let choices = self.mention_choices();
@@ -103,12 +106,21 @@ impl Chat {
             if let Some(row) = held.clone() {
                 let _ = this.update(cx, |chat, cx| chat.hold(&target, row, cx));
             }
-            let result = async {
-                let op = minted?;
+            // why the message did not land, in every view's words; none
+            // when it did
+            let failed = async {
+                let op = match minted {
+                    Ok(op) => op,
+                    Err(refusal) => return design::failure(&Err(refusal)),
+                };
                 if let Some(open) = open_dm {
-                    host.ask::<Submit<::chat::Chat>>(open).await?;
+                    let opened = host.ask::<Submit<::chat::Chat>>(open).await;
+                    // the DM did not open: the message was never sent
+                    if let Some(said) = design::failure(&opened) {
+                        return Some(format!("{} · {said}", words::OPENING_DM));
+                    }
                 }
-                host.ask::<Submit<::chat::Chat>>(op).await
+                design::failure(&host.ask::<Submit<::chat::Chat>>(op).await)
             }
             .await;
             let _ = this.update(cx, |chat, cx| {
@@ -117,8 +129,8 @@ impl Chat {
                 // send still needs a draft to wait in
                 let draft = chat.drafts.entry(key).or_default();
                 draft.complete_send(&send);
-                match result {
-                    Ok(_) => {
+                match failed {
+                    None => {
                         draft.note.clear();
                         if let Target::Edit { seq, .. } = target
                             && chat
@@ -130,8 +142,10 @@ impl Chat {
                         }
                         chat.refresh(cx);
                     }
-                    Err(refusal) => {
-                        draft.note = refusal.message;
+                    // a refusal, and a doubt alike, hold the draft for the
+                    // person to send again
+                    Some(said) => {
+                        draft.note = said;
                         draft.failed(send);
                         if let Some(row) = held {
                             chat.unhold(&row.message_id);
@@ -179,7 +193,7 @@ impl Chat {
             .ready()
             .and_then(|names| names.name(&chat::Principal::Account(peer)))
             .map(str::to_owned)
-            .unwrap_or_else(|| format!("account {peer}"));
+            .unwrap_or_else(|| words::account(peer));
         Some(chat::Op::CreateDmChannel {
             counterpart: peer,
             name,

@@ -1,14 +1,18 @@
 //! The Account screen: a left menu (Account, Agents, Invites) and the one
 //! pane it has open. `render` reads the state and changes nothing; presses
 //! land in `actions.rs`.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful};
+use view::prelude::*;
+use view::{Div, FontWeight, Stateful};
 
 use crate::Settings;
 use crate::queries::Seat;
-use crate::state::{Form, Problem, Section, TTL};
+use crate::state::{Form, Section, TTL};
+use crate::words;
+use view::design::Ladder;
 
 mod account;
+pub(crate) mod phone;
+mod shared;
 
 /// The left menu's width.
 const NAV_W: Pixels = px(200.);
@@ -19,11 +23,12 @@ const FIELD_W: Pixels = px(220.);
 
 pub(crate) fn render(view: &Settings, cx: &mut Context<Settings>) -> impl IntoElement {
     let theme = *cx.global::<Theme>();
-    let section = shown(view);
+    let ladder = &design::POINTER;
+    let section = view.shown();
     let body = match section {
-        Section::Account => account::account(view, cx, &theme),
-        Section::Agents => account::agents_pane(view, cx, &theme),
-        Section::Invites => invites(view, cx, &theme),
+        Section::Account => account::account(view, cx, &theme, ladder),
+        Section::Agents => account::agents_pane(view, cx, &theme, ladder),
+        Section::Invites => invites(view, cx, &theme, ladder),
     };
     div()
         .id("settings")
@@ -51,23 +56,6 @@ pub(crate) fn render(view: &Settings, cx: &mut Context<Settings>) -> impl IntoEl
         )
 }
 
-/// The panes the menu lists: Agents only for an account that manages them.
-fn sections(view: &Settings) -> Vec<Section> {
-    let manages = matches!(view.account.ready(), Some(Some(Seat::Account(a))) if a.manages);
-    [Section::Account, Section::Agents, Section::Invites]
-        .into_iter()
-        .filter(|section| *section != Section::Agents || manages)
-        .collect()
-}
-
-/// The pane on screen: the picked one, or Account once it is not listed.
-fn shown(view: &Settings) -> Section {
-    match sections(view).contains(&view.section) {
-        true => view.section,
-        false => Section::Account,
-    }
-}
-
 fn nav(
     view: &Settings,
     shown: Section,
@@ -75,7 +63,7 @@ fn nav(
     theme: &Theme,
 ) -> Stateful<Div> {
     let theme = *theme;
-    let sections = sections(view);
+    let sections = view.sections();
     let at = sections
         .iter()
         .position(|section| *section == shown)
@@ -121,14 +109,17 @@ fn nav(
         }))
 }
 
-fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyElement {
-    let network = match view.session.chain_id.split('#').next() {
-        Some(name) if !name.is_empty() => name.to_owned(),
-        _ => "this network".to_owned(),
-    };
+fn invites(
+    view: &Settings,
+    cx: &mut Context<Settings>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
+    let network = words::network(&view.session).unwrap_or("this network");
     let choices = design::segmented(
         "settings/ttl",
         "Expires after",
+        ladder,
         theme,
         Some(view.ttl),
         TTL.into_iter().map(|days| {
@@ -151,6 +142,7 @@ fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyEle
             "Expires after",
             format!("An invite lets one node join {network} as a resident."),
             choices,
+            ladder,
             theme,
         ))
         .child(design::setting_row(
@@ -166,6 +158,7 @@ fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyEle
                 theme,
                 mint,
             ),
+            ladder,
             theme,
         ));
     let minted = match &view.invite {
@@ -175,7 +168,7 @@ fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyEle
                 Loadable::Ready(()) | Loadable::Reloading((), _) => {
                     ("Copied".to_owned(), theme.success)
                 }
-                Loadable::Failed(refusal) => (refusal.message.clone(), theme.danger),
+                Loadable::Failed(refusal) => (design::sentence(refusal), theme.danger),
                 Loadable::Idle | Loadable::Loading(_) => (String::new(), theme.muted),
             };
             column("settings/invite/minted")
@@ -209,7 +202,7 @@ fn invites(view: &Settings, cx: &mut Context<Settings>, theme: &Theme) -> AnyEle
                 .child(secondary("settings/invite/copied", copied, theme).text_color(tone))
                 .into_any_element()
         }
-        Loadable::Failed(refusal) => refusal_line("invite", &refusal.message, theme)
+        Loadable::Failed(refusal) => refusal_line("invite", &design::sentence(refusal), theme)
             .mt(design::space::MD)
             .into_any_element(),
         Loadable::Loading(_) => secondary("settings/invite/loading", "Minting invite…", theme)
@@ -264,23 +257,10 @@ fn column(id: impl Into<String>) -> Stateful<Div> {
     div().id(id.into()).flex().flex_col().gap_2().w_full()
 }
 
-/// What stopped a form, as the form words it; `empty` says what to type.
-fn problem_text(problem: &Problem, empty: &str) -> String {
-    match problem {
-        Problem::Empty => empty.to_owned(),
-        Problem::NotAKeyRequest => "That isn’t a key request for one of your agents.".into(),
-        Problem::NoSuchAccount => "No account has that name or number.".into(),
-        Problem::SeveralAccounts => {
-            "More than one account has that name. Add it by its number.".into()
-        }
-        Problem::Refused(message) => format!("That didn’t go through: {message}"),
-    }
-}
-
 /// A form's problem, if it has one, in the refusal box under it.
 fn problem(key: &str, form: &Form, empty: &str, theme: &Theme) -> Option<Stateful<Div>> {
     let problem = form.problem.as_ref()?;
-    Some(refusal_line(key, &problem_text(problem, empty), theme).my(design::space::SM))
+    Some(refusal_line(key, &words::problem_text(problem, empty), theme).my(design::space::SM))
 }
 
 /// A refused write or mint, under the control that sent it.

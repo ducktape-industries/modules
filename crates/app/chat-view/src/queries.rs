@@ -1,8 +1,10 @@
-//! Typed reads of the chat module. Every list takes a `PageRequest` and answers a
+//! Typed reads of the chat program. Every list takes a `PageRequest` and answers a
 //! `PageResponse`; `next` is the cursor of the page after it.
 use chat::view::Names;
 use chat::{ChannelInfo, MemberRow, MessageHits, MsgRow, PageRequest, Principal, ask};
-use ducktape_view_guest::prelude::*;
+use identity::Ownership;
+use std::collections::BTreeMap;
+use view::prelude::*;
 
 use crate::{PAGE, SPAN, WINDOW};
 
@@ -37,6 +39,28 @@ pub(crate) async fn roots(
 /// Every account's profile, folded into [`Names`].
 pub(crate) async fn roster(host: Host) -> Result<Names, Error> {
     ::chat::view::roster(move |ask| host.query(ask)).await
+}
+
+/// Whom each agent that acts answers besides its manager, as identity
+/// keeps it: one ask per agent the roster names.
+pub(crate) async fn ownerships(
+    host: Host,
+    names: &Names,
+) -> Result<BTreeMap<u64, Ownership>, Error> {
+    let agents = names
+        .people()
+        .filter(|number| crate::message::agent(names, &Principal::Account(*number)));
+    let asks = agents.map(|number| {
+        let host = host.clone();
+        async move {
+            let ownership = host.query(identity::ask::Ownership { number }).await?;
+            Ok::<_, Error>((number, ownership))
+        }
+    });
+    Ok(futures::future::try_join_all(asks)
+        .await?
+        .into_iter()
+        .collect())
 }
 
 /// The rows around a landing seq, oldest first.
@@ -142,7 +166,7 @@ pub(crate) async fn thread(
 }
 
 /// A search: `#tag` pages through the tag index, anything else is a
-/// full-text search capped by the module. Returns the hits, whether the
+/// full-text search capped by the program. Returns the hits, whether the
 /// search was capped, and the cursor of the next tag page.
 pub(crate) async fn search_hits(
     host: Host,

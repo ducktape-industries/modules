@@ -1,14 +1,14 @@
 #!/bin/sh
-# `make new-module NAME=x` / `make new-view NAME=x-view`: a module in
-# valset's shape (types and `describe` in lib.rs, the program and the module
-# in program.rs, its rules over `store` in rules.rs, a native test over
-# `guest::MockHost` in tests.rs; its wasm exports behind `module`, its
-# describe module behind `describe`) or a view in members-view's shape
-# (links its module with `module` off, `export_view!`, one screen test),
+# `make new-program NAME=x` / `make new-view NAME=x-view`: a program in
+# valset's shape (types and `describe` in lib.rs, the program in program.rs,
+# its rules over `store` in rules.rs, a native test over `program::MockHost`
+# in tests.rs; its wasm exports behind `program`, its describe module behind
+# `describe`) or a view in members-view's shape
+# (links its program with `program` off, `export_view!`, one screen test),
 # registered in the Makefile
 # and the workspace. `make scaffold-check` builds and tests both. Run from
 # the repo root.
-#   tools/scaffold.sh module <name> | view <name>-view
+#   tools/scaffold.sh program <name> | view <name>-view
 set -eu
 kind=$1
 name=$2
@@ -40,12 +40,12 @@ register() { # <Makefile list> <name>
 &|"
 }
 
-module() {
+program() {
     anchor Makefile '^PROGRAMS := '
     anchor Makefile '^VIEW_LINKABLE := '
     anchor Cargo.toml "$MEMBERS"
     anchor Cargo.toml "$DEPS"
-    # The module type: TitleCase of the module name.
+    # The program type: TitleCase of the program name.
     title=$(echo "$name" | awk -F- '{ for (i = 1; i <= NF; i++) printf "%s%s", toupper(substr($i, 1, 1)), substr($i, 2) }')
     mkdir -p "$dir/src"
     cat > "$dir/Cargo.toml" <<EOF
@@ -54,38 +54,36 @@ name = "$name"
 version.workspace = true
 edition.workspace = true
 
-# The types and rules are always built; a view links them with \`module\`
-# off. \`module\` adds its wasm exports (\`guest::export!\`), which only its
+# The types and rules are always built; a view links them with \`program\`
+# off. \`program\` adds its wasm exports (\`program::export!\`), which only its
 # own wasm build turns on.
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [features]
-module = []
+program = []
 # \`describe\` makes this crate's wasm build the \`ducktape.describe\` module:
-# the \`describe\` export alone, no module, no imports.
+# the \`describe\` export alone, no program, no imports.
 describe = []
 
 [dependencies]
 abi = { workspace = true }
 borsh = { workspace = true }
 describe = { workspace = true }
-guest = { workspace = true }
-# \`#[derive(program::Ask)]\`: each query asked alone, typed by its reply
 program = { workspace = true }
 store = { workspace = true }
 EOF
     cat > "$dir/src/lib.rs" <<EOF
-//! The \`$name\` module: one count, to be replaced by what it keeps. The
-//! types, rules and [\`$title\`] module are always built; a view links them
-//! with \`module\` off. The layout, in reading order:
+//! The \`$name\` program: one count, to be replaced by what it keeps. The
+//! types, rules and [\`$title\`] program are always built; a view links them
+//! with \`program\` off. The layout, in reading order:
 //!
 //! - \`lib.rs\` (here): the types on the wire, all borsh, and [\`describe()\`]
-//! - \`program.rs\`: [\`$title\`], the program (its name and types, which a
-//!   view names it by) and the module: one match over every op and one
-//!   over every query
+//! - \`program.rs\`: [\`$title\`], the program: its name and types, which
+//!   a view names it by, then one match over every op and one over every
+//!   query
 //! - \`rules.rs\`: what each op checks and writes, over \`store\`
-//! - \`tests.rs\`: the module natively over \`guest::MockHost\`
+//! - \`tests.rs\`: the program natively over \`program::MockHost\`
 mod program;
 mod rules;
 #[cfg(test)]
@@ -95,7 +93,7 @@ pub use program::$title;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-pub const MODULE: &str = "$name";
+pub const PROGRAM: &str = "$name";
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {
@@ -117,7 +115,7 @@ pub enum Reply {
 }
 
 /// An op as a person reads it: a title and its fields. The source of the
-/// \`ducktape.describe\` module this module ships (\`make wasm-describes\`).
+/// \`ducktape.describe\` module this program ships (\`make wasm-describes\`).
 pub fn describe(op: &Op) -> describe::Description {
     use describe::{Value, field};
     let (title, fields) = match op {
@@ -139,23 +137,21 @@ fn op_variants_only_append() {
 }
 EOF
     cat > "$dir/src/program.rs" <<EOF
-//! The module: every op and every query, each handed to its rule.
+//! The program: every op and every query, each handed to its rule.
 
-use guest::{Error, ExecCtx, Module, Program, QueryCtx};
+use ::program::{Error, ExecCtx, Program, QueryCtx};
 
 use crate::rules::{bump, count};
-use crate::{MODULE, Op, Query, Reply};
+use crate::{PROGRAM, Op, Query, Reply};
 
 pub struct $title;
 
 impl Program for $title {
-    const NAME: &'static str = MODULE;
+    const NAME: &'static str = PROGRAM;
     type Op = Op;
     type Query = Query;
     type Reply = Reply;
-}
 
-impl Module for $title {
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
         // A write acts as an account: a key that holds none is refused.
         ctx.sender()?;
@@ -171,17 +167,17 @@ impl Module for $title {
     }
 }
 
-#[cfg(feature = "module")]
-guest::export!($title);
+#[cfg(feature = "program")]
+::program::export!($title);
 EOF
     cat > "$dir/src/rules.rs" <<EOF
 // The rules: what each op checks, then what it writes. A rule checks before
 // it writes, so a refusal needs no rollback.
 
-use guest::{Error, ExecCtx, QueryCtx};
+use ::program::{Error, ExecCtx, QueryCtx};
 use store::Item;
 
-/// The one value this module keeps.
+/// The one value this program keeps.
 const COUNT: Item<u64> = Item::new("count");
 
 pub(crate) fn bump(ctx: &ExecCtx, by: u64) -> Result<(), Error> {
@@ -194,32 +190,32 @@ pub(crate) fn count(ctx: &QueryCtx) -> Result<u64, Error> {
 }
 EOF
     cat > "$dir/src/tests.rs" <<EOF
-// The module natively over \`guest::MockHost\`, as the host runs it.
+// The program natively over \`program::MockHost\`, as the host runs it.
 
-use guest::{Env, MockHost, Module, code};
+use ::program::{Env, MockHost, Program, code};
 
-use crate::{$title, MODULE, Op, Query, Reply};
+use crate::{$title, PROGRAM, Op, Query, Reply};
 
 /// \`MockHost::env\` is a person's frame: signed by key \`[1; 32]\`, which
 /// holds account 1. The chain's own is \`.root()\`.
 #[test]
 fn bumps_add_up_and_read_back() {
     let host = MockHost::default();
-    let first = host.exec(MockHost::env(MODULE));
+    let first = host.exec(MockHost::env(PROGRAM));
     $title::execute(&first, Op::Bump { by: 2 }).unwrap();
     let later = Env {
         height: 2,
-        ..MockHost::env(MODULE)
+        ..MockHost::env(PROGRAM)
     };
     $title::execute(&host.exec(later), Op::Bump { by: 3 }).unwrap();
-    let count = $title::query(&host.query(MockHost::env(MODULE)), Query::Count).unwrap();
+    let count = $title::query(&host.query(MockHost::env(PROGRAM)), Query::Count).unwrap();
     assert_eq!(count, Reply::Count(5));
 }
 
 #[test]
 fn a_key_that_holds_no_account_writes_nothing() {
     let host = MockHost::default();
-    let unheld = MockHost::env(MODULE).signed([2u8; 32], None);
+    let unheld = MockHost::env(PROGRAM).signed([2u8; 32], None);
     let refusal = host.refused(|| $title::execute(&host.exec(unheld), Op::Bump { by: 1 }));
     assert_eq!(refusal.code, code::UNAUTHORIZED);
 }
@@ -231,7 +227,7 @@ $name = { path = \"$dir\" }|"
     cat <<EOF
 $dir/{Cargo.toml,src/{lib,program,rules,tests}.rs}, PROGRAMS, VIEW_LINKABLE, workspace members and dependencies.
 Next:
-  1. write the contract (Op/Query/Reply and describe() in lib.rs, the module in program.rs, its rules in rules.rs); \`make dev P=$name\` builds and tests it
+  1. write the contract (Op/Query/Reply and describe() in lib.rs, the program in program.rs, its rules in rules.rs); \`make dev P=$name\` builds and tests it
   2. \`make new-view NAME=$name-view\` for its screen
   3. found it: a [[programs]] entry (id "$name", code "$snake.wasm") in crates/sdk/founding/founding.toml, and in qa's founding.toml
      (code "@PROGRAMS@/$snake.wasm"); its view goes in crates/sdk/founding's PROGRAMS (step 2 prints it)
@@ -239,14 +235,14 @@ EOF
 }
 
 view() {
-    case "$name" in *-view) ;; *) echo "$name: a view is named <module>-view" >&2; exit 1 ;; esac
+    case "$name" in *-view) ;; *) echo "$name: a view is named <program>-view" >&2; exit 1 ;; esac
     program=${name%-view}
     program_snake=$(echo "$program" | tr - _)
-    test -d "crates/app/$program" || { echo "crates/app/$program is not there: make new-module NAME=$program first" >&2; exit 1; }
+    test -d "crates/app/$program" || { echo "crates/app/$program is not there: make new-program NAME=$program first" >&2; exit 1; }
     anchor Makefile '^VIEWS := '
     anchor Cargo.toml "$MEMBERS"
     upper=$(echo "$program_snake" | tr a-z A-Z)
-    # The view type: TitleCase of the module name.
+    # The view type: TitleCase of the program name.
     title=$(echo "$program" | awk -F- '{ for (i = 1; i <= NF; i++) printf "%s%s", toupper(substr($i, 1, 1)), substr($i, 2) }')
     mkdir -p "$dir/src"
     cat > "$dir/Cargo.toml" <<EOF
@@ -263,8 +259,8 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-ducktape-view-guest.workspace = true
-# The module with \`module\` off: its types and the program this view
+view.workspace = true
+# The program with \`program\` off: its types and the program this view
 # names it by, no host import.
 $program.workspace = true
 serde.workspace = true
@@ -273,12 +269,12 @@ serde.workspace = true
 serde_json.workspace = true
 EOF
     cat > "$dir/src/lib.rs" <<EOF
-//! $title: the count the \`$program\` module keeps, re-read on every live
-//! bump of the module.
+//! $title: the count the \`$program\` program keeps, re-read on every live
+//! bump of the program.
 // every SDK name this file writes: gpui's (elements, styles, \`Render\`,
 // \`Context\`, \`Window\`), the view's (\`View\`, \`Loadable\`, \`Host\`,
 // \`Error\`, \`export_view!\`) and the methods' (\`Capability\`, \`Changes\`)
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Default)]
@@ -299,12 +295,12 @@ struct Heading {
 
 impl View for $title {
     const NAME: &'static str = "$title";
-    const DESCRIPTION: &'static str = "The count the $program module keeps.";
-    const CAPABILITIES: &'static [Capability] = &[Capability::Module];
-    const TARGETS: &'static [&'static str] = &[$program_snake::MODULE];
+    const DESCRIPTION: &'static str = "The count the $program program keeps.";
+    const CAPABILITIES: &'static [Capability] = &[Capability::Program];
+    const TARGETS: &'static [&'static str] = &[$program_snake::PROGRAM];
     const MIN_WINDOW_WIDTH: u32 = 480;
 
-    /// Follows the module and reads the count: on the first mount and
+    /// Follows the program and reads the count: on the first mount and
     /// after every redeploy, which restores the view from its snapshot.
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         cx.follow::<Changes<$program_snake::$title>>((), |view, _, cx| view.read(cx))
@@ -321,8 +317,8 @@ impl Render for Heading {
         div()
             .id("$program-title")
             .text_size(px(16.))
-            .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
-            .role(ducktape_view_guest::Role::Heading)
+            .font_weight(view::FontWeight::SEMIBOLD)
+            .role(view::Role::Heading)
             .aria_level(1)
             .child(self.text.clone())
     }
@@ -371,8 +367,8 @@ mod tests;
 EOF
     cat > "$dir/src/tests.rs" <<EOF
 use super::*;
-use ducktape_view_guest::methods::{Change, Query};
-use ducktape_view_guest::testing::TestAppContext;
+use view::methods::{Change, Query};
+use view::testing::TestAppContext;
 
 fn ready() -> TestAppContext {
     let mut cx = TestAppContext::new();
@@ -383,7 +379,7 @@ fn ready() -> TestAppContext {
     cx
 }
 
-/// A live bump re-reads the count; a re-read the module refuses says why,
+/// A live bump re-reads the count; a re-read the program refuses says why,
 /// where the count was.
 #[test]
 fn a_refused_re_read_says_why() {
@@ -422,18 +418,18 @@ EOF
     cat <<EOF
 $dir/{Cargo.toml,src/lib.rs,src/tests.rs}, VIEWS and workspace members.
 Next:
-  1. replace the screen in src/lib.rs with what the module's Query answers (it asks \`Query::Count\` until then)
+  1. replace the screen in src/lib.rs with what the program's Query answers (it asks \`Query::Count\` until then)
   2. \`make dev P=$program V=$name\` tests both natively, then builds them and gates the view (ABI), which needs Binaryen wasm-opt 132, wasm-tools and python3 on PATH
-  3. pack it into its module: ("$program_snake", "$snake") in PROGRAMS (crates/sdk/founding/src/lib.rs); then in qa \`kit up NAME\`
+  3. pack it into its program: ("$program_snake", "$snake") in PROGRAMS (crates/sdk/founding/src/lib.rs); then in qa \`kit up NAME\`
 EOF
 }
 
 # Each on its own line: `set -e` does not reach into a function run on the
 # left of `&&`.
 case "$kind" in
-    module) module ;;
+    program) program ;;
     view) view ;;
-    *) echo "usage: tools/scaffold.sh module <name> | view <name>-view" >&2; exit 1 ;;
+    *) echo "usage: tools/scaffold.sh program <name> | view <name>-view" >&2; exit 1 ;;
 esac
 # Import order and line width follow the name, so rustfmt has the last word.
 ${CARGO:-cargo} fmt -p "$name"

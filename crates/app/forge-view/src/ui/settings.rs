@@ -1,22 +1,29 @@
 //! Repository settings: the default head, the force/delete flags and who
 //! may write, as setting rows. Nothing the contract does not expose
 //! appears here.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, FontWeight, Stateful};
+use view::prelude::*;
+use view::{Div, FontWeight, Stateful};
 
 use crate::Forge;
 use crate::state::{Menu, SettingsForm};
 use crate::ui::changes::people_picker;
-use crate::ui::components::{button, dropdown, id, menu, menu_item, ref_label};
+use crate::ui::components::{button, dropdown, id, ref_label};
 use crate::ui::{PAGE_X, pending, scroller, staged};
+use crate::words;
 use forge::Reply;
+use view::design::Ladder;
 
 /// The widest the rows run.
 const ROWS_W: Pixels = px(664.);
 /// The grant field.
 const GRANT_W: Pixels = px(220.);
 
-pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+pub(crate) fn render(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let column = scroller("forge-settings")
         .px(PAGE_X + design::space::SM)
         .py(design::space::LG)
@@ -26,9 +33,10 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         forge,
         &forge.repo_query(),
         "forge-settings-repo",
-        "Reading this repository…",
+        words::READING_REPOSITORY,
         cx,
         theme,
+        ladder,
     ) {
         Ok(reply) => reply,
         Err(state) => return column.child(state).into_any_element(),
@@ -48,15 +56,16 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         .child(group("forge-settings-title", "Refs", theme))
         .child(design::setting_row(
             id("forge-settings-heads"),
-            "Default head",
-            "What a clone checks out and where changes point by default.",
+            words::DEFAULT_HEAD,
+            words::DEFAULT_HEAD_RULE,
             heads(forge, &form, cx, theme),
+            ladder,
             theme,
         ))
-        .children(flags(forge, &form, cx, theme))
+        .children(flags(forge, &form, cx, theme, ladder))
         .child(
             div().flex().justify_end().py(design::space::LG).child(
-                button(id("forge-settings-save"), "Save", theme, save)
+                button(id("forge-settings-save"), "Save", ladder, theme, save)
                     .kind(design::Kind::Primary)
                     .enabled(forge.owns_repo()),
             ),
@@ -70,7 +79,7 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
             theme,
         ))
         .children(writer_rows(forge, &writers.items, cx, theme))
-        .child(grant_field(forge, &form, cx, theme));
+        .child(grant_field(forge, &form, cx, theme, ladder));
     column.child(rows).into_any_element()
 }
 
@@ -89,7 +98,8 @@ fn group(key: &str, title: &str, theme: &Theme) -> Stateful<Div> {
         .child(title.to_owned())
 }
 
-/// The branches a default head may name, as a dropdown.
+/// The branches a default head may name, as a dropdown
+/// ([`crate::ui::components::menu`]).
 fn heads(forge: &Forge, form: &SettingsForm, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
     dropdown(
         Menu::Head.key(),
@@ -102,45 +112,13 @@ fn heads(forge: &Forge, form: &SettingsForm, cx: &mut Context<Forge>, theme: &Th
     )
 }
 
-/// The default head's menu, open: every branch, the form's head checked.
-pub(crate) fn head_menu(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
-    let head = forge
-        .repo_settings
-        .as_ref()
-        .map(|form| form.head.clone())
-        .unwrap_or_default();
-    let items = forge
-        .branches()
-        .into_iter()
-        .map(|name| {
-            let pick = cx.processor({
-                let name = name.clone();
-                move |forge, (): (), window, cx| {
-                    if let Some(form) = &mut forge.repo_settings {
-                        form.head = name.clone();
-                    }
-                    forge.close_dropdown(Menu::Head, window, cx);
-                }
-            });
-            menu_item(
-                id(format!("forge-settings-head-{}", ref_label(&name))),
-                ref_label(&name),
-                None,
-                head == name,
-                theme,
-                move |window, app| pick((), window, app),
-            )
-        })
-        .collect();
-    menu(Menu::Head, "Default head", items, forge, cx, theme)
-}
-
 /// The force and delete switches.
 fn flags(
     forge: &Forge,
     form: &SettingsForm,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> [Stateful<Div>; 2] {
     let force = cx.listener(|forge, _: &ClickEvent, _, cx| {
         if let Some(form) = &mut forge.repo_settings {
@@ -158,30 +136,34 @@ fn flags(
     [
         design::setting_row(
             id("forge-settings-force-row"),
-            "Allow force pushes",
-            "Let writers rewrite a branch's history.",
+            words::ALLOW_FORCE_PUSHES,
+            words::ALLOW_FORCE_PUSHES_RULE,
             design::switch(
                 id("forge-settings-force"),
-                "Allow force pushes",
+                words::ALLOW_FORCE_PUSHES,
                 form.allow_force,
                 owns,
+                ladder,
                 theme,
                 force,
             ),
+            ladder,
             theme,
         ),
         design::setting_row(
             id("forge-settings-delete-row"),
-            "Allow ref deletion",
-            "Let writers delete branches and tags.",
+            words::ALLOW_REF_DELETION,
+            words::ALLOW_REF_DELETION_RULE,
             design::switch(
                 id("forge-settings-delete"),
-                "Allow ref deletion",
+                words::ALLOW_REF_DELETION,
                 form.allow_delete,
                 owns,
+                ladder,
                 theme,
                 delete,
             ),
+            ladder,
             theme,
         ),
     ]
@@ -234,6 +216,7 @@ fn grant_field(
     form: &SettingsForm,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Stateful<Div> {
     let grant = cx.listener(|forge, _: &ClickEvent, _, cx| forge.grant(cx));
     // a typed number needs no search; a name does
@@ -255,6 +238,7 @@ fn grant_field(
                 fill,
                 cx,
                 theme,
+                ladder,
             )
         }
         false => Vec::new(),
@@ -267,7 +251,7 @@ fn grant_field(
             Input::new(
                 id("forge-settings-grant-input"),
                 &form.grant,
-                "Grant write access",
+                words::GRANT_WRITE_ACCESS,
             )
             .h(design::size::CONTROL)
             .w(GRANT_W)
@@ -276,10 +260,13 @@ fn grant_field(
             .border_color(theme.border_strong)
             .bg(theme.background)
             .text_color(theme.foreground)
-            .placeholder("Search members"),
+            .placeholder(words::SEARCH_MEMBERS)
+            .when(forge.owns_repo(), |input| {
+                input.on_submit(cx.listener(|forge, _: &(), _, cx| forge.grant(cx)))
+            }),
         )
         .child(
-            button(id("forge-settings-grant"), "Grant", theme, grant)
+            button(id("forge-settings-grant"), "Grant", ladder, theme, grant)
                 .kind(design::Kind::Outline)
                 .enabled(forge.owns_repo()),
         );
@@ -289,9 +276,10 @@ fn grant_field(
         .flex_col()
         .child(design::setting_row(
             id("forge-settings-grant-row"),
-            "Grant write access",
-            "Pick a member. They can push and merge here.",
+            words::GRANT_WRITE_ACCESS,
+            words::PICK_A_WRITER,
             control,
+            ladder,
             theme,
         ))
         .when(!matches.is_empty(), |access| {
@@ -340,7 +328,7 @@ fn writer_rows(
             access_row(
                 &principal_id(key),
                 forge.principal_name(key),
-                "Can write",
+                words::CAN_WRITE,
                 Some(action.into_any_element()),
                 theme,
             )

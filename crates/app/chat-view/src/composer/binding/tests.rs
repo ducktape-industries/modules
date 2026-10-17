@@ -1,9 +1,9 @@
 use super::super::Send;
 use super::super::draft::host;
 use super::*;
-use ducktape_view_guest::testing::{self, TestAppContext};
-use ducktape_view_guest::{Keystroke, Modifiers};
 use serde::{Deserialize, Serialize};
+use view::testing::{self, TestAppContext};
+use view::{Keystroke, Modifiers};
 use wire::keyboard::{Key, Named};
 
 #[derive(Default, Serialize, Deserialize)]
@@ -90,7 +90,7 @@ fn lowered_styled(
     key: &str,
     choices: &[MentionChoice],
 ) -> (wire::Node, wire::Styles) {
-    testing::lower(|cx| {
+    let (tree, styles, _) = testing::lower(|cx| {
         view(
             draft,
             key,
@@ -103,7 +103,8 @@ fn lowered_styled(
             cx,
             |_: &mut ComposerView, _, _, _| {},
         )
-    })
+    });
+    (tree, styles)
 }
 
 fn find_field(root: &wire::Node) -> Option<&wire::Node> {
@@ -139,6 +140,7 @@ fn roster() -> Vec<MentionChoice> {
     vec![MentionChoice {
         token: "<@1>".into(),
         label: "Ada".into(),
+        hint: None,
     }]
 }
 
@@ -354,7 +356,7 @@ fn no_claim_is_on_a_key_the_engine_owns() {
             "{claims:?}"
         );
     }
-    let (root, _) = testing::lower(|cx| {
+    let (root, _, _) = testing::lower(|cx| {
         view(
             &caret("@A", 2),
             "c",
@@ -394,10 +396,12 @@ fn menu_navigation_then_enter_picks_a_stable_identity_and_escape_leaves_enter_to
         MentionChoice {
             token: "<@1>".into(),
             label: "Ada".into(),
+            hint: None,
         },
         MentionChoice {
             token: "<@2>".into(),
             label: "Alan".into(),
+            hint: None,
         },
     ];
     let mut draft = caret("@A", 2);
@@ -591,4 +595,46 @@ fn what_is_typed_into_a_draft_made_in_render_is_lost() {
         panic!("the editor")
     };
     assert_eq!(value, "hi");
+}
+
+/// An agent that would not answer the writer says so beside its name, a
+/// warning badge the item's name carries too; a choice with no hint draws
+/// none, and the badge adds no fault to the menu's known ones.
+#[test]
+fn a_mention_choice_carries_its_hint() {
+    let choices = vec![
+        MentionChoice {
+            token: "<@1>".into(),
+            label: "Ada".into(),
+            hint: None,
+        },
+        MentionChoice {
+            token: "<@2>".into(),
+            label: "Scout".into(),
+            hint: Some("Answers its manager only".into()),
+        },
+    ];
+    let root = lowered(&caret("@", 1), "c", &choices);
+    let label = |key| match node(&root, key) {
+        Some(wire::Node::Container(wire::ContainerNode {
+            interactivity: Some(interactivity),
+            ..
+        })) => interactivity.aria.label.as_deref().map(str::to_owned),
+        _ => None,
+    };
+    assert_eq!(
+        label("c/mention/<@2>").as_deref(),
+        Some("@Scout, Answers its manager only")
+    );
+    assert_eq!(label("c/mention/<@1>").as_deref(), Some("@Ada"));
+    assert!(node(&root, "c/mention/<@2>/hint").is_some());
+    assert!(clickable(&root, "c/mention/<@2>").is_some(), "still picked");
+    assert!(node(&root, "c/mention/<@1>/hint").is_none());
+    let faults = wire::audit(&root);
+    assert!(
+        faults
+            .iter()
+            .all(|fault| fault.path.last().is_some_and(|key| !key.ends_with("/hint"))),
+        "{faults:?}"
+    );
 }

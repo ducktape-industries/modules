@@ -1,6 +1,7 @@
 //! The small controls on a message card: the action strip's buttons, a
 //! reaction, and the way into a thread.
-use ducktape_view_guest::prelude::*;
+use crate::words;
+use view::prelude::*;
 
 /// An action strip button's height, the smallest box a pointer presses
 /// (the door's AX-017): the strip, borders and all, is 26. Its width is
@@ -21,7 +22,7 @@ pub(super) fn action_button(
     theme: &Theme,
     enabled: bool,
     active: bool,
-    click: impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static,
+    click: impl Fn(&ClickEvent, &mut Window, &mut view::App) + 'static,
 ) -> impl IntoElement {
     let control = div()
         .id(id)
@@ -36,7 +37,7 @@ pub(super) fn action_button(
         } else {
             theme.faint
         })
-        .role(ducktape_view_guest::Role::Button)
+        .role(view::Role::Button)
         .aria_label(accessible)
         .aria_disabled(!enabled)
         .text_size(design::text::SECONDARY)
@@ -70,7 +71,7 @@ pub(super) fn reaction_button(
     theme: &Theme,
     enabled: bool,
     active: bool,
-    click: impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static,
+    click: impl Fn(&ClickEvent, &mut Window, &mut view::App) + 'static,
 ) -> impl IntoElement {
     let mut control = div()
         .id(id)
@@ -95,7 +96,7 @@ pub(super) fn reaction_button(
         } else {
             theme.muted
         })
-        .role(ducktape_view_guest::Role::Button)
+        .role(view::Role::Button)
         .aria_disabled(!enabled)
         .text_size(design::text::SECONDARY);
     control = match face {
@@ -113,7 +114,7 @@ pub(super) fn reaction_button(
                     .child(count.to_string()),
             ),
         // `+` is the picker's method, not a toggle
-        Face::Add => control.aria_label("Add reaction").child("+"),
+        Face::Add => control.aria_label(words::ADD_REACTION).child("+"),
     };
     if enabled {
         design::item(
@@ -141,7 +142,7 @@ pub(super) fn replies_button(
     count: u64,
     theme: &Theme,
     active: bool,
-    click: impl Fn(&ClickEvent, &mut Window, &mut ducktape_view_guest::App) + 'static,
+    click: impl Fn(&ClickEvent, &mut Window, &mut view::App) + 'static,
 ) -> impl IntoElement {
     let replies = design::plural(count, "reply", "replies");
     let button = div()
@@ -163,7 +164,7 @@ pub(super) fn replies_button(
                 .border_color(theme.border_strong)
         })
         .active(|style| style.bg(theme.accent_soft))
-        .aria_label(format!("Open thread, {replies}"))
+        .aria_label(words::open_thread(&replies))
         .on_click(click)
         .consumes_click()
         .child(replies)

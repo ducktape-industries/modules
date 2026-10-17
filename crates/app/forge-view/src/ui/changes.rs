@@ -1,32 +1,46 @@
 //! Changes: the filter rail with "Needs my judgment" on top, the list, and
 //! the form that opens or edits one.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, wire};
+use std::collections::BTreeMap;
+use std::rc::Rc;
+
+use view::prelude::*;
+use view::{Div, wire};
 
 use crate::Forge;
 use crate::state::{ChangeForm, Filter};
-use crate::ui::components::{badge, button, empty_state, heading, id, quiet, ref_label};
+use crate::ui::components::{badge, button, empty_state, heading, id, quiet};
+use crate::ui::diff::Route;
 use crate::ui::{pending, staged};
+use crate::words;
 use forge::{ChangeState, ChangeSummary, Judgment, Reply, ReviewCounts};
+use view::design::Ladder;
 
-pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+pub(crate) fn render(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
+    let ladder = *ladder;
     let mut column = div()
         .id(id("forge-changes"))
         .flex()
         .flex_col()
         .flex_1()
         .min_h(px(0.))
-        .child(filters(forge, cx, theme))
+        .child(filters(forge, cx, theme, &ladder))
         .child(pending(forge, "changes", theme));
-    if let Some(form) = &forge.form {
-        column = column.child(self::form(form, forge, cx, theme));
+    if let Some(form) = forge.change_form() {
+        column = column.child(self::form(form, forge, cx, theme, &ladder));
     }
     let Some(query) = forge.changes_query(&forge.repo_name()) else {
         return column
             .child(empty_state(
                 id("forge-changes-nobody"),
-                "No account",
-                "Create an account to see the changes that involve you.",
+                "user-round",
+                words::NO_ACCOUNT,
+                words::CREATE_AN_ACCOUNT,
+                &ladder,
                 theme,
             ))
             .into_any_element();
@@ -35,70 +49,132 @@ pub(crate) fn render(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> A
         forge,
         &query,
         "forge-changes-list",
-        "Reading the changes…",
+        words::READING_CHANGES,
         cx,
         theme,
+        &ladder,
     ) {
         Ok(reply) => reply,
         Err(state) => return column.child(state).into_any_element(),
     };
-    let rows: Vec<(ChangeSummary, Option<&Judgment>)> = match reply {
-        Reply::Changes { page, .. } => page.items.iter().map(|s| (s.clone(), None)).collect(),
-        Reply::Judgment { page, .. } => page
-            .items
-            .iter()
-            .map(|item| (item.change.clone(), Some(item)))
-            .collect(),
-        _ => Vec::new(),
+    let Some(shared) = forge.shared(&query) else {
+        return column.into_any_element();
     };
+    // the changes shown, by their place in the reply: the title search
+    // keeps them; a render reads none of the rest
     let needle = forge.change_search.text().trim().to_lowercase();
-    let shown: Vec<&(ChangeSummary, Option<&Judgment>)> = rows
-        .iter()
-        .filter(|(summary, _)| needle.is_empty() || summary.title.to_lowercase().contains(&needle))
+    let shown: Vec<usize> = (0..listed(reply))
+        .filter(|at| {
+            needle.is_empty()
+                || summary_at(reply, *at)
+                    .is_some_and(|(summary, _)| summary.title.to_lowercase().contains(&needle))
+        })
         .collect();
     if shown.is_empty() {
         return column
             .child(empty_state(
                 id("forge-changes-empty"),
+                "git-pull-request",
                 if forge.filter == Filter::Judgment {
-                    "Nothing waits on you"
+                    words::NOTHING_WAITS
                 } else {
-                    "No changes here"
+                    words::NO_CHANGES_HERE
                 },
                 if forge.filter == Filter::Judgment {
-                    "No review is requested of you and no thread of yours has an answer."
+                    words::NOTHING_ASKED
                 } else {
-                    "Compare a branch from the Refs tab to open one."
+                    words::COMPARE_TO_OPEN
                 },
+                &ladder,
                 theme,
             ))
             .into_any_element();
     }
-    // one Tab stop: ↑ ↓ walk the changes, Enter opens the active one
-    let numbers: Vec<u64> = shown.iter().map(|(summary, _)| summary.n).collect();
+    // the names of the people who wrote them: few, each read once
+    let mut authors = BTreeMap::new();
+    for (summary, _) in shown.iter().filter_map(|at| summary_at(reply, *at)) {
+        if !authors.contains_key(&summary.author) {
+            authors.insert(
+                summary.author.clone(),
+                forge.principal_name(&summary.author),
+            );
+        }
+    }
+    // one Tab stop: ↑ ↓ walk the changes (a virtual list, scrolled to the
+    // one moved to), Enter opens the active one
+    let count = shown.len();
+    let shown = Rc::new(shown);
     let (at, _) = crate::ui::components::cursor(forge, "forge-changes-list");
-    let at = at.min(numbers.len().saturating_sub(1));
-    let mut list = crate::ui::components::list(
+    let marks = Rc::new(Marks {
+        authors,
+        active: at.min(count.saturating_sub(1)),
+        walked: crate::ui::components::walked(forge, "forge-changes-list"),
+    });
+    let pressed = (shared.clone(), shown.clone());
+    let list = crate::ui::components::list(
         "forge-changes-list",
         "Changes",
-        numbers.len(),
-        None,
+        count,
+        Some(&forge.changes_scroll),
         forge,
         cx,
-        move |forge, index, _, cx| forge.open_change(Some(numbers[index]), cx),
-    )
-    .gap_0();
-    for (index, (summary, judgment)) in shown.iter().enumerate() {
-        list = list.child(change_row(
-            forge,
-            summary,
-            *judgment,
-            index == at,
-            cx,
-            theme,
-        ));
+        move |forge, index, _, cx| {
+            let (reply, shown) = &pressed;
+            let n = shown
+                .get(index)
+                .and_then(|at| summary_at(reply, *at))
+                .map(|(summary, _)| summary.n);
+            if n.is_some() {
+                forge.open_change(n, cx)
+            }
+        },
+    );
+    let open: Route<u64> =
+        Rc::new(cx.listener(|forge, n: &u64, _, cx| forge.open_change(Some(*n), cx)));
+    let theme = *theme;
+    let rows = crate::ui::components::rows(
+        "forge-changes-rows",
+        count,
+        None,
+        Some(&forge.changes_scroll),
+        move |index| match shown.get(index).and_then(|at| summary_at(&shared, *at)) {
+            Some((summary, judgment)) => {
+                change_row(summary, judgment, index, &marks, &open, &theme, &ladder)
+            }
+            None => div().into_any_element(),
+        },
+    );
+    column.child(list.child(rows)).into_any_element()
+}
+
+/// How many changes a changes or judgment reply lists.
+fn listed(reply: &Reply) -> usize {
+    match reply {
+        Reply::Changes { page, .. } => page.items.len(),
+        Reply::Judgment { page, .. } => page.items.len(),
+        _ => 0,
     }
-    column.child(list).into_any_element()
+}
+
+/// Change `at` of a changes or judgment reply, and what it asks of me when
+/// listed by judgment.
+fn summary_at(reply: &Reply, at: usize) -> Option<(&ChangeSummary, Option<&Judgment>)> {
+    match reply {
+        Reply::Changes { page, .. } => page.items.get(at).map(|summary| (summary, None)),
+        Reply::Judgment { page, .. } => page
+            .items
+            .get(at)
+            .map(|judgment| (&judgment.change, Some(judgment))),
+        _ => None,
+    }
+}
+
+/// What marks the changes' rows: their authors' names, the row the arrows
+/// are on, and whether they have walked the list.
+struct Marks {
+    authors: BTreeMap<forge::Principal, String>,
+    active: usize,
+    walked: bool,
 }
 
 /// The title search field.
@@ -110,24 +186,35 @@ const DOT: Pixels = px(6.);
 /// under it, and on the right its verdicts, its comments, and what it asks
 /// of me when listed by judgment.
 fn change_row(
-    forge: &Forge,
     summary: &ChangeSummary,
     judgment: Option<&Judgment>,
-    active: bool,
-    cx: &mut Context<Forge>,
+    index: usize,
+    marks: &Marks,
+    open: &Route<u64>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let n = summary.n;
-    let open = cx.listener(move |forge, _: &ClickEvent, _, cx| forge.open_change(Some(n), cx));
-    let author = forge.principal_name(&summary.author);
+    let open = {
+        let open = open.clone();
+        move |_: &ClickEvent, window: &mut Window, app: &mut App| open(&n, window, app)
+    };
+    let author = marks
+        .authors
+        .get(&summary.author)
+        .cloned()
+        .unwrap_or_default();
+    let (active, walked) = (index == marks.active, marks.walked);
     let dot = match summary.state {
         ChangeState::Open => theme.success,
         ChangeState::Merged => theme.agent,
         ChangeState::Closed => theme.faint,
     };
     let theme_ = *theme;
+    // as wide as the list: its counts on the right, its rule across
     let mut line = div()
         .id(id(format!("forge-change-{n}")))
+        .w_full()
         .flex()
         .items_center()
         .gap(design::space::LG)
@@ -136,7 +223,7 @@ fn change_row(
         .border_b_1()
         .border_color(theme.border)
         .hover(move |style| style.bg(theme_.surface))
-        .when(active, |line| line.bg(theme_.surface))
+        .when(walked && active, |line| line.bg(theme_.surface))
         .aria_selected(false)
         .on_click(open)
         .child(
@@ -147,7 +234,7 @@ fn change_row(
                 .rounded_full()
                 .bg(dot)
                 .role(Role::Image)
-                .aria_label(state_label(summary.state)),
+                .aria_label(words::change_state(summary.state)),
         )
         .child(
             div()
@@ -165,16 +252,18 @@ fn change_row(
                             div()
                                 .min_w(px(0.))
                                 .truncate()
-                                .font_weight(ducktape_view_guest::FontWeight::MEDIUM)
+                                .font_weight(view::FontWeight::MEDIUM)
                                 .child(summary.title.clone()),
                         )
                         .child(div().text_color(theme.muted).child(format!("#{n}"))),
                 )
                 .child(
                     design::mono(format!(
-                        "{} → {} · {author}",
-                        ref_label(&revision_name(&summary.from)),
-                        ref_label(&summary.into)
+                        "{} · {author}",
+                        words::endpoints(
+                            &crate::select::revision_name(&summary.from),
+                            &summary.into
+                        )
                     ))
                     .text_size(design::text::CAPTION)
                     .text_color(theme.muted),
@@ -184,7 +273,8 @@ fn change_row(
         if judgment.requested {
             line = line.child(badge(
                 id(format!("forge-change-requested-{n}")),
-                "review requested",
+                words::REVIEW_REQUESTED,
+                ladder,
                 theme.accent_foreground,
                 theme.accent_soft,
             ));
@@ -192,37 +282,24 @@ fn change_row(
         if judgment.replies.is_some() {
             line = line.child(badge(
                 id(format!("forge-change-unread-{n}")),
-                "new reply",
+                words::NEW_REPLY,
+                ladder,
                 theme.warning,
                 theme.warning_soft,
             ));
         }
     }
     let line = line.child(verdicts(&summary.verdicts, n, theme)).child(
-        div().w(px(90.)).flex().justify_end().child(quiet(
-            design::plural(summary.comment_count, "comment", "comments"),
-            theme,
-        )),
+        div()
+            .w(px(90.))
+            .flex()
+            .justify_end()
+            .child(quiet(words::comments(summary.comment_count), theme)),
     );
     design::item(line, Role::ListBoxOption, active).into_any_element()
 }
 
-fn state_label(state: ChangeState) -> &'static str {
-    match state {
-        ChangeState::Open => "open",
-        ChangeState::Merged => "merged",
-        ChangeState::Closed => "closed",
-    }
-}
-
-pub(crate) fn revision_name(revision: &forge::Revision) -> Vec<u8> {
-    match revision {
-        forge::Revision::Ref(name) => name.clone(),
-        forge::Revision::Oid(oid) => oid.clone().into_bytes(),
-    }
-}
-
-pub(crate) fn state_chip(state: ChangeState, n: u64, theme: &Theme) -> AnyElement {
+pub(crate) fn state_chip(state: ChangeState, n: u64, theme: &Theme, ladder: &Ladder) -> AnyElement {
     let (foreground, background) = match state {
         ChangeState::Open => (theme.success, theme.success_soft),
         ChangeState::Merged => (theme.agent, theme.agent_soft),
@@ -230,7 +307,8 @@ pub(crate) fn state_chip(state: ChangeState, n: u64, theme: &Theme) -> AnyElemen
     };
     badge(
         id(format!("forge-change-state-{n}")),
-        state_label(state),
+        words::change_state(state),
+        ladder,
         foreground,
         background,
     )
@@ -255,11 +333,12 @@ fn verdicts(counts: &ReviewCounts, n: u64, theme: &Theme) -> AnyElement {
 
 /// The state as one segmented choice (Open with its count), the lists
 /// about me as quiet buttons, and the title search on the right.
-fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme, ladder: &Ladder) -> AnyElement {
     const STATES: [Filter; 3] = [Filter::Open, Filter::Merged, Filter::Closed];
     let states = design::segmented(
         id("forge-filter-states"),
         "Change state",
+        ladder,
         theme,
         STATES.iter().position(|state| *state == forge.filter),
         STATES.map(|filter| {
@@ -289,6 +368,7 @@ fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement 
             button(
                 id(format!("forge-filter-{}", filter.slug())),
                 filter.label(),
+                ladder,
                 theme,
                 pick,
             )
@@ -312,7 +392,7 @@ fn filters(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement 
             .border_color(theme.border_strong)
             .bg(theme.background)
             .text_color(theme.foreground)
-            .placeholder("Search titles"),
+            .placeholder(words::SEARCH_TITLES),
         ),
     )
     .into_any_element()
@@ -324,6 +404,7 @@ pub(crate) fn form(
     forge: &Forge,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let submit = cx.listener(|forge, _: &ClickEvent, _, cx| forge.submit_change(cx));
     let cancel = cx.listener(|forge, _: &ClickEvent, _, cx| forge.cancel_change(cx));
@@ -340,18 +421,15 @@ pub(crate) fn form(
         .child(heading(
             id("forge-change-form-title"),
             match form.edit {
-                Some(n) => format!("Edit change #{n}"),
-                None => "New change".to_owned(),
+                Some(n) => words::edit_change(n),
+                None => words::NEW_CHANGE.to_owned(),
             },
             2,
             theme,
         ))
-        .child(quiet(
-            format!("{} → {}", ref_label(&form.from), ref_label(&form.into)),
-            theme,
-        ))
-        .child(form_fields(form, cx, theme))
-        .child(reviewers(form, forge, cx, theme));
+        .child(quiet(words::endpoints(&form.from, &form.into), theme))
+        .child(form_fields(form, forge, cx, theme))
+        .child(reviewers(form, forge, cx, theme, ladder));
     if !form.error.is_empty() {
         card = card.child(
             div()
@@ -366,11 +444,18 @@ pub(crate) fn form(
             .flex()
             .gap_2()
             .child(div().flex_1())
-            .child(button(id("forge-change-cancel"), "Cancel", theme, cancel))
+            .child(button(
+                id("forge-change-cancel"),
+                "Cancel",
+                ladder,
+                theme,
+                cancel,
+            ))
             .child(
                 button(
                     id("forge-change-submit"),
                     if form.edit.is_some() { "Save" } else { "Open" },
+                    ladder,
                     theme,
                     submit,
                 )
@@ -382,7 +467,7 @@ pub(crate) fn form(
 }
 
 /// The draft's title and body fields.
-fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div {
+fn form_fields(form: &ChangeForm, forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Div {
     // a title typed again takes the last refusal with it
     let title = cx.listener(|forge, _: &wire::TextChange, _, cx| {
         if let Some(form) = &mut forge.form {
@@ -403,12 +488,15 @@ fn form_fields(form: &ChangeForm, cx: &mut Context<Forge>, theme: &Theme) -> Div
                 .border_color(theme.border_strong)
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .placeholder("What this change does")
-                .on_change(title),
+                .placeholder(words::TITLE_PROMPT)
+                .on_change(title)
+                .when(forge.may_write(), |title| {
+                    title.on_submit(cx.listener(|forge, _: &(), _, cx| forge.submit_change(cx)))
+                }),
         )
         .child(
             Textarea::new(id("forge-change-body"), &form.body, "Change body")
-                .placeholder("Why it changes")
+                .placeholder(words::BODY_PROMPT)
                 .min_h(design::size::CONTROL * 4.)
                 .w_full()
                 .px_2()
@@ -425,15 +513,16 @@ fn reviewers(
     forge: &Forge,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     if forge.names.ready().is_none() {
-        return quiet("Reading the roster…", theme);
+        return quiet(words::READING_ROSTER, theme);
     }
     let toggle = |forge: &mut Forge, key: forge::Principal| {
         if let Some(form) = &mut forge.form {
             if let Some(at) = form.reviewers.iter().position(|held| *held == key) {
                 form.reviewers.remove(at);
-            } else if form.reviewers.len() < forge::MAX_REVIEWERS {
+            } else {
                 form.reviewers.push(key);
             }
         }
@@ -453,14 +542,20 @@ fn reviewers(
             toggle,
             cx,
             theme,
+            ladder,
         ))
         .into_any_element()
 }
 
-/// The identity picker: the people and agents chat's mentions offer — no
-/// module's account, none suspended ([`chat::view::Names::people`]) — whose
-/// name holds `needle`, each a button `{key}-{number}` that `pick`s it.
+/// The identity picker: the users and program accounts chat's mentions
+/// offer — no system account, none suspended
+/// ([`chat::view::Names::people`]) — whose name holds `needle`, each a
+/// button `{key}-{number}` that `pick`s it.
 /// Nothing while the roster is still being read.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the ladder rides beside the theme into every sized helper; the phone rework of this view reshapes the row"
+)]
 pub(crate) fn people_picker(
     forge: &Forge,
     key: &str,
@@ -469,6 +564,7 @@ pub(crate) fn people_picker(
     pick: impl Fn(&mut Forge, forge::Principal) + Clone + 'static,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> Vec<AnyElement> {
     let Some(names) = forge.names.ready() else {
         return Vec::new();
@@ -481,7 +577,6 @@ pub(crate) fn people_picker(
             let name = names.name(person).unwrap_or_default().to_lowercase();
             needle.is_empty() || name.contains(&needle)
         })
-        .take(24)
         .map(|person| {
             let number = person.account().unwrap_or_default();
             let chosen = picked(&person);
@@ -493,7 +588,7 @@ pub(crate) fn people_picker(
                     cx.notify();
                 }
             });
-            button(id(format!("{key}-{number}")), label, theme, click)
+            button(id(format!("{key}-{number}")), label, ladder, theme, click)
                 .selected(chosen)
                 .into_any_element()
         })

@@ -1,42 +1,76 @@
 //! The Transactions tab and one transaction.
 use super::*;
-use crate::decode::{amount, clip, preview, scheme};
+use crate::decode::{amount, clip, preview};
+use view::design::Ladder;
 
+/// Every transaction, newest first, or those sent to `program`: the rows
+/// read so far, and a line that reads on past them as it comes into view.
+/// Activity lists no transaction by program, so the program's are the
+/// rows held that went to it, its pages read on until they fill the list,
+/// activity ends or `load::LOOK_BACK` more rows are
+/// read, when Look further back reads on; the caption says how far back
+/// that looked. Rows written above a listing read on past its first page
+/// show as Newer transactions (`Listing::behind`).
 pub(super) fn transactions(
     view: &Explorer,
     program: Option<String>,
     cx: Cx,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
-    let window = plural(view.chain.blocks.len() as u64, "block", "blocks");
-    let matching = sent_to(view, program.as_deref()).count();
-    let list = rows("explorer-transactions-list", "Transactions", view);
-    let rows = (matching > 0).then(|| {
-        let program = program.clone();
-        tx_rows(
-            list,
-            view,
-            move |view| sent_to(view, program.as_deref()).take(LIST_ROWS).collect(),
-            true,
-            true,
+    let frames = match landed(view.frames.as_ref()) {
+        Ok(frames) => frames,
+        Err(Some(refusal)) => return failed(&design::sentence(&refusal), cx, theme, ladder),
+        Err(None) => return quiet("explorer-txs-loading", "Reading transactions…", theme),
+    };
+    let (matching, held, more) = frames.rows.read(|frames| {
+        let matching = sent_to(frames.rows(), program.as_deref()).count();
+        (
+            matching,
+            frames.rows().len(),
+            frames.count() > frames.rows().len(),
         )
+    });
+    // a program's list reads back by itself as far as `reach`, then asks
+    let further = program.is_some() && more && held >= view.reach;
+    let reading_on = more && !further;
+    let list = rows("explorer-transactions-list", "Transactions", view);
+    let rows = (matching > 0 || reading_on).then(|| {
+        let program = program.clone();
+        frame_rows(list, &frames.rows, move |frames| {
+            sent_to(frames, program.as_deref()).collect()
+        })
+        .more(reading_on.then_some(words::READING_OLDER))
         .build(cx)
     });
     let title = match &program {
-        Some(program) => format!("Transactions · {program}"),
+        Some(program) => words::transactions_to(program),
         None => "Transactions".into(),
     };
-    let empty = (matching == 0).then(|| {
-        quiet(
-            "explorer-no-txs",
-            format!("No transactions in the last {window}."),
+    // a count is a total only once activity is read to its end, and only
+    // while nothing was written above the rows read
+    let count = match (more, &program) {
+        _ if frames.behind => None,
+        (false, _) => Some(plural(matching as u64, "transaction", "transactions")),
+        (true, Some(_)) => Some(words::of_the_newest(matching as u64, held as u64)),
+        (true, None) => None,
+    };
+    let empty = (matching == 0 && !more && !frames.behind)
+        .then(|| quiet("explorer-no-txs", "No transactions recorded.", theme));
+    let further = further.then(|| {
+        let look = |view: &mut Explorer, cx: &mut Context<Explorer>| view.look_further(cx);
+        div().px_5().py_2().child(press(
+            "explorer-look-further",
+            words::LOOK_FURTHER,
+            cx,
             theme,
-        )
+            look,
+        ))
     });
     div()
         .id("explorer-transactions")
         .flex_1()
-        .min_h(px(0.))
+        .min_h_0()
         .flex()
         .flex_col()
         // the heading ends where the rows do, short of the gutter the host
@@ -45,45 +79,54 @@ pub(super) fn transactions(
             heading(
                 "explorer-transactions-heading",
                 &title,
-                Some(caption(
-                    format!(
-                        "{} in the last {window}",
-                        plural(matching as u64, "transaction", "transactions")
-                    ),
-                    theme,
-                )),
+                count.map(|count| caption(count, theme)),
                 theme,
             )
             .mr(design::size::SCROLLBAR),
         )
+        .children(frames.behind.then(|| newer(cx, theme)))
         .children(rows)
         .children(empty)
+        .children(further)
         .into_any_element()
 }
 
-/// The window's transactions, newest first; `program`'s alone when named.
 fn sent_to<'a, 'p>(
-    view: &'a Explorer,
+    frames: &'a [activity::Frame],
     program: Option<&'p str>,
-) -> impl Iterator<Item = &'a TxRow> + use<'a, 'p> {
-    view.chain
-        .txs
+) -> impl Iterator<Item = &'a activity::Frame> + use<'a, 'p> {
+    frames
         .iter()
-        .filter(move |tx| program.is_none_or(|program| tx.target == program))
+        .filter(move |frame| program.is_none_or(|program| frame.target == program))
 }
 
-pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> AnyElement {
-    let Some(tx) = view.tx(hash) else {
-        return empty_state(
-            "explorer-no-tx",
-            "Transaction not found",
-            format!(
-                "It is not in the last {} this explorer reads.",
-                plural(view.chain.blocks.len() as u64, "block", "blocks")
-            ),
-            theme,
-        )
-        .into_any_element();
+pub(super) fn tx(
+    view: &Explorer,
+    height: u64,
+    position: u32,
+    cx: Cx,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
+    let Some(tx) = view.tx_at(height, position) else {
+        return match &view.located {
+            Loadable::Ready(None) | Loadable::Reloading(None, _) => empty_state(
+                "explorer-no-tx",
+                "search-x",
+                words::NO_TRANSACTION,
+                words::no_transaction_at(height, position),
+                ladder,
+                theme,
+            )
+            .into_any_element(),
+            Loadable::Failed(refusal) => failed(&design::sentence(refusal), cx, theme, ladder),
+            Loadable::Idle
+            | Loadable::Loading(_)
+            | Loadable::Ready(Some(_))
+            | Loadable::Reloading(Some(_), _) => {
+                quiet("explorer-tx-loading", words::READING_TX, theme)
+            }
+        };
     };
     view.open(tx, cx);
     let now = view.chain.now();
@@ -96,7 +139,7 @@ pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> Any
         .child(mono(tx.target.clone()))
         .children(code.map(|code| mono(format!("code {code}")).text_color(theme.faint)));
     let title = clip(&tx.title());
-    let copy = copy_button(view, &Route::Tx(*hash), cx, theme);
+    let copy = copy_button(view, &Route::Tx { height, position }, cx, theme);
     div()
         .id("explorer-tx")
         .child(
@@ -112,7 +155,7 @@ pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> Any
             "Block",
             link(
                 "explorer-tx-block".into(),
-                format!("In block {}", grouped(tx.height)),
+                words::in_block(tx.height),
                 Route::Block(tx.height),
                 cx,
                 theme,
@@ -122,7 +165,7 @@ pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> Any
         .children(
             tx.receipt
                 .as_ref()
-                .map(|run| field("Status", status(run, "explorer-tx", theme), theme)),
+                .map(|run| field("Status", status(run, "explorer-tx", theme, ladder), theme)),
         )
         .child(field("Hash", mono(abi::hex(&tx.hash)), theme))
         .child(field("From", from(view, tx, cx, theme), theme))
@@ -131,7 +174,7 @@ pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> Any
             "Anchor",
             link(
                 "explorer-tx-anchor".into(),
-                format!("Block {}", grouped(tx.anchor)),
+                words::block(tx.anchor),
                 Route::Block(tx.anchor),
                 cx,
                 theme,
@@ -144,7 +187,7 @@ pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> Any
                 .flex()
                 .gap_2()
                 .child(date(tx.time))
-                .child(mono(format!("{} ago", ago(now, tx.time))).text_color(theme.faint)),
+                .child(mono(words::age(now, tx.time)).text_color(theme.faint)),
             theme,
         ))
         .child(div().h(design::space::LG))
@@ -160,13 +203,17 @@ pub(super) fn tx(view: &Explorer, hash: &[u8; 32], cx: Cx, theme: &Theme) -> Any
                 .child("Operation"),
         )
         .child(operation(view, tx, cx, theme))
-        .children(tx.receipt.as_ref().and_then(|run| messages(run, theme)))
+        .children(
+            tx.receipt
+                .as_ref()
+                .and_then(|run| messages(run, theme, ladder)),
+        )
         .into_any_element()
 }
 
 /// A run's outcome as a badge and, where it was rejected, the refusal's
 /// sentence and reason. `id` keeps the badge's id its own.
-fn status(run: &Receipt, id: &str, theme: &Theme) -> Div {
+fn status(run: &Receipt, id: &str, theme: &Theme, ladder: &Ladder) -> Div {
     let (word, color, soft) = outcome(run, theme);
     let refusal = match &run.outcome {
         Outcome::Applied { .. } => None,
@@ -185,18 +232,24 @@ fn status(run: &Receipt, id: &str, theme: &Theme) -> Div {
         .items_center()
         .gap_2()
         .min_w_0()
-        .child(design::badge(format!("{id}-status"), word, color, soft))
+        .child(design::badge(
+            format!("{id}-status"),
+            word,
+            ladder,
+            color,
+            soft,
+        ))
         .children(refusal)
 }
 
 /// The runs a transaction's messages caused, each under the run that sent
 /// it; `None` where it sent none.
-fn messages(run: &Receipt, theme: &Theme) -> Option<impl IntoElement> {
+fn messages(run: &Receipt, theme: &Theme, ladder: &Ladder) -> Option<impl IntoElement> {
     if run.nested.is_empty() {
         return None;
     }
     let mut rows = Vec::new();
-    nested(&run.nested, 0, "explorer-run", theme, &mut rows);
+    nested(&run.nested, 0, "explorer-run", theme, ladder, &mut rows);
     Some(
         div()
             .child(
@@ -215,7 +268,14 @@ fn messages(run: &Receipt, theme: &Theme) -> Option<impl IntoElement> {
 }
 
 /// `runs` and theirs below them, one row each, stepped in by `depth`.
-fn nested(runs: &[Receipt], depth: usize, at: &str, theme: &Theme, rows: &mut Vec<AnyElement>) {
+fn nested(
+    runs: &[Receipt],
+    depth: usize,
+    at: &str,
+    theme: &Theme,
+    ladder: &Ladder,
+    rows: &mut Vec<AnyElement>,
+) {
     for (index, run) in runs.iter().enumerate() {
         let id = format!("{at}-{index}");
         rows.push(
@@ -228,10 +288,10 @@ fn nested(runs: &[Receipt], depth: usize, at: &str, theme: &Theme, rows: &mut Ve
                 .border_b_1()
                 .border_color(theme.border)
                 .child(mono(run.program.clone()).flex_shrink_0())
-                .child(status(run, &id, theme))
+                .child(status(run, &id, theme, ladder))
                 .into_any_element(),
         );
-        nested(&run.nested, depth + 1, &id, theme, rows);
+        nested(&run.nested, depth + 1, &id, theme, ladder, rows);
     }
 }
 
@@ -241,11 +301,6 @@ fn from(view: &Explorer, tx: &TxRow, cx: Cx, theme: &Theme) -> Div {
     let Some((account, at)) = view.holder(&tx.signer) else {
         return div().child(mono(abi::hex(&tx.signer)));
     };
-    let key = &account.keys()[at];
-    let label = key
-        .label
-        .clone()
-        .unwrap_or_else(|| format!("device {}", at + 1));
     div()
         .flex()
         .items_center()
@@ -262,15 +317,7 @@ fn from(view: &Explorer, tx: &TxRow, cx: Cx, theme: &Theme) -> Div {
             cx,
             theme,
         ))
-        .child(
-            mono(format!(
-                "#{} {label} · {} {}",
-                account.number,
-                scheme(key.scheme),
-                short(&tx.signer)
-            ))
-            .text_color(theme.faint),
-        )
+        .child(mono(words::key_line(account, at, &tx.signer)).text_color(theme.faint))
 }
 
 /// The op's fields, as its program described them; empty until it has.
@@ -327,11 +374,11 @@ fn value(view: &Explorer, shown: &Value, at: &str, cx: Cx, theme: &Theme) -> Any
             Some((holder, _)) => account(view, holder.number, at, cx, theme),
             None => mono(short(key)).into_any_element(),
         },
-        Value::Module(name) => match view.runs(name) {
+        Value::Program(name) => match view.runs(name) {
             Some(_) => link(
                 format!("explorer-value-{at}"),
                 name.clone(),
-                Route::Transactions(Some(name.clone())),
+                Route::Program(name.clone()),
                 cx,
                 theme,
             )
@@ -363,7 +410,7 @@ fn account(view: &Explorer, number: u64, at: &str, cx: Cx, theme: &Theme) -> Any
     let name = view
         .account(number)
         .map(|account| account.card.name.clone());
-    let shown = name.clone().unwrap_or_else(|| format!("account {number}"));
+    let shown = view.name_of(number);
     div()
         .flex()
         .items_center()

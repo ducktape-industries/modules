@@ -4,13 +4,13 @@
 //! edits.
 
 use super::Outcome;
-use ducktape_view_guest::{ElementId, Modifiers, TextField, Window, wire};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
+use view::{ElementId, Modifiers, TextField, Window, wire};
 use wire::keyboard::{Key, Named};
 
 /// The id of the editor [`view`](super::view) draws for the draft `key`.
-pub(super) fn editor_id(key: &str) -> String {
+pub(crate) fn editor_id(key: &str) -> String {
     format!("{key}/editor")
 }
 
@@ -24,6 +24,9 @@ pub fn focus(window: &mut Window, key: &str) {
 pub struct MentionChoice {
     pub token: String,
     pub label: String,
+    /// a word beside the label, said before the pick: why an agent would
+    /// not answer the writer
+    pub hint: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,8 +46,8 @@ pub struct Draft {
     pub menu_dismissed: bool,
     /// Bytes of the field a send asked the host to clear, where they now
     /// lie: spoken for, not the draft's to send again, until the host's word
-    /// shows them gone. A replacement guest starts with none: the old
-    /// guest's ask went with its queue.
+    /// shows them gone. A replacement view starts with none: the old
+    /// view's ask went with its queue.
     #[serde(skip)]
     pub cleared: Vec<wire::TextRange>,
 }
@@ -68,7 +71,6 @@ pub(crate) fn matching_choices<'a>(
     choices
         .iter()
         .filter(|choice| choice.label.to_lowercase().starts_with(&needle))
-        .take(32)
         .collect()
 }
 
@@ -421,8 +423,8 @@ impl Draft {
 /// through `apply`, as it reaches a view's.
 #[cfg(test)]
 pub(super) mod host {
-    use ducktape_view_guest::{TextField, wire};
     use std::ops::Range;
+    use view::{TextField, wire};
 
     /// The host's count of `field`'s edits, as an ask of it names it.
     pub fn revision(field: &TextField) -> u64 {
@@ -466,6 +468,7 @@ mod tests {
         vec![MentionChoice {
             token: "<@7>".into(),
             label: "Ada".into(),
+            hint: None,
         }]
     }
 
@@ -699,7 +702,7 @@ mod tests {
         assert_eq!(send(&mut draft), "ok");
     }
 
-    /// A Restore and an Enter the guest handles in one tick, before the host
+    /// A Restore and an Enter the view handles in one tick, before the host
     /// has adopted the seeded text: the send speaks for the seeded bytes
     /// and asks a clear of them, both in the new document's coordinates, so
     /// the ask names the new generation. The host's word on the old document

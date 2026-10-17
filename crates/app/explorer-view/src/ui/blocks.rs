@@ -1,11 +1,11 @@
 //! The Blocks tab and one block.
 use super::*;
+use view::design::Ladder;
 
 pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
-    let now = view.chain.now();
     let held = view.chain.blocks.len() as u64;
     let list = rows("explorer-blocks-list", "Blocks", view);
-    let list = block_lines(list, &view.chain.blocks, LIST_ROWS, now, cx, theme);
+    let list = block_lines(list, view, view.chain.blocks.len());
     let unlisted = view
         .chain
         .unlisted_below()
@@ -13,64 +13,68 @@ pub(super) fn blocks(view: &Explorer, cx: Cx, theme: &Theme) -> AnyElement {
         .map(|from| quiet("explorer-blocks-unindexed", unindexed(from), theme));
     div()
         .id("explorer-blocks")
-        .child(heading(
-            "explorer-blocks-heading",
-            "Blocks",
-            Some(caption(
-                format!("the last {}", plural(held, "block", "blocks")),
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .child(
+            heading(
+                "explorer-blocks-heading",
+                "Blocks",
+                Some(caption(words::last_blocks(held), theme)),
                 theme,
-            )),
-            theme,
-        ))
+            )
+            .mr(design::size::SCROLLBAR),
+        )
         .child(list.build(cx))
         .children(unlisted)
         .into_any_element()
 }
 
-pub(super) fn block(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> AnyElement {
+pub(super) fn block(
+    view: &Explorer,
+    height: u64,
+    cx: Cx,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let Some((block, txs)) = view.block(height) else {
         return match &view.opened {
             Loadable::Ready(None) | Loadable::Reloading(None, _) => {
                 let unlisted = view.chain.unlisted_below().filter(|from| height < *from);
                 let why = match unlisted {
                     Some(from) => unindexed(from),
-                    None => "This node keeps no finalized block at this height.".into(),
+                    None => words::NO_BLOCK_HERE.into(),
                 };
                 empty_state(
                     "explorer-no-block",
-                    format!("No block {}", grouped(height)),
+                    "blocks",
+                    words::no_block(height),
                     why,
+                    ladder,
                     theme,
                 )
                 .into_any_element()
             }
-            Loadable::Failed(refusal) => failed(&refusal.message, cx, theme),
+            Loadable::Failed(refusal) => failed(&design::sentence(refusal), cx, theme, ladder),
             Loadable::Idle
             | Loadable::Loading(_)
             | Loadable::Ready(Some(_))
             | Loadable::Reloading(Some(_), _) => {
-                quiet("explorer-block-loading", "Reading the block…", theme)
+                quiet("explorer-block-loading", words::READING_BLOCK, theme)
             }
         };
     };
     let now = view.chain.now();
     let count = txs.len() as u64;
-    let empty = txs.is_empty().then(|| {
-        quiet(
-            "explorer-block-empty",
-            "No transactions in this block.",
-            theme,
-        )
-    });
+    let empty = txs
+        .is_empty()
+        .then(|| quiet("explorer-block-empty", words::NO_BLOCK_TRANSACTIONS, theme));
     let list = rows("explorer-block-txs", "Transactions", view);
     let rows = (!txs.is_empty()).then(|| {
-        tx_rows(
-            list,
-            view,
-            move |view| view.block(height).map_or_else(Vec::new, |(_, txs)| txs),
-            false,
-            true,
-        )
+        tx_rows(list, view, move |view| {
+            view.block(height).map_or_else(Vec::new, |(_, txs)| txs)
+        })
         .whole(view, cx, theme)
         .build(cx)
     });
@@ -85,7 +89,7 @@ pub(super) fn block(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> AnyE
                 .flex()
                 .gap_2()
                 .child(date(block.time))
-                .child(mono(format!("{} ago", ago(now, block.time))).text_color(theme.faint)),
+                .child(mono(words::age(now, block.time)).text_color(theme.faint)),
             theme,
         ))
         .children(proposer(view, &block, theme))
@@ -106,8 +110,8 @@ fn title(view: &Explorer, height: u64, cx: Cx, theme: &Theme) -> impl IntoElemen
     let head = view.status.ready().map_or(0, |status| status.height);
     let previous = height.checked_sub(1);
     let next = (height < head).then_some(height + 1);
-    let back = format!("← {}", previous.map_or(String::new(), grouped));
-    let on = format!("{} →", grouped(height + 1));
+    let back = words::step_back(previous);
+    let on = words::step_on(height + 1);
     div()
         .flex()
         .items_center()
@@ -155,9 +159,8 @@ fn step(
         .child(text);
     match to {
         Some(to) => {
-            let go = cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| {
-                view.go(Route::Block(to), cx)
-            });
+            let go =
+                cx.listener(move |view: &mut Explorer, _: &ClickEvent, _, cx| view.step(to, cx));
             let hover = theme.hover;
             button.focusable().hover(move |s| s.bg(hover)).on_click(go)
         }
@@ -196,17 +199,13 @@ fn proposer(view: &Explorer, block: &BlockRow, theme: &Theme) -> Option<impl Int
         .validators
         .ready()
         .and_then(|keys| keys.iter().position(|seated| seated == key));
-    let name = match place {
-        Some(place) => format!("validator {}", place + 1),
-        None => "validator".into(),
-    };
     Some(field(
         "Proposer",
         div()
             .flex()
             .gap_2()
-            .child(mono(name))
-            .child(mono(format!("ed25519 {}", short(key))).text_color(theme.faint)),
+            .child(mono(words::validator(place)))
+            .child(mono(words::validator_key(key)).text_color(theme.faint)),
         theme,
     ))
 }

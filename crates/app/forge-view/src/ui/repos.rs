@@ -1,13 +1,15 @@
 //! The repositories: the full list when nothing is open, the rail that
 //! switches between them when something is.
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::{Div, Stateful, wire};
+use view::prelude::*;
+use view::{Div, Stateful, wire};
 
 use crate::Forge;
 use crate::queries::PAGE;
 use crate::ui::components::{PRESS_TARGET, button, empty_state, heading, id, ref_label};
 use crate::ui::{pending, staged};
+use crate::words;
 use forge::{Query, Reply, RepoInfo};
+use view::design::Ladder;
 
 fn query() -> Query {
     Query::Repos { page: PAGE }
@@ -85,6 +87,10 @@ const CELLS: usize = 3;
 /// One repository: its name over the address it clones from, then its
 /// owner, default branch, refs and last activity, in their columns when
 /// `table`, else on one line under the name.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the ladder rides beside the theme into every sized helper; the phone rework of this view reshapes the row"
+)]
 fn repo_row(
     forge: &Forge,
     info: &RepoInfo,
@@ -93,6 +99,7 @@ fn repo_row(
     active: Option<usize>,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
 ) -> AnyElement {
     let name = info.name.clone();
     let group = format!("forge-repo-{name}-row");
@@ -129,7 +136,10 @@ fn repo_row(
         .border_b_1()
         .border_color(theme.border)
         .hover(|style| style.bg(theme.surface))
-        .when(active.is_some(), |row| row.bg(theme.surface))
+        // the active row is drawn once the arrows have walked the list
+        .when(active.is_some() && forge.repos_cursor.is_some(), |row| {
+            row.bg(theme.surface)
+        })
         .role(Role::Row)
         .child(press)
         .child(repo_title(
@@ -140,7 +150,14 @@ fn repo_row(
             cx,
             theme,
         ))
-        .child(repo_facts(info, owner, table, active == Some(2), theme))
+        .child(repo_facts(
+            info,
+            owner,
+            table,
+            active == Some(2),
+            theme,
+            ladder,
+        ))
         .into_any_element()
 }
 
@@ -153,7 +170,7 @@ fn repo_title(
     cx: &mut Context<Forge>,
     theme: &Theme,
 ) -> Div {
-    let url = crate::ui::repo_link(forge, name);
+    let url = forge.repo_link(name);
     div()
         .flex_1()
         .min_w(NAME_MIN_W)
@@ -163,7 +180,7 @@ fn repo_title(
         .flex_col()
         .child(
             div()
-                .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD)
+                .font_weight(view::FontWeight::SEMIBOLD)
                 .truncate()
                 .child(name.to_owned()),
         )
@@ -205,7 +222,7 @@ fn copy_button(
         let name = name.to_owned();
         move |forge, _: &ClickEvent, _, cx| {
             cx.host()
-                .notify::<ducktape_view_guest::methods::ClipboardWrite>(url.clone());
+                .notify::<view::methods::ClipboardWrite>(url.clone());
             forge.copied = Some(name.clone());
             cx.notify();
         }
@@ -242,7 +259,14 @@ fn copy_button(
 /// table each holds its column, the refs a bare count under their header;
 /// wrapped, they share one line under the name, each as wide as it reads,
 /// the refs with their unit.
-fn repo_facts(info: &RepoInfo, owner: String, table: bool, active: bool, theme: &Theme) -> Div {
+fn repo_facts(
+    info: &RepoInfo,
+    owner: String,
+    table: bool,
+    active: bool,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Div {
     let column = |cell: Div, width: Pixels| cell.when(table, |cell| cell.w(width));
     let refs = info.repo.refs_count;
     div()
@@ -261,7 +285,7 @@ fn repo_facts(info: &RepoInfo, owner: String, table: bool, active: bool, theme: 
                     design::avatar(&owner, design::size::AVATAR, theme)
                         .border_1()
                         .border_color(theme.border)
-                        .font_weight(ducktape_view_guest::FontWeight::SEMIBOLD),
+                        .font_weight(view::FontWeight::SEMIBOLD),
                 )
                 .child(div().min_w(px(0.)).truncate().child(owner)),
         )
@@ -295,6 +319,7 @@ fn repo_facts(info: &RepoInfo, owner: String, table: bool, active: bool, theme: 
                         id(format!("forge-repo-{}-activity", info.name)),
                         info.repo.last_activity,
                         theme,
+                        ladder,
                     ),
                     Role::Link,
                     active,
@@ -303,14 +328,20 @@ fn repo_facts(info: &RepoInfo, owner: String, table: bool, active: bool, theme: 
 }
 
 /// The screen: every repository of this network, newest activity first.
-pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+pub(crate) fn overview(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let body = staged(
         forge,
         &query(),
         "forge-repos-list",
-        "Reading the repositories…",
+        words::READING_REPOSITORIES,
         cx,
         theme,
+        ladder,
     );
     let count = body.as_ref().ok().map(|reply| listed(forge, reply).len());
     let mut column = div()
@@ -319,9 +350,16 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
         .flex_col()
         .flex_1()
         .min_h(px(0.))
-        .child(header(forge, count, cx, theme, "forge-repos-search"));
+        .child(header(
+            forge,
+            count,
+            cx,
+            theme,
+            ladder,
+            "forge-repos-search",
+        ));
     if let Some(form) = &forge.new_repo {
-        column = column.child(dialog(form, cx, theme));
+        column = column.child(dialog(form, cx, theme, ladder));
     }
     column = column.child(pending(forge, "repos", theme));
     let body = match body {
@@ -330,19 +368,22 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
     };
     let rows = listed(forge, body);
     if rows.is_empty() {
+        // the Expo app's (`app/(tabs)/forge/index.tsx:77-79`)
+        let (glyph, title, detail) = match forge.search.is_blank() {
+            true => ("hammer", words::NO_REPOSITORIES_YET, words::CREATE_ONE),
+            false => (
+                "search",
+                words::NOTHING_MATCHES,
+                words::NO_REPOSITORY_MATCHES,
+            ),
+        };
         return column
             .child(empty_state(
                 id("forge-repos-empty"),
-                if forge.search.is_blank() {
-                    "No repositories yet"
-                } else {
-                    "Nothing matches"
-                },
-                if forge.search.is_blank() {
-                    "Create one with New repository, then push to it."
-                } else {
-                    "No repository here reads like that."
-                },
+                glyph,
+                title,
+                detail,
+                ladder,
                 theme,
             ))
             .into_any_element();
@@ -375,9 +416,8 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
             match forge.repos_cursor.as_ref().map_or(0, |(_, cell)| *cell) {
                 0 => forge.open_repo(name, cx),
                 1 => {
-                    let url = crate::ui::repo_link(forge, &name);
-                    cx.host()
-                        .notify::<ducktape_view_guest::methods::ClipboardWrite>(url);
+                    let url = forge.repo_link(&name);
+                    cx.host().notify::<view::methods::ClipboardWrite>(url);
                     forge.copied = Some(name);
                     cx.notify();
                 }
@@ -399,13 +439,20 @@ pub(crate) fn overview(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) ->
     for (index, info) in rows.into_iter().enumerate() {
         let owner = forge.principal_name(&info.repo.owner);
         let active = (index == at).then_some(cell);
-        list = list.child(repo_row(forge, info, owner, table, active, cx, theme));
+        list = list.child(repo_row(
+            forge, info, owner, table, active, cx, theme, ladder,
+        ));
     }
     column.child(list).into_any_element()
 }
 
 /// The rail: the same repositories, compact, while one of them is open.
-pub(crate) fn rail(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+pub(crate) fn rail(
+    forge: &Forge,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     let column = div()
         .id(id("forge-rail"))
         .w(px(forge.layout.tree))
@@ -420,9 +467,10 @@ pub(crate) fn rail(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Any
         forge,
         &query(),
         "forge-rail-list",
-        "Reading the repositories…",
+        words::READING_REPOSITORIES,
         cx,
         theme,
+        ladder,
     ) {
         Ok(reply) => reply,
         Err(state) => return column.child(state).into_any_element(),
@@ -470,9 +518,12 @@ pub(crate) fn rail(forge: &Forge, cx: &mut Context<Forge>, theme: &Theme) -> Any
             .items_center()
             .when(selected, |item| {
                 item.bg(theme.surface_raised)
-                    .font_weight(ducktape_view_guest::FontWeight::MEDIUM)
+                    .font_weight(view::FontWeight::MEDIUM)
             })
-            .when(index == at && !selected, |item| item.bg(theme.surface))
+            .when(
+                forge.rail_cursor.is_some() && index == at && !selected,
+                |item| item.bg(theme.surface),
+            )
             .hover(|style| style.bg(theme.surface))
             .aria_selected(selected)
             .on_click(open)
@@ -535,9 +586,10 @@ fn header(
     count: Option<usize>,
     cx: &mut Context<Forge>,
     theme: &Theme,
+    ladder: &Ladder,
     search_id: &str,
 ) -> AnyElement {
-    let new = cx.listener(|forge, _: &ClickEvent, _, cx| forge.start_repo(cx));
+    let new = cx.listener(|forge, _: &ClickEvent, window, cx| forge.start_repo(window, cx));
     div()
         .id(id("forge-repos-header"))
         .flex()
@@ -565,18 +617,29 @@ fn header(
             .border_color(theme.border_strong)
             .bg(theme.background)
             .text_color(theme.foreground)
-            .placeholder("Filter by name"),
+            .placeholder(words::FILTER_BY_NAME),
         )
         .child(div().flex_1())
         .child(
-            button(id("forge-new-repo"), "New repository", theme, new)
-                .kind(design::Kind::Primary)
-                .enabled(forge.may_write()),
+            button(
+                id("forge-new-repo"),
+                words::NEW_REPOSITORY,
+                ladder,
+                theme,
+                new,
+            )
+            .kind(design::Kind::Primary)
+            .enabled(forge.may_write()),
         )
         .into_any_element()
 }
 
-fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) -> AnyElement {
+fn dialog(
+    form: &crate::state::NewRepo,
+    cx: &mut Context<Forge>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> AnyElement {
     // a name typed again takes the last refusal with it
     let typed = cx.listener(|forge, _: &wire::TextChange, _, cx| {
         if let Some(form) = &mut forge.new_repo {
@@ -586,7 +649,8 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
     });
     let formats = design::segmented(
         id("forge-new-repo-format"),
-        "Object format",
+        words::OBJECT_FORMAT,
+        ladder,
         theme,
         Some(usize::from(form.sha1)),
         [
@@ -622,7 +686,7 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
         .bg(theme.surface)
         .child(heading(
             id("forge-new-repo-title"),
-            "New repository",
+            words::NEW_REPOSITORY,
             2,
             theme,
         ))
@@ -641,16 +705,21 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
                         .gap(design::space::XS)
                         .child(caption("Name"))
                         .child(
-                            Input::new(id("forge-new-repo-name"), &form.name, "Repository name")
-                                .h(design::size::CONTROL)
-                                .w_full()
-                                .px_2()
-                                .border_1()
-                                .border_color(theme.border_strong)
-                                .bg(theme.background)
-                                .text_color(theme.foreground)
-                                .placeholder("letters, digits, dot, dash, underscore")
-                                .on_change(typed),
+                            Input::new(
+                                id("forge-new-repo-name"),
+                                &form.name,
+                                words::REPOSITORY_NAME,
+                            )
+                            .h(design::size::CONTROL)
+                            .w_full()
+                            .px_2()
+                            .border_1()
+                            .border_color(theme.border_strong)
+                            .bg(theme.background)
+                            .text_color(theme.foreground)
+                            .placeholder(words::NAME_RULE)
+                            .on_change(typed)
+                            .on_submit(cx.listener(|forge, _: &(), _, cx| forge.create_repo(cx))),
                         ),
                 )
                 .child(
@@ -659,13 +728,11 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
                         .flex_col()
                         .items_start()
                         .gap(design::space::XS)
-                        .child(caption("Object format"))
+                        .child(caption(words::OBJECT_FORMAT))
                         .child(formats),
                 ),
         )
-        .child(caption(
-            "Pick SHA-1 to push an existing Git project. The format is fixed once created.",
-        ));
+        .child(caption(words::FORMAT_RULE));
     if !form.error.is_empty() {
         card = card.child(
             div()
@@ -681,11 +748,11 @@ fn dialog(form: &crate::state::NewRepo, cx: &mut Context<Forge>, theme: &Theme) 
             .justify_end()
             .gap_2()
             .child(
-                button(id("forge-new-repo-cancel"), "Cancel", theme, cancel)
+                button(id("forge-new-repo-cancel"), "Cancel", ladder, theme, cancel)
                     .kind(design::Kind::Quiet),
             )
             .child(
-                button(id("forge-new-repo-submit"), "Create", theme, create)
+                button(id("forge-new-repo-submit"), "Create", ladder, theme, create)
                     .kind(design::Kind::Primary),
             ),
     )

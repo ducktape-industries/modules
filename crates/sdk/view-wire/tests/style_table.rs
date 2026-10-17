@@ -3,8 +3,8 @@
 //! a struct that mostly says nothing is the fields it sets, with no name.
 use gpui::{StyleRefinement, Styled, px};
 use view_wire::{
-    Aria, ContainerNode, Frame, GroupRefinement, Interactivity, Interner, MAX_STYLES, Node, Patch,
-    Refused, Style, StyleId, Styles, TextNode, Tooltip, TooltipResponse, decode, encode,
+    Aria, ContainerNode, ElementIdWire, Frame, GroupRefinement, Interactivity, Interner, Node,
+    Patch, Refused, Style, StyleId, Styles, TextNode, Tooltip, TooltipResponse, decode, encode,
 };
 
 mod common;
@@ -15,6 +15,7 @@ fn text(style: StyleId) -> Node {
         id: None,
         style,
         content: "row".into(),
+        transform: None,
     })
 }
 
@@ -149,8 +150,36 @@ fn a_whole_frame_leaves_a_style_the_table_never_issued_as_written() {
         styles: styles.unsent(),
         ..Default::default()
     };
-    let refused = view_wire::sanitize(&mut frame, &mut Styles::default());
+    let refused = view_wire::sanitize(&mut frame, &mut Styles::default())
+        .map_err(|refused| refused.reason().clone());
     assert_eq!(refused, Err(REFUSED));
+}
+
+/// A refused tree names the node it refused: its kind, its key and its
+/// child indices from the root.
+#[test]
+fn a_refusal_names_the_node_it_fell_at() {
+    let panel = Node::Container(ContainerNode {
+        id: Some(ElementIdWire::Name("panel".into())),
+        style: StyleId(9_999),
+        interactivity: None,
+        children: Vec::new(),
+    });
+    let mut frame = Frame {
+        root: Some(container(
+            PLAIN,
+            Interactivity::default(),
+            vec![text(PLAIN), panel],
+        )),
+        styles: plain(),
+        ..Default::default()
+    };
+    let refused = view_wire::sanitize(&mut frame, &mut Styles::default()).unwrap_err();
+    assert_eq!(refused.reason(), &REFUSED);
+    assert_eq!(
+        refused.to_string(),
+        "Container `panel` at [1]: a node names a style its table does not hold"
+    );
 }
 
 #[test]
@@ -186,7 +215,8 @@ fn a_node_that_names_a_style_its_table_does_not_hold_is_refused() {
             styles: plain(),
             ..Default::default()
         };
-        let refused = view_wire::sanitize(&mut frame, &mut Styles::default());
+        let refused = view_wire::sanitize(&mut frame, &mut Styles::default())
+            .map_err(|refused| refused.reason().clone());
         assert_eq!(refused, Err(REFUSED), "{root:?}");
 
         // the subtree a patch brings
@@ -199,7 +229,8 @@ fn a_node_that_names_a_style_its_table_does_not_hold_is_refused() {
             node: root.clone(),
         };
         assert_eq!(
-            view_wire::apply(&mut tree, vec![patch], &held),
+            view_wire::apply(&mut tree, vec![patch], &held)
+                .map_err(|refused| refused.reason().clone()),
             Err(REFUSED),
             "{root:?}"
         );
@@ -226,7 +257,8 @@ fn a_node_that_names_a_style_its_table_does_not_hold_is_refused() {
             styles: plain(),
             ..Default::default()
         };
-        let refused = view_wire::sanitize(&mut frame, &mut Styles::default());
+        let refused = view_wire::sanitize(&mut frame, &mut Styles::default())
+            .map_err(|refused| refused.reason().clone());
         assert_eq!(refused, Err(REFUSED));
     }
 
@@ -246,7 +278,8 @@ fn a_node_that_names_a_style_its_table_does_not_hold_is_refused() {
         }]
     };
     assert_eq!(
-        view_wire::apply(&mut tree.clone(), props(), &held),
+        view_wire::apply(&mut tree.clone(), props(), &held)
+            .map_err(|refused| refused.reason().clone()),
         Err(REFUSED)
     );
     held.extend(vec![Style::new(&StyleRefinement::default().w(px(4.)))])
@@ -280,7 +313,10 @@ fn a_whole_frame_replaces_the_table_the_host_holds() {
         path: Vec::new(),
         node: text(StyleId(1)),
     };
-    assert_eq!(view_wire::apply(&mut tree, vec![old], &held), Err(REFUSED));
+    assert_eq!(
+        view_wire::apply(&mut tree, vec![old], &held).map_err(|refused| refused.reason().clone()),
+        Err(REFUSED)
+    );
 }
 
 /// A refused frame leaves the table as it was: the tree the host still
@@ -314,7 +350,7 @@ fn a_refused_frame_leaves_the_table_the_host_holds() {
     // a frame with no tree: its entries do not stay behind a refusal
     for styles in [
         vec![Style::new(&wide), Style::new(&pattern)],
-        vec![Style::new(&wide); MAX_STYLES],
+        vec![Style::new(&pattern), Style::new(&wide)],
     ] {
         let mut frame = Frame {
             styles,
@@ -347,7 +383,8 @@ fn a_hosts_own_style_is_no_entry_of_the_trees_table() {
         node: text(id),
     };
     assert_eq!(
-        view_wire::apply(&mut tree, vec![named], &drawn),
+        view_wire::apply(&mut tree, vec![named], &drawn)
+            .map_err(|refused| refused.reason().clone()),
         Err(REFUSED)
     );
 
@@ -362,33 +399,7 @@ fn a_hosts_own_style_is_no_entry_of_the_trees_table() {
     assert!(!other.extends(&before));
 }
 
-/// A table is no way around the node bounds: an entry decodes inside the
-/// frame's node budget, and a table holds no more entries than
-/// `MAX_STYLES`.
-#[test]
-fn a_table_is_held_to_the_bounds_a_tree_is() {
-    let frame = |entries: usize| Frame {
-        styles: vec![Style::new(&StyleRefinement::default()); entries],
-        ..Default::default()
-    };
-    assert!(decode::<Frame>(&encode(&frame(MAX_STYLES))).is_ok());
-    let refused = decode::<Frame>(&encode(&frame(MAX_STYLES + 1))).unwrap_err();
-    assert!(
-        refused.contains("more styles than the host holds"),
-        "{refused}"
-    );
-
-    // the entries of patch frames add up: the table the host holds is bounded
-    let mut held = Styles::default();
-    held.extend(frame(MAX_STYLES).styles).unwrap();
-    assert_eq!(
-        held.extend(frame(1).styles),
-        Err("more styles than the host holds")
-    );
-    assert_eq!(held.len(), MAX_STYLES);
-}
-
-/// An entry is bytes the guest wrote: one that does not read as a style
+/// An entry is bytes the view wrote: one that does not read as a style
 /// refuses its frame.
 #[test]
 fn an_entry_that_is_no_style_is_refused() {
@@ -519,13 +530,13 @@ fn a_sparse_struct_refuses_a_field_this_build_does_not_have() {
 }
 
 /// A node on the wire: the variant's index (`Text` is `Node`'s variant 8),
-/// then its fields in order, the style as its id. No field or variant name
-/// is in a frame's bytes.
+/// then its fields in order, the style as its id, an unset one as nil. No
+/// field or variant name is in a frame's bytes.
 #[test]
 fn a_node_is_its_fields_in_order_with_no_name() {
     assert_eq!(
         encode(&text(StyleId(3))),
-        [0x81, 0x08, 0x93, 0xc0, 0x03, 0xa3, b'r', b'o', b'w']
+        [0x81, 0x08, 0x94, 0xc0, 0x03, 0xa3, b'r', b'o', b'w', 0xc0]
     );
     let frame = Frame {
         root: Some(container(

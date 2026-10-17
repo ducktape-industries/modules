@@ -1,12 +1,11 @@
 //! Typed reads of the system programs: accounts (identity), validators
-//! (valset), programs (module-registry) and what each account did
-//! (activity). The window's blocks are the host's (`load.rs`).
-use ducktape_view_guest::prelude::*;
-use module_registry as registry;
+//! (valset), programs (programs), and every transaction and what each
+//! account did (activity), a page at a time. The window's blocks are the
+//! host's (`load.rs`).
+use view::host::Page;
+use view::prelude::*;
 
-use crate::chain::{ROW_PAYLOAD, TxRow, located};
-use crate::state::{Accounts, Acted, Network, Used};
-use crate::ui::LIST_ROWS;
+use crate::state::{Accounts, Network, Used};
 
 /// Every account.
 pub(crate) async fn accounts(host: Host) -> Result<Accounts, Error> {
@@ -22,22 +21,22 @@ pub(crate) async fn validators(host: Host) -> Result<Vec<Vec<u8>>, Error> {
     host.query(valset::ask::Validators).await
 }
 
-/// What the registry runs and lists at its height, and what it will
+/// What the programs role runs and lists at its height, and what it will
 /// after it; who may change it. A change keeps its place in the schedule
-/// until the registry's next op folds it, landed or not, so one due by that
+/// until the programs role's next op folds it, landed or not, so one due by that
 /// height is left out: it is in the roster.
 pub(crate) async fn network(host: Host) -> Result<Network, Error> {
-    let (height, programs, views) = host.query(registry::ask::Roster).await?;
-    let hooks = host.query(registry::ask::Hooks(height)).await?;
-    let roles = host.query(registry::ask::Roles).await?;
+    let (height, programs, views) = host.query(programs::ask::Roster).await?;
+    let hooks = host.query(programs::ask::Hooks(height)).await?;
+    let roles = host.query(programs::ask::Roles).await?;
     let grants = host
-        .query_all(|after| registry::ask::Grants {
-            page: registry::PageRequest { after, limit: None },
+        .query_all(|after| programs::ask::Grants {
+            page: programs::PageRequest { after, limit: None },
         })
         .await?;
     let mut changes = host
-        .query_all(|after| registry::ask::Scheduled {
-            page: registry::PageRequest { after, limit: None },
+        .query_all(|after| programs::ask::Scheduled {
+            page: programs::PageRequest { after, limit: None },
         })
         .await?;
     changes.retain(|change| change.height > height);
@@ -60,30 +59,37 @@ pub(crate) async fn used(host: Host) -> Result<Used, Error> {
     Ok(Used { list })
 }
 
-pub(crate) async fn acted(host: Host, account: u64, known: Vec<TxRow>) -> Result<Acted, Error> {
-    let asked = activity::ask::Acted {
-        account,
-        page: activity::PageRequest::first(LIST_ROWS as u64),
-    };
-    let frames = host.query(asked).await?.items;
-    let mut acted = Vec::with_capacity(frames.len());
-    for frame in frames {
-        let at = |row: &&TxRow| (row.height, row.index) == (frame.height, frame.position);
-        if let Some(row) = known.iter().find(at) {
-            acted.push(row.clone());
-            continue;
-        }
-        let ask = TxAsk {
-            tx: TxRef::At {
-                height: frame.height,
-                position: frame.position,
-            },
-            most: ROW_PAYLOAD,
-        };
-        acted.extend(host.ask::<ChainTx>(ask).await?.map(located));
-    }
-    Ok(Acted {
-        account,
-        rows: acted,
-    })
+/// A page of activity's frames, newest first. One page holds the
+/// Overview's latest and the phone's Activity rows (`load::ACTED`); an
+/// unbounded ask is one page of every frame on the network (garage's 57k,
+/// 104M fuel in one call).
+pub(crate) const PAGE: u64 = 50;
+
+/// The page of every transaction after `after`, as a [`Paged`](view::Paged)
+/// reads it: its frames and the cursor of the page after them.
+pub(crate) async fn frames(
+    host: Host,
+    after: Option<Vec<u8>>,
+) -> Result<Page<activity::Frame>, Error> {
+    let page = host
+        .query(activity::ask::Frames {
+            page: activity::PageRequest::resume(after, PAGE),
+        })
+        .await?;
+    Ok((page.items, page.next))
+}
+
+/// The page of what account `account` did after `after`.
+pub(crate) async fn acted(
+    host: Host,
+    account: u64,
+    after: Option<Vec<u8>>,
+) -> Result<Page<activity::Frame>, Error> {
+    let page = host
+        .query(activity::ask::Acted {
+            account,
+            page: activity::PageRequest::resume(after, PAGE),
+        })
+        .await?;
+    Ok((page.items, page.next))
 }

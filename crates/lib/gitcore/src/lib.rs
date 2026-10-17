@@ -16,4 +16,4 @@ pub use error::{Error, Result};
 pub use object::{Commit, Kind, Mode, Object, Signature, Tag, Tree, TreeEntry};
 pub use oid::{Hash, Oid, oid_of};
 pub use pack::Limits;
-pub use store::{MemoryObjects, Objects};
+pub use store::{MemoryObjects, Objects, WriteObjects};

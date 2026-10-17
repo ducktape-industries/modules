@@ -3,11 +3,11 @@
 `replies.bin` is every reply back to back; `replies.idx` says, one line per
 shape, `name offset len request-hex sha256` — the request is the borsh `Query`
 or `Op` that produced the bytes. `loader.rs` reads both and is shared by
-`#[path]` with forge-view's tests. The bytes are what the module answered over
-`guest::MockHost` in `tests/fixtures.rs`, which is what `forge.wasm` answers over
+`#[path]` with forge-view's tests. The bytes are what the program answered over
+`program::MockHost` in `tests/fixtures.rs`, which is what `forge.wasm` answers over
 the host: same code, same bytes (checked once against the wasm-on-runtime
 harness captures when the generator moved here). Three shapes carry git's own
-framing, not borsh; a refusal is the borsh `abi::Refusal` (`guest::Error`, the same bytes) the module answered
+framing, not borsh; a refusal is the borsh `abi::Refusal` (`program::Error`, the same bytes) the program answered
 `Err` with, as the host hands it to a view.
 
 Regenerate with `FORGE_REGENERATE_FIXTURES=1 cargo test -p forge --test
@@ -15,7 +15,7 @@ fixtures`; without the variable the test must reproduce the committed bytes.
 
 | Shape | Request → bytes | What it shows |
 | --- | --- | --- |
-| `repos-empty` | `Query` → `Reply` | Empty founded module before Create. |
+| `repos-empty` | `Query` → `Reply` | Empty founded program before Create. |
 | `refs-empty` | `Query` → `Reply` | Unborn repository with no refs. |
 | `log-unborn` | `Query` → `Refusal` | not_found for an unborn branch. |
 | `changes-empty` | `Query` → `Reply` | Empty list before any change exists. |

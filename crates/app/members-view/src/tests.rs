@@ -1,15 +1,17 @@
 use super::*;
 use ::activity::Activity;
 use abi::Scheme;
-use ducktape_view_guest::methods::Query;
-use ducktape_view_guest::methods::{
-    Block, BlockList, BlockPage, ChainBlock, ChainBlocks, ChainTx, Change, Description, Located,
-    ModuleDescribe, Session, Tx, TxRef,
-};
-use ducktape_view_guest::testing::TestAppContext;
-use ducktape_view_guest::wire::{ContainerNode, Node};
-use ducktape_view_guest::{Hsla, StyleRefinement, Styled, Theme};
 use valset::Valset;
+use view::methods::Query;
+use view::methods::{
+    Block, BlockList, BlockPage, ChainBlock, ChainBlocks, ChainTx, Change, Located,
+    ProgramDescribe, Session, Tx, TxAsk, TxRef,
+};
+use view::testing::TestAppContext;
+use view::wire::{ContainerNode, Node};
+use view::{Hsla, StyleRefinement, Styled, Theme};
+
+mod phone;
 
 #[test]
 fn the_root_tracks_the_shared_theme() {
@@ -51,15 +53,15 @@ fn key(key: &[u8], label: &str) -> identity::Key {
 }
 
 fn person(number: u64, name: &str, keys: Vec<identity::Key>) -> identity::Account {
-    account(number, name, identity::Control::Person { keys })
+    account(number, name, identity::Control::User { keys })
 }
 
-fn module(number: u64, name: &str) -> identity::Account {
+fn program(number: u64, name: &str) -> identity::Account {
     account(
         number,
         name,
-        identity::Control::Module {
-            module: name.into(),
+        identity::Control::System {
+            program: name.into(),
         },
     )
 }
@@ -68,7 +70,8 @@ fn agent(number: u64, name: &str, manager: u64, life: identity::Life) -> identit
     account(
         number,
         name,
-        identity::Control::Managed {
+        identity::Control::Program {
+            script: None,
             manager,
             category: identity::Category::Agent,
             life,
@@ -76,8 +79,8 @@ fn agent(number: u64, name: &str, manager: u64, life: identity::Life) -> identit
     )
 }
 
-fn page<T>(items: Vec<T>) -> module_registry::PageResponse<T> {
-    module_registry::PageResponse {
+fn page<T>(items: Vec<T>) -> programs::PageResponse<T> {
+    programs::PageResponse {
         height: 1,
         items,
         next: None,
@@ -87,12 +90,12 @@ fn page<T>(items: Vec<T>) -> module_registry::PageResponse<T> {
 const EDDY: &[u8] = b"\x01\x02";
 const SCOUT: &[u8] = b"\x09\x09";
 
-fn tx(signer: &[u8], n: u8) -> Tx {
+fn tx(signer: &[u8]) -> Tx {
     Tx {
         signer: signer.to_vec(),
         target: "chat".into(),
-        size: 1,
-        payload: Some(vec![n]),
+        size: 2,
+        payload: Some(b"hi".to_vec()),
         ..Tx::default()
     }
 }
@@ -118,30 +121,27 @@ fn account_of(signer: &[u8]) -> Option<u64> {
 /// program indexes them.
 fn chain(cx: &mut TestAppContext, blocks: Vec<Block>) {
     let tip = blocks.last().cloned();
+    let txs = blocks.clone();
+    cx.host().handle::<ChainTx>(move |ask: TxAsk| {
+        let TxRef::At { height, position } = ask.tx else {
+            panic!("a frame's transaction is read by its place")
+        };
+        let block = txs.iter().find(|block| block.height == height);
+        Ok(block.and_then(|block| {
+            Some(Located {
+                height,
+                position,
+                time: block.time,
+                tx: block.txs.get(position as usize)?.clone(),
+            })
+        }))
+    });
     cx.host().handle::<ChainBlocks>(move |page: BlockPage| {
         assert_eq!((page.before, page.limit), (None, 1), "only the tip is read");
         Ok(BlockList {
             blocks: tip.clone().into_iter().collect(),
             listed_from: Some(1),
         })
-    });
-    let held = blocks.clone();
-    cx.host().handle::<ChainTx>(move |ask| {
-        let TxRef::At { height, position } = ask.tx else {
-            panic!("a frame's transaction is read by its place")
-        };
-        let block = held.iter().find(|block| block.height == height);
-        let found = block.and_then(|block| {
-            let mut tx = block.txs.get(position as usize)?.clone();
-            tx.payload = tx.payload.filter(|_| tx.size <= ask.most);
-            Some(Located {
-                height,
-                position,
-                time: block.time,
-                tx,
-            })
-        });
-        Ok(found)
     });
     cx.host().handle::<Query<Activity>>(move |query| {
         let ::activity::Query::Acted { account, .. } = query else {
@@ -157,6 +157,7 @@ fn chain(cx: &mut TestAppContext, blocks: Vec<Block>) {
                         height: block.height,
                         position: position as u32,
                         time: block.time,
+                        signer: tx.signer.clone(),
                         target: tx.target.clone(),
                         applied: true,
                     })
@@ -167,12 +168,12 @@ fn chain(cx: &mut TestAppContext, blocks: Vec<Block>) {
 }
 
 /// eddy (#7, the reader, a validator) manages scout (#9, active) and relay
-/// (#10, revoked); chat (#8) is a module; ada (#11) is another person.
+/// (#10, revoked); chat (#8) is a program; ada (#11) is another person.
 fn respond(cx: &mut TestAppContext) {
     cx.host().handle::<Query<Identity>>(|query| {
         assert!(matches!(query, identity::Query::List { .. }));
         Ok(identity::Reply::Accounts(page(vec![
-            module(8, "chat"),
+            program(8, "chat"),
             person(7, "eddy", vec![key(EDDY, "laptop")]),
             agent(
                 9,
@@ -191,6 +192,7 @@ fn respond(cx: &mut TestAppContext) {
         Ok(valset::Reply::Memberships(page(vec![valset::Membership {
             key: EDDY.to_vec(),
             address: Some("10.0.0.1:4000".into()),
+            halo: "10.0.0.1:9100".into(),
             role: valset::Role::Validator,
         }])))
     });
@@ -198,16 +200,10 @@ fn respond(cx: &mut TestAppContext) {
     chain(
         cx,
         vec![
-            block(11, vec![tx(EDDY, 1)]),
-            block(12, vec![tx(EDDY, 2), tx(SCOUT, 5)]),
+            block(11, vec![tx(EDDY)]),
+            block(12, vec![tx(EDDY), tx(SCOUT)]),
         ],
     );
-    cx.host().handle::<ModuleDescribe>(|(target, payload)| {
-        Ok(Some(Description {
-            title: format!("Post {} in {target}", payload[0]),
-            fields: Vec::new(),
-        }))
-    });
 }
 
 /// The view open on [`respond`]'s host, seated as eddy (#7).
@@ -245,19 +241,19 @@ fn color_of(cx: &TestAppContext, key: &str, text: &str) -> Option<Hsla> {
 }
 
 #[test]
-fn the_list_groups_people_then_agents_then_modules_and_chooses_no_one() {
+fn the_list_groups_people_then_agents_then_programs_and_chooses_no_one() {
     let (cx, _) = ready();
     let texts = cx.texts();
     // the last of each, past the chips of the same names
     let at = |text: &str| texts.iter().rposition(|t| t == text).unwrap();
     assert!(at("People") < at("eddy") && at("eddy") < at("ada"));
     assert!(at("ada") < at("Agents") && at("Agents") < at("scout"));
-    assert!(at("relay") < at("Modules") && at("Modules") < at("chat"));
+    assert!(at("relay") < at("Programs") && at("Programs") < at("chat"));
     for text in [
         "5 accounts",
         "you",
-        "Person",
-        "Module",
+        "User",
+        "Program",
         "Agent · managed by eddy",
         "Agent · managed by eddy · revoked",
         "Choose a member",
@@ -288,33 +284,30 @@ fn choosing_a_person_shows_their_devices_the_agents_they_manage_and_their_activi
         "revoked",
         "Recent activity",
         "newest first",
-        "Post 2 in chat",
-        "Post 1 in chat",
-        "block 12",
-        "block 11",
+        "chat",
+        "block 12 · 0",
+        "block 11 · 0",
         "1m",
     ] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
     }
     // scout's post is scout's, not eddy's
-    assert!(!cx.has_text("Post 5 in chat"));
+    assert!(!cx.has_text("block 12 · 1"));
     assert!(cx.host().requests::<ChainBlock>().is_empty());
     // the reader's own account has no one to DM
     assert!(cx.find("members-open-dm").is_none());
     cx.simulate_click("members-explorer");
     assert_eq!(
-        cx.host()
-            .requests::<ducktape_view_guest::methods::LinkOpen>(),
+        cx.host().requests::<view::methods::LinkOpen>(),
         vec!["duck://explorer/account/7".to_owned()]
     );
-    // an activity row's block opens Explorer at that block
-    cx.simulate_click("members-block-0");
+    cx.simulate_click("members-tx-0");
     assert_eq!(
         cx.host()
-            .requests::<ducktape_view_guest::methods::LinkOpen>()
+            .requests::<view::methods::LinkOpen>()
             .last()
             .map(String::as_str),
-        Some("duck://explorer/block/12")
+        Some("duck://explorer/tx/12/0")
     );
     // a managed agent is chosen in place
     cx.simulate_click("members-manages-9");
@@ -334,16 +327,15 @@ fn an_agent_names_its_manager_its_standing_and_its_devices() {
         "active",
         "1 device",
         "sandbox",
-        "Post 5 in chat",
+        "block 12 · 1",
         "Suspend, revoke, rename and keys live in Account → Agents, for the manager.",
     ] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
     }
-    assert!(!cx.has_text("Post 1 in chat") && !cx.has_text("Post 2 in chat"));
+    assert!(!cx.has_text("block 12 · 0") && !cx.has_text("block 11 · 0"));
     cx.simulate_click("members-open-dm");
     assert_eq!(
-        cx.host()
-            .requests::<ducktape_view_guest::methods::LinkOpen>(),
+        cx.host().requests::<view::methods::LinkOpen>(),
         vec![ducklink::mint("testnet#0a1b2c3d", "chat", &["dm-7-9"]).unwrap()]
     );
     // the manager's name chooses the manager
@@ -353,11 +345,11 @@ fn an_agent_names_its_manager_its_standing_and_its_devices() {
 }
 
 #[test]
-fn a_module_has_no_devices_and_no_one_to_dm() {
+fn a_program_has_no_devices_and_no_one_to_dm() {
     let (mut cx, _) = ready();
     cx.simulate_click("members-row-8");
     cx.run_until_parked();
-    assert!(cx.has_text("Module") && !cx.has_text("Module · chat"));
+    assert!(cx.has_text("Program") && !cx.has_text("Program · chat"));
     assert!(cx.has_text("No devices"));
     assert!(!cx.has_text("Recent activity") && !cx.has_text("1 device"));
     assert!(cx.find("members-open-dm").is_none());
@@ -379,10 +371,10 @@ fn the_filter_and_the_chips_narrow_together_and_keep_the_choice() {
     cx.simulate_click("members-row-9");
     cx.run_until_parked();
     let reads = cx.host().requests::<Query<Identity>>().len();
-    // Modules: only chat
+    // Programs: only chat
     cx.simulate_click("members-chip-3");
     assert!(cx.find("members-row-8").is_some() && cx.find("members-row-7").is_none());
-    // and a filter on top: nothing is both a module and "ed"
+    // and a filter on top: nothing is both a program and "ed"
     cx.simulate_input("members-filter", "ed");
     assert!(cx.has_text("Nothing matches"));
     // People and "ed": eddy alone
@@ -473,7 +465,7 @@ fn a_live_bump_re_reads_and_a_snapshot_restores_the_choice() {
     view.read(|view| {
         assert_eq!(view.filter.text(), "sc");
         assert_eq!(view.only, Some(Group::Agents));
-        assert_eq!(view.selected, Some(9));
+        assert_eq!(view.selected(), Some(9));
     });
     assert_eq!(restored.host().requests::<Query<Identity>>().len(), 1);
     // the activity is read again for the restored choice
@@ -512,6 +504,7 @@ fn a_valset_block_reaches_the_standing_without_an_identity_bump() {
         Ok(valset::Reply::Memberships(page(vec![valset::Membership {
             key: EDDY.to_vec(),
             address: Some("10.0.0.1:4000".into()),
+            halo: "10.0.0.1:9100".into(),
             role: valset::Role::Resident,
         }])))
     });
@@ -527,38 +520,13 @@ fn a_valset_block_reaches_the_standing_without_an_identity_bump() {
     );
 }
 
-#[test]
-fn a_frame_too_long_to_describe_reads_as_its_size() {
-    let mut cx = TestAppContext::new();
-    respond(&mut cx);
-    let large = Tx {
-        signer: EDDY.to_vec(),
-        target: "forge".into(),
-        size: 5_000,
-        payload: Some(vec![9; 5_000]),
-        ..Tx::default()
-    };
-    chain(&mut cx, vec![block(11, vec![large])]);
-    cx.open::<Members>();
-    cx.host().stream::<HostSession>().send(Session {
-        account: Some(7),
-        chain_id: "testnet#0a1b2c3d".into(),
-        ..Session::default()
-    });
-    cx.run_until_parked();
-    cx.simulate_click("members-row-7");
-    cx.run_until_parked();
-    assert!(cx.has_text("forge · 5,000 bytes"), "{:?}", cx.texts());
-    assert!(cx.host().requests::<ModuleDescribe>().is_empty());
-}
-
 /// The detail's activity read again lands what it shows: nothing draws.
 #[test]
 fn an_activity_read_anew_that_lands_the_same_draws_nothing() {
     let (mut cx, view) = ready();
     cx.simulate_click("members-row-7");
     cx.run_until_parked();
-    assert!(cx.has_text("block 12"), "{:?}", cx.texts());
+    assert!(cx.has_text("block 12 · 0"), "{:?}", cx.texts());
     let asked = cx.host().requests::<Query<Activity>>().len();
     let renders = cx.renders();
     cx.update(&view, |members, _, cx| members.read_activity(cx));
@@ -621,7 +589,7 @@ fn the_arrows_walk_the_list_and_the_chosen_row_is_its_active_one() {
         _ => panic!("{key} is a container"),
     };
     let list = of(&cx, "members-list");
-    assert_eq!(list.role, Some(ducktape_view_guest::Role::ListBox));
+    assert_eq!(list.role, Some(view::Role::ListBox));
     assert!(list.focusable);
     // the first shown row is active before any choice, so ↓ selects the
     // second, and ↑ comes back
@@ -632,7 +600,7 @@ fn the_arrows_walk_the_list_and_the_chosen_row_is_its_active_one() {
             of(&cx, &format!("members-row-{number}")),
             of(&cx, &format!("members-row-{other}")),
         );
-        assert_eq!(row.role, Some(ducktape_view_guest::Role::ListBoxOption));
+        assert_eq!(row.role, Some(view::Role::ListBoxOption));
         // a focusable row would lose the flag to the host's sanitizer
         assert!(!row.focusable && row.aria.active_descendant);
         assert_eq!(row.aria.selected, Some(true));
@@ -650,14 +618,14 @@ fn an_account_chosen_again_shows_its_activity_at_once_and_reads_it_anew() {
     let (mut cx, _) = ready();
     cx.simulate_click("members-row-7");
     cx.run_until_parked();
-    assert!(cx.has_text("block 12"), "{:?}", cx.texts());
+    assert!(cx.has_text("block 12 · 0"), "{:?}", cx.texts());
     // eddy signs again at 13, and the index holds only that
-    chain(&mut cx, vec![block(13, vec![tx(EDDY, 3)])]);
+    chain(&mut cx, vec![block(13, vec![tx(EDDY)])]);
     // ↓ ↑: read anew, the new read shows
     cx.simulate_key_down("members-list", "down");
     cx.simulate_key_down("members-list", "up");
     cx.run_until_parked();
-    assert!(cx.has_text("block 13") && !cx.has_text("block 12"));
+    assert!(cx.has_text("block 13 · 0") && !cx.has_text("block 12 · 0"));
     // the chain stops answering: ↓ ↑ still shows eddy's links at once
     cx.host().never::<ChainBlocks>();
     cx.simulate_key_down("members-list", "down");
@@ -668,9 +636,61 @@ fn an_account_chosen_again_shows_its_activity_at_once_and_reads_it_anew() {
     assert!(cx.has_text("eddy's bio"));
     assert!(!cx.has_text("Reading its activity…"));
     assert!(
-        cx.has_text("block 13") && cx.find("members-block-0").is_some(),
+        cx.has_text("block 13 · 0") && cx.find("members-tx-0").is_some(),
         "{:?}",
         cx.texts()
+    );
+}
+
+#[test]
+fn recent_activity_lists_frames_and_reads_no_transaction() {
+    let (mut cx, _) = ready();
+    let frame = |height, position, target: &str, applied| ::activity::Frame {
+        height,
+        position,
+        time: height * 60_000,
+        signer: EDDY.to_vec(),
+        target: target.into(),
+        applied,
+    };
+    let frames = vec![frame(12, 0, "chat", true), frame(11, 2, "forge", false)];
+    cx.host()
+        .handle::<Query<Activity>>(move |_| Ok(::activity::Reply::Frames(page(frames.clone()))));
+    cx.simulate_click("members-row-7");
+    cx.run_until_parked();
+    let label = |key: &str| {
+        cx.interactivity(key)
+            .aria
+            .label
+            .as_deref()
+            .map(String::from)
+    };
+    assert_eq!(
+        label("members-tx-0").as_deref(),
+        Some("Open chat, Accepted, block 12 · 0 in Explorer")
+    );
+    assert_eq!(
+        label("members-tx-1").as_deref(),
+        Some("Open forge, Rejected, block 11 · 2 in Explorer")
+    );
+    assert!(cx.has_text("forge") && cx.has_text("block 11 · 2"));
+    assert!(
+        cx.host().requests::<ChainTx>().is_empty(),
+        "no transaction is read to list them"
+    );
+    assert!(cx.host().requests::<ProgramDescribe>().is_empty());
+    assert_eq!(
+        cx.host().requests::<ChainBlocks>().len(),
+        1,
+        "the tip, for its time"
+    );
+    cx.simulate_click("members-tx-1");
+    assert_eq!(
+        cx.host()
+            .requests::<view::methods::LinkOpen>()
+            .last()
+            .map(String::as_str),
+        Some("duck://explorer/tx/11/2")
     );
 }
 
@@ -687,10 +707,10 @@ fn a_row_is_named_by_the_member_not_the_avatar() {
         _ => panic!("{key} is a container"),
     };
     for (number, name, description) in [
-        (7, "eddy", "you · Person"),
-        (11, "ada", "Person"),
+        (7, "eddy", "you · User"),
+        (11, "ada", "User"),
         (10, "relay", "Agent · managed by eddy · revoked"),
-        (8, "chat", "Module"),
+        (8, "chat", "Program"),
     ] {
         let row = aria(&format!("members-row-{number}"));
         assert_eq!(row.label.as_deref(), Some(name));
@@ -799,8 +819,5 @@ fn style(cx: &TestAppContext, key: &str) -> StyleRefinement {
 /// Whether the docked list is `width` wide.
 fn list_is(cx: &TestAppContext, width: f32) -> bool {
     style(cx, "members-list-pane").size.width
-        == StyleRefinement::default()
-            .w(ducktape_view_guest::px(width))
-            .size
-            .width
+        == StyleRefinement::default().w(view::px(width)).size.width
 }

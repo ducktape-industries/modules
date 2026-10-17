@@ -2,19 +2,21 @@
 //! each test drives the frame the way a person would.
 use super::*;
 use chat::{ChannelInfo, MessageHits, MsgRow, Op, PostPolicy, Principal, Query, Reply};
-use ducktape_view_guest::Loadable;
-use ducktape_view_guest::testing::TestAppContext;
-use ducktape_view_guest::wire;
-use ducktape_view_guest::{Entity, StyleRefinement, Styled};
+use view::Loadable;
+use view::testing::TestAppContext;
+use view::wire;
+use view::{Entity, StyleRefinement, Styled};
 
-use ducktape_view_guest::methods::Change;
-use ducktape_view_guest::methods::Query as Ask;
-use ducktape_view_guest::methods::{Changes, HostId, HostSession, HostVisible, Session, Submit};
-use program::role::Identity;
+use identity::Identity;
+use view::methods::Change;
+use view::methods::Query as Ask;
+use view::methods::{Changes, HostId, HostSession, HostVisible, Session, Submit};
 
+mod agents;
 mod menus;
 mod message;
 mod notices;
+mod phone;
 mod reader;
 mod rich;
 mod room;
@@ -46,10 +48,9 @@ fn channel(id: &str, name: &str, head_seq: u64) -> ChannelInfo {
 #[test]
 fn the_root_tracks_the_shared_theme_and_is_accessible() {
     let (mut cx, _) = opened();
-    let dark = ducktape_view_guest::Theme::dark();
+    let dark = view::Theme::dark();
     cx.set_global(dark);
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode { style, .. })) =
-        cx.find("chat-root")
+    let Some(wire::Node::Container(view::wire::ContainerNode { style, .. })) = cx.find("chat-root")
     else {
         panic!("chat root is a styled container");
     };
@@ -93,66 +94,81 @@ fn marked_row(seq: u64) -> MsgRow {
 
 /// The host methods chat only talks to, never hears back from here.
 fn quiet_methods(cx: &mut TestAppContext) {
-    cx.host()
-        .handle::<ducktape_view_guest::methods::StoreGet>(|_| Ok(None));
+    cx.host().handle::<view::methods::StoreGet>(|_| Ok(None));
 }
 
 fn configure(cx: &mut TestAppContext) {
     quiet_methods(cx);
-    cx.host().handle::<Ask<::chat::Chat>>(|query| {
+    cx.host()
+        .handle::<Ask<::chat::Chat>>(|query| Ok(chat_reply(query)));
+    // the one agent, eddy's own, answers only him
+    cx.host().handle::<Ask<Identity>>(|query| {
         Ok(match query {
-            Query::Accounts { .. } => Reply::Accounts(page(vec![
-                person(7, "eddy"),
-                // an agent eddy manages
-                chat::Profile {
-                    kind: chat::Kind::Managed {
-                        manager: 7,
-                        category: chat::Category::Agent,
-                        standing: chat::Standing::Active,
-                    },
-                    ..person(8, "reviewer")
-                },
-                // forge's own account
-                chat::Profile {
-                    kind: chat::Kind::Module("forge".into()),
-                    ..person(9, "forge")
-                },
-                // a person eddy has no room with yet
-                person(10, "ada"),
-            ])),
-            Query::Channels { .. } => Reply::Channels(page(vec![
-                channel("general", "General", 3),
-                channel("dm-7-8", "dm", 1),
-                channel("forge:web:3", "Review web#3", 2),
-            ])),
-            Query::Roots { channel_id, .. } => Reply::Roots(page(if channel_id == "general" {
-                vec![row(1, 7, "hello"), row(2, 8, "**hi** there")]
-            } else {
-                Vec::new()
-            })),
-            Query::Members { .. } => Reply::Members(page(Vec::new())),
-            Query::Thread { .. } => Reply::Thread {
-                root: None,
-                replies: page(Vec::new()),
-            },
-            Query::Search { text, .. } => {
-                assert_eq!(text, "hello");
-                Reply::Hits(MessageHits {
-                    // two channels, one seq: the dm's first line says it too
-                    hits: vec![
-                        row(1, 7, "hello"),
-                        MsgRow {
-                            channel_id: "dm-7-8".into(),
-                            ..row(1, 8, "hello")
-                        },
-                    ],
-                    capped: false,
-                })
+            identity::Query::Ownership { number: 8 } => {
+                identity::Reply::Ownership(identity::Ownership::Owner)
             }
-            query => panic!("unexpected chat query: {query:?}"),
+            query => panic!("unexpected identity query: {query:?}"),
         })
     });
-    cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
+    cx.host()
+        .handle::<Submit<::chat::Chat>>(|_| Ok(view::testing::applied(Vec::new())));
+}
+
+/// What the fake chat program answers: three rooms, two rows in `general`
+/// and a roster of eddy, his agent, forge and ada.
+fn chat_reply(query: Query) -> Reply {
+    match query {
+        Query::Accounts { .. } => Reply::Accounts(page(vec![
+            person(7, "eddy"),
+            // an agent eddy manages
+            chat::Profile {
+                kind: chat::Kind::Program {
+                    script: None,
+                    manager: 7,
+                    category: chat::Category::Agent,
+                    standing: chat::Standing::Active,
+                },
+                ..person(8, "reviewer")
+            },
+            // forge's own account
+            chat::Profile {
+                kind: chat::Kind::System("forge".into()),
+                ..person(9, "forge")
+            },
+            // a person eddy has no room with yet
+            person(10, "ada"),
+        ])),
+        Query::Channels { .. } => Reply::Channels(page(vec![
+            channel("general", "General", 3),
+            channel("dm-7-8", "dm", 1),
+            channel("forge:web:3", "Review web#3", 2),
+        ])),
+        Query::Roots { channel_id, .. } => Reply::Roots(page(if channel_id == "general" {
+            vec![row(1, 7, "hello"), row(2, 8, "**hi** there")]
+        } else {
+            Vec::new()
+        })),
+        Query::Members { .. } => Reply::Members(page(Vec::new())),
+        Query::Thread { .. } => Reply::Thread {
+            root: None,
+            replies: page(Vec::new()),
+        },
+        Query::Search { text, .. } => {
+            assert_eq!(text, "hello");
+            Reply::Hits(MessageHits {
+                // two channels, one seq: the dm's first line says it too
+                hits: vec![
+                    row(1, 7, "hello"),
+                    MsgRow {
+                        channel_id: "dm-7-8".into(),
+                        ..row(1, 8, "hello")
+                    },
+                ],
+                capped: false,
+            })
+        }
+        query => panic!("unexpected chat query: {query:?}"),
+    }
 }
 
 /// The reader the host seats: key `0102`, account 7, on testnet.
@@ -183,11 +199,12 @@ fn restored(cx: &TestAppContext) -> (TestAppContext, Entity<Chat>) {
     (restored, view)
 }
 
-/// The thread under message `root` opened beside the room.
+/// The thread under message `root` opened beside the room, as the desktop
+/// opens one: its reply field takes the keys.
 fn thread(cx: &mut TestAppContext, view: &Entity<Chat>, root: u64) {
     cx.update(view, |chat, _, cx| {
         cx.notify();
-        chat.open_thread(root, cx);
+        chat.reply_in_thread(root, cx);
     });
     cx.run_until_parked();
 }
@@ -219,7 +236,7 @@ fn opened() -> (TestAppContext, Entity<Chat>) {
     cx.simulate_click("chat-sidebar-channel-general");
     cx.run_until_parked();
     view.read(|chat| assert_eq!(chat.room.as_ref().unwrap().id, "general"));
-    let Some(wire::Node::Container(ducktape_view_guest::wire::ContainerNode {
+    let Some(wire::Node::Container(view::wire::ContainerNode {
         style,
         interactivity: Some(interactivity),
         ..
@@ -229,10 +246,7 @@ fn opened() -> (TestAppContext, Entity<Chat>) {
     };
     let style = &cx.styles()[*style];
     assert!(style.size.width.is_some(), "channel rows fill the sidebar");
-    assert_eq!(
-        interactivity.role,
-        Some(ducktape_view_guest::Role::ListBoxOption)
-    );
+    assert_eq!(interactivity.role, Some(view::Role::ListBoxOption));
     assert_eq!(interactivity.aria.selected, Some(true));
     assert!(
         interactivity.on_click.is_some(),
@@ -241,7 +255,7 @@ fn opened() -> (TestAppContext, Entity<Chat>) {
     (cx, view)
 }
 
-/// A block at `height` that wrote `keys`, as `module.changes` carries it.
+/// A block at `height` that wrote `keys`, as `program.changes` carries it.
 fn block(height: u64, keys: Vec<Vec<u8>>) -> Option<Change> {
     Some(Change { height, keys })
 }
@@ -349,6 +363,6 @@ fn person(number: u64, name: &str) -> chat::Profile {
     chat::Profile {
         number,
         name: name.into(),
-        kind: chat::Kind::Person,
+        kind: chat::Kind::User,
     }
 }

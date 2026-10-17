@@ -1,12 +1,13 @@
 //! Every op, once as meant and once as an attack: each refusal leaves the
-//! store exactly as it was. The harness is the [`crate::Chat`] module over a
+//! store exactly as it was. The harness is the [`crate::Chat`] program over a
 //! [`MockHost`], and the principals that act on it, each the sender of the
 //! env it signs.
-use guest::{Env, Origin, code};
-use guest::{ExecCtx, MockHost, Module, QueryCtx};
+use ::program::{Env, Origin, code};
+use ::program::{ExecCtx, MockHost, Program, QueryCtx};
 
 use crate::{Op, PageRequest, PostPolicy, Principal, Query, Reply, parse_message};
 
+mod attributed;
 mod channels;
 mod messages;
 mod origin;
@@ -17,11 +18,11 @@ mod rooms;
 const ADA: Principal = Principal::Account(1);
 const BO: Principal = Principal::Account(2);
 const CY: Principal = Principal::Account(3);
-/// forge's account; `for` and `bot` are modules too ([`module_of`]).
+/// forge's account; `for` and `bot` are programs too ([`program_of`]).
 const FORGE: Principal = Principal::Account(900);
 
-/// The module an account is the account of, as identity registered it.
-fn module_of(who: &Principal) -> Option<&'static str> {
+/// The program an account is the account of, as identity registered it.
+fn program_of(who: &Principal) -> Option<&'static str> {
     match who {
         Principal::Account(900) => Some("forge"),
         Principal::Account(901) => Some("for"),
@@ -42,7 +43,7 @@ const SUSPENDED: u64 = 11;
 const REVOKED: u64 = 12;
 
 /// The identity role over the accounts the suite names: people 1 to 7, the
-/// modules of [`module_of`], and Ada's agents.
+/// programs of [`program_of`], and Ada's agents.
 fn roster() -> Vec<crate::Profile> {
     use crate::{Category, Kind, Profile, Standing};
     let profile = |number: u64, kind| Profile {
@@ -51,20 +52,21 @@ fn roster() -> Vec<crate::Profile> {
         kind,
     };
     let agent = |number, standing| {
-        let kind = Kind::Managed {
+        let kind = Kind::Program {
+            script: None,
             manager: 1,
             category: Category::Agent,
             standing,
         };
         profile(number, kind)
     };
-    let people = (1..=7).map(|number| profile(number, Kind::Person));
-    let modules = [900, 901, 902].map(|number| {
-        let module = module_of(&Principal::Account(number)).unwrap();
-        profile(number, Kind::Module(module.into()))
+    let people = (1..=7).map(|number| profile(number, Kind::User));
+    let programs = [900, 901, 902].map(|number| {
+        let program = program_of(&Principal::Account(number)).unwrap();
+        profile(number, Kind::System(program.into()))
     });
     people
-        .chain(modules)
+        .chain(programs)
         .chain([
             agent(AGENT, Standing::Active),
             agent(SUSPENDED, Standing::Suspended),
@@ -85,11 +87,11 @@ impl Default for Chat {
     }
 }
 
-/// The origin that acts as `who`: a module's own frame, an account's key
+/// The origin that acts as `who`: a program's own frame, an account's key
 /// (account `n` holds `n.to_be_bytes()`), the system.
 fn signer(who: &Principal) -> Origin {
-    if let Some(module) = module_of(who) {
-        return Origin::Module(module.into());
+    if let Some(program) = program_of(who) {
+        return Origin::Program(program.into());
     }
     match who {
         Principal::Account(number) => Origin::Signed(number.to_be_bytes().to_vec()),
@@ -111,7 +113,7 @@ impl Chat {
             time: self.height * 1000,
             origin,
             sender,
-            ..MockHost::env(crate::MODULE)
+            ..MockHost::env(crate::PROGRAM)
         }
     }
 
@@ -126,7 +128,7 @@ impl Chat {
         self.store.query(self.env(Origin::Root, None))
     }
 
-    fn run(&mut self, who: &Principal, op: Op) -> Result<(), guest::Error> {
+    fn run(&mut self, who: &Principal, op: Op) -> Result<(), ::program::Error> {
         let ctx = self.next(who);
         crate::Chat::execute(&ctx, op)
     }

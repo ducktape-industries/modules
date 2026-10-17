@@ -1,6 +1,8 @@
 # methods: kind, target, request -> reply; borsh unless named
 blob.get None String -> Option<Vec<u8>>
-chain.block None BlockRef -> Option<Block>
+blob.manifest None String -> Option<Manifested>
+camera.devices None () -> Vec<CameraDevice>
+chain.block None BlockAsk -> Option<Block>
 chain.blocks None BlockPage -> BlockList
 chain.heads None () -> Head
 chain.network None () -> NetworkStatus
@@ -9,22 +11,37 @@ chain.tx None TxAsk -> Option<Located>
 clipboard.read None () -> Clipboard
 clipboard.write None String -> ()
 clock.ticks None i64 -> ()
+file.pick None Pick -> Vec<Picked>
 host.badge None i64 -> ()
+host.float None Float -> Placement
 host.id None String -> String
 host.log None String -> ()
+host.placement None () -> Placement
 host.route None () -> String
+host.screen None () -> Vec<String>
 host.session None () -> Session
+host.show None Place -> ()
+host.showing None String -> ()
 host.title None String -> ()
+host.unfloat None () -> ()
 host.visible None () -> bool
 host.widget None TypeName("WidgetCommand") -> Unit tree
 invite.create None CreateInvite -> Invite
 link.open None String -> ()
-module.changes Some("P") () -> Option<Change>
-module.describe None (String, Vec<u8>) -> Option<Description>
-module.query Some("P") ModuleQuery -> ModuleReply
+live.publish None LivePublish -> Publishing
+live.send None LiveSend -> ()
+live.subscribe None LiveSubscribe -> LiveItem
+live.tracks None String -> Watching
+microphone.chime None Option<String> -> ()
+microphone.devices None () -> AudioDevices
 notify.post None Notification -> Delivery
 notify.seen None String -> ()
-op.submit Some("P") ModuleOp -> Vec<u8>
+op.put None PutBlobs -> Vec<[u8; 32]>
+op.submit Some("P") ProgramOp -> Submitted
+program.changes Some("P") () -> Option<Change>
+program.describe None (String, Vec<u8>) -> Option<Description>
+program.query Some("P") ProgramQuery -> ProgramReply
+store.changes None () -> String
 store.get None String -> Option<Vec<u8>>
 store.set None (String, Option<Vec<u8>>) -> ()
 
@@ -32,12 +49,42 @@ store.set None (String, Option<Vec<u8>>) -> ()
 () = Primitive(0)
 (String, Option<Vec<u8>>) = Tuple { elements: ["String", "Option<Vec<u8>>"] }
 (String, Vec<u8>) = Tuple { elements: ["String", "Vec<u8>"] }
+AudioDevice = Struct { fields: NamedFields([("id", "String"), ("name", "String"), ("default", "bool"), ("kind", "AudioKind")]) }
+AudioDevices = Struct { fields: NamedFields([("inputs", "Vec<AudioDevice>"), ("outputs", "Vec<AudioDevice>")]) }
+AudioKind = Enum { tag_width: 1, variants: [(0, "Speaker", "AudioKind__Speaker"), (1, "Earpiece", "AudioKind__Earpiece"), (2, "Headphones", "AudioKind__Headphones"), (3, "Other", "AudioKind__Other")] }
+AudioKind__Earpiece = Struct { fields: Empty }
+AudioKind__Headphones = Struct { fields: Empty }
+AudioKind__Other = Struct { fields: Empty }
+AudioKind__Speaker = Struct { fields: Empty }
+BlobBody = Enum { tag_width: 1, variants: [(0, "Bytes", "BlobBody__Bytes"), (1, "Picked", "BlobBody__Picked")] }
+BlobBody__Bytes = Struct { fields: UnnamedFields(["Vec<u8>"]) }
+BlobBody__Picked = Struct { fields: NamedFields([("file", "u64"), ("offset", "u64"), ("len", "u64")]) }
 Block = Struct { fields: NamedFields([("height", "u64"), ("id", "[u8; 32]"), ("parent", "[u8; 32]"), ("time", "u64"), ("epoch", "u64"), ("proposer", "Option<Vec<u8>>"), ("txs", "Vec<Tx>")]) }
+BlockAsk = Struct { fields: NamedFields([("by", "BlockRef"), ("most", "u32")]) }
 BlockList = Struct { fields: NamedFields([("blocks", "Vec<Block>"), ("listed_from", "Option<u64>")]) }
-BlockPage = Struct { fields: NamedFields([("before", "Option<u64>"), ("limit", "u32")]) }
+BlockPage = Struct { fields: NamedFields([("before", "Option<u64>"), ("limit", "u32"), ("most", "u32")]) }
 BlockRef = Enum { tag_width: 1, variants: [(0, "Height", "BlockRef__Height"), (1, "Id", "BlockRef__Id")] }
 BlockRef__Height = Struct { fields: UnnamedFields(["u64"]) }
 BlockRef__Id = Struct { fields: UnnamedFields(["[u8; 32]"]) }
+CameraDevice = Struct { fields: NamedFields([("id", "String"), ("name", "String"), ("default", "bool"), ("facing", "Facing")]) }
+Capability = Enum { tag_width: 1, variants: [(0, "Chain", "Capability__Chain"), (1, "Program", "Capability__Program"), (2, "Op", "Capability__Op"), (3, "Invite", "Capability__Invite"), (4, "Link", "Capability__Link"), (5, "Blob", "Capability__Blob"), (6, "Host", "Capability__Host"), (7, "Clock", "Capability__Clock"), (8, "Clipboard", "Capability__Clipboard"), (9, "Notify", "Capability__Notify"), (10, "Store", "Capability__Store"), (11, "Web", "Capability__Web"), (12, "Live", "Capability__Live"), (13, "Camera", "Capability__Camera"), (14, "Microphone", "Capability__Microphone"), (15, "File", "Capability__File")] }
+Capability__Blob = Struct { fields: Empty }
+Capability__Camera = Struct { fields: Empty }
+Capability__Chain = Struct { fields: Empty }
+Capability__Clipboard = Struct { fields: Empty }
+Capability__Clock = Struct { fields: Empty }
+Capability__File = Struct { fields: Empty }
+Capability__Host = Struct { fields: Empty }
+Capability__Invite = Struct { fields: Empty }
+Capability__Link = Struct { fields: Empty }
+Capability__Live = Struct { fields: Empty }
+Capability__Microphone = Struct { fields: Empty }
+Capability__Notify = Struct { fields: Empty }
+Capability__Op = Struct { fields: Empty }
+Capability__Program = Struct { fields: Empty }
+Capability__Store = Struct { fields: Empty }
+Capability__Web = Struct { fields: Empty }
+CarriedView = Struct { fields: NamedFields([("size", "u64"), ("manifest", "Option<Manifest>")]) }
 Change = Struct { fields: NamedFields([("height", "u64"), ("keys", "Vec<Vec<u8>>")]) }
 Clipboard = Struct { fields: NamedFields([("text", "String")]) }
 CreateInvite = Struct { fields: NamedFields([("ttl_days", "u64")]) }
@@ -47,55 +94,123 @@ Delivery__Blocked = Struct { fields: Empty }
 Delivery__Logged = Struct { fields: Empty }
 Description = Struct { fields: NamedFields([("title", "String"), ("fields", "Vec<Field>")]) }
 Error = Struct { fields: NamedFields([("code", "String"), ("message", "String")]) }
+Facing = Enum { tag_width: 1, variants: [(0, "Front", "Facing__Front"), (1, "Back", "Facing__Back"), (2, "External", "Facing__External")] }
+Facing__Back = Struct { fields: Empty }
+Facing__External = Struct { fields: Empty }
+Facing__Front = Struct { fields: Empty }
 Field = Struct { fields: NamedFields([("label", "String"), ("value", "Value")]) }
+Float = Struct { fields: NamedFields([("width", "u32"), ("height", "u32"), ("min_width", "u32"), ("min_height", "u32"), ("on_top", "bool")]) }
 Head = Struct { fields: NamedFields([("height", "u64"), ("time", "u64"), ("id", "[u8; 32]")]) }
 Invite = Struct { fields: NamedFields([("invite", "String"), ("notes", "Vec<Error>")]) }
+LiveAnnounce = Struct { fields: NamedFields([("name", "String"), ("by", "u64"), ("mode", "LiveMode"), ("up", "bool")]) }
+LiveItem = Enum { tag_width: 1, variants: [(0, "Waiting", "LiveItem__Waiting"), (1, "Opened", "LiveItem__Opened"), (2, "Object", "LiveItem__Object"), (3, "GroupEnd", "LiveItem__GroupEnd")] }
+LiveItem__GroupEnd = Struct { fields: NamedFields([("group", "u64"), ("complete", "bool")]) }
+LiveItem__Object = Struct { fields: NamedFields([("group", "u64"), ("object", "u32"), ("body", "Vec<u8>")]) }
+LiveItem__Opened = Struct { fields: NamedFields([("by", "u64"), ("mode", "LiveMode"), ("latest", "Option<u64>")]) }
+LiveItem__Waiting = Struct { fields: Empty }
+LiveMode = Enum { tag_width: 1, variants: [(0, "Stream", "LiveMode__Stream"), (1, "Datagram", "LiveMode__Datagram")] }
+LiveMode__Datagram = Struct { fields: Empty }
+LiveMode__Stream = Struct { fields: Empty }
+LivePublish = Struct { fields: NamedFields([("track", "LiveTrack"), ("mode", "LiveMode"), ("priority", "u8")]) }
+LiveSend = Struct { fields: NamedFields([("track", "LiveTrack"), ("group", "u64"), ("object", "u32"), ("body", "Vec<u8>"), ("end", "bool")]) }
+LiveStart = Enum { tag_width: 1, variants: [(0, "Latest", "LiveStart__Latest"), (1, "Next", "LiveStart__Next")] }
+LiveStart__Latest = Struct { fields: Empty }
+LiveStart__Next = Struct { fields: Empty }
+LiveSubscribe = Struct { fields: NamedFields([("track", "LiveTrack"), ("from", "LiveStart")]) }
+LiveTrack = Struct { fields: NamedFields([("room", "String"), ("name", "String")]) }
 Located = Struct { fields: NamedFields([("height", "u64"), ("position", "u32"), ("time", "u64"), ("tx", "Tx")]) }
-ModuleOp = Struct { fields: Empty }
-ModuleQuery = Struct { fields: Empty }
-ModuleReply = Struct { fields: Empty }
+Manifest = Struct { fields: NamedFields([("wire_id", "String"), ("name", "String"), ("description", "String"), ("capabilities", "Vec<Capability>"), ("min_width", "u32"), ("targets", "Vec<String>"), ("icon", "String"), ("tint", "Tint")]) }
+Manifested = Struct { fields: NamedFields([("size", "u64"), ("view", "Option<CarriedView>")]) }
 NetworkStatus = Struct { fields: NamedFields([("height", "u64"), ("members", "Vec<Peer>")]) }
+NewBlob = Struct { fields: NamedFields([("kind", "String"), ("body", "BlobBody")]) }
 NodeStatus = Struct { fields: NamedFields([("chain_id", "String"), ("time", "u64"), ("block_time_ms", "u64"), ("epoch_length", "u64"), ("height", "u64"), ("tip", "[u8; 32]"), ("root", "[u8; 32]"), ("epoch", "u64"), ("identity", "Vec<u8>"), ("contract", "u32")]) }
-Notification = Struct { fields: NamedFields([("title", "String"), ("body", "String"), ("tag", "String"), ("link", "String")]) }
+NoticeKind = Enum { tag_width: 1, variants: [(0, "Notice", "NoticeKind__Notice"), (1, "Call", "NoticeKind__Call")] }
+NoticeKind__Call = Struct { fields: Empty }
+NoticeKind__Notice = Struct { fields: Empty }
+Notification = Struct { fields: NamedFields([("title", "String"), ("body", "String"), ("tag", "String"), ("link", "String"), ("kind", "NoticeKind"), ("until", "u64"), ("end_link", "String")]) }
 Option<Block> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Block")] }
+Option<CarriedView> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "CarriedView")] }
 Option<Change> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Change")] }
 Option<Description> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Description")] }
 Option<Located> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Located")] }
+Option<Manifest> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Manifest")] }
+Option<Manifested> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Manifested")] }
 Option<Receipt> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Receipt")] }
+Option<String> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "String")] }
 Option<Vec<u8>> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Vec<u8>")] }
 Option<u64> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "u64")] }
 Outcome = Enum { tag_width: 1, variants: [(0, "Applied", "Outcome__Applied"), (1, "Rejected", "Outcome__Rejected")] }
 Outcome__Applied = Struct { fields: NamedFields([("output", "Vec<u8>")]) }
 Outcome__Rejected = Struct { fields: UnnamedFields(["Error"]) }
 Peer = Struct { fields: NamedFields([("key", "Vec<u8>"), ("signed", "Option<u64>")]) }
+Pick = Struct { fields: NamedFields([("multiple", "bool")]) }
+Picked = Struct { fields: NamedFields([("name", "String"), ("size", "u64"), ("file", "u64")]) }
+Place = Enum { tag_width: 1, variants: [(0, "Account", "Place__Account"), (1, "CameraSettings", "Place__CameraSettings"), (2, "MicrophoneSettings", "Place__MicrophoneSettings")] }
+Place__Account = Struct { fields: Empty }
+Place__CameraSettings = Struct { fields: Empty }
+Place__MicrophoneSettings = Struct { fields: Empty }
+Placement = Struct { fields: NamedFields([("floating", "bool"), ("on_top", "bool")]) }
+ProgramOp = Struct { fields: Empty }
+ProgramQuery = Struct { fields: Empty }
+ProgramReply = Struct { fields: Empty }
+Publishing = Enum { tag_width: 1, variants: [(0, "Waiting", "Publishing__Waiting"), (1, "Subscribers", "Publishing__Subscribers"), (2, "Cut", "Publishing__Cut")] }
+Publishing__Cut = Struct { fields: NamedFields([("group", "u64")]) }
+Publishing__Subscribers = Struct { fields: UnnamedFields(["u32"]) }
+Publishing__Waiting = Struct { fields: Empty }
+PutBlobs = Struct { fields: NamedFields([("blobs", "Vec<NewBlob>")]) }
 Receipt = Struct { fields: NamedFields([("program", "String"), ("outcome", "Outcome"), ("events", "Vec<Vec<u8>>"), ("nested", "Vec<Receipt>")]) }
 Session = Struct { fields: NamedFields([("connected", "bool"), ("chain_id", "String"), ("signer", "String"), ("account", "Option<u64>"), ("endpoint", "String")]) }
 String = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u8" }
+Submitted = Enum { tag_width: 1, variants: [(0, "Applied", "Submitted__Applied"), (1, "Refused", "Submitted__Refused"), (2, "InDoubt", "Submitted__InDoubt")] }
+Submitted__Applied = Struct { fields: NamedFields([("frame", "[u8; 32]"), ("until", "u64"), ("output", "Vec<u8>")]) }
+Submitted__InDoubt = Struct { fields: NamedFields([("frame", "[u8; 32]"), ("until", "u64")]) }
+Submitted__Refused = Struct { fields: NamedFields([("frame", "[u8; 32]"), ("until", "u64"), ("refusal", "Error")]) }
+Tint = Enum { tag_width: 1, variants: [(0, "None", "Tint__None"), (1, "Blue", "Tint__Blue"), (2, "Teal", "Tint__Teal"), (3, "Green", "Tint__Green"), (4, "Lime", "Tint__Lime"), (5, "Amber", "Tint__Amber"), (6, "Orange", "Tint__Orange"), (7, "Red", "Tint__Red"), (8, "Pink", "Tint__Pink"), (9, "Violet", "Tint__Violet")] }
+Tint__Amber = Struct { fields: Empty }
+Tint__Blue = Struct { fields: Empty }
+Tint__Green = Struct { fields: Empty }
+Tint__Lime = Struct { fields: Empty }
+Tint__None = Struct { fields: Empty }
+Tint__Orange = Struct { fields: Empty }
+Tint__Pink = Struct { fields: Empty }
+Tint__Red = Struct { fields: Empty }
+Tint__Teal = Struct { fields: Empty }
+Tint__Violet = Struct { fields: Empty }
 Tip = Struct { fields: NamedFields([("height", "u64"), ("id", "[u8; 32]")]) }
 Tx = Struct { fields: NamedFields([("hash", "[u8; 32]"), ("signer", "Vec<u8>"), ("anchor", "Tip"), ("target", "String"), ("size", "u32"), ("payload", "Option<Vec<u8>>"), ("receipt", "Option<Receipt>")]) }
 TxAsk = Struct { fields: NamedFields([("tx", "TxRef"), ("most", "u32")]) }
 TxRef = Enum { tag_width: 1, variants: [(0, "At", "TxRef__At"), (1, "Hash", "TxRef__Hash")] }
 TxRef__At = Struct { fields: NamedFields([("height", "u64"), ("position", "u32")]) }
 TxRef__Hash = Struct { fields: UnnamedFields(["[u8; 32]"]) }
-Value = Enum { tag_width: 1, variants: [(0, "Text", "Value__Text"), (1, "Account", "Value__Account"), (2, "Key", "Value__Key"), (3, "Module", "Value__Module"), (4, "Hash", "Value__Hash"), (5, "Amount", "Value__Amount"), (6, "Time", "Value__Time"), (7, "Bytes", "Value__Bytes"), (8, "List", "Value__List")] }
+Value = Enum { tag_width: 1, variants: [(0, "Text", "Value__Text"), (1, "Account", "Value__Account"), (2, "Key", "Value__Key"), (3, "Program", "Value__Program"), (4, "Hash", "Value__Hash"), (5, "Amount", "Value__Amount"), (6, "Time", "Value__Time"), (7, "Bytes", "Value__Bytes"), (8, "List", "Value__List")] }
 Value__Account = Struct { fields: UnnamedFields(["u64"]) }
 Value__Amount = Struct { fields: NamedFields([("value", "u128"), ("decimals", "u8")]) }
 Value__Bytes = Struct { fields: NamedFields([("len", "u64"), ("preview", "Vec<u8>")]) }
 Value__Hash = Struct { fields: UnnamedFields(["Vec<u8>"]) }
 Value__Key = Struct { fields: UnnamedFields(["Vec<u8>"]) }
 Value__List = Struct { fields: UnnamedFields(["Vec<Value>"]) }
-Value__Module = Struct { fields: UnnamedFields(["String"]) }
+Value__Program = Struct { fields: UnnamedFields(["String"]) }
 Value__Text = Struct { fields: UnnamedFields(["String"]) }
 Value__Time = Struct { fields: UnnamedFields(["u64"]) }
+Vec<AudioDevice> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "AudioDevice" }
 Vec<Block> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Block" }
+Vec<CameraDevice> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "CameraDevice" }
+Vec<Capability> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Capability" }
 Vec<Error> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Error" }
 Vec<Field> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Field" }
+Vec<NewBlob> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "NewBlob" }
 Vec<Peer> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Peer" }
+Vec<Picked> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Picked" }
 Vec<Receipt> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Receipt" }
+Vec<String> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "String" }
 Vec<Tx> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Tx" }
 Vec<Value> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Value" }
 Vec<Vec<u8>> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Vec<u8>" }
+Vec<[u8; 32]> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "[u8; 32]" }
 Vec<u8> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u8" }
+Watching = Enum { tag_width: 1, variants: [(0, "Waiting", "Watching__Waiting"), (1, "Announce", "Watching__Announce")] }
+Watching__Announce = Struct { fields: UnnamedFields(["LiveAnnounce"]) }
+Watching__Waiting = Struct { fields: Empty }
 [u8; 32] = Sequence { length_width: 0, length_range: 32..=32, elements: "u8" }
 bool = Primitive(1)
 i64 = Primitive(8)
@@ -194,6 +309,11 @@ AriaCurrent enum
   4 location: Unit
   5 date: Unit
   6 time: Unit
+Autocapitalize enum
+  0 None: Unit
+  1 Words: Unit
+  2 Sentences: Unit
+  3 Characters: Unit
 Bounds struct
   origin: TypeName("Point")
   size: TypeName("Size")
@@ -410,62 +530,69 @@ Event enum
     change: TypeName("TextChange")
   19 Theme struct
     dark: Bool
-  20 Viewport struct
+  20 Pointer struct
+    touch: Bool
+  21 Viewport struct
     width: F32
     height: F32
-  21 Offset struct
+  22 Offset struct
     minutes: I32
-  22 Select struct
+  23 Select struct
     handler: U32
     index: U32
-  23 RichTextHover struct
+  24 RichTextHover struct
     handler: U32
     event: TypeName("RichTextHover")
-  24 Bounds struct
+  25 Bounds struct
     handler: U32
     x: F32
     y: F32
     width: F32
     height: F32
-  25 Drag struct
+  26 Drag struct
     handler: U32
     dx: F64
     dy: F64
-  26 ScrollOffset struct
+  27 ScrollOffset struct
     handler: U32
     x: F32
     y: F32
     relative_x: F32
     relative_y: F32
-  27 UniformListRange struct
+  28 UniformListRange struct
     path: Seq(TypeName("WireRepr"))
     route: U32
     start: U32
     end: U32
     item_height: F32
-  28 UniformListState struct
+  29 UniformListState struct
     path: Seq(TypeName("WireRepr"))
     route: U32
     top_index: U32
     scrollable: Bool
     scrolled_to_end: Option(Bool)
-  29 ListRequest struct
+  30 ListRequest struct
     handler: U32
     request: TypeName("ListRequest")
-  30 ListScroll struct
+  31 ListScroll struct
     handler: U32
     event: TypeName("ListScroll")
-  31 Response struct
+  32 Response struct
     id: U64
     result: TypeName("Result")
     done: Bool
-  32 Resync: Unit
-  33 A11yAction struct
+  33 Resync: Unit
+  34 A11yAction struct
     handler: U32
     data: Option(TypeName("ActionData"))
-  34 Web struct
+  35 Back struct
+    handler: U32
+  36 Web struct
     handler: U32
     state: TypeName("WebState")
+  37 Media struct
+    handler: U32
+    state: TypeName("MediaState")
 FontFallbacks NewTypeStruct(Seq(Str))
 FontStyle enum
   0 Normal: Unit
@@ -524,6 +651,7 @@ InputOptions struct
   invalid: Option(TypeName("Invalid"))
   required: Bool
   read_only: Bool
+  text_input: TypeName("TextInput")
 Interactivity struct
   role: Option(TypeName("Role"))
   aria: TypeName("Aria")
@@ -568,6 +696,8 @@ Interactivity struct
   on_hover: Option(U32)
   on_file_drop_exit: Option(U32)
   tooltip: Option(TypeName("Tooltip"))
+  on_back: Option(U32)
+  page: Option(U32)
 Invalid enum
   0 true: Unit
   1 grammar: Unit
@@ -634,11 +764,36 @@ Live enum
   0 off: Unit
   1 polite: Unit
   2 assertive: Unit
+LiveTrack struct
+  room: Str
+  name: Str
 Location enum
   0 Standard: Unit
   1 Left: Unit
   2 Right: Unit
   3 Numpad: Unit
+MediaState struct
+  status: TypeName("MediaStatus")
+  device: Str
+  playback: TypeName("Playback")
+  detail: Str
+  speaking: Bool
+  opens_settings: Bool
+  monitor_stopped: Bool
+  track: TypeName("TrackState")
+MediaStatus enum
+  0 Starting: Unit
+  1 Live: Unit
+  2 Denied: Unit
+  3 Busy: Unit
+  4 Gone: Unit
+  5 NoDevice: Unit
+  6 Unsupported: Unit
+  7 Failed: Unit
+MicCommand enum
+  0 Record struct
+    seconds: U8
+  1 Stop: Unit
 Modifiers struct
   control: Bool
   alt: Bool
@@ -851,15 +1006,47 @@ Node enum
     style: U32
     on_dismiss: Option(U32)
     children: Seq(TypeName("Node"))
-  14 Canvas struct
+  14 Sheet struct
+    id: TypeName("WireRepr")
+    label: Option(Str)
+    style: U32
+    detents: Seq(F32)
+    on_dismiss: Option(U32)
+    child: TypeName("Node")
+  15 Canvas struct
     style: U32
     commands: Seq(TypeName("CanvasCommand"))
-  15 Web struct
+  16 Web struct
     id: TypeName("WireRepr")
     url: Str
     style: U32
     revision: U64
     commands: Seq(TypeName("WebCommand"))
+    on_state: Option(U32)
+  17 Camera struct
+    id: TypeName("WireRepr")
+    style: U32
+    device: Option(Str)
+    mirror: Bool
+    object_fit: TypeName("ImageObjectFit")
+    on_state: Option(U32)
+    publish: Option(TypeName("LiveTrack"))
+  18 Microphone struct
+    id: TypeName("WireRepr")
+    style: U32
+    device: Option(Str)
+    output: Option(Str)
+    monitor: Bool
+    revision: U64
+    commands: Seq(TypeName("MicCommand"))
+    on_state: Option(U32)
+    publish: Option(TypeName("LiveTrack"))
+    muted: Bool
+  19 Remote struct
+    id: TypeName("WireRepr")
+    style: U32
+    track: TypeName("LiveTrack")
+    media: TypeName("RemoteMedia")
     on_state: Option(U32)
 NodeId NewTypeStruct(U64)
 Orientation enum
@@ -891,6 +1078,10 @@ Pinch struct
   modifiers: TypeName("Modifiers")
   phase: TypeName("TouchPhase")
 Pixels NewTypeStruct(F32)
+Playback enum
+  0 Idle: Unit
+  1 Recording: Unit
+  2 Playing: Unit
 Point struct
   x: TypeName("Pixels")
   y: TypeName("Pixels")
@@ -901,6 +1092,11 @@ PressureStage enum
 Range struct
   start: U64
   end: U64
+RemoteMedia enum
+  0 Video struct
+    object_fit: TypeName("ImageObjectFit")
+  1 Audio struct
+    output: Option(Str)
 Request struct
   id: U64
   kind: Str
@@ -1146,10 +1342,26 @@ TextChange struct
   cursor: TypeName("TextRange")
   preedit: Option(TypeName("TextRange"))
   tokens: Seq(TypeName("TextToken"))
+TextInput struct
+  autocorrect: Bool
+  autocapitalize: TypeName("Autocapitalize")
+  suggestions: Bool
+  input_action: TypeName("TextInputAction")
+  virtual_keyboard: TypeName("VirtualKeyboard")
+TextInputAction enum
+  0 Unspecified: Unit
+  1 Enter: Unit
+  2 Done: Unit
+  3 Go: Unit
+  4 Next: Unit
+  5 Previous: Unit
+  6 Search: Unit
+  7 Send: Unit
 TextNode struct
   id: Option(TypeName("WireRepr"))
   style: U32
   content: Str
+  transform: Option(TypeName("TextTransform"))
 TextPosition struct
   node: TypeName("NodeId")
   characterIndex: U64
@@ -1173,6 +1385,8 @@ TextSelection struct
 TextToken struct
   range: TypeName("TextRange")
   id: Str
+TextTransform enum
+  0 Uppercase: Unit
 Toggled enum
   0 false: Unit
   1 true: Unit
@@ -1190,6 +1404,13 @@ TouchPhase enum
   1 Moved: Unit
   2 Ended: Unit
   3 Cancelled: Unit
+TrackState enum
+  0 None: Unit
+  1 Waiting: Unit
+  2 Up struct
+    subscribers: U32
+  3 Ended struct
+    code: Str
 UnderlineStyle struct
   thickness: TypeName("Pixels")
   color: Option(Str)
@@ -1210,6 +1431,14 @@ UniformListScrollStrategy enum
 UniformListSizing enum
   0 Infer: Unit
   1 Auto: Unit
+VirtualKeyboard enum
+  0 Text: Unit
+  1 Numeric: Unit
+  2 Decimal: Unit
+  3 Tel: Unit
+  4 Email: Unit
+  5 Url: Unit
+  6 Search: Unit
 WebCommand enum
   0 Load: NewType(Str)
   1 Back: Unit
@@ -1470,12 +1699,29 @@ TextStyleRefinement struct
   text_overflow: Option(TypeName("TextOverflow"))
   text_align: Option(TypeName("TextAlign"))
   line_clamp: Option(U64)
+  letter_spacing: Option(TypeName("Pixels"))
 Visibility enum
   0 Visible: Unit
   1 Hidden: Unit
 WhiteSpace enum
   0 Normal: Unit
   1 Nowrap: Unit
+
+# notifier: what its tick takes -> what it answers, borsh
+tick Vec<Answer> -> Turn
+Answer = Struct { fields: NamedFields([("id", "u64"), ("result", "Result<Vec<u8>, Error>"), ("done", "bool")]) }
+Error = Struct { fields: NamedFields([("code", "String"), ("message", "String")]) }
+Request = Struct { fields: NamedFields([("id", "u64"), ("kind", "String"), ("payload", "Vec<u8>")]) }
+Result<Vec<u8>, Error> = Enum { tag_width: 1, variants: [(1, "Ok", "Vec<u8>"), (0, "Err", "Error")] }
+String = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u8" }
+Turn = Struct { fields: NamedFields([("requests", "Vec<Request>"), ("cancels", "Vec<u64>"), ("busy", "bool")]) }
+Vec<Answer> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Answer" }
+Vec<Request> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "Request" }
+Vec<u64> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u64" }
+Vec<u8> = Sequence { length_width: 4, length_range: 0..=4294967295, elements: "u8" }
+bool = Primitive(1)
+u64 = Primitive(8)
+u8 = Primitive(1)
 
 # manifest: one line each, in order
 ducktape.view.manifest
@@ -1486,3 +1732,4 @@ min_width
 wire_id
 targets
 icon
+tint

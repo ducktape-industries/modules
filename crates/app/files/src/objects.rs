@@ -1,11 +1,15 @@
 //! What a snapshot is made of, each a kernel blob: chunks of bytes, files that list
-//! their chunks, trees of named nodes, and snapshots naming a root tree.
+//! their chunks, trees of named nodes with each node's creator and write list, and
+//! snapshots naming a root tree.
 use std::collections::BTreeMap;
 
+use ::program::{
+    AccountNumber, BlobId, Error, ExecCtx, HashKind, Ownership, Principal, QueryCtx, corrupt,
+    invalid,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{BlobId, Error, ExecCtx, HashKind, Principal, QueryCtx, capacity, corrupt, invalid};
 
-use crate::{CHUNK_SIZE, MAX_CHUNKS_PER_FILE, MAX_DIR_ENTRIES, Node};
+use crate::{CHUNK_SIZE, Node};
 
 pub const CHUNK: &str = "chunk";
 pub const FILE: &str = "file";
@@ -22,6 +26,13 @@ pub struct FileObj {
 #[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Tree {
     pub entries: BTreeMap<String, Node>,
+    pub access: BTreeMap<String, Access>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Access {
+    pub creator: Option<AccountNumber>,
+    pub write: Option<Ownership>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -59,27 +70,11 @@ fn get<T: BorshDeserialize>(ctx: &QueryCtx, kind: &str, id: &BlobId) -> Result<T
     abi::decode(&blob.body).map_err(|refusal| corrupt(kind, id.digest(), refusal.sentence))
 }
 
-pub(crate) fn put_chunk(ctx: &ExecCtx, bytes: &[u8]) -> Result<BlobId, Error> {
-    ctx.blob_put(HashKind::Sha256, CHUNK, bytes.to_vec())
-}
-
-pub(crate) fn put_bytes(ctx: &ExecCtx, bytes: &[u8]) -> Result<Vec<BlobId>, Error> {
-    bytes
-        .chunks(CHUNK_SIZE as usize)
-        .map(|chunk| put_chunk(ctx, chunk))
-        .collect()
-}
-
 pub(crate) fn put_file(ctx: &ExecCtx, file: &FileObj) -> Result<BlobId, Error> {
     put(ctx, FILE, file)
 }
 
 pub(crate) fn put_tree(ctx: &ExecCtx, tree: &Tree) -> Result<BlobId, Error> {
-    if tree.entries.len() > MAX_DIR_ENTRIES {
-        return Err(capacity(format!(
-            "a directory holds at most {MAX_DIR_ENTRIES} entries"
-        )));
-    }
     put(ctx, TREE, tree)
 }
 
@@ -105,11 +100,6 @@ pub(crate) fn chunk_len(size: u64, index: u64) -> u64 {
 }
 
 pub(crate) fn check_chunks(ctx: &QueryCtx, size: u64, chunks: &[BlobId]) -> Result<(), Error> {
-    if chunks.len() > MAX_CHUNKS_PER_FILE {
-        return Err(capacity(format!(
-            "a file is at most {MAX_CHUNKS_PER_FILE} chunks"
-        )));
-    }
     let expected = chunk_count(size);
     if chunks.len() as u64 != expected {
         return Err(invalid(format!(
@@ -120,8 +110,8 @@ pub(crate) fn check_chunks(ctx: &QueryCtx, size: u64, chunks: &[BlobId]) -> Resu
     for (index, id) in chunks.iter().enumerate() {
         digest(id)?;
         let Some(header) = ctx.blob_stat(*id) else {
-            return Err(guest::not_found(format!(
-                "chunk {} is not on the network: stage it first",
+            return Err(::program::not_found(format!(
+                "chunk {} is not on the network: put it through the blob upload first",
                 abi::hex(id.digest())
             )));
         };

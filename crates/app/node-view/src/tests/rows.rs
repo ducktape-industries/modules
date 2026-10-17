@@ -1,6 +1,6 @@
 //! The row words, one state each: the fold of valset's answers, the strip's
 //! window, and every Height, Behind and Status a row can read.
-use ducktape_view_guest::methods::{Block, BlockList, BlockPage, NetworkStatus, Peer};
+use view::methods::{Block, BlockList, BlockPage, NetworkStatus, Peer};
 
 use crate::queries::{Node, fold};
 use crate::recent::{Recent, WINDOW};
@@ -10,6 +10,7 @@ fn member(key: u8, role: valset::Role) -> valset::Membership {
     valset::Membership {
         key: vec![key],
         address: Some(format!("10.0.0.{key}:4000")),
+        halo: format!("10.0.0.{key}:9100"),
         role,
     }
 }
@@ -75,33 +76,17 @@ fn the_strip_asks_the_highest_missing_run_then_keeps_its_span() {
         first,
         BlockPage {
             before: Some(101),
-            limit: 20
+            limit: 64,
+            most: 0,
         }
     );
-    recent.land(100, led(81, 100, |_| 1));
-    let older = recent.next(100).unwrap();
-    assert_eq!(
-        older,
-        BlockPage {
-            before: Some(81),
-            limit: 20
-        }
-    );
-    for page in [
-        older,
-        BlockPage {
-            before: Some(61),
-            limit: 20,
-        },
-    ] {
-        let below = page.before.unwrap();
-        recent.land(100, led(below - 20, below - 1, |_| 1));
-    }
+    recent.land(100, led(41, 100, |_| 1));
     assert_eq!(
         recent.next(100),
         Some(BlockPage {
             before: Some(41),
-            limit: 4
+            limit: 4,
+            most: 0,
         })
     );
     recent.land(100, led(37, 40, |_| 2));
@@ -113,7 +98,8 @@ fn the_strip_asks_the_highest_missing_run_then_keeps_its_span() {
         fresh,
         BlockPage {
             before: Some(103),
-            limit: 2
+            limit: 2,
+            most: 0,
         }
     );
     recent.land(102, led(101, 102, |_| 1));
@@ -132,7 +118,8 @@ fn the_lowest_listed_height_ends_the_asking() {
         first,
         BlockPage {
             before: Some(11),
-            limit: 11
+            limit: 11,
+            most: 0,
         }
     );
     let listed = BlockList {
@@ -153,7 +140,8 @@ fn a_node_that_lists_nothing_is_asked_again_at_the_next_head() {
         recent.next(11),
         Some(BlockPage {
             before: Some(12),
-            limit: 1
+            limit: 1,
+            most: 0,
         })
     );
 }

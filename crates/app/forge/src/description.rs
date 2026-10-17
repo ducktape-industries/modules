@@ -1,12 +1,12 @@
 //! [`describe`]: an op as a person reads it, a title and its fields. The
-//! source of the `ducktape.describe` module this module ships
+//! source of the `ducktape.describe` module this program ships
 //! (`make wasm-describes`); people show as their accounts.
 use describe::{Description, Value, field};
 
 use crate::{Op, Principal, Revision, Verdict};
 
 /// An op as a person reads it: a title and its fields. The source of the
-/// `ducktape.describe` module this module ships (`make wasm-describes`).
+/// `ducktape.describe` module this program ships (`make wasm-describes`).
 pub fn describe(op: &Op) -> Description {
     let text = |bytes: &[u8]| Value::Text(String::from_utf8_lossy(bytes).into_owned());
     let revision = |revision: &Revision| match revision {
@@ -46,7 +46,17 @@ pub fn describe(op: &Op) -> Description {
             repo,
             principal: who,
         } => ("Revoke writer", repo, vec![field("writer", principal(who))]),
-        Op::Push { repo, request } => ("Push", repo, vec![field("request", Value::bytes(request))]),
+        Op::Push {
+            repo,
+            request,
+            pack,
+        } => {
+            let mut fields = vec![field("request", Value::bytes(request))];
+            if let Some(pack) = pack {
+                fields.push(field("pack", Value::Hash(pack.digest().to_vec())));
+            }
+            ("Push", repo, fields)
+        }
         Op::Merge {
             repo,
             into,
@@ -109,7 +119,7 @@ pub fn describe(op: &Op) -> Description {
         Op::Stage { repo, pack } => (
             "Stage objects",
             repo,
-            vec![field("pack", Value::bytes(pack))],
+            vec![field("pack", Value::Hash(pack.digest().to_vec()))],
         ),
         Op::ReviewSubmit { repo, n, review } => (
             "Review",

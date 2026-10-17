@@ -3,9 +3,9 @@
 use crate::contract::*;
 use crate::ops::cap;
 use crate::reads::{Reading, entry_kind};
+use ::program::Error;
+use ::program::invalid;
 use gitcore::{Mode, Oid, diff};
-use guest::Error;
-use guest::invalid;
 use store::Listing;
 
 pub fn query(
@@ -85,7 +85,15 @@ fn file(r: &Reading<'_>, c: &diff::Change) -> Result<FileDiff, Error> {
     }
     let old = old_blob.as_ref().map_or(&[][..], |b| &b.bytes);
     let new = new_blob.as_ref().map_or(&[][..], |b| &b.bytes);
-    result.hunks = r.result(hunks(old, new, cap(r.bounds.merge_cost)))?;
+    // a diff that takes more than `merge_cost` edits to search is not
+    // shown inline, like a blob past `blob_bytes`; the page goes on
+    result.hunks = match hunks(old, new, cap(r.bounds.merge_cost)) {
+        Err(gitcore::Error::CapReached) => {
+            result.content = Content::Oversize;
+            return Ok(result);
+        }
+        hunks => r.result(hunks)?,
+    };
     for line in result.hunks.iter().flat_map(|h| &h.lines) {
         result.additions += u64::from(line.kind == LineKind::Added);
         result.deletions += u64::from(line.kind == LineKind::Deleted);

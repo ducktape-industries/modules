@@ -1,7 +1,7 @@
 //! The Code tab's file tree: a directory's children open inline beneath
 //! it. Each expanded directory is its own lazy `Query::Tree`; the rows on
 //! screen are a walk of whatever of those has landed.
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 use crate::queries::PAGE;
 use crate::state::Forge;
@@ -76,10 +76,12 @@ impl Forge {
         })
     }
 
-    /// The root and every expanded directory: what the tree reads.
+    /// The root, every expanded directory and the phone's open folder:
+    /// what the tree reads.
     pub(crate) fn tree_queries(&self) -> Vec<Query> {
         std::iter::once(Vec::new())
             .chain(self.nav.expanded.iter().cloned())
+            .chain(self.nav.folder.clone())
             .filter_map(|path| self.tree_query(path))
             .collect()
     }
@@ -88,9 +90,15 @@ impl Forge {
     /// its own children. The filter keeps every directory and the files
     /// whose name holds it.
     pub(crate) fn tree_rows(&self) -> Vec<Row> {
+        self.tree_rows_at(Vec::new())
+    }
+
+    /// The rows of the folder at `dir` as [`Self::tree_rows`] walks the
+    /// root: the phone's folder page lists one.
+    pub(crate) fn tree_rows_at(&self, dir: Vec<u8>) -> Vec<Row> {
         let mut rows = Vec::new();
         let needle = self.tree_search.text().trim().to_lowercase();
-        self.walk(Vec::new(), 0, &needle, &mut rows);
+        self.walk(dir, 0, &needle, &mut rows);
         rows
     }
 
@@ -104,7 +112,7 @@ impl Forge {
             _ if depth == 0 => return,
             Stage::Loading => return rows.push(placeholder(&dir, depth, Slot::Loading)),
             Stage::Failed(refusal) => {
-                let failed = Slot::Failed(refusal.message.clone());
+                let failed = Slot::Failed(design::sentence(refusal));
                 return rows.push(placeholder(&dir, depth, failed));
             }
             Stage::Ready(_) => return,
@@ -167,6 +175,9 @@ impl Forge {
             .unwrap_or(0);
         let row = &rows[at];
         let open = self.nav.expanded.contains(&row.path);
+        // the keys act on the row the tree claims, and draw it from now on
+        self.nav.cursor = Some(row.path.clone());
+        self.tree_walked = true;
         match key {
             Key::Up => self.nav.cursor = Some(rows[at.saturating_sub(1)].path.clone()),
             Key::Down => self.nav.cursor = Some(rows[(at + 1).min(rows.len() - 1)].path.clone()),

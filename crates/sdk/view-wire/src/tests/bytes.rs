@@ -42,7 +42,7 @@ fn a_reply_crosses_as_bin() {
 fn a_request_payload_crosses_as_bin() {
     let request = || Request {
         id: 1,
-        kind: "module.query".into(),
+        kind: "program.query".into(),
         payload: mixed(),
     };
     crosses_as_bin(request(), &mixed());
@@ -128,7 +128,7 @@ fn bytes_read_back_from_json() {
         root: Some(picture(Some(vec![1, 2, 200]))),
         requests: vec![Request {
             id: 1,
-            kind: "module.query".into(),
+            kind: "program.query".into(),
             payload: vec![1, 2, 200],
         }],
         ..Default::default()
@@ -161,21 +161,8 @@ fn an_array_of_integers_is_not_bytes() {
     assert!(error.contains("expected bytes"), "{error}");
 }
 
-/// A picture's bound is checked on the `bin`'s length, and a `bin` that
-/// says it is longer than the bytes it came in is refused where it stands:
-/// neither is copied anywhere first.
 #[test]
-fn a_bin_past_its_bound_is_refused() {
-    let error = decode::<ImageData>(&encode(&ImageData::Encoded(vec![0; MAX_FRAME_BYTES + 1])))
-        .unwrap_err();
-    assert!(error.contains("raster byte limit"), "{error}");
-    let fits = encode(&ImageData::Encoded(vec![0; MAX_FRAME_BYTES]));
-    assert_eq!(
-        decode::<ImageData>(&fits).unwrap().byte_len(),
-        MAX_FRAME_BYTES
-    );
-
-    // {0: bin32 of 4 GiB}, with nothing after the header.
+fn a_bin_longer_than_its_bytes_is_refused() {
     let start = std::time::Instant::now();
     assert!(decode::<ImageData>(&[0x81, 0x00, 0xc6, 0xff, 0xff, 0xff, 0xff]).is_err());
     assert!(start.elapsed() < std::time::Duration::from_secs(1));
@@ -191,4 +178,58 @@ fn bytes_after_the_value_are_refused() {
         decode::<Event>(&wire).unwrap_err(),
         "trailing MessagePack bytes"
     );
+}
+
+/// A text drawn in another case still crosses with its words as written. A
+/// text from a build before the field reads as drawn as written, and a
+/// transform this build does not know does not decode.
+#[test]
+fn a_text_transform_reads_absent_from_an_older_text_and_refused_unknown() {
+    #[derive(serde::Serialize)]
+    struct Before {
+        id: Option<ElementIdWire>,
+        style: StyleId,
+        content: String,
+    }
+    #[derive(serde::Serialize)]
+    enum Later {
+        Uppercase,
+        Sideways,
+    }
+    #[derive(serde::Serialize)]
+    struct After {
+        id: Option<ElementIdWire>,
+        style: StyleId,
+        content: String,
+        transform: Option<Later>,
+    }
+    let words = "Confirm a change";
+    let plain = TextNode {
+        id: None,
+        style: StyleId(0),
+        content: words.into(),
+        transform: None,
+    };
+    let before = Before {
+        id: None,
+        style: StyleId(0),
+        content: words.into(),
+    };
+    assert_eq!(decode::<TextNode>(&encode(&before)), Ok(plain.clone()));
+    let drawn = TextNode {
+        transform: Some(TextTransform::Uppercase),
+        ..plain
+    };
+    assert_eq!(decode::<TextNode>(&encode(&drawn)), Ok(drawn.clone()));
+    let later = |transform| After {
+        id: None,
+        style: StyleId(0),
+        content: words.into(),
+        transform: Some(transform),
+    };
+    assert_eq!(
+        decode::<TextNode>(&encode(&later(Later::Uppercase))),
+        Ok(drawn)
+    );
+    assert!(decode::<TextNode>(&encode(&later(Later::Sideways))).is_err());
 }

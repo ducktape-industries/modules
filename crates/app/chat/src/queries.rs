@@ -1,8 +1,8 @@
 //! One function per [`Query`](crate::Query), each named by [`Chat::query`](crate::Chat)'s
 //! match and each a read of the tables in `state.rs`. Chat's listings only grow, so a page cursor from any height
 //! resumes where it left off.
-use guest::Range;
-use guest::{Error, QueryCtx, capacity, invalid};
+use ::program::Range;
+use ::program::{Error, QueryCtx, invalid};
 use store::{PageRequest, PageResponse};
 
 use crate::state::{
@@ -10,10 +10,7 @@ use crate::state::{
     TAGS, WORDS, message, messages, newest_first,
 };
 use crate::text::tag_label;
-use crate::{
-    ChannelInfo, ChannelRow, MAX_VIEWERS, MessageHits, MsgRow, Principal, Reply,
-    SEARCH_POSTING_CAP, tokens,
-};
+use crate::{ChannelInfo, ChannelRow, MessageHits, MsgRow, Principal, Reply, tokens};
 
 /// `reply` as `viewer` reads it: each reaction learns whether one of
 /// `viewer` chose it.
@@ -22,12 +19,6 @@ pub(crate) fn seen_by(
     mut reply: Reply,
     viewer: Vec<Principal>,
 ) -> Result<Reply, Error> {
-    if viewer.len() > MAX_VIEWERS {
-        return Err(capacity(format!(
-            "a read names at most {MAX_VIEWERS} viewers, not {}",
-            viewer.len()
-        )));
-    }
     for row in rows_in(&mut reply) {
         mark_reacted(ctx, &viewer, row);
     }
@@ -127,9 +118,6 @@ pub(crate) fn around(
     Ok(rows.into_iter().map(|(_, row)| row).collect())
 }
 
-/// The messages holding every word of `text`, newest first. The first
-/// word's postings are read (at most [`SEARCH_POSTING_CAP`]) and the rest
-/// checked on each row.
 pub(crate) fn search(
     ctx: &QueryCtx,
     text: &str,
@@ -146,8 +134,7 @@ pub(crate) fn search(
         Some(channel_id) => WORDS.prefix_of(&(first, channel_id)),
         None => WORDS.prefix_of(&first),
     };
-    let postings = WORDS.scan(ctx, postings.limit(SEARCH_POSTING_CAP as u64 + 1))?;
-    let capped = postings.len() > SEARCH_POSTING_CAP;
+    let postings = WORDS.scan(ctx, postings)?;
     let at = postings
         .into_iter()
         .map(|(_, channel_id, seq)| (channel_id, seq));
@@ -157,7 +144,7 @@ pub(crate) fn search(
         .collect();
     hits.sort_by(|a, b| b.time.cmp(&a.time).then(b.seq.cmp(&a.seq)));
     let limit = page.limit() as usize;
-    let capped = capped || hits.len() > limit;
+    let capped = hits.len() > limit;
     hits.truncate(limit);
     Ok(MessageHits { hits, capped })
 }

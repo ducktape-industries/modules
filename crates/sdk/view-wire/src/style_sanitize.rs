@@ -1,26 +1,20 @@
-//! Bounds applied before a guest refinement reaches native layout or painting.
+//! Bounds applied before a view refinement reaches native layout or painting.
 //!
-//! The rule for this file: clamp magnitudes, refuse a shape it cannot keep,
-//! and never silently delete a valid value. A number is held to a finite
-//! range (a margin or an inset to `±MAX_PIXELS`, a size to
-//! `0..=MAX_PIXELS`), a list or a string to a length; a background this
-//! file cannot read back (a pattern) refuses the frame. A value inside its
-//! bound passes unchanged, so a negative margin stays negative and a
-//! gradient stays a gradient.
+//! The rule for this file: make numbers finite, hold a value to the domain
+//! it has (a size is not negative, a colour channel is `0..=1`), refuse a
+//! shape it cannot keep, and never silently delete a valid value. A
+//! background this file cannot read back (a pattern) refuses the frame. A
+//! value inside its domain passes unchanged, so a negative margin stays
+//! negative and a gradient stays a gradient.
 //!
 //! The host clips the entire view slot (`render.rs`, the slot's
 //! `overflow_hidden`): a negative margin or inset moves an element only
 //! inside that clip, and local clipping cannot contain a deferred or
 //! anchored element on its own.
-use crate::{MAX_PIXELS, MAX_TEXT_PIXELS, truncate_to};
 use gpui::{
     AbsoluteLength, Background, DefiniteLength, Fill, GridPlacement, Hsla, Length, StyleRefinement,
     TextStyleRefinement, px,
 };
-
-const MAX_REMS: f32 = 256.;
-const MAX_GRID: u16 = 64;
-const MAX_SHADOWS: usize = 4;
 
 /// Clamps in place; a non-finite value becomes `min`.
 pub(crate) fn clamp_finite(value: &mut f32, min: f32, max: f32) {
@@ -30,34 +24,32 @@ pub(crate) fn clamp_finite(value: &mut f32, min: f32, max: f32) {
         min
     };
 }
-/// Holds `value` to `0..=max`, or to `-max..=max` when it may point either
-/// way (a margin, an inset); a signed NaN reads as 0.
-fn bound(value: &mut f32, max: f32, signed: bool) {
+fn bound(value: &mut f32, signed: bool) {
     match signed {
         true if value.is_nan() => *value = 0.,
-        true => *value = value.clamp(-max, max),
-        false => clamp_finite(value, 0., max),
+        true => *value = value.clamp(f32::MIN, f32::MAX),
+        false => clamp_finite(value, 0., f32::MAX),
     }
 }
-fn absolute(value: &mut AbsoluteLength, max: f32, signed: bool) {
+fn absolute(value: &mut AbsoluteLength, signed: bool) {
     match value {
         AbsoluteLength::Pixels(value) => {
             let mut number = f32::from(*value);
-            bound(&mut number, max, signed);
+            bound(&mut number, signed);
             *value = px(number);
         }
-        AbsoluteLength::Rems(value) => bound(&mut value.0, (max / 32.).min(MAX_REMS), signed),
+        AbsoluteLength::Rems(value) => bound(&mut value.0, signed),
     }
 }
-fn definite(value: &mut DefiniteLength, max: f32, signed: bool) {
+fn definite(value: &mut DefiniteLength, signed: bool) {
     match value {
-        DefiniteLength::Absolute(value) => absolute(value, max, signed),
-        DefiniteLength::Fraction(value) => bound(value, 1., signed),
+        DefiniteLength::Absolute(value) => absolute(value, signed),
+        DefiniteLength::Fraction(value) => bound(value, signed),
     }
 }
 fn length(value: &mut Length, signed: bool) {
     if let Length::Definite(value) = value {
-        definite(value, MAX_PIXELS, signed);
+        definite(value, signed);
     }
 }
 pub(crate) fn sanitize_hsla(value: &mut Hsla) {
@@ -87,9 +79,8 @@ fn background(value: Background) -> Result<Background, &'static str> {
 }
 fn grid(value: &mut GridPlacement) {
     match value {
-        GridPlacement::Line(value) => *value = (*value).clamp(-(MAX_GRID as i16), MAX_GRID as i16),
-        GridPlacement::Span(value) => *value = (*value).clamp(1, MAX_GRID),
-        GridPlacement::Auto => {}
+        GridPlacement::Span(value) => *value = (*value).max(1),
+        GridPlacement::Line(_) | GridPlacement::Auto => {}
     }
 }
 
@@ -138,7 +129,7 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) -> Result<(), &'static str> 
     .into_iter()
     .flatten()
     {
-        definite(value, MAX_PIXELS, false);
+        definite(value, false);
     }
     for value in [
         &mut style.border_widths.top,
@@ -154,16 +145,16 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) -> Result<(), &'static str> 
     .into_iter()
     .flatten()
     {
-        absolute(value, MAX_PIXELS, false);
+        absolute(value, false);
     }
     for value in [&mut style.flex_grow, &mut style.flex_shrink]
         .into_iter()
         .flatten()
     {
-        clamp_finite(value, 0., 1024.);
+        clamp_finite(value, 0., f32::MAX);
     }
     if let Some(value) = &mut style.aspect_ratio {
-        clamp_finite(value, 1. / 1024., 1024.);
+        clamp_finite(value, f32::MIN_POSITIVE, f32::MAX);
     }
     if let Some(value) = &mut style.opacity {
         clamp_finite(value, 0., 1.);
@@ -175,21 +166,20 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) -> Result<(), &'static str> 
         *value = background(*value)?;
     }
     if let Some(shadows) = &mut style.box_shadow {
-        shadows.truncate(MAX_SHADOWS);
         for shadow in shadows {
             sanitize_hsla(&mut shadow.color);
             for offset in [&mut shadow.offset.x, &mut shadow.offset.y] {
                 let mut number = f32::from(*offset);
-                clamp_finite(&mut number, -128., 128.);
+                bound(&mut number, true);
                 *offset = px(number);
             }
             // a blur only widens; a spread may shrink the shadow inside its
             // box, as gpui's own `shadow_sm`..`shadow_2xl` do (-3 px on lg)
             let mut blur = f32::from(shadow.blur_radius);
-            clamp_finite(&mut blur, 0., 128.);
+            bound(&mut blur, false);
             shadow.blur_radius = px(blur);
             let mut spread = f32::from(shadow.spread_radius);
-            bound(&mut spread, 128., true);
+            bound(&mut spread, true);
             shadow.spread_radius = px(spread);
         }
     }
@@ -197,7 +187,7 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) -> Result<(), &'static str> 
         .into_iter()
         .flatten()
     {
-        template.repeat = template.repeat.clamp(1, MAX_GRID);
+        template.repeat = template.repeat.max(1);
     }
     if let Some(location) = &mut style.grid_location {
         for value in [
@@ -218,7 +208,8 @@ pub(crate) fn sanitize(style: &mut StyleRefinement) -> Result<(), &'static str> 
     Ok(())
 }
 
-/// A text style's own bounds: colours, sizes, font lookup lists, ellipsis.
+/// A text style's own bounds: colours, sizes, letter spacing, font lookup
+/// lists, ellipsis.
 pub(crate) fn sanitize_text(text: &mut TextStyleRefinement) {
     if let Some(value) = &mut text.color {
         sanitize_hsla(value);
@@ -227,48 +218,30 @@ pub(crate) fn sanitize_text(text: &mut TextStyleRefinement) {
         sanitize_hsla(value);
     }
     if let Some(value) = &mut text.font_size {
-        absolute(value, MAX_TEXT_PIXELS, false);
+        absolute(value, false);
     }
     if let Some(value) = &mut text.line_height {
-        match value {
-            DefiniteLength::Absolute(value) => absolute(value, MAX_TEXT_PIXELS, false),
-            DefiniteLength::Fraction(value) => clamp_finite(value, 0., 8.),
-        }
+        definite(value, false);
     }
     if let Some(value) = &mut text.font_weight {
         clamp_finite(&mut value.0, 1., 1000.);
     }
     if let Some(value) = &mut text.line_clamp {
-        *value = (*value).clamp(1, 1024);
+        *value = (*value).max(1);
     }
-    if let Some(value) = &mut text.font_family {
-        let mut name = value.to_string();
-        truncate_to(&mut name, 256);
-        *value = name.into();
-    }
-    if let Some(fallbacks) = &mut text.font_fallbacks {
-        let fonts = std::sync::Arc::make_mut(&mut fallbacks.0);
-        fonts.truncate(16);
-        for name in fonts {
-            truncate_to(name, 256);
-        }
+    // signed, as CSS `letter-spacing`: a negative one tightens the line
+    if let Some(value) = &mut text.letter_spacing {
+        let mut number = f32::from(*value);
+        bound(&mut number, true);
+        *value = px(number);
     }
     if let Some(features) = &mut text.font_features {
         let features = std::sync::Arc::make_mut(&mut features.0);
-        features.truncate(64);
         features.retain(|(tag, _)| tag.len() == 4 && tag.is_ascii());
-    }
-    if let Some(overflow) = &mut text.text_overflow {
-        let (gpui::TextOverflow::Truncate(value)
-        | gpui::TextOverflow::TruncateStart(value)
-        | gpui::TextOverflow::TruncateMiddle(value)) = overflow;
-        let mut string = value.to_string();
-        truncate_to(&mut string, 32);
-        *value = string.into();
     }
     if let Some(value) = &mut text.underline {
         let mut thickness = f32::from(value.thickness);
-        clamp_finite(&mut thickness, 0., 32.);
+        bound(&mut thickness, false);
         value.thickness = px(thickness);
         if let Some(value) = &mut value.color {
             sanitize_hsla(value);
@@ -276,7 +249,7 @@ pub(crate) fn sanitize_text(text: &mut TextStyleRefinement) {
     }
     if let Some(value) = &mut text.strikethrough {
         let mut thickness = f32::from(value.thickness);
-        clamp_finite(&mut thickness, 0., 32.);
+        bound(&mut thickness, false);
         value.thickness = px(thickness);
         if let Some(value) = &mut value.color {
             sanitize_hsla(value);
@@ -290,7 +263,7 @@ mod tests {
     use gpui::{Overflow, Position, Styled, relative, rems, rgb};
 
     #[test]
-    fn negative_margins_and_insets_keep_their_sign_and_only_their_magnitude_is_cut() {
+    fn negative_margins_and_insets_keep_their_sign() {
         let mut style = StyleRefinement::default()
             .absolute()
             .left(px(-50.))
@@ -303,17 +276,17 @@ mod tests {
         assert_eq!(style.position, Some(Position::Absolute));
         assert_eq!(style.inset.left, Some(px(-50.).into()));
         assert_eq!(style.margin.left, Some(px(-20.).into()));
-        assert_eq!(style.margin.top, Some(rems(-MAX_REMS).into()));
-        assert_eq!(style.margin.right, Some(relative(-1.).into()));
+        assert_eq!(style.margin.top, Some(rems(-1e6).into()));
+        assert_eq!(style.margin.right, Some(relative(-3.).into()));
         assert_eq!(style.margin.bottom, Some(px(0.).into()));
-        assert_eq!(style.flex_basis, Some(px(-MAX_PIXELS).into()));
+        assert_eq!(style.flex_basis, Some(px(-1e9).into()));
         // a size may not point backwards
         let mut size = StyleRefinement::default().w(px(-5.));
         sanitize(&mut size).unwrap();
         assert_eq!(size.size.width, Some(px(0.).into()));
     }
     #[test]
-    fn bounds_pixels_rems_fractions_and_nonfinite_dimensions() {
+    fn a_nonfinite_dimension_is_zero_and_a_finite_one_is_kept() {
         let mut style = StyleRefinement::default()
             .w(px(f32::INFINITY))
             .h(rems(10000.))
@@ -321,9 +294,9 @@ mod tests {
         style.max_size.height = Some(px(1e20).into());
         sanitize(&mut style).unwrap();
         assert_eq!(style.size.width, Some(px(0.).into()));
-        assert_eq!(style.size.height, Some(rems(MAX_REMS).into()));
-        assert_eq!(style.min_size.width, Some(relative(1.).into()));
-        assert_eq!(style.max_size.height, Some(px(MAX_PIXELS).into()));
+        assert_eq!(style.size.height, Some(rems(10000.).into()));
+        assert_eq!(style.min_size.width, Some(relative(1000.).into()));
+        assert_eq!(style.max_size.height, Some(px(1e20).into()));
     }
     #[test]
     fn opacity_and_color_are_finite_and_bounded() {
@@ -347,13 +320,13 @@ mod tests {
         );
     }
     #[test]
-    fn bounds_shadow_count_and_gpu_radius() {
+    fn a_shadow_is_finite_and_its_blur_is_not_negative() {
         let mut style = StyleRefinement {
             box_shadow: Some(vec![
                 gpui::BoxShadow {
                     color: rgb(0).into(),
                     offset: gpui::point(px(f32::NAN), px(1000.)),
-                    blur_radius: px(1e9),
+                    blur_radius: px(-1e9),
                     spread_radius: px(-1e9),
                     inset: false,
                 };
@@ -363,10 +336,25 @@ mod tests {
         };
         sanitize(&mut style).unwrap();
         let shadows = style.box_shadow.unwrap();
-        assert_eq!(shadows.len(), MAX_SHADOWS);
-        assert_eq!(shadows[0].blur_radius, px(128.));
-        assert_eq!(shadows[0].offset.x, px(-128.));
-        assert_eq!(shadows[0].spread_radius, px(-128.));
+        assert_eq!(shadows.len(), 100);
+        assert_eq!(shadows[0].blur_radius, px(0.));
+        assert_eq!(shadows[0].offset.x, px(0.));
+        assert_eq!(shadows[0].offset.y, px(1000.));
+        assert_eq!(shadows[0].spread_radius, px(-1e9));
+    }
+    #[test]
+    fn letter_spacing_keeps_its_sign_and_is_finite() {
+        for (authored, bounded) in [
+            (-0.22, -0.22),
+            (1.44, 1.44),
+            (f32::NAN, 0.),
+            (f32::INFINITY, f32::MAX),
+            (f32::NEG_INFINITY, f32::MIN),
+        ] {
+            let mut style = StyleRefinement::default().letter_spacing(px(authored));
+            sanitize(&mut style).unwrap();
+            assert_eq!(style.text.letter_spacing, Some(px(bounded)), "{authored}");
+        }
     }
     #[test]
     fn gpuis_own_shadows_cross_as_authored() {
@@ -383,22 +371,22 @@ mod tests {
         }
     }
     #[test]
-    fn caps_grid_expansion_and_font_rasterization() {
-        let mut style = StyleRefinement::default().text_size(px(1e9));
+    fn a_grid_repeat_or_span_of_zero_is_one() {
+        let mut style = StyleRefinement::default().text_size(px(-1.));
         style.grid_cols = Some(gpui::GridTemplate {
-            repeat: u16::MAX,
+            repeat: 0,
             ..Default::default()
         });
         style.grid_location = Some(gpui::GridLocation {
-            row: GridPlacement::Span(u16::MAX)..GridPlacement::Line(i16::MIN),
+            row: GridPlacement::Span(0)..GridPlacement::Line(i16::MIN),
             column: GridPlacement::Auto..GridPlacement::Auto,
         });
         sanitize(&mut style).unwrap();
-        assert_eq!(style.text.font_size, Some(px(MAX_TEXT_PIXELS).into()));
-        assert_eq!(style.grid_cols.unwrap().repeat, MAX_GRID);
+        assert_eq!(style.text.font_size, Some(px(0.).into()));
+        assert_eq!(style.grid_cols.unwrap().repeat, 1);
         assert_eq!(
-            style.grid_location.unwrap().row.start,
-            GridPlacement::Span(MAX_GRID)
+            style.grid_location.unwrap().row,
+            GridPlacement::Span(1)..GridPlacement::Line(i16::MIN)
         );
     }
     /// A value inside its bound, or a field no bound reads (overflow),
@@ -416,31 +404,6 @@ mod tests {
         sanitize(&mut style).unwrap();
         assert_eq!(style, once);
     }
-    #[test]
-    fn bounds_font_lookup_lists_and_custom_ellipsis_at_utf8_boundaries() {
-        let mut style = StyleRefinement::default().font_family("λ".repeat(200));
-        style.text.font_fallbacks =
-            Some(gpui::FontFallbacks::from_fonts(vec!["λ".repeat(200); 30]));
-        style.text.font_features = Some(gpui::FontFeatures(std::sync::Arc::new(vec![
-            (
-                "liga".into(),
-                1
-            );
-            100
-        ])));
-        style.text.text_overflow = Some(gpui::TextOverflow::Truncate("λ".repeat(100).into()));
-        sanitize(&mut style).unwrap();
-        assert_eq!(style.text.font_family.unwrap().len(), 256);
-        let fonts = style.text.font_fallbacks.unwrap();
-        assert_eq!(fonts.fallback_list().len(), 16);
-        assert!(fonts.fallback_list().iter().all(|name| name.len() == 256));
-        assert_eq!(style.text.font_features.unwrap().tag_value_list().len(), 64);
-        assert_eq!(
-            style.text.text_overflow,
-            Some(gpui::TextOverflow::Truncate("λ".repeat(16).into()))
-        );
-    }
-
     #[test]
     fn a_gradient_keeps_its_stops_bounded_and_a_pattern_is_refused() {
         let gradient = gpui::linear_gradient(

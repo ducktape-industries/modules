@@ -1,9 +1,10 @@
 //! The `identity` program: accounts, and who acts as each. Everything that
-//! acts is an account: a person (the keys they hold), an agent (the keys its
-//! manager, a person, adds) and a module (the account the kernel registers
-//! as it admits the module). The types, rules and [`Identity`] module are
-//! always built; a view links them with `module` off (`view.rs` is what a
-//! view shows of an account). The `module` feature adds its wasm exports.
+//! acts is an account: a user (the keys they hold), a program account (the
+//! keys its manager, a user, adds, and the script that runs its actions) and
+//! a system account (the one the kernel registers as it admits a program). An agent's
+//! manager also sets whom it answers, an [`Ownership`] whose `Owner` is the manager. The types, rules and [`Identity`] program are
+//! always built; a view links them with `program` off (`view.rs` is what a
+//! view shows of an account). The `program` feature adds its wasm exports.
 //!
 //! It fills the kernel's identity role (`abi::role::identity`): the role's
 //! op, queries and replies are the first variants of [`Op`], [`Query`] and
@@ -15,20 +16,18 @@ mod rules;
 mod tests;
 pub mod view;
 
-pub use abi::role::identity::{Category, Kind, Profile, Standing};
-pub use guest::AccountNumber;
+pub use ::program::{AccountNumber, Ownership};
+pub use abi::role::identity::{Category, Kind, Profile, Script, Standing};
 pub use program::Identity;
 
+use ::program::{BlobId, ProgramId, Scheme};
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{BlobId, ModuleId, Scheme};
 pub use store::{PageRequest, PageResponse};
 
-/// The name this module runs under: the one the identity role is bound to
-/// (`program::role::Identity`), spelled there once.
-pub const MODULE: &str = <::program::role::Identity as ::program::Program>::NAME;
+/// The name this program runs under.
+pub const PROGRAM: &str = "identity";
 /// What a key signs to consent to a key joining an account ([`Admission`]).
 pub const CONSENT_NAMESPACE: &[u8] = b"ducktape:identity:consent";
-pub const MAX_AUDIENCE: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Key {
@@ -55,25 +54,26 @@ pub struct Card {
     pub updated_at: u64,
 }
 
-/// Who acts as an account, and with which keys. A module's account has no
-/// keys to hold; a revoked agent has none left ([`Life`]).
+/// Who acts as an account, and with which keys. A system account has no
+/// keys to hold; a revoked program account has none left ([`Life`]).
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Control {
-    /// A person: their own keys, which they add and remove.
-    Person { keys: Vec<Key> },
-    /// An agent: its `manager`, a person, adds its keys, declares its
-    /// `category`, suspends, resumes and revokes it.
-    Managed {
+    /// A user: their own keys, which they add and remove.
+    User { keys: Vec<Key> },
+    /// A program account: its `manager`, a user, adds its keys, declares
+    /// its `category`, sets its `script`, suspends, resumes and revokes it.
+    Program {
         manager: AccountNumber,
         category: Category,
         life: Life,
+        script: Option<Script>,
     },
-    /// A module's account: the module alone acts as it.
-    Module { module: ModuleId },
+    /// A program's own account: the program alone acts as it.
+    System { program: ProgramId },
 }
 
-/// Whether an agent acts. Suspended keeps its keys, so resuming issues
-/// none again; revoked is final and keeps none.
+/// Whether a program account acts. Suspended keeps its keys, so resuming
+/// issues none again; revoked is final and keeps none.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Life {
     Active { keys: Vec<Key> },
@@ -81,29 +81,21 @@ pub enum Life {
     Revoked,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub enum Audience {
-    #[default]
-    Manager,
-    Accounts(Vec<AccountNumber>),
-    Anyone,
-}
-
 impl Account {
-    /// The keys that act as this account: none for a module's or a
-    /// revoked agent.
+    /// The keys that act as this account: none for a system account or a
+    /// revoked program account.
     pub fn keys(&self) -> &[Key] {
         match &self.control {
-            Control::Person { keys } => keys,
-            Control::Managed {
+            Control::User { keys } => keys,
+            Control::Program {
                 life: Life::Active { keys } | Life::Suspended { keys },
                 ..
             } => keys,
-            Control::Managed {
+            Control::Program {
                 life: Life::Revoked,
                 ..
             }
-            | Control::Module { .. } => &[],
+            | Control::System { .. } => &[],
         }
     }
 
@@ -114,13 +106,13 @@ impl Account {
     /// What this account is, as the identity role says it.
     pub fn kind(&self) -> Kind {
         match &self.control {
-            Control::Person { .. } => Kind::Person,
-            Control::Managed {
+            Control::User { .. } => Kind::User,
+            Control::Program {
                 manager,
                 category,
                 life,
-                ..
-            } => Kind::Managed {
+                script,
+            } => Kind::Program {
                 manager: *manager,
                 category: *category,
                 standing: match life {
@@ -128,8 +120,9 @@ impl Account {
                     Life::Suspended { .. } => Standing::Suspended,
                     Life::Revoked => Standing::Revoked,
                 },
+                script: script.clone(),
             },
-            Control::Module { module } => Kind::Module(module.clone()),
+            Control::System { program } => Kind::System(program.clone()),
         }
     }
 
@@ -144,9 +137,9 @@ impl Account {
 }
 
 /// A key's consent to a new key joining an account: `proof` is `key`'s
-/// signature over the [`Admission`]. For a person, `key` is one already on
-/// the account and the new key signs the frame; for an agent, `key` is the
-/// new key itself and the manager signs the frame.
+/// signature over the [`Admission`]. For a user, `key` is one already on
+/// the account and the new key signs the frame; for a program account,
+/// `key` is the new key itself and the manager signs the frame.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Consent {
     pub key: Vec<u8>,
@@ -174,16 +167,17 @@ impl Admission {
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {
     /// The identity role's op (`abi::role::identity::Op`), first: the
-    /// system gives an admitted module its account.
-    RegisterModule {
-        module: ModuleId,
+    /// system gives an admitted program its account.
+    RegisterProgram {
+        program: ProgramId,
     },
-    /// A person's account, holding the signing key.
+    /// A user's account, holding the signing key.
     Create {
         name: String,
         scheme: Scheme,
     },
-    /// An agent the signer's account manages; it holds no key yet.
+    /// A program account of the agent category that the signer's account
+    /// manages; it holds no key and no script yet.
     CreateAgent {
         name: String,
     },
@@ -205,20 +199,26 @@ pub enum Op {
         avatar: Option<BlobId>,
         bio: Option<String>,
     },
-    /// An agent stops acting; its keys stay for `Resume`. Its manager's.
+    /// A program account stops acting; its keys stay for `Resume`. Its
+    /// manager's.
     Suspend {
         account: AccountNumber,
     },
     Resume {
         account: AccountNumber,
     },
-    /// An agent stops for good: its keys are dropped. Its manager's.
+    /// A program account stops for good: its keys are dropped. Its
+    /// manager's.
     Revoke {
         account: AccountNumber,
     },
-    SetAudience {
+    SetOwnership {
         account: AccountNumber,
-        audience: Audience,
+        ownership: Ownership,
+    },
+    SetScript {
+        account: AccountNumber,
+        script: Option<Script>,
     },
 }
 
@@ -233,18 +233,23 @@ pub enum Reference {
 pub enum Query {
     /// The identity role's queries (`abi::role::identity::Query`), first
     /// and in its order: the account a key acts as (refused while it does
-    /// not act), a module's account, one account's profile and every
+    /// not act), a program's account, one account's profile and every
     /// account's.
     #[ask(Reply::Number(Option<AccountNumber>))]
     OfKey { key: Vec<u8> },
     #[ask(Reply::Number(Option<AccountNumber>))]
-    OfModule { module: ModuleId },
+    OfProgram { program: ProgramId },
     #[ask(Reply::Profile(Option<Profile>))]
     Profile { number: AccountNumber },
     #[ask(Reply::Profiles { profiles: Vec<Profile>, next: Option<AccountNumber> })]
     Profiles {
         after: Option<AccountNumber>,
         limit: u32,
+    },
+    #[ask(Reply::Number(Option<AccountNumber>))]
+    Runs {
+        program: ProgramId,
+        account: AccountNumber,
     },
     #[ask(Reply::Account(Option<Account>))]
     Get { number: AccountNumber },
@@ -259,8 +264,8 @@ pub enum Query {
         by: AccountNumber,
         page: PageRequest,
     },
-    #[ask(Reply::Audience(Audience))]
-    Audience { number: AccountNumber },
+    #[ask(Reply::Ownership(Ownership))]
+    Ownership { number: AccountNumber },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -277,23 +282,23 @@ pub enum Reply {
     Generation(u64),
     Resolved(Vec<Option<AccountNumber>>),
     Accounts(PageResponse<Account>),
-    Audience(Audience),
+    Ownership(Ownership),
 }
 
 /// An op as a person reads it: a title and its fields. The source of the
-/// `ducktape.describe` module this module ships (`make wasm-describes`).
+/// `ducktape.describe` module this program ships (`make wasm-describes`).
 pub fn describe(op: &Op) -> describe::Description {
     use describe::{Value, field};
     let account = |number: &AccountNumber| field("account", Value::Account(*number));
     let optional = |text: &Option<String>| Value::Text(text.clone().unwrap_or_else(|| "—".into()));
-    let answers = |audience: &Audience| match audience {
-        Audience::Manager => Value::text("its manager"),
-        Audience::Accounts(numbers) => Value::List(
+    let answers = |ownership: &Ownership| match ownership {
+        Ownership::Owner => Value::text("its manager"),
+        Ownership::Accounts(numbers) => Value::List(
             std::iter::once(Value::text("its manager"))
                 .chain(numbers.iter().copied().map(Value::Account))
                 .collect(),
         ),
-        Audience::Anyone => Value::text("anyone"),
+        Ownership::Anyone => Value::text("anyone"),
     };
     let scheme = |scheme: &abi::Scheme| {
         field(
@@ -307,9 +312,9 @@ pub fn describe(op: &Op) -> describe::Description {
         )
     };
     let (title, fields) = match op {
-        Op::RegisterModule { module } => (
-            format!("Register module · {module}"),
-            vec![field("module", Value::Module(module.clone()))],
+        Op::RegisterProgram { program } => (
+            format!("Register program · {program}"),
+            vec![field("program", Value::Program(program.clone()))],
         ),
         Op::Create { name, scheme: s } => (
             format!("Create · {name}"),
@@ -368,12 +373,26 @@ pub fn describe(op: &Op) -> describe::Description {
         Op::Suspend { account: number } => ("Suspend".into(), vec![account(number)]),
         Op::Resume { account: number } => ("Resume".into(), vec![account(number)]),
         Op::Revoke { account: number } => ("Revoke".into(), vec![account(number)]),
-        Op::SetAudience {
+        Op::SetOwnership {
             account: number,
-            audience,
+            ownership,
         } => (
             "Set who it answers".into(),
-            vec![account(number), field("answers", answers(audience))],
+            vec![account(number), field("answers", answers(ownership))],
+        ),
+        Op::SetScript {
+            account: number,
+            script,
+        } => (
+            "Set script".into(),
+            match script {
+                Some(script) => vec![
+                    account(number),
+                    field("calls", Value::Program(script.calls.clone())),
+                    field("config", Value::text(&script.config)),
+                ],
+                None => vec![account(number), field("script", Value::text("—"))],
+            },
         ),
     };
     describe::Description { title, fields }
@@ -388,7 +407,7 @@ fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
         [
-            "RegisterModule",
+            "RegisterProgram",
             "Create",
             "CreateAgent",
             "AddKey",
@@ -398,7 +417,8 @@ fn op_variants_only_append() {
             "Suspend",
             "Resume",
             "Revoke",
-            "SetAudience",
+            "SetOwnership",
+            "SetScript",
         ]
     );
 }
@@ -409,15 +429,16 @@ fn query_and_reply_variants_only_append() {
         describe::variants::<Query>(),
         [
             "OfKey",
-            "OfModule",
+            "OfProgram",
             "Profile",
             "Profiles",
+            "Runs",
             "Get",
             "Generation",
             "Resolve",
             "List",
             "Managed",
-            "Audience",
+            "Ownership",
         ]
     );
     assert_eq!(
@@ -430,7 +451,7 @@ fn query_and_reply_variants_only_append() {
             "Generation",
             "Resolved",
             "Accounts",
-            "Audience",
+            "Ownership",
         ]
     );
 }

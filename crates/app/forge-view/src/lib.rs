@@ -1,8 +1,8 @@
 //! Forge: repositories, code, commits, refs and the Changes a reviewer
-//! lives in, on the ducktape-view-guest `View` shape.
+//! lives in, on the view `View` shape.
 //!
 //! The forge program answers everything this screen shows, in borsh, through
-//! one method (`module.query`); conversation is chat's, through the method
+//! one method (`program.query`); conversation is chat's, through the method
 //! chat-view uses. Reads are a cache keyed by the query itself: `sync` asks
 //! what the current screen needs, issues what is missing, and drops what the
 //! reader has navigated away from. `render` writes only what the frame
@@ -12,42 +12,76 @@
 //! - `state`: what the view holds; `select`: what the screens read out of it.
 //! - `sync`: which reads the screen needs; `queries`: how one read is asked.
 //! - `navigate`, `actions`, `review`, `tree`: what an event changes.
-//! - `ui`: the screens; `ui::markdown`: documents and their links.
-mod api;
-mod queries;
-mod select;
-mod state;
-mod sync;
-mod tree;
+//! - `words`: every sentence both designs say; `markdown`, `highlight`,
+//!   `blob`: documents, source tokens and the open file, read once for
+//!   either design; `list`: a list as one Tab stop.
+//! - `ui`: the desktop's screens; `ui::phone`: the phone's (the Expo app's).
+//!
+//! What becomes a notice is forge's NOTIFIER's (`notifier.rs`): the host
+//! runs it once per network, open panes or none. The `notifier` feature
+//! builds it alone in place of the view.
+mod notifier;
+pub use notifier::ForgeNotices;
+#[cfg(feature = "notifier")]
+view::export_notifier!(ForgeNotices);
 
+#[cfg(not(feature = "notifier"))]
+mod api;
+#[cfg(not(feature = "notifier"))]
+mod blob;
+#[cfg(not(feature = "notifier"))]
+mod highlight;
+#[cfg(not(feature = "notifier"))]
+mod list;
+#[cfg(not(feature = "notifier"))]
+mod markdown;
+#[cfg(not(feature = "notifier"))]
+mod queries;
+#[cfg(not(feature = "notifier"))]
+mod select;
+#[cfg(not(feature = "notifier"))]
+mod state;
+#[cfg(not(feature = "notifier"))]
+mod sync;
+#[cfg(not(feature = "notifier"))]
+mod tree;
+#[cfg(not(feature = "notifier"))]
+mod words;
+
+#[cfg(not(feature = "notifier"))]
 mod actions;
+#[cfg(not(feature = "notifier"))]
 mod navigate;
+#[cfg(not(feature = "notifier"))]
 mod review;
+#[cfg(not(feature = "notifier"))]
 mod ui;
 
-use ducktape_view_guest::prelude::*;
+#[cfg(not(feature = "notifier"))]
+use view::prelude::*;
 
-use program::role::Identity;
+#[cfg(not(feature = "notifier"))]
+use identity::Identity;
+#[cfg(not(feature = "notifier"))]
 pub(crate) use select::Stage;
+#[cfg(not(feature = "notifier"))]
 pub use state::Forge;
 
+#[cfg(not(feature = "notifier"))]
 impl View for Forge {
     const NAME: &'static str = "Forge";
     const DESCRIPTION: &'static str =
         "Repositories, code, commits and the changes waiting on your judgment.";
     const ICON: &'static str = "icons/hammer.svg";
+    const TINT: Tint = Tint::Orange;
     const CAPABILITIES: &'static [Capability] = &[
-        Capability::Module,
+        Capability::Program,
         Capability::Op,
         Capability::Host,
         Capability::Link,
         Capability::Clipboard,
     ];
-    const TARGETS: &'static [&'static str] = &[
-        forge::MODULE,
-        chat::MODULE,
-        <Identity as ducktape_view_guest::methods::Program>::NAME,
-    ];
+    const TARGETS: &'static [&'static str] = &[forge::PROGRAM, chat::PROGRAM, identity::PROGRAM];
     // at 560 the repository tab bar's About toggle is past the right edge
     const MIN_WINDOW_WIDTH: u32 = 640;
 
@@ -57,7 +91,7 @@ impl View for Forge {
         cx.follow::<HostSession>((), |forge, item, cx| match item {
             Ok(session) => forge.session_changed(session, cx),
             Err(refusal) => {
-                forge.notice = format!("Couldn’t read the session: {}", refusal.message);
+                forge.notice = format!("Couldn’t read the session: {}", design::sentence(&refusal));
                 cx.notify();
             }
         })
@@ -67,7 +101,7 @@ impl View for Forge {
         cx.follow::<HostRoute>((), |forge, route, cx| match route {
             Ok(route) => forge.open_route(&route, cx),
             Err(refusal) => {
-                forge.notice = format!("Couldn’t follow the link: {}", refusal.message);
+                forge.notice = format!("Couldn’t follow the link: {}", design::sentence(&refusal));
                 cx.notify();
             }
         })
@@ -105,18 +139,42 @@ impl View for Forge {
     }
 }
 
+#[cfg(not(feature = "notifier"))]
 impl Render for Forge {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // the pane's width, as the host lays the frame out: the rail and
-        // the dock fold to it in the frame that shows them
-        self.layout.width = window.viewport_size().width.into();
+        // the pane's size, as the host lays the frame out: the rail and
+        // the dock fold to its width in the frame that shows them, and a
+        // dropdown keeps to its height
+        let viewport = window.viewport_size();
+        self.layout.width = viewport.width.into();
+        self.layout.height = viewport.height.into();
         // a change's title lands async: the frame is the one place that
         // sees each
         self.settle_title(cx);
-        ui::render(self, cx)
+        self.settle_showing(cx);
+        // the one pick between the two designs: under a finger the Expo
+        // app's screens (`ui::phone`), under a pointer the desktop's; the
+        // phone's screens read a little more (`Forge::touch`)
+        if self.touch != window.touch() {
+            self.touch = window.touch();
+            self.sync(cx);
+        }
+        if self.touch {
+            ui::phone::render(self, cx)
+        } else {
+            ui::render(self, cx).into_any_element()
+        }
     }
 }
 
+#[cfg(not(feature = "notifier"))]
+/// An element id from its name: every id in this view is a name, so a test
+/// or the host finds it by what it says.
+pub(crate) fn id(text: impl Into<String>) -> ElementId {
+    ElementId::Name(text.into().into())
+}
+
+#[cfg(not(feature = "notifier"))]
 impl Forge {
     /// The window's title: `Repositories` over the list, a repository's
     /// name, a change as `<repo> · #<n>` and its title once it lands. Sent
@@ -135,9 +193,26 @@ impl Forge {
             self.title = Some(title);
         }
     }
+
+    /// Names the change or repository open to the host when it changed
+    /// (`<repo>/<n>`, `<repo>`, empty over the list), as a route opens it:
+    /// a change on screen is one forge's notifier leaves alone.
+    fn settle_showing(&mut self, cx: &mut Context<Self>) {
+        let showing = match (&self.nav.repo, self.nav.change) {
+            (None, _) => String::new(),
+            (Some(repo), None) => repo.clone(),
+            (Some(repo), Some(n)) => format!("{repo}/{n}"),
+        };
+        if self.showing.as_ref() != Some(&showing) {
+            cx.host().notify::<HostShowing>(showing.clone());
+            self.showing = Some(showing);
+        }
+    }
 }
 
+#[cfg(not(feature = "notifier"))]
 export_view!(Forge);
 
 #[cfg(test)]
+#[cfg(not(feature = "notifier"))]
 mod tests;

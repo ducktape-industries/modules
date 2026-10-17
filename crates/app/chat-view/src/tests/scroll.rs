@@ -1,7 +1,7 @@
 //! The timeline as a reader scrolls it: the list's rows through a re-read,
 //! the paging at both ends of a landed window, and what a hover costs.
 use super::*;
-use crate::ui::timeline::{OVERDRAW, splices};
+use crate::listing::{OVERDRAW, splices};
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -168,9 +168,9 @@ fn a_list_is_edited_by_its_keys() {
 }
 
 #[test]
-fn a_list_changed_all_through_is_one_edit() {
+fn a_list_changed_all_through_is_edited_to_its_new_keys() {
     let old: Vec<String> = (0..40).map(|at| at.to_string()).collect();
-    let new: Vec<String> = old
+    let alternating: Vec<String> = old
         .iter()
         .enumerate()
         .map(|(at, key)| match at % 2 {
@@ -178,14 +178,18 @@ fn a_list_changed_all_through_is_one_edit() {
             _ => key.clone(),
         })
         .collect();
-    assert_eq!(splices(&old, &new), [(0..39, 39)]);
     let reversed: Vec<String> = old.iter().rev().cloned().collect();
-    let edits = splices(&old, &reversed);
-    let rows = edits
-        .iter()
-        .rev()
-        .fold(old.len(), |rows, (gone, count)| rows - gone.len() + count);
-    assert_eq!(rows, reversed.len(), "{edits:?}");
+    for new in [alternating, reversed] {
+        let edits = splices(&old, &new);
+        let mut rows = old.clone();
+        let mut shift = 0isize;
+        for (gone, count) in &edits {
+            let at = gone.start.checked_add_signed(shift).unwrap();
+            rows.splice(at..at + gone.len(), new[at..at + count].iter().cloned());
+            shift += *count as isize - gone.len() as isize;
+        }
+        assert_eq!(rows, new, "{edits:?}");
+    }
 }
 
 #[test]
@@ -302,9 +306,7 @@ fn seqs(view: &Entity<Chat>) -> (u64, u64, usize) {
 fn a_landed_room_opens_on_its_message_and_pages_both_ways() {
     let head = Rc::new(Cell::new(1_000));
     let (mut cx, view) = long_room(head.clone());
-    let routes = cx
-        .host()
-        .stream::<ducktape_view_guest::methods::HostRoute>();
+    let routes = cx.host().stream::<view::methods::HostRoute>();
     routes.send("general/500".into());
     cx.run_until_parked();
     assert_eq!(seqs(&view), (436, 564, 129), "64 either side of 500");
@@ -400,7 +402,7 @@ fn seeded_room(listed: Option<u64>) -> (TestAppContext, Entity<Chat>) {
 /// the view.
 fn open_link(cx: &mut TestAppContext, seq: u64) {
     cx.host()
-        .stream::<ducktape_view_guest::methods::HostRoute>()
+        .stream::<view::methods::HostRoute>()
         .send(format!("general/{seq}"));
     cx.run_until_parked();
 }

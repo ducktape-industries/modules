@@ -1,13 +1,14 @@
 //! The sheet as a view: what it asks the host, and what it draws from the
 //! answers. The row words themselves are `tests/rows.rs`.
 use super::*;
-use ducktape_view_guest::methods::{
+use view::methods::{
     Block, BlockList, BlockPage, ChainBlocks, ChainNetwork, ChainStatus, ClockTicks, NetworkStatus,
     NodeStatus, Peer, Query,
 };
-use ducktape_view_guest::testing::{StreamSender, TestAppContext};
+use view::testing::{StreamSender, TestAppContext};
 
 mod network;
+mod phone;
 mod rows;
 mod screens;
 mod voting;
@@ -108,6 +109,7 @@ fn membership(key: &[u8], address: &str, role: valset::Role) -> valset::Membersh
     valset::Membership {
         key: key.to_vec(),
         address: Some(address.into()),
+        halo: "node.example.org:9100".into(),
         role,
     }
 }
@@ -163,8 +165,8 @@ fn texts_of(cx: &TestAppContext, key: &str) -> Vec<String> {
     texts
 }
 
-fn collect(node: &ducktape_view_guest::wire::Node, texts: &mut Vec<String>) {
-    use ducktape_view_guest::wire::Node;
+fn collect(node: &view::wire::Node, texts: &mut Vec<String>) {
+    use view::wire::Node;
     match node {
         Node::Text(text) => texts.push(text.content.to_string()),
         Node::Container(container) => {
@@ -179,7 +181,7 @@ fn collect(node: &ducktape_view_guest::wire::Node, texts: &mut Vec<String>) {
 #[test]
 fn the_root_tracks_the_shared_theme() {
     let (mut cx, _) = ready();
-    let dark = ducktape_view_guest::Theme::dark();
+    let dark = view::Theme::dark();
     cx.set_global(dark);
     let style = cx.style("nodes");
     assert_eq!(
@@ -259,26 +261,22 @@ fn every_key_is_one_row_validators_first() {
         "—",
         "no membership, no address"
     );
-    let Some(ducktape_view_guest::wire::Node::Container(
-        ducktape_view_guest::wire::ContainerNode {
-            interactivity: Some(interactivity),
-            ..
-        },
-    )) = cx.find("nodes-validators")
+    let Some(view::wire::Node::Container(view::wire::ContainerNode {
+        interactivity: Some(interactivity),
+        ..
+    })) = cx.find("nodes-validators")
     else {
         panic!("group heading is a native container");
     };
-    assert_eq!(interactivity.role, Some(ducktape_view_guest::Role::Heading));
+    assert_eq!(interactivity.role, Some(view::Role::Heading));
 }
 
-/// The strip spans the last 64, read a page at a time; a resident leads
-/// none, and its cells stay empty.
 #[test]
-fn the_strip_reads_the_last_64_a_page_at_a_time() {
+fn the_strip_reads_the_last_64() {
     let (cx, _) = ready();
     assert!(cx.has_text("Proposed · last 64 blocks · 4,137 → 4,200"));
     let pages = cx.host().requests::<ChainBlocks>();
-    assert_eq!(pages.len(), 4, "{pages:?}");
+    assert_eq!(pages.len(), 1, "{pages:?}");
     assert_eq!(pages[0].before, Some(4201));
     assert_eq!(
         texts_of(&cx, "nodes-row-3"),
@@ -303,7 +301,8 @@ fn a_new_head_reads_one_block() {
         pages.last(),
         Some(&BlockPage {
             before: Some(4202),
-            limit: 1
+            limit: 1,
+            most: 0,
         })
     );
     assert!(cx.has_text("Proposed · last 64 blocks · 4,138 → 4,201"));
@@ -382,11 +381,11 @@ fn a_refused_live_head_is_logged_and_the_set_stays() {
     assert!(cx.has_text("10.0.0.1:4000"));
     assert!(
         cx.host()
-            .requests::<ducktape_view_guest::methods::HostLog>()
+            .requests::<view::methods::HostLog>()
             .iter()
             .any(|line| line.contains("valset's live heads") && line.contains("no live heads here")),
         "{:?}",
-        cx.host().requests::<ducktape_view_guest::methods::HostLog>()
+        cx.host().requests::<view::methods::HostLog>()
     );
 }
 
@@ -412,11 +411,13 @@ fn a_page_that_fills_nothing_is_not_asked_again() {
         [
             BlockPage {
                 before: Some(4202),
-                limit: 1
+                limit: 1,
+                most: 0,
             },
             BlockPage {
                 before: Some(4203),
-                limit: 1
+                limit: 1,
+                most: 0,
             }
         ]
     );

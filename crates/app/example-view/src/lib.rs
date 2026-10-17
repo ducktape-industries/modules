@@ -5,9 +5,9 @@
 //! Words: the host is the app that runs the view. A program is the code on
 //! the node the view talks to, here identity. The reader is whoever looks
 //! at the view. A refusal is an `Error` in place of an answer.
-use ducktape_view_guest::prelude::*;
 use identity::{Identity, Kind, PageRequest};
 use serde::{Deserialize, Serialize};
+use view::prelude::*;
 
 // The state. The host saves it with serde before a redeploy and hands it to
 // the new build, so what is here survives one.
@@ -20,8 +20,8 @@ pub struct Agents {
     // The reader's account. `None` until the session says, and for a key
     // that holds no account.
     me: Option<u64>,
-    // Why the program refused the last create, in its words.
-    refused: Option<String>,
+    // Why the last create did not land, in the words every view uses.
+    failed: Option<String>,
     // Never saved: a `Task` holds only while this instance runs. `Some`
     // while a create waits for its answer; dropping it cancels the wait.
     #[serde(skip)]
@@ -35,7 +35,7 @@ struct Agent {
     number: u64,
     name: String,
     // A type of the program that derives borsh only, saved as its bytes.
-    #[serde(with = "ducktape_view_guest::borsh_bytes")]
+    #[serde(with = "view::borsh_bytes")]
     kind: Kind,
 }
 
@@ -45,10 +45,10 @@ impl View for Agents {
     const NAME: &'static str = "Agents";
     const DESCRIPTION: &'static str = "The agents your account manages.";
     // One per prefix of the methods' kinds: `host.session` and `host.log`,
-    // `module.query` and `module.changes`, `op.submit`.
+    // `program.query` and `program.changes`, `op.submit`.
     const CAPABILITIES: &'static [Capability] =
-        &[Capability::Host, Capability::Module, Capability::Op];
-    const TARGETS: &'static [&'static str] = &[identity::MODULE];
+        &[Capability::Host, Capability::Program, Capability::Op];
+    const TARGETS: &'static [&'static str] = &[identity::PROGRAM];
     // The app never lays the view out narrower than this, in px. Unset, 480.
     const MIN_WINDOW_WIDTH: u32 = 320;
 
@@ -96,7 +96,7 @@ impl Agents {
         if name.is_empty() || self.creating.is_some() {
             return;
         }
-        self.refused = None;
+        self.failed = None;
         // A write to the program. It is sent here; the task only waits.
         let submit = cx
             .host()
@@ -104,13 +104,16 @@ impl Agents {
         // Hands the answer, the value or the refusal, to the closure.
         self.creating = Some(cx.land(submit, |view, answer, cx| {
             view.creating = None;
-            match answer {
-                // The program took it: a read from now on sees the agent.
-                Ok(_) => {
+            // Why a write did not land, in the words every view uses:
+            // refused, not sent, or sent with no answer back.
+            match design::failure(&answer) {
+                // The node took it and predicts it applies: a read from
+                // now on sees the agent.
+                None => {
                     view.name.reset("");
                     view.reread(cx);
                 }
-                Err(refusal) => view.refused = Some(refusal.message),
+                Some(said) => view.failed = Some(said),
             }
             cx.notify();
         }));
@@ -143,9 +146,11 @@ async fn managed(host: Host, by: Option<u64>) -> Result<Vec<Agent>, Error> {
 // Draws the state as a tree of elements. The host lays it out and paints
 // it. Runs on the tick after a `cx.notify()`, never by itself.
 impl Render for Agents {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The host's colors, light or dark.
         let theme = *cx.global::<Theme>();
+        // The device's pointer: a finger takes the touch ladder.
+        let ladder = &design::ladder(window.touch());
         let creating = self.creating.is_some();
         // A text field over `name`: its id, the field, then the name a
         // screen reader says. The host owns the text; each change lands in
@@ -188,11 +193,19 @@ impl Render for Agents {
             // `agents-refused` and `agents-retry`.
             Loadable::Failed(refusal) => {
                 let retry = cx.listener(|view: &mut Agents, _: &ClickEvent, _, cx| view.reread(cx));
-                design::refused("agents", refusal.message.clone(), &theme, retry).into_any_element()
+                design::refused("agents", design::sentence(refusal), ladder, &theme, retry)
+                    .into_any_element()
             }
             Loadable::Ready(agents) | Loadable::Reloading(agents, _) if agents.is_empty() => {
-                design::empty_state("no-agents", "No agents yet", "Name one above.", &theme)
-                    .into_any_element()
+                design::empty_state(
+                    "no-agents",
+                    "bot",
+                    "No agents yet",
+                    "Name one above.",
+                    ladder,
+                    &theme,
+                )
+                .into_any_element()
             }
             Loadable::Ready(agents) | Loadable::Reloading(agents, _) => div()
                 .id("agents")
@@ -228,9 +241,9 @@ impl Render for Agents {
                     .child(name)
                     .child(create),
             )
-            // A refused create, under the field, in the program's words.
+            // Why the create did not land, under the field.
             .children(
-                self.refused
+                self.failed
                     .clone()
                     .map(|why| div().text_color(theme.danger).child(why)),
             )
@@ -246,7 +259,7 @@ export_view!(Agents);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ducktape_view_guest::testing::TestAppContext;
+    use view::testing::TestAppContext;
 
     /// Scout, an agent account 7 manages.
     fn scout() -> identity::Account {
@@ -258,7 +271,8 @@ mod tests {
                 bio: None,
                 updated_at: 1,
             },
-            control: identity::Control::Managed {
+            control: identity::Control::Program {
+                script: None,
                 manager: 7,
                 category: identity::Category::Agent,
                 life: identity::Life::Active { keys: Vec::new() },
@@ -297,7 +311,8 @@ mod tests {
     fn a_typed_name_is_submitted_and_a_change_reads_again() {
         let mut cx = seated();
         assert!(cx.has_text("Scout"), "{:?}", cx.texts());
-        cx.host().handle::<Submit<Identity>>(|_| Ok(Vec::new()));
+        cx.host()
+            .handle::<Submit<Identity>>(|_| Ok(view::testing::applied(Vec::new())));
         cx.simulate_input("name", "Rover");
         cx.simulate_click("create");
         cx.run_until_parked();
@@ -315,12 +330,12 @@ mod tests {
     fn a_refusal_is_shown_where_it_happened() {
         let mut cx = seated();
         cx.host()
-            .refuse::<Submit<Identity>>("unauthorized", "Only a person manages agents.");
+            .refuse::<Submit<Identity>>("unauthorized", "Only a user manages agents.");
         cx.simulate_input("name", "Rover");
         cx.simulate_submit("name");
         cx.run_until_parked();
         assert!(
-            cx.has_text("Only a person manages agents."),
+            cx.has_text("That didn’t go through: Only a user manages agents."),
             "{:?}",
             cx.texts()
         );

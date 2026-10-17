@@ -1,18 +1,19 @@
-//! The `activity` module: where each frame a block carried sits on the chain, kept under the key
-//! that signed it and the account it acted as (the newest `KEPT` of each), as the kernel tells
-//! its hooks. Views list what an account did and read each frame by its place (`chain.tx`).
+//! The `activity` program: where each frame a block carried sits on the chain and who signed it,
+//! kept newest first network-wide, under the key that signed it and under the account it acted as,
+//! as the kernel tells its hooks. Views list the network's transactions and what an account did from it.
 mod program;
 mod rules;
 #[cfg(test)]
 mod tests;
+pub mod view;
 
 pub use program::Activity;
 pub use store::{PageRequest, PageResponse};
 
+use ::program::{AccountNumber, ProgramId};
 use borsh::{BorshDeserialize, BorshSerialize};
-use guest::{AccountNumber, ModuleId};
 
-pub const MODULE: &str = "activity";
+pub const PROGRAM: &str = "activity";
 
 pub type Op = ();
 
@@ -21,19 +22,17 @@ pub struct Frame {
     pub height: u64,
     pub position: u32,
     pub time: u64,
-    pub target: ModuleId,
+    pub signer: Vec<u8>,
+    pub target: ProgramId,
     pub applied: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Used {
     pub account: AccountNumber,
-    pub program: ModuleId,
+    pub program: ProgramId,
     pub frames: u64,
 }
-
-pub const MAX_PAGE: u64 = 256;
-pub const KEPT: u64 = 1_000;
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
 #[ask(Activity)]
@@ -47,6 +46,8 @@ pub enum Query {
     Signed { key: Vec<u8>, page: PageRequest },
     #[ask(Reply::Used(PageResponse<Used>))]
     Used { page: PageRequest },
+    #[ask(Reply::Frames(PageResponse<Frame>))]
+    Frames { page: PageRequest },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]

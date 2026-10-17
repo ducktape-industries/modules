@@ -59,7 +59,8 @@ fn a_peers_name_gained_later_replaces_its_numeric_fallback() {
             query => panic!("unexpected chat query: {query:?}"),
         })
     });
-    cx.host().handle::<Submit<::chat::Chat>>(|_| Ok(Vec::new()));
+    cx.host()
+        .handle::<Submit<::chat::Chat>>(|_| Ok(view::testing::applied(Vec::new())));
 
     let live = cx.host().stream::<Changes<Identity>>();
     let view = cx.open::<Chat>();
@@ -82,7 +83,7 @@ fn a_peers_name_gained_later_replaces_its_numeric_fallback() {
     assert!(!offered(&view), "not known to the roster yet");
 
     known.set(true);
-    live.send(Some(ducktape_view_guest::methods::Change {
+    live.send(Some(view::methods::Change {
         height: 1,
         keys: Vec::new(),
     }));

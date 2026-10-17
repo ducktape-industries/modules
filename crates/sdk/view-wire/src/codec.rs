@@ -5,12 +5,6 @@ pub(crate) mod bin;
 mod write;
 pub(crate) use write::SPARSE;
 
-/// What one `decode` may build before it is refused: enough that
-/// [`sanitize`]'s truncation still shapes any tree a real view sends, and
-/// few enough that a hostile one cannot make the host allocate its way
-/// through a frame's worth of nodes every tick.
-pub const MAX_DECODED_NODES: usize = 16 * MAX_NODES;
-
 /// Bounds what a decode may descend into, since decoding is recursive: a
 /// [`Node`] holds its children, a tooltip's content and a patch's subtree,
 /// and serde builds them from the inside out, so a chain of nodes is a
@@ -19,65 +13,74 @@ pub const MAX_DECODED_NODES: usize = 16 * MAX_NODES;
 /// the limit sits at decode rather than in each walk, and on [`Node`]
 /// itself rather than on the fields that happen to hold one.
 ///
-/// [`MAX_FRAME_BYTES`] of input is no protection: a chain deep
-/// enough to overflow a host thread's stack is a few tens of kilobytes.
+/// It also keeps where the decode is, so a decode that fails inside a node
+/// names that node: by its child indices from the top of the tree it
+/// crossed in (a frame's root, a patch's node, a tooltip's content), as a
+/// [`Patch`] path counts them. A view built against another wire than the
+/// host's fails at the first node the two read differently.
 mod budget {
-    use std::cell::Cell;
+    use std::cell::RefCell;
 
-    use super::{MAX_DECODED_NODES, MAX_DEPTH};
+    use super::MAX_DEPTH;
 
     thread_local! {
-        static DEPTH: Cell<usize> = const { Cell::new(0) };
-        static NODES: Cell<usize> = const { Cell::new(0) };
+        /// Per node being decoded, outermost first: how many nodes it has
+        /// opened inside it so far. Its length is the depth.
+        static OPEN: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+        /// Where the failing decode failed: the path of the innermost node
+        /// the error passed through.
+        static FAILED: RefCell<Option<Vec<u32>>> = const { RefCell::new(None) };
     }
 
-    /// One node being decoded. Descending past what the host walks, or
-    /// building more nodes than it will hold, refuses the whole frame:
-    /// there is no partial tree to keep, and a truncated one would be a
-    /// tree the guest did not write.
     pub(super) struct Node(());
 
     impl Node {
         pub(super) fn enter() -> Result<Self, &'static str> {
-            // The nodes this one sits inside: a decode's outermost node is
-            // at 0, as `sanitize` counts depth.
-            let depth = DEPTH.get();
-            if depth > MAX_DEPTH {
-                return Err("a tree deeper than the host renders");
+            OPEN.with_borrow_mut(|open| {
+                // The nodes this one sits inside: a decode's outermost node
+                // is at 0, as `sanitize` counts depth.
+                if open.len() > MAX_DEPTH {
+                    return Err("a tree deeper than the host renders");
+                }
+                match open.last_mut() {
+                    Some(opened) => *opened += 1,
+                    // a decode left over by a panic says nothing about this one
+                    None => FAILED.set(None),
+                }
+                open.push(0);
+                Ok(Self(()))
+            })
+        }
+
+        /// `error` came out of this node: the innermost node it came out of
+        /// is the one named, and the outermost names it in the message.
+        pub(super) fn failed<E: serde::de::Error>(&self, error: E) -> E {
+            let outermost = OPEN.with_borrow(|open| {
+                FAILED.with_borrow_mut(|failed| {
+                    if failed.is_none() {
+                        // each node's index is one less than the count its
+                        // parent had reached when it opened
+                        let path = open[..open.len() - 1].iter().map(|opened| opened - 1);
+                        *failed = Some(path.collect());
+                    }
+                });
+                open.len() == 1
+            });
+            match outermost {
+                true => E::custom(format_args!(
+                    "node at {:?}: {error}",
+                    FAILED.take().unwrap_or_default()
+                )),
+                false => error,
             }
-            spend()?;
-            DEPTH.set(depth + 1);
-            Ok(Self(()))
         }
     }
 
     impl Drop for Node {
         fn drop(&mut self) {
-            DEPTH.set(DEPTH.get().saturating_sub(1));
+            OPEN.with_borrow_mut(|open| open.pop());
         }
     }
-
-    /// One more thing the host will hold: a node, or an entry of the style
-    /// table, which costs what a node costs at no depth.
-    pub(super) fn spend() -> Result<(), &'static str> {
-        let nodes = NODES.get() + 1;
-        if nodes > MAX_DECODED_NODES {
-            return Err("more nodes than the host holds");
-        }
-        NODES.set(nodes);
-        Ok(())
-    }
-
-    /// A fresh budget for one top-level [`decode`](super::decode). The depth
-    /// unwinds itself; the node count is what one frame may spend.
-    pub(super) fn reset() {
-        NODES.set(0);
-    }
-}
-
-/// An entry of the style table decodes on the frame's node budget.
-pub(crate) fn spend_node() -> Result<(), &'static str> {
-    budget::spend()
 }
 
 /// `Node`'s derived shape (`#[serde(remote = "Self")]`).
@@ -87,13 +90,10 @@ impl Serialize for Node {
     }
 }
 
-/// Every node decodes inside the budget, wherever it sits: a frame's root,
-/// a child, a tooltip's content, a patch's subtree. The guard is held while
-/// the node is built: siblings share a depth, and each costs a node.
 impl<'de> Deserialize<'de> for Node {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let _node = budget::Node::enter().map_err(serde::de::Error::custom)?;
-        Node::deserialize(deserializer)
+        let node = budget::Node::enter().map_err(serde::de::Error::custom)?;
+        Node::deserialize(deserializer).map_err(|error| node.failed(error))
     }
 }
 
@@ -148,7 +148,7 @@ pub fn encode<T: Serialize>(value: &T) -> Vec<u8> {
 /// whatever it derives or writes by hand. It is written with its field
 /// names, so the build that reads it back may have added a field, and a
 /// `Serialize` that refuses (a custom error) is an answer, not a panic
-/// inside the guest.
+/// inside the view.
 pub fn try_encode<T: Serialize>(value: &T) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
     value
@@ -190,8 +190,6 @@ macro_rules! sparse {
 pub(crate) use sparse;
 
 pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, String> {
-    budget::reset();
-    canvas::reset_decode_budget();
     // The reader over the slice itself: a string or a `bin` is lent from
     // `bytes` and copied once, into the value that keeps it.
     let mut deserializer = rmp_serde::Deserializer::from_read_ref(bytes);
@@ -247,6 +245,38 @@ mod tests {
         for kind in [pair, Kind::Plain, Kind::One("a".into())] {
             assert_eq!(super::decode::<Kind>(&super::encode(&kind)).unwrap(), kind);
         }
+    }
+
+    /// A decode that fails inside a node names that node by its child
+    /// indices from the top of its tree, and the next decode starts clean.
+    #[test]
+    fn a_decode_that_fails_inside_a_node_names_the_node() {
+        use crate::{ContainerNode, Node, StyleId};
+        let boxed = |children| {
+            Node::Container(ContainerNode {
+                id: None,
+                style: StyleId(0),
+                interactivity: Default::default(),
+                children,
+            })
+        };
+        let space = super::encode(&Node::Space)[0];
+        let tree = boxed(vec![Node::Space, boxed(vec![Node::Space, Node::Space])]);
+        let mut bytes = super::encode(&tree);
+        // the inner container's second child becomes a kind no one knows
+        let at = bytes
+            .windows(3)
+            .rposition(|bytes| bytes == [0x92, space, space])
+            .expect("the inner container's children")
+            + 2;
+        bytes[at] = 0x7f;
+        let error = super::decode::<Node>(&bytes).unwrap_err();
+        assert!(
+            error.starts_with("node at [1, 1]: invalid value: integer `127`"),
+            "{error}"
+        );
+        bytes[at] = space;
+        assert_eq!(super::decode::<Node>(&bytes), Ok(tree));
     }
 
     /// A map or a sequence that does not say its length up front (gpui's

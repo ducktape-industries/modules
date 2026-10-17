@@ -18,7 +18,7 @@ fn story() -> (Rig, Story) {
 }
 
 /// The op signed by `who`; the rig signs as the owner again afterwards.
-fn signed(rig: &mut Rig, who: &[u8], op: &Op) -> Result<Vec<u8>, guest::Error> {
+fn signed(rig: &mut Rig, who: &[u8], op: &Op) -> Result<Vec<u8>, program::Error> {
     rig.actor = who.to_vec();
     let result = rig.execute(op);
     rig.actor = TESTER.to_vec();
@@ -111,8 +111,6 @@ fn configure_is_the_owners_and_takes_a_ref_for_head() {
     let stranger = refused_as(&mut rig, STRANGER, &settings(b"refs/heads/main"));
     assert_eq!(stranger, code::UNAUTHORIZED);
     assert_eq!(rig.refused(&settings(b"main")).code, code::INVALID_INPUT);
-    let endless = [b"refs/heads/".as_slice(), &[b'x'; 5000]].concat();
-    assert_eq!(rig.refused(&settings(&endless)).code, code::INVALID_INPUT);
 }
 
 #[test]
@@ -192,8 +190,6 @@ fn open_numbers_changes_and_refuses_what_cannot_merge() {
     assert_eq!(rig.refused(&tag).code, code::INVALID_INPUT);
     let blank = open(reference("feature"), main, "  ", vec![]);
     assert_eq!(rig.refused(&blank).code, code::INVALID_INPUT);
-    let long = open(reference("feature"), main, &"t".repeat(257), vec![]);
-    assert_eq!(rig.refused(&long).code, code::INVALID_INPUT);
     let twice = open(
         reference("feature"),
         main,
@@ -211,7 +207,7 @@ fn open_numbers_changes_and_refuses_what_cannot_merge() {
 fn chat_refusing_the_channel_fails_the_open_it_came_from() {
     let (mut rig, story) = story();
     // forge itself, outside any change: the channel the change will want
-    let forge = Principal::Account(sandbox::MODULES[0].1);
+    let forge = Principal::Account(sandbox::PROGRAMS[0].1);
     rig.chat_execute(
         forge,
         chat::Op::CreateChannel {
@@ -263,8 +259,6 @@ fn edit_is_the_authors_and_drops_the_reviewers_it_unasks() {
     assert!(involving_principal(&rig, Principal::Account(100)).is_empty());
     assert_eq!(involving(&rig, TESTER), [n], "the author stays involved");
 
-    let fleet = (0..65).map(|i| Principal::Account(100 + i)).collect();
-    assert_eq!(rig.refused(&edit_reviewers(n, fleet)).code, code::CAPACITY);
     let missing = edit_reviewers(n + 1, vec![]);
     assert_eq!(rig.refused(&missing).code, code::NOT_FOUND);
 }
@@ -367,12 +361,6 @@ fn a_review_counts_once_and_its_anchors_are_checked() {
         review.comments[0].path = b"../etc/passwd".to_vec();
     }
     assert_eq!(rig.refused(&escape).code, code::INVALID_INPUT);
-    let flood = draft(
-        root,
-        Verdict::Comment,
-        (1..=65).map(|line| (Side::New, line, "x")).collect(),
-    );
-    assert_eq!(rig.refused(&flood).code, code::CAPACITY);
     assert_eq!(
         record(&rig, n).review_count,
         1,

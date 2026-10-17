@@ -1,10 +1,12 @@
-//! Packs what `make wasm-modules` builds into a founding: each program with its describe module
-//! and any view embedded, forge's params, and a founding file `ducktape init` reads.
+//! Packs what `make wasm-modules` builds into a founding: each program with its describe module,
+//! any view and any notifier embedded, forge's and halo's params, and a founding file `ducktape
+//! init` reads.
 
 use std::borrow::Cow;
 use std::fs;
 use std::path::Path;
 
+use abi::role::halo::{Class, Founded, Genesis};
 use wasm_encoder::{CustomSection, Encode, Section};
 use wasmparser::{Encoding, Parser, Payload, Validator};
 
@@ -12,17 +14,33 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub const VIEW_SECTION: &str = "ducktape.view";
 pub const DESCRIBE_SECTION: &str = "ducktape.describe";
+/// A program's notifier: the headless module of its view crate the app runs
+/// once per network to post the program's notices (`view::Notifier`).
+pub const NOTIFY_SECTION: &str = "ducktape.notify";
 pub const FOUNDING: &str = include_str!("../founding.toml");
 
-pub const PROGRAMS: [(&str, &str); 5] = [
-    ("module_registry", "settings_view"),
+pub const PROGRAMS: [(&str, &str); 7] = [
+    ("programs", "settings_view"),
     ("valset", "node_view"),
     ("identity", "members_view"),
     ("chat", "chat_view"),
     ("forge", "forge_view"),
+    ("harness", "harness_view"),
+    ("files", "files_view"),
 ];
-pub const UNVIEWED: [&str; 3] = ["activity", "files", "provider"];
+pub const UNVIEWED: &[&str] = &[
+    "blobs",
+    "awaits",
+    "halo",
+    "scheduler",
+    "activity",
+    "egress",
+    "attribution",
+];
 pub const VIEWS: [&str; 1] = ["explorer_view"];
+/// The programs that ship a notifier, and the module `make wasm-notifiers`
+/// builds it as (`<view>.notify.wasm`).
+pub const NOTIFIERS: [(&str, &str); 2] = [("chat", "chat_view"), ("forge", "forge_view")];
 
 pub fn forge_bounds() -> forge::Bounds {
     forge::Bounds {
@@ -41,6 +59,28 @@ pub fn forge_bounds() -> forge::Bounds {
     }
 }
 
+/// The lanes halo serves from the first block, given ids in order from 0. blobs' lane is
+/// `Critical`: a node that lags fetches the blobs a block names at that class before it can
+/// apply the block, and it is pinned, so no vote pauses or closes it: a node cut off from
+/// blobs could never apply the block that opened it again. The live relay's lane carries
+/// clients' tracks, so it is served no higher than `Client`, and a vote may pause it.
+pub fn halo_lanes() -> Genesis {
+    Genesis {
+        lanes: vec![
+            Founded {
+                name: "ducktape/blobs".into(),
+                cap: Class::Critical,
+                pinned: true,
+            },
+            Founded {
+                name: "ducktape/live".into(),
+                cap: Class::Client,
+                pinned: false,
+            },
+        ],
+    }
+}
+
 pub fn bundle(release: &Path, out: &Path) -> Result<()> {
     fs::create_dir_all(out)?;
     let read = |name: &str| {
@@ -49,7 +89,10 @@ pub fn bundle(release: &Path, out: &Path) -> Result<()> {
     };
     for (program, view) in PROGRAMS {
         let packed = embed(&read(program)?, &read(view)?)?;
-        let packed = embed_describe(&packed, &read(&format!("{program}.describe"))?)?;
+        let mut packed = embed_describe(&packed, &read(&format!("{program}.describe"))?)?;
+        if let Some((_, view)) = NOTIFIERS.iter().find(|(name, _)| *name == program) {
+            packed = embed_notify(&packed, &read(&format!("{view}.notify"))?)?;
+        }
         fs::write(out.join(format!("{program}.wasm")), packed)?;
     }
     for program in UNVIEWED {
@@ -62,6 +105,7 @@ pub fn bundle(release: &Path, out: &Path) -> Result<()> {
         fs::write(out.join(format!("{view}.wasm")), bytes)?;
     }
     fs::write(out.join("forge.params"), abi::encode(&forge_bounds()))?;
+    fs::write(out.join("halo.params"), abi::encode(&halo_lanes()))?;
     fs::write(out.join("founding.toml"), FOUNDING)?;
     Ok(())
 }
@@ -105,6 +149,11 @@ pub fn strip_section(program: &[u8], name: &str) -> Result<Vec<u8>> {
 pub fn embed(program: &[u8], view: &[u8]) -> Result<Vec<u8>> {
     validate(view)?;
     embed_section(program, VIEW_SECTION, view)
+}
+
+pub fn embed_notify(program: &[u8], notifier: &[u8]) -> Result<Vec<u8>> {
+    validate(notifier)?;
+    embed_section(program, NOTIFY_SECTION, notifier)
 }
 
 pub fn embed_describe(program: &[u8], module: &[u8]) -> Result<Vec<u8>> {

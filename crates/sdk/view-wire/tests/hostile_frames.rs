@@ -1,7 +1,7 @@
 //! Property tests for the wire's hostile-input contract: a random tree either
 //! comes back out of `decode` refused for a reason the budget actually names,
 //! or `sanitize` pulls it inside every bound `sanitize_node` promises; bytes a
-//! hostile guest could have written never make `decode` panic; and a
+//! hostile view could have written never make `decode` panic; and a
 //! hand-crafted length-prefix bomb is refused before it is walked.
 //!
 //! No new dependency: the generator is a splitmix64 PRNG seeded by a fixed
@@ -16,6 +16,14 @@ use common::{PLAIN, plain, sanitize};
 
 mod hostile {
     use super::*;
+
+    const NODES: usize = 8_192;
+    const LONG_STRING: usize = 64 << 10;
+    const BIG_PICTURE: usize = 1 << 20;
+    const LONG_URL: usize = 2048;
+    const WEB_COMMANDS: usize = 16;
+    const LONG_DEVICE: usize = 256;
+    const MIC_COMMANDS: usize = 4;
 
     mod rng;
     use rng::*;

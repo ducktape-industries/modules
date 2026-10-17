@@ -16,6 +16,7 @@ fn container(style: StyleId) -> Node {
             id: None,
             style: PLAIN,
             content: "stable child".into(),
+            transform: None,
         })],
     })
 }
@@ -75,7 +76,7 @@ fn whole_frames_bound_base_and_every_conditional_style() {
         let style = &styles[style];
         assert_eq!(style.size.width, Some(px(0.).into()));
         assert_eq!(style.size.height, Some(px(height as f32).into()));
-        assert_eq!(style.margin.left, Some(px(-8192.).into()));
+        assert_eq!(style.margin.left, Some(px(-1e9).into()));
         assert_eq!(style.opacity, Some(1.));
     }
 }
@@ -87,7 +88,8 @@ fn whole_frames_bound_base_and_every_conditional_style() {
 fn actual_gpui_styled_payloads_roundtrip_and_patch_without_replacing_children() {
     let text = StyleRefinement::default()
         .text_size(px(13.))
-        .text_color(gpui::rgb(0xabcdef));
+        .text_color(gpui::rgb(0xabcdef))
+        .letter_spacing(px(-0.22));
     let row = StyleRefinement::default()
         .flex()
         .gap_2()
@@ -95,7 +97,7 @@ fn actual_gpui_styled_payloads_roundtrip_and_patch_without_replacing_children() 
         .rounded_md()
         .bg(gpui::rgb(0x112233));
     // the patch frame's entry is bounded as the whole frame's were
-    let wider = row.clone().p_6().w(px(1e20));
+    let wider = row.clone().p_6().w(px(f32::INFINITY));
     let node = |style| {
         Node::Container(view_wire::ContainerNode {
             id: None,
@@ -105,6 +107,7 @@ fn actual_gpui_styled_payloads_roundtrip_and_patch_without_replacing_children() 
                 id: None,
                 style: StyleId(1),
                 content: "retained child".into(),
+                transform: None,
             })],
         })
     };
@@ -132,7 +135,7 @@ fn actual_gpui_styled_payloads_roundtrip_and_patch_without_replacing_children() 
     view_wire::sanitize(&mut frame, &mut styles).unwrap();
     view_wire::apply(&mut old, frame.patches, &styles).unwrap();
     assert_eq!(old, changed);
-    assert_eq!(styles[StyleId(3)], row.clone().p_6().w(px(8192.)));
+    assert_eq!(styles[StyleId(3)], row.clone().p_6().w(px(0.)));
     let Node::Container(container) = old else {
         unreachable!()
     };

@@ -2,10 +2,10 @@
 //! a chain reads in: short hashes, grouped numbers, dates and ages.
 //!
 //! A payload is described by the program it targets, through the host
-//! (`module.describe`: the describe module the program's own code
+//! (`program.describe`: the describe module the program's own code
 //! carries). A program with none, or bytes it cannot read, reads as its
 //! size and a short hex preview: [`bytes`].
-use ducktape_view_guest::prelude::*;
+use view::prelude::*;
 
 /// The longest a field's value runs before it is clipped.
 const MAX_VALUE: usize = 160;
@@ -25,14 +25,33 @@ pub fn sized(program: &str, size: u64) -> String {
     format!("{program} · {}", plural(size, "byte", "bytes"))
 }
 
+/// Bytes as a person reads a size: `12 bytes`, `450 KB`, `1.8 MB`.
+pub fn size(bytes: u64) -> String {
+    match bytes {
+        0..=1023 => plural(bytes, "byte", "bytes"),
+        1024..=1_048_575 => format!("{} KB", bytes / 1024),
+        _ => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
+    }
+}
+
+/// The bytes a preview shows whole, as a describe module keeps them
+/// (`Value::bytes`): a longer run shows its length and its ends.
+pub const PREVIEW: usize = 32;
+
 /// [`Value::Bytes`] as `abi::preview` reads bytes: all of a short run, the
 /// length and the ends of a long one.
 pub fn preview(len: u64, preview: &[u8]) -> String {
     match len {
         0 => "0 bytes".into(),
-        1..=32 => short_hex(&abi::hex(preview)),
+        len if len <= PREVIEW as u64 => short_hex(&abi::hex(preview)),
         _ => format!("{len} bytes · {}", short_hex(&abi::hex(preview))),
     }
+}
+
+/// Bytes held whole (a program's params) as [`preview`] shows them: the
+/// first [`PREVIEW`] of them stand for the run.
+pub fn bytes_preview(bytes: &[u8]) -> String {
+    preview(bytes.len() as u64, &bytes[..bytes.len().min(PREVIEW)])
 }
 
 /// `value / 10^decimals`, the whole part grouped.
@@ -67,7 +86,12 @@ pub fn short(raw: &[u8]) -> String {
     short_hex(&abi::hex(raw))
 }
 
-pub use ducktape_view_guest::design::{ago, date, grouped, plural, short_hex};
+pub use view::design::{ago, date, grouped, plural, short_hex};
+
+/// How long `blocks` take at the node's block time, in whole minutes.
+pub fn minutes(blocks: u64, block_time_ms: u64) -> u64 {
+    (blocks * block_time_ms).div_ceil(60_000)
+}
 
 /// A signing scheme by its short name: `ed25519`, `p256`.
 pub fn scheme(scheme: abi::Scheme) -> String {

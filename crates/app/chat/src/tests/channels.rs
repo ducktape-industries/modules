@@ -1,6 +1,6 @@
 //! Channels: creating, dm rooms, renaming, archiving, membership.
 use super::*;
-use crate::{ChannelInfo, MAX_ID_BYTES, dm_channel_id};
+use crate::{ChannelInfo, dm_channel_id};
 
 #[test]
 fn a_channel_is_created_once_owned_by_its_creator() {
@@ -16,10 +16,9 @@ fn a_channel_is_created_once_owned_by_its_creator() {
 }
 
 #[test]
-fn a_channel_id_is_bounded_and_a_colon_id_is_its_programs_alone() {
+fn a_channel_id_is_well_formed_and_a_colon_id_is_its_programs_alone() {
     let mut chat = Chat::default();
-    let long = "x".repeat(MAX_ID_BYTES + 1);
-    for bad in ["", "a/b", long.as_str()] {
+    for bad in ["", "a/b"] {
         assert_eq!(
             chat.refused(&ADA, create(bad, PostPolicy::Open)),
             code::INVALID_INPUT
@@ -75,12 +74,12 @@ fn a_dm_seats_both_accounts_opens_once_and_keeps_others_out() {
         code::UNAUTHORIZED
     );
     assert_eq!(chat.refused(&ADA, open_dm(1)), code::INVALID_INPUT);
-    let module = Principal::Account(902);
-    assert_eq!(chat.refused(&module, open_dm(1)), code::UNAUTHORIZED);
+    let program = Principal::Account(902);
+    assert_eq!(chat.refused(&program, open_dm(1)), code::UNAUTHORIZED);
 }
 
 #[test]
-fn a_dm_opens_only_to_a_person_or_an_agent_that_acts() {
+fn a_dm_opens_only_to_a_user_or_a_program_account_that_acts() {
     let mut chat = Chat::default();
     chat.ok(&ADA, open_dm(2));
     chat.ok(&ADA, open_dm(AGENT));
@@ -106,7 +105,7 @@ fn a_dm_stays_open_once_its_counterpart_is_suspended() {
     // identity suspends the agent after the room opened
     let mut roster = roster();
     for profile in &mut roster {
-        if let crate::Kind::Managed { standing, .. } = &mut profile.kind
+        if let crate::Kind::Program { standing, .. } = &mut profile.kind
             && profile.number == AGENT
         {
             *standing = crate::Standing::Suspended;

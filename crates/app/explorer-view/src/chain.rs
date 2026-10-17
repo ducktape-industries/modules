@@ -1,9 +1,9 @@
 //! The recent window: the last [`WINDOW`] finalized blocks and the
 //! transactions they carry, folded in a page at a time.
-use ducktape_view_guest::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cell::{Cell, OnceCell};
+use view::prelude::*;
 
 use crate::{WINDOW, decode};
 
@@ -53,8 +53,6 @@ impl TxRow {
     }
 }
 
-pub(crate) const ROW_PAYLOAD: u32 = 4 << 10;
-
 #[derive(Serialize, Deserialize)]
 struct StoredTx<'a> {
     hash: [u8; 32],
@@ -72,13 +70,9 @@ struct StoredTx<'a> {
 
 impl Serialize for TxRow {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let short = self
-            .payload
-            .as_deref()
-            .filter(|payload| payload.len() <= ROW_PAYLOAD as usize);
         let (op, payload) = match self.op.get() {
             Some(op) => (Some(op.clone()), None),
-            None => (None, short.map(Cow::Borrowed)),
+            None => (None, self.payload.as_deref().map(Cow::Borrowed)),
         };
         StoredTx {
             hash: self.hash,
@@ -231,4 +225,38 @@ impl Chain {
         let oldest = self.blocks.last().map_or(0, |block| block.height);
         self.txs.retain(|tx| tx.height >= oldest);
     }
+}
+
+/// One line of a block list: a block, or a run of empty ones.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Line<'a> {
+    Block(&'a BlockRow),
+    /// consecutive blocks with no transaction, `oldest..=newest`
+    Empty {
+        newest: u64,
+        oldest: u64,
+    },
+}
+
+/// `blocks` (newest first) as at most `rows` lines, each run of two or more
+/// empty blocks folded into one, so the list reaches back past quiet
+/// stretches as far as the window holds.
+pub(crate) fn lines(blocks: &[BlockRow], rows: usize) -> Vec<Line<'_>> {
+    let mut lines = Vec::new();
+    let mut at = 0;
+    while at < blocks.len() && lines.len() < rows {
+        let run = blocks[at..]
+            .iter()
+            .take_while(|block| block.txs == 0)
+            .count();
+        if run >= 2 {
+            let (newest, oldest) = (blocks[at].height, blocks[at + run - 1].height);
+            lines.push(Line::Empty { newest, oldest });
+            at += run;
+        } else {
+            lines.push(Line::Block(&blocks[at]));
+            at += 1;
+        }
+    }
+    lines
 }

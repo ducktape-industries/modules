@@ -11,16 +11,21 @@ publish = false
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# Builds forge's notifier alone (`notifier.rs`, `export_notifier!`) in place
+# of the view: what a founding packs as the program's `ducktape.notify`
+# section. Never on in the view's build.
+notifier = []
+
 [dependencies]
-ducktape-view-guest.workspace = true
+view.workspace = true
 abi.workspace = true
 base64.workspace = true
 borsh.workspace = true
 chat.workspace = true
 ducklink.workspace = true
 forge.workspace = true
-# `role::Identity`: the identity program, followed by role, not linked
-program.workspace = true
+identity.workspace = true
 futures.workspace = true
 pulldown-cmark.workspace = true
 serde.workspace = true
@@ -28,4 +33,8 @@ serde_json.workspace = true
 
 [dev-dependencies]
 # `examples/live.rs`: the view in the real app over the fake node
-ducktape-view-guest = { workspace = true, features = ["live"] }
+view = { workspace = true, features = ["rig"] }
+# the example's seeded history, under the bounds a founding gives forge
+gitcore.workspace = true
+founding = { path = "../../sdk/founding" }
+program.workspace = true

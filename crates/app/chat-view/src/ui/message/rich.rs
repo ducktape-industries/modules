@@ -1,36 +1,19 @@
+//! The desktop's runs of a message's styled lines, over the machinery both
+//! designs share ([`crate::message::line`]).
 use super::*;
+use crate::message::{Run, line};
 
-pub(super) fn plain_line(id: ElementId, text: &str, mono: bool) -> InteractiveText {
-    let styled = StyledText::new(text.to_owned());
-    let mut text = InteractiveText::new(id, styled).w_full();
-    if mono {
-        text = text
-            .font_family(design::fonts::FAMILY_MONO)
-            .text_size(design::text::SECONDARY);
-    }
-    text
-}
-
-pub(super) fn rich_line(
+/// The desktop's runs: bold is bold, a link and a mention in the link
+/// tone, inline code on the fenced block's ground at the paragraph's size.
+pub(crate) fn rich_line(
     id: ElementId,
     spans: &[Span],
     names: &Names,
     cx: &mut Context<Chat>,
     theme: &Theme,
 ) -> InteractiveText {
-    let styled = crate::message::styled_spans(spans, names);
-    if styled.is_empty() {
-        return plain_line(id, &crate::message::span_text(spans, names), false);
-    }
-    let mut text = String::new();
-    let mut highlights = Vec::new();
-    let mut clickable = Vec::new();
-    let mut targets = Vec::new();
-    let mut mono = Vec::new();
-    for span in &styled {
-        let start = text.len();
-        text.push_str(&span.text);
-        let range = start..text.len();
+    let theme = *theme;
+    line(id, spans, names, cx, move |span| {
         let mut style = HighlightStyle::default();
         match &span.style {
             SpanStyle::Plain => {}
@@ -48,37 +31,21 @@ pub(super) fn rich_line(
                     color: Some(theme.link),
                     wavy: false,
                 });
-                if !target.is_empty() {
-                    clickable.push(range.clone());
-                    targets.push(target.clone());
-                }
+                return Run::of(span, style, Some(target));
             }
             SpanStyle::Mention(account) => {
                 style.color = Some(theme.link);
                 style.font_weight = Some(FontWeight::MEDIUM);
-                if !account.is_empty() {
-                    clickable.push(range.clone());
-                    targets.push(account.clone());
-                }
+                return Run::of(span, style, Some(account));
             }
             SpanStyle::Code => {
-                // the fenced block's ground, at the paragraph's size
                 style.background_color = Some(theme.surface);
-                mono.push((range.clone(), design::fonts::FAMILY_MONO.into()));
+                return Run {
+                    mono: true,
+                    ..Run::of(span, style, None)
+                };
             }
         }
-        highlights.push((range, style));
-    }
-    let styled = StyledText::new(text)
-        .with_highlights(highlights)
-        .with_font_family_overrides(mono);
-    let open = cx.processor(move |chat, index: usize, _window, cx| {
-        if let Some(target) = targets.get(index) {
-            cx.notify();
-            chat.open_link(target.clone(), cx);
-        }
-    });
-    InteractiveText::new(id, styled)
-        .w_full()
-        .on_click(clickable, open)
+        Run::of(span, style, None)
+    })
 }

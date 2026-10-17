@@ -1,4 +1,5 @@
 use super::*;
+use crate::methods::Capability;
 
 impl Node {
     /// The node an empty view renders as.
@@ -24,7 +25,11 @@ impl Node {
             | Self::ResizeHandle { id, .. }
             | Self::Sensor { id, .. }
             | Self::Overlay { id, .. }
-            | Self::Web { id, .. } => Some(id),
+            | Self::Sheet { id, .. }
+            | Self::Web { id, .. }
+            | Self::Camera { id, .. }
+            | Self::Microphone { id, .. }
+            | Self::Remote { id, .. } => Some(id),
             Self::Space | Self::Anchored { .. } | Self::Deferred { .. } | Self::Canvas { .. } => {
                 None
             }
@@ -60,8 +65,12 @@ impl Node {
             | Self::Svg { style, .. }
             | Self::Field { style, .. }
             | Self::Overlay { style, .. }
+            | Self::Sheet { style, .. }
             | Self::Canvas { style, .. }
-            | Self::Web { style, .. } => Some(*style),
+            | Self::Web { style, .. }
+            | Self::Camera { style, .. }
+            | Self::Microphone { style, .. }
+            | Self::Remote { style, .. } => Some(*style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => None,
         }
     }
@@ -82,8 +91,12 @@ impl Node {
             | Self::Svg { style, .. }
             | Self::Field { style, .. }
             | Self::Overlay { style, .. }
+            | Self::Sheet { style, .. }
             | Self::Canvas { style, .. }
-            | Self::Web { style, .. } => visit(style),
+            | Self::Web { style, .. }
+            | Self::Camera { style, .. }
+            | Self::Microphone { style, .. }
+            | Self::Remote { style, .. } => visit(style),
             Self::Anchored { .. } | Self::Deferred { .. } | Self::Space => {}
         }
         if let Self::Container(crate::ContainerNode {
@@ -125,10 +138,59 @@ impl Node {
         }
     }
 
+    /// The live track the piece publishes into (a camera's or a
+    /// microphone's `publish`) or plays ([`Node::Remote`]); `None` for
+    /// every other node.
+    pub fn live_track(&self) -> Option<&crate::methods::LiveTrack> {
+        match self {
+            Self::Camera { publish, .. } | Self::Microphone { publish, .. } => publish.as_ref(),
+            Self::Remote { track, .. } => Some(track),
+            _ => None,
+        }
+    }
+
+    /// The capabilities a view's manifest declares to place this node: a
+    /// web page's, a camera's or a microphone's device, and `live` for a
+    /// piece that publishes or plays a live track; none for every other
+    /// node. A host refuses the frame of a view that places one it did not
+    /// declare ([`crate::Frame::undeclared`]). One arm per variant, so a
+    /// new one says whether a capability gates it.
+    pub fn capabilities(&self) -> &'static [Capability] {
+        match self {
+            Self::Web { .. } => &[Capability::Web],
+            Self::Camera { publish: None, .. } => &[Capability::Camera],
+            Self::Camera {
+                publish: Some(_), ..
+            } => &[Capability::Camera, Capability::Live],
+            Self::Microphone { publish: None, .. } => &[Capability::Microphone],
+            Self::Microphone {
+                publish: Some(_), ..
+            } => &[Capability::Microphone, Capability::Live],
+            Self::Remote { .. } => &[Capability::Live],
+            Self::RichText { .. }
+            | Self::Anchored { .. }
+            | Self::UniformList { .. }
+            | Self::List { .. }
+            | Self::Container(_)
+            | Self::ResizeHandle { .. }
+            | Self::Deferred { .. }
+            | Self::Sensor { .. }
+            | Self::Text(_)
+            | Self::Image { .. }
+            | Self::Svg { .. }
+            | Self::Field { .. }
+            | Self::Space
+            | Self::Overlay { .. }
+            | Self::Sheet { .. }
+            | Self::Canvas { .. } => &[],
+        }
+    }
+
     /// The node's children in order. One arm per variant, here and in
     /// [`Node::children_mut`] and [`Node::child_list_mut`]: everything that
     /// walks, diffs or patches a tree goes through these three, so a new
-    /// variant is a new arm in each and nothing else.
+    /// variant is a new arm in each, one in [`Node::capabilities`], and
+    /// nothing else.
     pub fn children(&self) -> &[Node] {
         match self {
             Self::Container(crate::ContainerNode { children, .. })
@@ -142,6 +204,7 @@ impl Node {
             } => children,
             Self::Deferred { content, .. }
             | Self::Sensor { child: content, .. }
+            | Self::Sheet { child: content, .. }
             | Self::ResizeHandle { content, .. } => std::slice::from_ref(content),
             Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
@@ -149,7 +212,10 @@ impl Node {
             | Self::Field { .. }
             | Self::Space
             | Self::Canvas { .. }
-            | Self::Web { .. } => &[],
+            | Self::Web { .. }
+            | Self::Camera { .. }
+            | Self::Microphone { .. }
+            | Self::Remote { .. } => &[],
         }
     }
 
@@ -174,6 +240,7 @@ impl Node {
             } => children,
             Self::Deferred { content, .. }
             | Self::Sensor { child: content, .. }
+            | Self::Sheet { child: content, .. }
             | Self::ResizeHandle { content, .. } => std::slice::from_mut(content),
             Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
@@ -181,7 +248,10 @@ impl Node {
             | Self::Space
             | Self::Svg { .. }
             | Self::Canvas { .. }
-            | Self::Web { .. } => &mut [],
+            | Self::Web { .. }
+            | Self::Camera { .. }
+            | Self::Microphone { .. }
+            | Self::Remote { .. } => &mut [],
         }
     }
 
@@ -201,6 +271,7 @@ impl Node {
             | Self::Overlay { children, .. } => Some(children),
             Self::Deferred { .. }
             | Self::Sensor { .. }
+            | Self::Sheet { .. }
             | Self::ResizeHandle { .. }
             | Self::RichText { .. }
             | Self::Text(crate::TextNode { .. })
@@ -208,7 +279,10 @@ impl Node {
             | Self::Space
             | Self::Svg { .. }
             | Self::Canvas { .. }
-            | Self::Web { .. } => None,
+            | Self::Web { .. }
+            | Self::Camera { .. }
+            | Self::Microphone { .. }
+            | Self::Remote { .. } => None,
         }
     }
 

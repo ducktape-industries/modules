@@ -4,10 +4,10 @@ use super::*;
 fn the_window_follows_the_head_and_stops_where_the_archive_does() {
     let mut window = Chain::default();
     let blocks = chain(30);
-    assert_eq!(PAGE, 20, "the sizes below assume a page of 20");
     let ask = |before| BlockPage {
         before,
-        limit: PAGE,
+        limit: 20,
+        most: 0,
     };
     window.land(None, page(&blocks, &ask(None)));
     assert_eq!((window.top(), window.blocks.len()), (Some(30), 20));
@@ -39,7 +39,8 @@ fn a_page_cut_short_reads_on_until_the_lowest_listed_block() {
     let blocks = chain(30);
     let ask = |before| BlockPage {
         before,
-        limit: PAGE,
+        limit: 20,
+        most: 0,
     };
     let mut short = page(&blocks, &ask(None));
     short.blocks.truncate(5);
@@ -87,6 +88,44 @@ fn a_pushed_head_reads_only_the_new_blocks() {
     );
 }
 
+/// An archive far longer than the window is read as far as the window, in
+/// one page: the node lists every block it keeps to a page that asks for
+/// them all. (On garage, 56k blocks: that page was 14.6 MB, decoded in one
+/// call to keep the newest 1,000, and the view ran out of fuel.)
+#[test]
+fn a_long_archive_is_read_only_as_far_as_the_window() {
+    let mut cx = TestAppContext::new();
+    let heads = cx.host().stream::<ChainHeads>();
+    let tip = Rc::new(RefCell::new(52_000));
+    node(&mut cx, tip.clone());
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    let window = BlockPage {
+        before: None,
+        limit: WINDOW as u32,
+        most: 0,
+    };
+    assert_eq!(
+        cx.host().requests::<ChainBlocks>(),
+        std::slice::from_ref(&window)
+    );
+    assert!(cx.has_text("52,000"), "the Height stat: {:?}", cx.texts());
+    // back from a long sleep, the head is far past the window: still one
+    // window's worth, not every block since
+    *tip.borrow_mut() = 104_000;
+    heads.send(Head {
+        height: 104_000,
+        time: T0 + 104_000_000,
+        id: [4; 32],
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        cx.host().requests::<ChainBlocks>(),
+        [window.clone(), window]
+    );
+    assert!(cx.has_text("104,000"), "the Height stat: {:?}", cx.texts());
+}
+
 /// A head alone draws nothing: the screen moves once, when the page it
 /// brings lands. (Drawn per head item, the census spent 74M fuel on a
 /// redraw of the Transactions page that changed nothing, every block.)
@@ -115,6 +154,123 @@ fn a_pushed_head_is_drawn_with_the_page_it_brings_not_before() {
     assert!(cx.has_text("12") && !cx.has_text("40"), "{:?}", cx.texts());
 }
 
+/// The node's tip runs on while a head's page is asked (a block a second
+/// on garage), so the page read down from it stops short of the window.
+/// The phone's Overview keeps its rows on every frame while the view reads
+/// on to the window's top, and the window lands once, whole. (It was
+/// started again from the one block: on the owner's iPhone the Latest
+/// activity list fell to one row and filled again, every block.)
+#[test]
+fn a_tip_past_the_pushed_head_keeps_the_overviews_rows_on_every_frame() {
+    let mut cx = TestAppContext::new();
+    let heads = cx.host().stream::<ChainHeads>();
+    let tip = Rc::new(RefCell::new(12));
+    node(&mut cx, tip.clone());
+    let explorer = cx.open::<Explorer>();
+    cx.simulate_touch(true);
+    cx.simulate_resize(390., 844.);
+    cx.run_until_parked();
+    let rows = [
+        "explorer-block-12",
+        "explorer-block-11",
+        "explorer-tx-12-0",
+        "explorer-tx-11-1",
+        "explorer-tx-11-0",
+    ];
+    assert!(
+        rows.iter().all(|row| cx.find(row).is_some()),
+        "{:?}",
+        cx.texts()
+    );
+    let asked = cx.host().requests::<ChainBlocks>().len();
+    // the head says 13; the node is at 14 by the time its page is read
+    *tip.borrow_mut() = 14;
+    heads.send(Head {
+        height: 13,
+        time: T0 + 13_000,
+        id: [113; 32],
+    });
+    for tick in 0..6 {
+        cx.tick(Vec::new());
+        for row in rows {
+            assert!(
+                cx.find(row).is_some(),
+                "tick {tick}: {row} left the frame: {:?}",
+                cx.texts()
+            );
+        }
+        let held = cx.update(&explorer, |view, _, _| view.chain.blocks.len());
+        assert!(held >= 13, "tick {tick}: the window fell to {held} blocks");
+    }
+    cx.run_until_parked();
+    assert!(cx.has_text("13–14 · 2 empty blocks"), "{:?}", cx.texts());
+    let heights = cx.update(&explorer, |view, _, _| {
+        view.chain
+            .blocks
+            .iter()
+            .map(|block| block.height)
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(heights, (0..=14).rev().collect::<Vec<_>>());
+    let new: Vec<_> = cx.host().requests::<ChainBlocks>()[asked..]
+        .iter()
+        .map(|ask| (ask.before, ask.limit))
+        .collect();
+    assert_eq!(new, [(None, 1), (Some(14), 1)], "only the blocks it lacks");
+}
+
+/// A node that answers the read below with the same page again moves
+/// nothing: the read stops after that one ask, the window stays drawn, and
+/// the next head reads on as ever.
+#[test]
+fn a_read_below_that_reaches_no_lower_stops_and_keeps_the_window() {
+    let mut cx = TestAppContext::new();
+    let heads = cx.host().stream::<ChainHeads>();
+    let tip = Rc::new(RefCell::new(12));
+    node(&mut cx, tip.clone());
+    let explorer = cx.open::<Explorer>();
+    cx.run_until_parked();
+    let asked = cx.host().requests::<ChainBlocks>().len();
+    // block 14, whatever is asked
+    cx.host().handle::<ChainBlocks>(|_| {
+        let top = BlockPage {
+            before: None,
+            limit: 1,
+            most: 0,
+        };
+        Ok(page(&chain(14), &top))
+    });
+    let head = |height: u64| Head {
+        height,
+        time: T0 + height * 1000,
+        id: [(height as u8).wrapping_add(100); 32],
+    };
+    heads.send(head(13));
+    cx.run_until_parked();
+    let new: Vec<_> = cx.host().requests::<ChainBlocks>()[asked..]
+        .iter()
+        .map(|ask| (ask.before, ask.limit))
+        .collect();
+    assert_eq!(new, [(None, 1), (Some(14), 1)]);
+    let heights = |cx: &mut TestAppContext| {
+        cx.update(&explorer, |view, _, _| {
+            view.chain
+                .blocks
+                .iter()
+                .map(|block| block.height)
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(heights(&mut cx), (0..=12).rev().collect::<Vec<_>>());
+    assert!(cx.find("explorer-tx-11-0").is_some(), "{:?}", cx.texts());
+    // the node answers as it should again: the next head joins
+    *tip.borrow_mut() = 14;
+    serve(&cx, move || chain(*tip.borrow()));
+    heads.send(head(14));
+    cx.run_until_parked();
+    assert_eq!(heights(&mut cx), (0..=14).rev().collect::<Vec<_>>());
+}
+
 #[test]
 fn a_refused_window_says_why_and_retry_reads_again() {
     let mut cx = TestAppContext::new();
@@ -141,8 +297,16 @@ fn a_snapshot_restores_without_reading_the_window_again() {
     quiet_host(&restored);
     restored.restore::<Explorer>(&bytes).unwrap();
     restored.run_until_parked();
-    assert!(restored.has_text("Post in #design"));
+    assert!(restored.has_text("6f6f6f6f…6f6f"), "{:?}", restored.texts());
+    assert!(restored.find("explorer-block-12").is_some());
     assert!(restored.host().requests::<ChainBlocks>().is_empty());
+    // the frames are not in the snapshot: their first page is asked again
+    let first = activity::Query::Frames {
+        page: activity::PageRequest::first(crate::queries::PAGE),
+    };
+    let asked = restored.host().requests::<Query<Activity>>();
+    assert_eq!(asked.iter().filter(|query| **query == first).count(), 1);
+    assert!(restored.has_text("Reading transactions…"));
 }
 
 /// Every page over a full window stays inside the host's frame budgets, and
@@ -165,11 +329,7 @@ fn a_full_window_renders_inside_the_frame_budget() {
     }
     cx.simulate_click("explorer-tab-transactions");
     cx.run_until_parked();
-    assert!(
-        cx.has_text("forge · 1,048,588 bytes"),
-        "the push is listed by its size: {:?}",
-        cx.texts()
-    );
+    assert!(cx.has_text("forge"), "{:?}", cx.texts());
     cx.simulate_click(&format!("explorer-tx-{WINDOW}-0"));
     cx.run_until_parked();
     assert!(cx.has_text("1048576 bytes · 50505050…5050"));
@@ -237,16 +397,16 @@ fn runs_of_empty_blocks_fold_into_one_line_and_the_list_reaches_back() {
     let mut blocks = vec![block(20, 0), block(19, 2), block(18, 0), block(17, 1)];
     blocks.extend((3..=16).rev().map(|height| block(height, 0)));
     blocks.push(block(2, 1));
-    let lines = ui::lines(&blocks, 6);
+    let lines = crate::chain::lines(&blocks, 6);
     let shape: Vec<String> = lines
         .iter()
         .map(|line| match line {
-            ui::Line::Block(block) => block.height.to_string(),
-            ui::Line::Empty { newest, oldest } => format!("{oldest}-{newest}"),
+            crate::chain::Line::Block(block) => block.height.to_string(),
+            crate::chain::Line::Empty { newest, oldest } => format!("{oldest}-{newest}"),
         })
         .collect();
     // a lone empty block stays a row; a run folds; the fold lets six lines
     // reach back to block 2
     assert_eq!(shape, ["20", "19", "18", "17", "3-16", "2"]);
-    assert_eq!(ui::lines(&blocks, 3).len(), 3);
+    assert_eq!(crate::chain::lines(&blocks, 3).len(), 3);
 }

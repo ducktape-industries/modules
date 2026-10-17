@@ -1,23 +1,20 @@
 //! What chat keeps on this device between runs (`store`): the reader's read
-//! cursors, so the tab badge and the unread dots come back right after a
-//! relaunch, and their frequent reactions. Per network by the host, per
+//! cursors, so the unread dots come back right after a relaunch and chat's
+//! notifier counts and announces from them, and their frequent reactions. Per network by the host, per
 //! reader by the key.
 use std::collections::BTreeMap;
 
-use ducktape_view_guest::prelude::*;
-use ducktape_view_guest::store;
+use view::prelude::*;
+use view::store;
 
 use crate::Chat;
 
 const EMOJI: &str = "emoji";
-/// How many times the kept cursors are asked for before chat gives up on
-/// them.
-const READ_ATTEMPTS: u32 = 3;
 
 impl Chat {
     /// The key the reader's cursors are kept under; none with no key seated.
     fn reads_key(&self) -> Option<String> {
-        (!self.session.signer.is_empty()).then(|| format!("reads/{}", self.session.signer))
+        (!self.session.signer.is_empty()).then(|| crate::notifier::reads_key(&self.session.signer))
     }
 
     /// The reader's cursors and reactions off the device. Until they land,
@@ -43,13 +40,10 @@ impl Chat {
             chat.recent_emoji.truncate(crate::emoji::RECENT);
         })
         .detach();
-        self.load_reads(key, 1, cx);
+        self.load_reads(key, cx);
     }
 
-    /// The kept cursors, asked again on a refusal. After [`READ_ATTEMPTS`]
-    /// the reader starts from what this session sees, so their reads still
-    /// save; what the device held for rooms not seen yet is lost.
-    fn load_reads(&mut self, key: String, attempt: u32, cx: &mut Context<Self>) {
+    fn load_reads(&mut self, key: String, cx: &mut Context<Self>) {
         let reads = store::get::<BTreeMap<String, u64>>(&cx.host(), &key);
         cx.land(reads, move |chat, reads, cx| {
             cx.notify();
@@ -57,11 +51,6 @@ impl Chat {
                 Ok(reads) => chat.reads_landed(key, reads.unwrap_or_default(), cx),
                 // the reader changed meanwhile: their own load is under way
                 Err(_) if chat.reads_key().as_ref() != Some(&key) => {}
-                Err(refusal) if attempt < READ_ATTEMPTS => {
-                    cx.host()
-                        .log(format!("read cursors not loaded, asking again: {refusal}"));
-                    chat.load_reads(key, attempt + 1, cx);
-                }
                 Err(refusal) => {
                     cx.host().log(format!(
                         "read cursors not loaded, starting from this session: {refusal}"
@@ -76,8 +65,7 @@ impl Chat {
         .detach();
     }
 
-    /// The kept cursors stand for every room but the one on screen, and the
-    /// badge is counted again from them.
+    /// The kept cursors stand for every room but the one on screen.
     fn reads_landed(&mut self, key: String, kept: BTreeMap<String, u64>, cx: &mut Context<Self>) {
         if self.reads_key().as_ref() != Some(&key) {
             return;
@@ -90,8 +78,6 @@ impl Chat {
         }
         self.reads.written = self.reads.cursors.clone();
         self.reads.kept = Some(key);
-        self.attention.clear();
-        self.recounted = false;
         if let Some(list) = self.channels.ready().cloned() {
             self.channels_landed(list, cx);
         }

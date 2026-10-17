@@ -5,7 +5,7 @@
 //! The table belongs to the tree the host holds. A frame that carries a
 //! whole tree carries the whole table, which replaces the host's; any other
 //! frame carries the entries the host does not have yet, which the host adds
-//! after the ones it holds. The guest's half is the [`Interner`], the host's
+//! after the ones it holds. The view's half is the [`Interner`], the host's
 //! the [`Styles`] it reads at render.
 
 use std::collections::HashMap;
@@ -16,12 +16,6 @@ use gpui::StyleRefinement;
 use serde::{Deserialize, Serialize};
 
 mod entry;
-
-/// The most styles a table holds: a tree the host takes has no more nodes
-/// than this, and a table past it is storage, not a tree's styles. A whole
-/// frame over it is refused; a guest whose table outgrows it between whole
-/// frames sends the next frame whole, which starts the table over.
-pub const MAX_STYLES: usize = crate::MAX_NODES;
 
 /// The style a node names: an entry of the table its tree crosses with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -68,8 +62,6 @@ impl Serialize for Style {
     }
 }
 
-/// An entry decodes inside the frame's node budget: a table is not a way
-/// to make the host build more than a frame's worth.
 impl<'de> Deserialize<'de> for Style {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct Bytes;
@@ -82,18 +74,11 @@ impl<'de> Deserialize<'de> for Style {
                 Ok(Style(bytes.into()))
             }
         }
-        crate::codec::spend_node().map_err(serde::de::Error::custom)?;
         match deserializer.is_human_readable() {
             true => StyleRefinement::deserialize(deserializer).map(|style| Style::new(&style)),
             false => deserializer.deserialize_bytes(Bytes),
         }
     }
-}
-
-pub(crate) fn decode_table<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Vec<Style>, D::Error> {
-    crate::bounded_vec(deserializer, MAX_STYLES, "more styles than the host holds")
 }
 
 /// Every refinement an entry holds and its fields, in the order the entry's
@@ -136,7 +121,7 @@ fn hash(bytes: &[u8]) -> u64 {
 
 const NONE: u32 = u32::MAX;
 
-/// The guest's half of the table: every distinct style its tree named,
+/// The view's half of the table: every distinct style its tree named,
 /// numbered in the order first met, and how many of them the host has.
 ///
 /// A style keeps its id from frame to frame, so two frames' nodes compare
@@ -320,9 +305,6 @@ impl Styles {
     /// once: all of them, or on a refusal none.
     /// [`sanitize`](crate::sanitize) does this with a frame's.
     pub fn extend(&mut self, entries: Vec<Style>) -> Result<(), &'static str> {
-        if self.held.len() + entries.len() > MAX_STYLES {
-            return Err("more styles than the host holds");
-        }
         let held = self.held.len();
         for entry in entries {
             let style = entry.read().and_then(|mut style| {
@@ -378,6 +360,7 @@ pub(crate) mod testing {
         if frame.styles.is_empty() {
             frame.styles = plain();
         }
-        crate::sanitize(frame, &mut Styles::default())
+        // what is refused: where is the location tests' business
+        crate::sanitize(frame, &mut Styles::default()).map_err(|refused| refused.reason().clone())
     }
 }

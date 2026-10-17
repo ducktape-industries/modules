@@ -99,20 +99,20 @@ impl<const N: usize> KeyCodec for [u8; N] {
 
 /// A principal in a table key: a tag byte, then an account's number
 /// big-endian, so accounts list by number and the chain after them.
-impl KeyCodec for guest::Principal {
+impl KeyCodec for program::Principal {
     fn encode_key(&self, out: &mut Vec<u8>) {
         match self {
-            guest::Principal::Account(number) => {
+            program::Principal::Account(number) => {
                 out.push(0);
                 number.encode_key(out);
             }
-            guest::Principal::Root => out.push(1),
+            program::Principal::Root => out.push(1),
         }
     }
     fn decode_key(bytes: &mut &[u8]) -> Option<Self> {
         match take(bytes, 1)? {
-            [0] => u64::decode_key(bytes).map(guest::Principal::Account),
-            [1] => Some(guest::Principal::Root),
+            [0] => u64::decode_key(bytes).map(program::Principal::Account),
+            [1] => Some(program::Principal::Root),
             _ => None,
         }
     }
@@ -158,11 +158,11 @@ mod tests {
         assert!(round_trip((7u64, "b".to_string())).starts_with(&head));
         assert!(round_trip((7u64, vec![1u8, 2], [9u8; 3])).starts_with(&head));
         assert!(round_trip((1u8, 2u16, 3u32, "s".to_string())).len() == 1 + 2 + 4 + 1 + 2);
-        let principals = [1, 2, 255, 256, 257, u64::MAX].map(guest::Principal::Account);
+        let principals = [1, 2, 255, 256, 257, u64::MAX].map(program::Principal::Account);
         let mut keys: Vec<Vec<u8>> = principals.iter().map(|p| round_trip(p.clone())).collect();
-        keys.push(round_trip(guest::Principal::Root));
+        keys.push(round_trip(program::Principal::Root));
         assert!(keys.is_sorted(), "accounts by number, then the chain");
-        assert_eq!(guest::Principal::decode_key(&mut &[2u8][..]), None);
+        assert_eq!(program::Principal::decode_key(&mut &[2u8][..]), None);
         assert_eq!(u64::decode_key(&mut &[1u8, 2][..]), None);
         assert_eq!(String::decode_key(&mut &[b'a'][..]), None, "unterminated");
         assert_eq!(Vec::<u8>::decode_key(&mut &[0, 1][..]), None, "bad escape");

@@ -4,17 +4,13 @@
 //! a time (`logs`), every other read whole (`data`).
 use std::collections::BTreeSet;
 
-use ducktape_view_guest::Paged;
-use ducktape_view_guest::prelude::*;
+use view::Paged;
+use view::prelude::*;
 
 use crate::queries::{self, PAGE};
 use crate::state::{ChangeTab, Filter, Forge, Progress, RepoTab};
-use forge::{ChangeFilter, ChangeState, PageRequest, Query, Revision};
-
-/// How many branches the Refs screen compares against the default head in
-/// one pass. Beyond that the screen says so rather than walking a fleet of
-/// refs through the program's compare budget.
-pub(crate) const COMPARED_REFS: usize = 20;
+use forge::{ChangeFilter, ChangeState, PageRequest, Query, Reply, Revision};
+use view::methods::HostBadge;
 
 impl Forge {
     pub(crate) fn session_changed(&mut self, next: Session, cx: &mut Context<Self>) {
@@ -71,8 +67,12 @@ impl Forge {
     /// the reads it wrote to. `None` is a reopened node link: everything is
     /// asked again.
     pub(crate) fn reconcile(&mut self, change: Option<&Change>, cx: &mut Context<Self>) {
+        if let Some(change) = change {
+            self.block = self.block.max(change.height);
+        }
         let pending = self.pending.len();
-        self.pending.retain(|op| op.progress != Progress::Accepted);
+        self.pending
+            .retain(|op| !matches!(op.progress, Progress::Accepted));
         if self.pending.len() != pending {
             cx.notify();
         }
@@ -190,6 +190,17 @@ impl Forge {
         cx.load(self, queries::roster(cx.host()), |forge| &mut forge.names);
     }
 
+    /// Read the open change's conversation again, as the reader asked
+    /// after a refusal.
+    pub(crate) fn retry_conversation(&mut self, cx: &mut Context<Self>) {
+        if let Some(channel) = self.open_channel() {
+            self.rereading_messages.remove(&channel);
+            self.messages.remove(&channel);
+        }
+        self.sync(cx);
+        cx.notify();
+    }
+
     /// Retry one read the reader asked to retry.
     pub(crate) fn retry(&mut self, query: Query, cx: &mut Context<Self>) {
         self.rereading.remove(&query);
@@ -202,14 +213,17 @@ impl Forge {
     /// Issue what this screen needs and drop what it does not.
     pub(crate) fn sync(&mut self, cx: &mut Context<Self>) {
         self.land_goto();
+        self.land_reveal();
         let needed = self.needed();
         let keys: BTreeSet<&Query> = needed.iter().collect();
         self.data.retain(|query, _| keys.contains(query));
+        self.diff_cache.drop_unshared();
         self.logs.retain(|query, _| keys.contains(query));
         self.rereading.retain(|query, _| keys.contains(query));
         for query in needed {
             self.read(query, cx);
         }
+        self.settle_badge(cx);
         let Some(channel) = self.open_channel() else {
             self.messages.clear();
             self.rereading_messages.clear();
@@ -224,17 +238,46 @@ impl Forge {
         }
     }
 
+    /// The host's badge for this program: a dot (1) while a change waits
+    /// on my judgment, none (0) otherwise; never a count. Posted when it
+    /// changes, from the judgment read every screen keeps (the next block
+    /// re-reads it, so the dot follows the chain).
+    fn settle_badge(&mut self, cx: &mut Context<Self>) {
+        let waiting = self
+            .judgment_query()
+            .and_then(|query| match self.ready(&query)? {
+                Reply::Judgment { page, .. } => Some(!page.items.is_empty()),
+                _ => None,
+            })
+            .unwrap_or(false);
+        let badge = i64::from(waiting);
+        if self.badge != Some(badge) {
+            self.badge = Some(badge);
+            cx.host().notify::<HostBadge>(badge);
+        }
+    }
+
     /// Every question the current screen has. A question whose arguments are
     /// not known yet (a tree needs its commit) simply is not asked until the
     /// read that answers it lands.
     fn needed(&self) -> Vec<Query> {
+        // what waits on my judgment, on every screen: the repositories
+        // page lists it first, and the host's badge (`host.badge`) says
+        // whether anything does while the view ticks (rule 16)
         let mut wanted = vec![Query::Repos { page: PAGE }];
+        wanted.extend(self.judgment_query());
         let Some(repo) = self.nav.repo.clone() else {
             return wanted;
         };
         wanted.push(self.repo_query());
         wanted.push(self.refs_query());
         wanted.push(Query::Activity { repo: repo.clone() });
+        // the tab bar says how many changes are open, whichever tab shows
+        wanted.extend(self.open_changes_query());
+        // the phone's new change form says how its endpoints compare
+        if self.touch {
+            wanted.extend(self.form_compare_query());
+        }
         match self.nav.change {
             Some(n) => wanted.extend(self.change_reads(&repo, n)),
             None => wanted.extend(self.tab_reads(repo)),
@@ -261,6 +304,8 @@ impl Forge {
                 let open = self.nav.blob.as_ref().map(|(_, oid)| blob(oid.clone()));
                 self.tree_queries().into_iter().chain(open).collect()
             }
+            // an unborn ref has no log to ask for
+            RepoTab::Commits if self.tree_query(Vec::new()).is_none() => Vec::new(),
             RepoTab::Commits => {
                 let open = self.nav.commit.as_deref();
                 std::iter::once(self.log_query())
@@ -272,7 +317,6 @@ impl Forge {
                 let head = self.head_name();
                 self.branches()
                     .into_iter()
-                    .take(COMPARED_REFS)
                     .filter(|name| *name != head)
                     .map(|name| Query::Compare {
                         repo: repo.clone(),
@@ -291,7 +335,8 @@ impl Forge {
     /// is known.
     fn commit_reads(&self, oid: &str) -> Vec<Query> {
         let mut wanted = Vec::new();
-        let held = self.logs.get(&self.log_query()).is_none_or(|(log, _)| {
+        let shown = self.shown_log().and_then(|log| self.logs.get(&log));
+        let held = shown.is_none_or(|(log, _)| {
             log.read(|log| log.is_loading() || log.rows().iter().any(|commit| commit.oid == oid))
         });
         if !held {
@@ -309,25 +354,19 @@ impl Forge {
             n,
             page: PAGE,
         }];
-        let (Some((_, source_head, _, _)), Some((from, into))) = (self.change(), self.endpoints())
-        else {
+        let (Some(_), Some(_)) = (self.change(), self.endpoints()) else {
             return wanted;
         };
         wanted.extend(self.compare_query());
         if self.nav.change_tab == ChangeTab::Commits {
-            // the change's own commits: what its target does not reach
-            wanted.push(crate::ui::commits::query(self, from, Some(into)));
+            // the change's own commits, and the one open from them
+            wanted.extend(self.shown_log());
+            let open = self.nav.commit.as_deref();
+            wanted.extend(open.into_iter().flat_map(|oid| self.commit_reads(oid)));
         }
-        if let (ChangeTab::Files, Some(head), Some(comparison)) =
-            (self.nav.change_tab, source_head.clone(), self.compare())
-        {
-            wanted.push(Query::Diff {
-                repo: repo.to_owned(),
-                base: comparison.base.clone(),
-                head,
-                path: None,
-                page: PAGE,
-            });
+        // the phone's strip counts the files on every tab, as Expo's does
+        if self.touch || self.nav.change_tab == ChangeTab::Files {
+            wanted.extend(self.diff_query());
         }
         wanted
     }
@@ -337,12 +376,7 @@ impl Forge {
     pub(crate) fn changes_query(&self, repo: &str) -> Option<Query> {
         let me = self.me_principal();
         let state = match self.filter {
-            Filter::Judgment => {
-                return Some(Query::Judgment {
-                    principal: me?,
-                    page: PAGE,
-                });
-            }
+            Filter::Judgment => return self.judgment_query(),
             Filter::Merged => Some(ChangeState::Merged),
             Filter::Closed => Some(ChangeState::Closed),
             Filter::Open => Some(ChangeState::Open),

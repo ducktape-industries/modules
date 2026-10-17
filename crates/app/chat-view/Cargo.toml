@@ -10,17 +10,23 @@ publish = false
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# Builds chat's notifier alone (`notifier.rs`, `export_notifier!`) in place
+# of the view: what a founding packs as the program's `ducktape.notify`
+# section. Never on in the view's build.
+notifier = []
+
 [dependencies]
-ducktape-view-guest.workspace = true
+view.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 ducklink.workspace = true
 chat = { path = "../chat" }
-# `role::Identity`: the identity program, followed by role, not linked
+identity.workspace = true
 program.workspace = true
 abi.workspace = true
 
 [dev-dependencies]
 # `examples/live.rs` and the chain-backed tests: the fake node
-ducktape-view-guest = { workspace = true, features = ["live"] }
+view = { workspace = true, features = ["rig"] }

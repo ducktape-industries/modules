@@ -1,15 +1,15 @@
-//! forge: a git server as a ducktape module, `gitcore` (objects, packs,
-//! walks, diffs, the wire) over `store`. The [`Forge`] module runs natively
-//! over `guest::MockHost` (tests, fixtures); the `module` feature adds its
+//! forge: a git server as a ducktape program, `gitcore` (objects, packs,
+//! walks, diffs, the wire) over `store`. The [`Forge`] program runs natively
+//! over `program::MockHost` (tests, fixtures); the `program` feature adds its
 //! wasm exports.
 //!
 //! A write is an [`Op`] run as a [`Principal`] (an account: the signer the
-//! host resolved, [`ExecCtx::sender`](guest::ExecCtx::sender), which refuses a
+//! host resolved, [`ExecCtx::sender`](program::ExecCtx::sender), which refuses a
 //! key that holds none), a read
 //! a [`Query`] answered by a [`Reply`]. The layout, in reading order:
 //!
 //! - `contract.rs`, `read_contract.rs`, `review_contract.rs`: the wire
-//! - `program.rs`: [`Forge`], the module: the signer resolved, then one
+//! - `program.rs`: [`Forge`], the program: the signer resolved, then one
 //!   match over every op and one over every query
 //! - `state.rs`: every table and index, declared once
 //! - `ops.rs`: the repository ops; `changes.rs` the change ops
@@ -40,11 +40,12 @@ mod program;
 
 pub use contract::*;
 pub use description::describe;
-pub use ops::MODULE;
+pub use objects::blob_id_of;
+pub use ops::PROGRAM;
 pub use program::Forge;
 
 /// Every table forge keeps, as a block's writes name them: what a follower
-/// of `module.changes` plays back in a test to say which a block touched.
+/// of `program.changes` plays back in a test to say which a block touched.
 pub mod tables {
     pub use crate::state::{
         ACTIVITY, AUTHORED, BOUNDS, CHANGES, INVOLVED, MESSAGES, NUMBERS, REFS, REPOS, REVIEWS,
