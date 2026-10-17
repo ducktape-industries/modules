@@ -43,7 +43,7 @@ fn the_overview_shows_the_head_and_the_latest_blocks_and_transactions() {
         cx.host().requests::<ChainBlocks>(),
         vec![BlockPage {
             before: None,
-            limit: u32::MAX,
+            limit: WINDOW as u32,
             most: 0,
         }],
         "13 blocks is the whole archive: one page"
