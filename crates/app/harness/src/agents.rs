@@ -1,16 +1,17 @@
 //! The agents harness runs: program accounts of the agent category whose script calls harness.
 //! An agent's setup is what identity says of it, its configuration file in `files` read at the
-//! head, and the model record that file names. A mention or a direct message it answers opens
-//! or continues its thread for that place, and its manager closes a thread.
+//! head, and the model record that file names. A mention or a direct message it answers
+//! continues its one current thread, from any place, and its manager closes a thread.
 use ::program::{
     BlobId, Ctx, Error, ExecCtx, Principal, QueryCtx, not_found, unauthorized, unexpected_reply,
 };
 use abi::role::identity::{AccountNumber, Category, Kind, Profile, Standing};
 use attribution::{Actor, Change, Kind as Changed, Reason, Source};
 
-use crate::state::{BY_AGENT, COUNT, LAST, MODELS, PLACES, THREADS, newest_first};
+use crate::conversations::{conversation, current};
+use crate::state::{LAST, MODELS, PLACES, THREADS};
 use crate::turns::{converse, say};
-use crate::{AgentSetup, Asking, Body, Config, Configured, Context, PROGRAM, ThreadRow};
+use crate::{AgentSetup, Body, Config, Configured, PROGRAM, ThreadRow};
 
 pub(crate) struct Agent {
     pub number: AccountNumber,
@@ -22,7 +23,7 @@ pub(crate) struct Agent {
 fn acting(ctx: &ExecCtx) -> Result<AccountNumber, Error> {
     match ctx.sender()? {
         Principal::Account(number) => Ok(number),
-        Principal::Root => Err(unauthorized("a thread is closed by its agent's manager")),
+        Principal::Root => Err(unauthorized("an agent's threads are its manager's")),
     }
 }
 
@@ -127,13 +128,29 @@ pub(crate) fn setup(ctx: &QueryCtx, number: AccountNumber) -> Result<Option<Agen
         return Ok(None);
     };
     let configured = configured(ctx, &agent.path)?;
+    let current = current(ctx, agent.number)?.map(|thread| thread.id);
     Ok(Some(AgentSetup {
         agent: agent.number,
         manager: agent.manager,
         standing,
         path: agent.path,
         configured,
+        current,
     }))
+}
+
+pub(crate) fn managed(ctx: &ExecCtx, number: AccountNumber) -> Result<Agent, Error> {
+    let Some((agent, _)) = profile(ctx, number)?.as_ref().and_then(harnessed) else {
+        return Err(not_found(format!(
+            "account {number} is no agent whose script calls harness"
+        )));
+    };
+    if acting(ctx)? != agent.manager {
+        return Err(unauthorized(format!(
+            "agent {number}'s conversations are its manager's to start"
+        )));
+    }
+    Ok(agent)
 }
 
 fn ownership(ctx: &QueryCtx, agent: AccountNumber) -> Result<identity::Ownership, Error> {
@@ -185,8 +202,10 @@ pub(crate) fn manual(agent: &Agent, title: &str) -> String {
     format!(
         "ducktape resource manual\n\
          - Account: {name}, account {number}, managed by account {manager}.\n\
-         - Conversation: {title}. Each message that reaches this conversation names who wrote \
-         it and where.\n\
+         - Conversation: {title}. It is your one conversation: every message to you, from \
+         every person and every place (channels, direct messages, threads), arrives here and \
+         names who wrote it and where. Answer each where it came from: chat_post to its \
+         channel, with reply_to for its thread.\n\
          - Writes: everything written here is written as account {number}, sent by harness, \
          and the network allows only what it allows that account or harness.\n\
          - Tools: each tool call runs in a later block, and its result arrives before the next \
@@ -200,47 +219,8 @@ pub(crate) fn manual(agent: &Agent, title: &str) -> String {
     )
 }
 
-fn opened(ctx: &ExecCtx, agent: &Agent, place: String, title: String) -> Result<ThreadRow, Error> {
-    if let Some(id) = PLACES.get(ctx, &(agent.number, place.clone()))? {
-        let existing = thread(ctx, id)?;
-        if !existing.closed {
-            return Ok(existing);
-        }
-    }
-    let id = COUNT.get(ctx)?.unwrap_or(0) + 1;
-    let row = ThreadRow {
-        id,
-        agent: agent.number,
-        manager: agent.manager,
-        place: place.clone(),
-        title,
-        opened: ctx.env().height,
-        closed: false,
-        frames: 0,
-        last_input: 0,
-        seen: 0,
-        last_stop: None,
-        asking: Asking::Idle,
-        open_calls: 0,
-        held: 0,
-        sealed: 0,
-        base: 1,
-        tail_from: 1,
-        summary: None,
-        context: Context::Measured(0),
-        compact_before: None,
-        last_height: 0,
-        last_time: 0,
-    };
-    COUNT.put(ctx, &id);
-    BY_AGENT.insert(ctx, &(agent.number, newest_first(id)));
-    PLACES.put(ctx, &(agent.number, place), &id);
-    Ok(row)
-}
-
 struct Designation {
     place: String,
-    title: String,
     text: String,
 }
 
@@ -278,11 +258,7 @@ fn designation(
             "{who} related you to {program}'s {} {} ({:?}).",
             object.kind, object.id, change.reason
         );
-        return Ok(Designation {
-            title: place.clone(),
-            place,
-            text,
-        });
+        return Ok(Designation { place, text });
     };
     let verb = match &change.reason {
         Reason::Mention => "mentioned you",
@@ -300,7 +276,6 @@ fn designation(
     );
     Ok(Designation {
         place: format!("{}/{}", chat::PROGRAM, row.channel_id),
-        title: format!("chat channel {}", row.channel_id),
         text,
     })
 }
@@ -345,8 +320,9 @@ fn heard(ctx: &ExecCtx, change: Change) -> Result<Option<u64>, Error> {
         &agent.number,
         &(change.source.clone(), change.revision),
     );
-    let Designation { place, title, text } = designation(ctx, &change, actor)?;
-    let mut thread = opened(ctx, &agent, place, title)?;
+    let Designation { place, text } = designation(ctx, &change, actor)?;
+    let mut thread = conversation(ctx, &agent, &place)?;
+    PLACES.put(ctx, &(agent.number, place), &thread.id);
     let author = Principal::Account(actor);
     say(ctx, &mut thread, Body::Post { author, text });
     THREADS.put(ctx, &thread.id, &thread);

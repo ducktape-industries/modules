@@ -1,7 +1,7 @@
 //! One agent: who it is, its configuration file and what harness resolves from it (the
-//! configuration and its model, or what is wrong), who it answers, its threads by place and
-//! what its turns used. Its manager edits its configuration from here, or takes it back from
-//! harness.
+//! configuration and its model, or what is wrong), who it answers, its conversations and what
+//! its turns used. Its manager edits its configuration, starts or forks a conversation, or
+//! takes it back from harness.
 use harness::{AgentSetup, Configured, Thinking};
 use identity::{Ownership, Party};
 use view::FontWeight;
@@ -10,9 +10,9 @@ use view::design::{size, space, text};
 use view::prelude::*;
 
 use super::{
-    agent_state, asking, back, caption, context_words, fact, no_node, panel, place_label,
-    snapshot_words, state_badge, thinking_picker, thinking_words, usage_words, waiting,
-    window_words,
+    agent_state, asking, back, began_words, caption, context_words, conversation_label, fact,
+    no_node, panel, snapshot_words, state_badge, thinking_picker, thinking_words, usage_words,
+    waiting, window_words,
 };
 use crate::read::{self, Roster};
 use crate::{Agents, Arm, Screen, State, thread_state};
@@ -148,7 +148,15 @@ fn detail(
             )
         }))
         .child(system_prompt(&setup, theme))
-        .child(threads(detail, roster, window.flatten(), cx, theme, ladder))
+        .child(threads(
+            view,
+            detail,
+            roster,
+            window.flatten(),
+            cx,
+            theme,
+            ladder,
+        ))
         .child(
             div()
                 .flex()
@@ -413,6 +421,7 @@ fn removing(
 }
 
 fn threads(
+    view: &Agents,
     detail: &crate::read::Detail,
     roster: &Roster,
     window: Option<u64>,
@@ -420,8 +429,11 @@ fn threads(
     theme: &Theme,
     ladder: &Ladder,
 ) -> impl IntoElement + use<> {
+    let current = detail.setup.as_ref().and_then(|setup| setup.current);
     let rows = detail.threads.iter().map(|(thread, usage)| {
         let id = thread.id;
+        let is_current = current == Some(id);
+        let began = began_words(thread, Some(roster));
         let state = match thread.closed {
             true => "Closed".to_owned(),
             false => asking(thread.asking),
@@ -450,9 +462,27 @@ fn threads(
             )
             .child(
                 div()
-                    .w(px(160.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(place_label(thread, Some(roster))),
+                    .w(px(220.))
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(space::XS)
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(conversation_label(thread))
+                            .when(is_current, |label| {
+                                label.child(design::badge(
+                                    SharedString::from(format!("thread-{id}-current")),
+                                    "Current",
+                                    ladder,
+                                    theme.agent,
+                                    theme.agent_soft,
+                                ))
+                            }),
+                    )
+                    .children(began.map(|began| caption(began, &theme))),
             )
             .child(
                 div()
@@ -484,19 +514,53 @@ fn threads(
                 &theme,
             ))
     });
+    let manages = detail
+        .setup
+        .as_ref()
+        .is_some_and(|setup| view.me == Some(setup.manager));
+    let agent = detail.setup.as_ref().map(|setup| setup.agent);
+    let actions = agent.filter(|_| manages).map(|agent| {
+        let renew = cx.listener(move |view: &mut Agents, _: &ClickEvent, _, cx| {
+            view.converse(harness::Op::NewThread { agent }, cx)
+        });
+        let fork = cx.listener(move |view: &mut Agents, _: &ClickEvent, _, cx| {
+            view.converse(harness::Op::ForkThread { agent }, cx)
+        });
+        let idle = view.acting.is_none();
+        div()
+            .flex()
+            .gap(space::SM)
+            .child(
+                design::button("agent-new-thread", "New conversation", ladder, theme, renew)
+                    .enabled(idle),
+            )
+            .child(
+                design::button("agent-fork-thread", "Fork", ladder, theme, fork)
+                    .enabled(idle && current.is_some()),
+            )
+    });
     div()
         .flex()
         .flex_col()
         .gap(space::XS)
-        .child(design::heading("agent-threads", "Threads", 2, theme))
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .justify_between()
+                .gap(space::SM)
+                .child(design::heading("agent-threads", "Conversations", 2, theme))
+                .children(actions),
+        )
         .child(caption(
-            "One thread per place, so each channel has a context of its own.",
+            "One conversation at a time: every person and every place continue the current one, and each reply goes back where its message came from. New conversation starts from nothing; Fork starts from the current one's context. A conversation no longer current closes once it is idle, and stays readable.",
             theme,
         ))
         .children(rows)
         .when(detail.threads.is_empty(), |list| {
             list.child(design::quiet(
-                "No thread yet: a mention or a direct message opens one.",
+                "No conversation yet: a mention or a direct message opens one.",
                 theme,
             ))
         })

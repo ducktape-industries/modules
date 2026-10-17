@@ -8,6 +8,7 @@
 mod agents;
 mod codec;
 pub mod config;
+mod conversations;
 mod models;
 mod program;
 mod queries;
@@ -51,6 +52,12 @@ pub enum Op {
     Streamed {
         thread: u64,
         event: Event,
+    },
+    NewThread {
+        agent: AccountNumber,
+    },
+    ForkThread {
+        agent: AccountNumber,
     },
 }
 
@@ -102,6 +109,7 @@ pub struct AgentSetup {
     pub standing: Standing,
     pub path: String,
     pub configured: Configured,
+    pub current: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
@@ -504,6 +512,14 @@ pub fn describe(op: &Op) -> describe::Description {
             format!("Remove model · {id}"),
             vec![field("model", Value::text(id))],
         ),
+        Op::NewThread { agent } => (
+            format!("Start a new conversation with agent {agent}"),
+            vec![field("agent", Value::count(*agent))],
+        ),
+        Op::ForkThread { agent } => (
+            format!("Fork agent {agent}'s conversation"),
+            vec![field("agent", Value::count(*agent))],
+        ),
         Op::Streamed { thread, event } => (
             format!("Event {} of thread {thread}'s model reply", event.seq),
             vec![field("data", Value::count(event.data.len() as u64))],
@@ -518,7 +534,15 @@ describe::export!(Op, describe);
 fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
-        ["Close", "Attributed", "SetModel", "RemoveModel", "Streamed"]
+        [
+            "Close",
+            "Attributed",
+            "SetModel",
+            "RemoveModel",
+            "Streamed",
+            "NewThread",
+            "ForkThread"
+        ]
     );
 }
 

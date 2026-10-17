@@ -145,6 +145,7 @@ fn the_agent_query_resolves_what_harness_runs_an_account_with() {
                 config,
                 model,
             },
+        current: None,
     }) = setup(chain, world.agent)
     else {
         panic!("{:?}", setup(chain, world.agent));

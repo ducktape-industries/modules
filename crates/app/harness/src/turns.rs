@@ -10,6 +10,7 @@ use abi::role::egress::{self, RELAY, http};
 use serde_json::Value;
 
 use crate::agents::{Agent, configured, manual, running, thread};
+use crate::conversations::retire;
 use crate::models::learned;
 use crate::state::{CALLS, FRAMES, HELD, PARTIALS, SEALED, THREADS, WITHHELD};
 use crate::tools::{self, Run, Seat};
@@ -348,6 +349,9 @@ enum Step {
 
 pub(crate) async fn converse(ctx: &Ctx, id: u64) {
     if let Err(error) = drive(ctx, id).await {
+        stall(ctx, id, &error);
+    }
+    if let Err(error) = retire(ctx, id) {
         stall(ctx, id, &error);
     }
 }

@@ -1,3 +1,4 @@
+mod conversations;
 mod thinking;
 
 use std::cell::RefCell;
@@ -111,6 +112,7 @@ fn setup(agent: u64, name: &str, manager: u64, window: Window) -> AgentSetup {
             config: config_of(name),
             model: model_row(window),
         },
+        current: None,
     }
 }
 
@@ -120,7 +122,7 @@ fn thread(id: u64, agent: u64, manager: u64, place: &str) -> ThreadRow {
         agent,
         manager,
         place: place.into(),
-        title: place.into(),
+        title: format!("conversation {id}"),
         opened: 8960,
         closed: false,
         frames: 0,
@@ -197,8 +199,14 @@ impl Default for Net {
                 agent(ATLAS, "Atlas", ADA, true),
             ],
             setups: vec![
-                setup(SCOUT, "Scout", EDDY, Window::Tokens(200_000)),
-                setup(ATLAS, "Atlas", ADA, Window::Tokens(200_000)),
+                AgentSetup {
+                    current: Some(7),
+                    ..setup(SCOUT, "Scout", EDDY, Window::Tokens(200_000))
+                },
+                AgentSetup {
+                    current: Some(9),
+                    ..setup(ATLAS, "Atlas", ADA, Window::Tokens(200_000))
+                },
             ],
             models: vec![model_row(Window::Tokens(200_000))],
             threads: vec![general, release, thread(9, ATLAS, ADA, "chat/deploys")],
@@ -443,7 +451,7 @@ fn the_list_shows_each_agent_with_its_state() {
         "Scout",
         "Eddy (you)",
         "Working",
-        "#general · Waiting for the model",
+        "Conversation 7 · Waiting for the model",
         "1 open · 1 closed",
         "Pager",
         "Not handed to harness",
@@ -591,7 +599,7 @@ fn a_thread_shows_its_transcript_calls_and_usage() {
     cx.simulate_click("thread-7");
     cx.run_until_parked();
     for text in [
-        "#general",
+        "Conversation 7",
         "Waiting for the model",
         "Ada mentioned you in chat channel general:\nWhy is payments slow?",
         "Reading the deploy log first.",
@@ -730,7 +738,7 @@ fn close_and_take_back_are_the_managers_alone() {
     assert!(cx.find("agent-edit").is_none());
     cx.simulate_click("thread-7");
     cx.run_until_parked();
-    assert!(cx.has_text("#general"), "{:?}", cx.texts());
+    assert!(cx.has_text("Conversation 7"), "{:?}", cx.texts());
     assert!(cx.find("thread-close").is_none());
 
     let (mut cx, _) = seated(Net::default(), EDDY);
@@ -744,7 +752,7 @@ fn close_and_take_back_are_the_managers_alone() {
     cx.simulate_click("thread-close");
     cx.run_until_parked();
     assert!(
-        cx.has_text("Close this thread? The next mention opens a new thread with fresh context."),
+        cx.has_text("Close this conversation? It is the agent's current one, so the next message to the agent opens a new conversation with fresh context."),
         "{:?}",
         cx.texts()
     );
@@ -1195,8 +1203,8 @@ fn the_agent_shows_its_configuration_model_threads_and_usage() {
         "Only Eddy",
         "2 · 1 write as Scout",
         "You are Scout.",
-        "#general",
-        "#release",
+        "began in #general",
+        "began in #release",
         "Closed",
         "input 1,204 · output 312 · cache read 38,410 · cache write 0 · all 39,926",
     ] {
@@ -1228,7 +1236,7 @@ fn an_agent_whose_configuration_harness_cannot_run_says_what_is_wrong() {
     assert!(cx.has_text(problem), "{:?}", cx.texts());
     assert!(
         cx.has_text(
-            "thread 7 · opened at block 8,960 · asks no model until its configuration is fixed"
+            "thread 7 · opened at block 8,960 · began in #general · asks no model until its configuration is fixed"
         ),
         "{:?}",
         cx.texts()
@@ -1279,7 +1287,7 @@ fn a_work_link_opens_its_thread() {
         .stream::<HostRoute>()
         .send("12/chat/general".into());
     cx.run_until_parked();
-    assert!(cx.has_text("#general"), "{:?}", cx.texts());
+    assert!(cx.has_text("Conversation 7"), "{:?}", cx.texts());
     assert!(
         cx.has_text("Reading the deploy log first."),
         "{:?}",
