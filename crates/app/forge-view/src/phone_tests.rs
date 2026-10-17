@@ -376,11 +376,28 @@ fn start_review_pins_a_review_and_opens_the_files() {
     assert!(cx.has_text("Tick a file once you have read it."));
 }
 
+/// The host's capsule beside the title row draws `ellipsis` and is named
+/// More: a change's own Actions draw `ellipsis-vertical` and say Actions.
 #[test]
-fn more_offers_edit_close_and_copy_link_and_close_asks_again() {
+fn a_changes_actions_are_not_drawn_as_the_capsules_more() {
+    let cx = change("default");
+    let row = format!("{:?}", cx.node("forge-page-change-title"));
+    assert!(!row.contains("icons/ellipsis.svg"), "{row}");
+    let actions = format!("{:?}", cx.node("forge-change-more"));
+    assert!(actions.contains("icons/ellipsis-vertical.svg"), "{actions}");
+    let name = &cx.interactivity("forge-change-more").aria.label;
+    assert_eq!(name.as_deref(), Some("Actions"));
+}
+
+#[test]
+fn actions_offer_edit_close_and_copy_link_and_close_asks_again() {
     let mut cx = change("default");
     press(&mut cx, "forge-change-more");
-    assert!(cx.find("forge-change-actions").is_some());
+    assert!(
+        matches!(cx.node("forge-change-actions"),
+            view::wire::Node::Sheet { label: Some(label), .. } if label == "Actions"),
+        "the sheet is named as its control"
+    );
     assert!(cx.find("forge-change-edit").is_some());
     assert!(cx.find("forge-change-copy-link").is_some());
     press(&mut cx, "forge-change-close");

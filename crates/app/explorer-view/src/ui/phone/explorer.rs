@@ -65,7 +65,7 @@ fn network_and_me(view: &Explorer) -> Option<String> {
 }
 
 /// The title row: "Explorer", its caption, Search, and on the Programs
-/// page More ([`super::programs::more`]).
+/// page Add ([`super::programs::add`]).
 fn titled(view: &Explorer, cx: Cx, k: &Look) -> design::Page {
     let open = cx.listener(|view: &mut Explorer, _: &ClickEvent, window, cx| {
         view.searching = true;
@@ -94,7 +94,7 @@ fn titled(view: &Explorer, cx: Cx, k: &Look) -> design::Page {
         None => page,
     };
     match view.pages.first() {
-        Route::Programs => super::programs::more(view, page, cx, k),
+        Route::Programs => super::programs::add(view, page, cx, k),
         _ => page,
     }
 }

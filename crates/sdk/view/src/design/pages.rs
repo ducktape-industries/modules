@@ -290,7 +290,12 @@ impl Page {
         self
     }
     /// A control of the page itself at the row's end (New, Copy, Edit,
-    /// a search, ‹ ›), sized by the caller to the ladder.
+    /// a search, ‹ ›), sized by the caller to the ladder. Under a finger
+    /// the host's capsule sits just past it, its `ellipsis` the program's
+    /// More: a control here draws what is behind it (`plus` where every
+    /// write behind it creates, `pencil` where every one edits,
+    /// `ellipsis-vertical` for a mix), never `ellipsis`, or the two read
+    /// as one control.
     pub fn trailing(mut self, control: impl IntoElement) -> Self {
         self.trailing.push(control.into_any_element());
         self

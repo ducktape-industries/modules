@@ -668,7 +668,7 @@ fn a_name_the_programs_role_does_not_hold_says_so() {
 }
 
 #[test]
-fn more_offers_a_grant_to_a_reader_with_voices() {
+fn add_offers_a_grant_to_a_reader_with_voices() {
     let mut cx = reader(Some(3), ADA, true, grants(), waiting());
     phone(&mut cx);
     click(&mut cx, "explorer-more");
@@ -680,16 +680,35 @@ fn more_offers_a_grant_to_a_reader_with_voices() {
 }
 
 #[test]
-fn more_offers_add_to_a_holder_of_every_program() {
+fn add_offers_a_program_to_a_holder_of_every_program() {
     let mut cx = reader(Some(5), STRANGER, false, grants(), waiting());
     phone(&mut cx);
     click(&mut cx, "explorer-more");
+    assert!(
+        matches!(cx.node("explorer-more-sheet"),
+            view::wire::Node::Sheet { label: Some(label), .. } if label == "Add"),
+        "the sheet is named as its control"
+    );
     shows(&cx, "Add a program");
     shows(&cx, "by your grant");
 }
 
+/// The host's capsule beside the title row draws `ellipsis` and is named
+/// More: what the reader may add is a `plus` named Add.
 #[test]
-fn a_reader_with_no_grant_and_no_voice_has_no_more() {
+fn add_is_a_plus_not_the_capsules_more() {
+    let mut cx = reader(Some(5), STRANGER, true, grants(), waiting());
+    phone(&mut cx);
+    let row = format!("{:?}", cx.node("explorer-root-title"));
+    assert!(!row.contains("icons/ellipsis.svg"), "{row}");
+    let add = format!("{:?}", cx.node("explorer-more"));
+    assert!(add.contains("icons/plus.svg"), "{add}");
+    let name = &cx.interactivity("explorer-more").aria.label;
+    assert_eq!(name.as_deref(), Some("Add"));
+}
+
+#[test]
+fn a_reader_with_no_grant_and_no_voice_has_no_add() {
     let mut cx = reader(None, STRANGER, false, grants(), waiting());
     phone(&mut cx);
     assert!(cx.find("explorer-more").is_none());

@@ -1,6 +1,6 @@
 //! A change (Expo `app/(tabs)/forge/[repo]/changes/[n]/index.tsx`, boards
 //! 68, 69; its tab bodies in `src/forge/change.tsx`): `<title> · #n` over
-//! its repository and endpoints, More behind ⋯ (Edit, Close, Copy link);
+//! its repository and endpoints, Actions behind ⋮ (Edit, Close, Copy link);
 //! its state and who wants what; Conversation · Commits · Files ·
 //! Details. The conversation ends in the Merge / review bar and the
 //! reply box.
@@ -41,17 +41,17 @@ pub(super) fn render(
         ),
         None => (format!("#{n}"), repo.clone()),
     };
-    let more =
+    let actions =
         cx.listener(|forge, _: &ClickEvent, _, cx| forge.open_sheet(Sheet::ChangeActions, cx));
     let page = design::page("forge-page-change", title, nav, ladder, theme)
         .caption(caption)
         .trailing(design::icon_button(
             id("forge-change-more"),
-            design::icon("ellipsis", ladder.icon),
-            "More",
+            design::icon("ellipsis-vertical", ladder.icon),
+            words::ACTIONS,
             ladder,
             theme,
-            more,
+            actions,
         ))
         .children(parts::notices(forge, ladder, theme));
     let Some((change, source_head, _, _)) = forge.change() else {
@@ -1083,9 +1083,9 @@ fn channel_row(
     .into_any_element()
 }
 
-// ------------------------------------------------------------------ More
+// --------------------------------------------------------------- Actions
 
-/// What an open change offers behind ⋯ (`Sheet`): Edit to its author,
+/// What an open change offers behind ⋮ (`Sheet`): Edit to its author,
 /// Close to a writer, Copy link to all. Close asks again on the sheet
 /// itself (the Expo app's `Dialog`): "Close for good".
 pub(super) fn actions_sheet(
@@ -1100,7 +1100,7 @@ pub(super) fn actions_sheet(
         true => close_for_good(cx, ladder, theme),
         false => actions(forge, cx, ladder, theme),
     };
-    design::sheet(id("forge-change-actions"), "More", ladder, theme)
+    design::sheet(id("forge-change-actions"), words::ACTIONS, ladder, theme)
         .on_dismiss(dismiss)
         .child(body)
         .into_any_element()
