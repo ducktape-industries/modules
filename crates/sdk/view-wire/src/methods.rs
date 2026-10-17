@@ -563,7 +563,8 @@ pub struct Pick {
     pub multiple: bool,
 }
 /// One file the person picked: its own name, never where it is on the
-/// device; its size as picked; and the handle `file.read` reads it by.
+/// device; its size as picked; and the handle a [`BlobBody::Picked`] names
+/// it by.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
 pub struct Picked {
@@ -571,19 +572,34 @@ pub struct Picked {
     pub size: u64,
     pub file: u64,
 }
-/// What `file.read` asks: `len` bytes of a picked file from `offset`, at
-/// most [`FILE_READ_MOST`].
+/// What `op.put` asks: blobs to put on the network as one bundle, in the
+/// person's name.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
-pub struct ReadFile {
-    /// a [`Picked::file`] of the view's latest pick
-    pub file: u64,
-    pub offset: u64,
-    pub len: u64,
+pub struct PutBlobs {
+    pub blobs: Vec<NewBlob>,
 }
-/// The most bytes one `file.read` answers: a view holds a picked file a
-/// slice at a time, never whole.
-pub const FILE_READ_MOST: u64 = 1 << 20;
+/// One blob of a [`PutBlobs`]: its kind (the program that names it reads
+/// the kind, as files reads `chunk`) and its bytes, at most [`BLOB_MOST`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub struct NewBlob {
+    pub kind: String,
+    pub body: BlobBody,
+}
+/// Where a [`NewBlob`]'s bytes come from.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum BlobBody {
+    /// bytes the view holds
+    Bytes(Vec<u8>),
+    /// `len` bytes from `offset` of a file of the view's latest pick
+    /// ([`Picked::file`]): they go from the file to the node, never through
+    /// the view
+    Picked { file: u64, offset: u64, len: u64 },
+}
+/// The most bytes one blob of an `op.put` holds.
+pub const BLOB_MOST: u64 = 1 << 20;
 /// One notice for the host to decide on: `notify.post`. The view asks; the
 /// host logs it in its notification centre and decides whether a banner
 /// reaches the screen (the person's per-view choice, focus, a burst limit).
@@ -1051,20 +1067,30 @@ methods! {
     MicrophoneChime, "microphone.chime", Option<String>, ();
     /// `file.pick`: the person picks files on this device in the system's
     /// own picker ([`Pick`]), answered with each one picked ([`Picked`]);
-    /// cancelled, none. The host holds the files picked open for the view
-    /// to read (`file.read`) until it picks files again (a cancelled pick
-    /// keeps them) or goes away. Only a
-    /// press or key opens the picker: a request without one is refused
-    /// `needs_gesture`. A host whose system has no picker, or a pick it
-    /// cannot open (one that is not a file), is refused
-    /// [`refusal::HOST_FAULT`], naming the file by its name alone.
+    /// cancelled, none. The host holds the files picked open for the view's
+    /// `op.put` ([`BlobBody::Picked`]) until it picks files again (a
+    /// cancelled pick keeps them) or goes away. Only a press or key opens
+    /// the picker: a request without one is refused `needs_gesture`. A host
+    /// whose system has no picker, or a pick it cannot open (one that is
+    /// not a file), is refused [`refusal::HOST_FAULT`], naming the file by
+    /// its name alone.
     FilePick, "file.pick", Pick, Vec<Picked>;
-    /// `file.read`: bytes of a file of the view's latest pick
-    /// ([`ReadFile`]), at most [`FILE_READ_MOST`] of them; fewer only where
-    /// the file ends. A handle not of the latest pick is refused
-    /// [`refusal::MALFORMED_REQUEST`]; a file that cannot be read, or whose
-    /// size is no longer the one picked, [`refusal::HOST_FAULT`].
-    FileRead, "file.read", ReadFile, Vec<u8>;
+    /// `op.put`: the blobs of a [`PutBlobs`] put on the network as one
+    /// bundle, signed by the person's account, answered with each blob's id
+    /// in order (`BlobId::Sha256` of the digest) once the network holds the
+    /// bundle (the blobs role's `Held`), so an op naming them may follow at
+    /// once. The host frames
+    /// each blob with its kind and sends the bytes on the node's blob
+    /// upload: the bundle's op carries each blob's id, length and kind,
+    /// never its bytes. It is an op in the person's name (`op`); a
+    /// [`BlobBody::Picked`] names a handle only `file.pick` (`file`) makes.
+    /// The host builds the op itself, so a view can only ask it to keep
+    /// bytes, and no confirm card asks. No blob, a blob over [`BLOB_MOST`],
+    /// or a handle not of the latest pick is refused
+    /// [`refusal::MALFORMED_REQUEST`]; a picked file that cannot be read,
+    /// or whose size is no longer the one picked,
+    /// [`refusal::HOST_FAULT`]; a put the node refuses, with its refusal.
+    OpPut, "op.put", PutBlobs, Vec<[u8; 32]>;
 }
 
 /// The `<capability>` half of every kind in [`ALL`]: what a view's manifest
@@ -1117,9 +1143,9 @@ pub enum Capability {
     /// (`microphone.devices`) and plays the test chime on a speaker
     /// (`microphone.chime`).
     Microphone,
-    /// The view asks the person for files on this device (`file.pick`)
-    /// and reads them (`file.read`): what they pick, by name, and nothing
-    /// else of the device's.
+    /// The view asks the person for files on this device (`file.pick`) and
+    /// puts them on the network (`op.put`): what they pick, by name, and
+    /// nothing else of the device's.
     File,
 }
 
