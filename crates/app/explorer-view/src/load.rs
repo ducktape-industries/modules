@@ -182,8 +182,9 @@ impl Explorer {
     /// starts it again, nor reads on while it is out. Its first page is
     /// asked alone instead (`first`), and one that starts with a row it
     /// does not hold marks it [`behind`](Listing::behind) until it starts
-    /// over ([`show_newest`](Self::show_newest), or arriving on a page). A
-    /// listing whose first page is still on its way is left to land.
+    /// over ([`show_newest`](Self::show_newest), or arriving on a page), or
+    /// is back to one page (a page refused empties it). A listing whose
+    /// first page is still on its way is left to land.
     fn reread_first<F>(
         &mut self,
         first: impl FnOnce() -> F,
@@ -195,17 +196,24 @@ impl Explorer {
         let Some(held) = listing(self) else {
             return;
         };
-        if held.behind || held.rows.read(Paged::is_loading) {
+        if held.rows.read(Paged::is_loading) {
             return;
         }
+        // a listing back to one page (a refused page empties it) is read
+        // again whatever it was told before
         if !held.past_first_page() {
+            held.behind = false;
             return held.rows.update(cx, |rows, cx| rows.reread(cx));
+        }
+        if held.behind {
+            return;
         }
         let newest = held.rows.read(|rows| rows.rows().first().cloned());
         let checked = cx.land(first(), move |view, page, cx| match page {
             Ok((rows, _)) => {
                 if rows.first() != newest.as_ref()
                     && let Some(listing) = listing(view)
+                    && listing.past_first_page()
                 {
                     listing.behind = true;
                     cx.notify();

@@ -307,6 +307,38 @@ fn a_list_read_on_says_when_newer_transactions_landed_above_it() {
     assert!(cx.find(&frame(61)).is_some(), "{:?}", cx.texts());
 }
 
+/// A list behind whose next page is refused shows the refusal in place of
+/// its rows; Retry reads it anew from its first page, the newest with it.
+#[test]
+fn a_list_behind_whose_next_page_is_refused_reads_anew_on_retry() {
+    let (mut cx, blocks) = long_activity(5_000, |_| "chat");
+    let write = writes(&cx);
+    cx.open::<Explorer>();
+    cx.run_until_parked();
+    cx.simulate_click("explorer-tab-transactions");
+    cx.run_until_parked();
+    cx.simulate_range("explorer-transactions-list", 40..51);
+    cx.run_until_parked();
+    blocks.borrow_mut().push(recorded(5_001, "chat"));
+    write(&mut cx);
+    assert!(cx.has_text("Newer transactions"), "{:?}", cx.texts());
+    cx.host()
+        .refuse::<Query<Activity>>("unavailable", "the node is busy");
+    let count = frames_asked(&cx).len();
+    cx.simulate_range("explorer-transactions-list", 90..101);
+    cx.run_until_parked();
+    assert!(cx.has_text("the node is busy"), "{:?}", cx.texts());
+    let served = blocks.clone();
+    index(&cx, move || served.borrow().clone());
+    let read = frames_asked(&cx).len();
+    assert!(read > count, "the next page was asked");
+    cx.simulate_click("explorer-retry");
+    cx.run_until_parked();
+    assert_eq!(frames_asked(&cx)[read..], [None], "its first page again");
+    assert!(cx.find(&frame(5_001)).is_some(), "{:?}", cx.texts());
+    assert!(!cx.has_text("Newer transactions"), "{:?}", cx.texts());
+}
+
 /// A page is asked below the last frame read, not at an offset: frames
 /// landed above the rows read skip none below them and repeat none.
 #[test]
