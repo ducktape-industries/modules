@@ -24,13 +24,6 @@ pub(crate) struct Agent {
     pub path: String,
 }
 
-fn acting(ctx: &ExecCtx) -> Result<AccountNumber, Error> {
-    match ctx.sender()? {
-        Principal::Account(number) => Ok(number),
-        Principal::Root => Err(unauthorized("an agent's threads are its manager's")),
-    }
-}
-
 fn profile(ctx: &QueryCtx, number: AccountNumber) -> Result<Option<Profile>, Error> {
     use abi::role::identity::{Query, Reply};
     let identity = &ctx.env().role(abi::role::IDENTITY)?.clone();
@@ -143,18 +136,27 @@ pub(crate) fn setup(ctx: &QueryCtx, number: AccountNumber) -> Result<Option<Agen
     }))
 }
 
+pub(crate) fn harnessed_agent(
+    ctx: &QueryCtx,
+    number: AccountNumber,
+) -> Result<Option<Agent>, Error> {
+    Ok(profile(ctx, number)?
+        .as_ref()
+        .and_then(harnessed)
+        .map(|(agent, _)| agent))
+}
+
 pub(crate) fn managed(ctx: &ExecCtx, number: AccountNumber) -> Result<Agent, Error> {
-    let Some((agent, _)) = profile(ctx, number)?.as_ref().and_then(harnessed) else {
-        return Err(not_found(format!(
-            "account {number} is no agent whose script calls harness"
-        )));
+    let Principal::Account(_) = ctx.sender()? else {
+        return Err(unauthorized(
+            "an agent's conversation is started by an account",
+        ));
     };
-    if acting(ctx)? != agent.manager {
-        return Err(unauthorized(format!(
-            "agent {number}'s conversations are its manager's to start"
-        )));
-    }
-    Ok(agent)
+    harnessed_agent(ctx, number)?.ok_or_else(|| {
+        not_found(format!(
+            "account {number} is no agent whose script calls harness"
+        ))
+    })
 }
 
 fn listed(ctx: &QueryCtx, agent: AccountNumber) -> Result<Option<Ownership>, Error> {

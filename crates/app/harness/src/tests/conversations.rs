@@ -144,6 +144,39 @@ fn only_the_manager_starts_a_new_conversation_and_the_old_one_stays_readable() {
 }
 
 #[test]
+fn whom_the_agent_answers_does_not_start_its_conversation_but_a_list_on_the_conversation_does() {
+    let world = world();
+    let chain = &world.chain;
+    let new = Op::NewThread { agent: world.agent };
+    set_list(
+        chain,
+        ADA,
+        PROGRAM,
+        crate::agent_key(world.agent),
+        ::program::Ownership::Anyone,
+    );
+    let refused = renewed(chain, BO, &new).unwrap_err();
+    assert_eq!(refused.code, code::UNAUTHORIZED);
+
+    set_list(
+        chain,
+        ADA,
+        PROGRAM,
+        crate::conversation_key(world.agent),
+        ::program::Ownership::Listed(vec![::program::Party::Account(world.bo)]),
+    );
+    let started = renewed(chain, BO, &new).unwrap();
+    assert_eq!(current(chain, world.agent), Some(started));
+}
+
+#[test]
+fn a_conversation_for_an_account_that_is_no_agent_is_not_found() {
+    let world = world();
+    let refused = renewed(&world.chain, ADA, &Op::NewThread { agent: world.bo }).unwrap_err();
+    assert_eq!(refused.code, code::NOT_FOUND);
+}
+
+#[test]
 fn a_conversation_superseded_mid_answer_finishes_its_answer_then_closes() {
     let world = world();
     let chain = &world.chain;

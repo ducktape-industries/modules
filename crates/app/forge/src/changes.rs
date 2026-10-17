@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 
 use ::program::Env;
-use ::program::{Error, ExecCtx, QueryCtx, capacity, invalid, stale, unauthorized, wrong_state};
+use ::program::{Error, ExecCtx, QueryCtx, capacity, invalid, stale, wrong_state};
 
 use crate::contract::*;
 use crate::discussion::{self, Event};
@@ -85,20 +85,10 @@ pub(crate) struct Edit {
     pub reviewers: Option<Vec<Principal>>,
 }
 
-/// The author edits an open change; an ended one is a record.
-pub(crate) fn edit(
-    ctx: &ExecCtx,
-    actor: &Principal,
-    repo: &str,
-    n: u64,
-    fields: Edit,
-) -> Result<OpReply, Error> {
+pub(crate) fn edit(ctx: &ExecCtx, repo: &str, n: u64, fields: Edit) -> Result<OpReply, Error> {
     let env = ctx.env();
     load_repo(ctx, repo)?;
     let mut change = load_change(ctx, repo, n)?;
-    if change.author != *actor {
-        return Err(unauthorized("only the author edits a change"));
-    }
     require_open(&change)?;
     if let Some(title) = fields.title {
         check_title(&title)?;

@@ -224,6 +224,26 @@ fn edit_is_the_authors_and_drops_the_reviewers_it_unasks() {
         "None keeps a field"
     );
     assert_eq!(refused_as(&mut rig, REVIEWER, &retitle), code::UNAUTHORIZED);
+    rig.sandbox
+        .list_writers(TESTER, REPO, &[person(WRITER)])
+        .unwrap();
+    assert_eq!(
+        refused_as(&mut rig, WRITER, &retitle),
+        code::UNAUTHORIZED,
+        "a repository's writers do not edit another's change"
+    );
+    rig.sandbox
+        .list_on(TESTER, &forge::change_key(REPO, n), &[person(WRITER)])
+        .unwrap();
+    signed(&mut rig, WRITER, &retitle).unwrap();
+    assert_eq!(
+        rig.sandbox
+            .list_on(WRITER, &forge::change_key(REPO, n), &[])
+            .unwrap_err()
+            .code,
+        code::UNAUTHORIZED,
+        "only the author lists who edits a change"
+    );
 
     // Asking a fleet of accounts and unasking them leaves nothing behind.
     for i in 0..(3 * 64u64) {

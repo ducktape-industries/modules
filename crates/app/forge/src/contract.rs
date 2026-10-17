@@ -150,6 +150,10 @@ pub fn settings_key(repo: &str) -> String {
     format!("{repo}/settings")
 }
 
+pub fn change_key(repo: &str, n: u64) -> String {
+    format!("{repo}/changes/{n}")
+}
+
 #[derive(
     Clone,
     Copy,

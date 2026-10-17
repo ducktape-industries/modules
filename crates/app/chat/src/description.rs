@@ -120,6 +120,12 @@ pub fn describe(op: &Op) -> Description {
             channel_id,
             vec![field("member", principal(who))],
         ),
+        Op::Migrate => {
+            return Description {
+                title: "Record who took part in each thread".into(),
+                fields: Vec::new(),
+            };
+        }
     };
     let mut all = place(channel);
     all.extend(fields);

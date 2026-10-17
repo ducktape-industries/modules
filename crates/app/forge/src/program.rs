@@ -91,7 +91,7 @@ impl Program for Forge {
                     body,
                     reviewers,
                 };
-                edit(ctx, actor, &repo, n, fields).map(Some)
+                edit(ctx, &repo, n, fields).map(Some)
             }
             Op::ChangeClose { repo, n } => close(ctx, actor, &repo, n).map(Some),
             Op::ReviewSubmit { repo, n, review } => {

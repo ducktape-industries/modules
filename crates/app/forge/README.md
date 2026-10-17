@@ -148,8 +148,9 @@ requested changes never block that CAS.
 ## Operations and examples
 
 Authors are always the account the signed frame acts as (`ctx.sender()`), never
-the payload; forge takes every op but the vote's `Migrate` from signed frames alone. Any account may open/review. Only the author edits title/body/
-review requests; the author, or a repository writer, closes; repository writers merge.
+the payload; forge takes every op but the vote's `Migrate` from signed frames alone. Any account may open/review. The author edits title/body/review requests,
+or whoever the change's list at `forge::change_key(repo, n)` in the access
+program allows; the author, or a repository writer, closes; repository writers merge.
 A repository's writers are whoever its list in the access program allows, at
 `forge::repo_key(repo)`: its owner alone unless the owner lists others there
 (`access::Op::Set`). `Push`, `Merge`, `Stage` and a `ChangeClose` by anyone but
