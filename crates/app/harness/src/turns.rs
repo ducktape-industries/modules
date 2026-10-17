@@ -433,6 +433,7 @@ fn plan(ctx: &ExecCtx, thread: &mut ThreadRow, agent: &Agent) -> Result<Option<S
     let header = Header {
         name: &model.name,
         max_tokens: config.max_tokens,
+        thinking: config.thinking,
         system: &system,
     };
     let header = put_part(ctx, wire::header(model.wire, &header))?;

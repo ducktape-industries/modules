@@ -7,6 +7,7 @@ mod config;
 mod models;
 mod network;
 mod streams;
+mod thinking;
 
 use ::program::{Error, MockChain, Origin, Principal, code};
 use egress::{Answer, Egress, RELAY, Request, RequestRow, http};
@@ -56,6 +57,7 @@ fn scout() -> Config {
         model: MODEL.into(),
         max_tokens: 1024,
         wait: None,
+        thinking: None,
         system: "Keep notes in /shared.".into(),
     }
 }

@@ -6,7 +6,7 @@ use abi::role::egress::http::{Head, Method, Response};
 use serde_json::{Map, Value, json};
 
 use super::{Answered, Header, Reply, Summarized, Summary};
-use crate::{Body, Flow, Forming, Frame, Partial, Role, Said, Stop, Usage, tools};
+use crate::{Body, Flow, Forming, Frame, Partial, Role, Said, Stop, Thinking, Usage, tools};
 
 pub(crate) const VERSION: &str = "2023-06-01";
 pub(crate) const COMPACTION_BETA: &str = "compact-2026-09-04";
@@ -61,6 +61,9 @@ pub(crate) fn header(header: &Header) -> String {
     let mut request = Map::new();
     request.insert("model".into(), json!(header.name));
     request.insert("max_tokens".into(), json!(header.max_tokens));
+    if let Some(thinking) = header.thinking {
+        thought(&mut request, thinking);
+    }
     request.insert("tools".into(), Value::Array(tools));
     let mut system: Vec<Value> = header
         .system
@@ -77,6 +80,18 @@ pub(crate) fn header(header: &Header) -> String {
     text.pop();
     text.push_str(",\"messages\":[");
     text
+}
+
+fn thought(request: &mut Map<String, Value>, thinking: Thinking) {
+    let effort = match thinking {
+        Thinking::Off => {
+            request.insert("thinking".into(), json!({ "type": "disabled" }));
+            return;
+        }
+        Thinking::Low | Thinking::Medium | Thinking::High | Thinking::Max => thinking.word(),
+    };
+    request.insert("thinking".into(), json!({ "type": "adaptive" }));
+    request.insert("output_config".into(), json!({ "effort": effort }));
 }
 
 fn blocks(body: &Body) -> Vec<Value> {

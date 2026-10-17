@@ -1,3 +1,5 @@
+mod thinking;
+
 use super::*;
 
 const SCOUT: &str =
@@ -11,6 +13,7 @@ fn a_file_parses_into_its_front_matter_and_its_system_prompt() {
             model: "sonnet".into(),
             max_tokens: 4096,
             wait: Some(600),
+            thinking: None,
             system: "You keep notes in /shared.".into(),
         })
     );
@@ -26,6 +29,7 @@ fn a_file_parses_into_its_front_matter_and_its_system_prompt() {
             model: "sonnet".into(),
             max_tokens: 1,
             wait: None,
+            thinking: None,
             system: String::new(),
         })
     );
@@ -37,6 +41,7 @@ fn each_paragraph_of_the_system_prompt_is_one_block_in_order() {
         model: "sonnet".into(),
         max_tokens: 1,
         wait: None,
+        thinking: None,
         system: "Who you are.\n\n\nWhat you do,\nline two.\n  \n- a list\r\n- of two".into(),
     };
     assert_eq!(
@@ -60,6 +65,7 @@ fn what_it_writes_parses_back_to_itself() {
         model: "a \"quoted\" id".into(),
         max_tokens: 8192,
         wait: None,
+        thinking: None,
         system: "Line one.\n\n+++ is not a fence inside a line.".into(),
     };
     assert_eq!(Config::parse(config.write().as_bytes()), Ok(config.clone()));

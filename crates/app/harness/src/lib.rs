@@ -24,7 +24,7 @@ pub use ::program::{BlobId, Principal};
 pub use abi::role::egress::Event;
 pub use abi::role::identity::{AccountNumber, Standing};
 pub use attribution::Change;
-pub use config::{Config, Malformed};
+pub use config::{Config, Malformed, Thinking};
 pub use program::Harness;
 pub use store::{PageRequest, PageResponse};
 

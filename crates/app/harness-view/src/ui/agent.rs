@@ -2,7 +2,7 @@
 //! configuration and its model, or what is wrong), who it answers, its threads by place and
 //! what its turns used. Its manager edits its configuration from here, or takes it back from
 //! harness.
-use harness::{AgentSetup, Configured};
+use harness::{AgentSetup, Configured, Thinking};
 use identity::{Ownership, Party};
 use view::FontWeight;
 use view::design::Ladder;
@@ -11,7 +11,8 @@ use view::prelude::*;
 
 use super::{
     agent_state, asking, back, caption, context_words, fact, no_node, panel, place_label,
-    snapshot_words, state_badge, usage_words, waiting, window_words,
+    snapshot_words, state_badge, thinking_picker, thinking_words, usage_words, waiting,
+    window_words,
 };
 use crate::read::{self, Roster};
 use crate::{Agents, Arm, Screen, State, thread_state};
@@ -132,6 +133,11 @@ fn detail(
         .child(head)
         .children(removing(view, &name, agent, cx, theme, ladder))
         .child(configuration(&setup, detail, roster, &name, theme))
+        .children(
+            manages
+                .then(|| thinking(view, &setup, &name, cx, theme, ladder))
+                .flatten(),
+        )
         .children(setup.configured.model().and_then(|model| {
             no_node(
                 "agent-no-node",
@@ -195,7 +201,8 @@ fn configuration(
                 format!("{} tokens", design::grouped(config.max_tokens.into())),
                 theme,
             ))
-            .child(fact("Wait", wait, theme));
+            .child(fact("Wait", wait, theme))
+            .child(fact("Thinking", thinking_words(config.thinking), theme));
     }
     if let Some(model) = setup.configured.model() {
         facts = facts
@@ -239,6 +246,51 @@ fn configuration(
             "Harness reads the file at each model call, so an edit holds from the next call; each turn names the snapshot it read.",
             theme,
         ))
+}
+
+fn thinking(
+    view: &Agents,
+    setup: &AgentSetup,
+    name: &str,
+    cx: &mut Context<Agents>,
+    theme: &Theme,
+    ladder: &Ladder,
+) -> Option<impl IntoElement + use<>> {
+    let (_, config) = setup.configured.config()?;
+    let rethinking = view.draft.rethink && view.draft.created == Some(setup.agent);
+    let sending = rethinking && view.draft.sending.is_some();
+    let picked = match sending {
+        true => view.draft.thinking,
+        false => config.thinking,
+    };
+    let problem = view.draft.problem.clone().filter(|_| rethinking);
+    let (setup, name) = (setup.clone(), name.to_owned());
+    let pick = cx.processor(
+        move |view: &mut Agents, thinking: Option<Thinking>, _, cx| {
+            view.rethink(&setup, &name, thinking, cx)
+        },
+    );
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap(space::XS)
+            .child(design::heading("agent-thinking", "Thinking", 2, theme))
+            .child(div().flex().child(thinking_picker(
+                "agent-thinking-level",
+                picked,
+                ladder,
+                theme,
+                pick,
+            )))
+            .children(problem.map(|problem| {
+                panel("agent-thinking-problem", theme.danger_soft, theme).child(problem)
+            }))
+            .child(caption(
+                "A press writes the configuration file again with this level; the next model call reads it.",
+                theme,
+            )),
+    )
 }
 
 fn system_prompt(setup: &AgentSetup, theme: &Theme) -> impl IntoElement + use<> {

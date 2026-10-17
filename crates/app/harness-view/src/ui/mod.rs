@@ -6,7 +6,7 @@ mod list;
 mod models;
 mod thread;
 
-use harness::{Asking, ThreadRow, Usage, Window};
+use harness::{Asking, Thinking, ThreadRow, Usage, Window};
 use view::design::Ladder;
 use view::design::{space, text};
 use view::prelude::*;
@@ -205,6 +205,53 @@ pub(crate) fn meter(context: harness::Context, window: Option<u64>, theme: &Them
             .h(px(4.))
             .bg(theme.border)
             .child(div().w(px(WIDTH * full)).h_full().bg(theme.foreground)),
+    )
+}
+
+pub(crate) fn thinking_choices() -> Vec<Option<Thinking>> {
+    std::iter::once(None)
+        .chain(Thinking::ALL.iter().copied().map(Some))
+        .collect()
+}
+
+pub(crate) fn thinking_words(thinking: Option<Thinking>) -> &'static str {
+    match thinking {
+        None => "Model's default",
+        Some(Thinking::Off) => "Off",
+        Some(Thinking::Low) => "Low",
+        Some(Thinking::Medium) => "Medium",
+        Some(Thinking::High) => "High",
+        Some(Thinking::Max) => "Max",
+    }
+}
+
+pub(crate) fn thinking_picker(
+    id: &'static str,
+    picked: Option<Thinking>,
+    ladder: &Ladder,
+    theme: &Theme,
+    on_pick: impl Fn(Option<Thinking>, &mut view::Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let choices = thinking_choices();
+    let at = choices.iter().position(|choice| *choice == picked);
+    let labels: Vec<(ElementId, SharedString)> = choices
+        .iter()
+        .enumerate()
+        .map(|(index, choice)| {
+            (
+                ElementId::Name(format!("{id}-{index}").into()),
+                SharedString::from(thinking_words(*choice)),
+            )
+        })
+        .collect();
+    design::segmented(
+        id,
+        "Thinking",
+        ladder,
+        theme,
+        at,
+        labels,
+        move |index, window, app| on_pick(choices[index], window, app),
     )
 }
 
