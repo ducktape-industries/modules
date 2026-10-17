@@ -7,8 +7,8 @@ use crate::attributed::report;
 use crate::mentions::resolve_typed;
 use crate::rules;
 use crate::state::{
-    ANSWERED, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, REACTIONS, REPLIES, ROOTS, channel,
-    message, newest_first, replace_message, toggle,
+    ANSWERED, CHANNELS, HEADS, MEMBERS, MESSAGE_IDS, MESSAGES, PARTICIPANTS, REACTIONS, REPLIES,
+    ROOTS, channel, message, newest_first, replace_message, toggle,
 };
 use crate::{
     AccountNumber, Block, ChannelRow, MemberRow, MsgRow, PostPolicy, Principal, Reaction,
@@ -168,11 +168,11 @@ pub(crate) fn post(
         ..MsgRow::by(sender.clone())
     };
     match thread {
-        Some(root) => answer(ctx, &channel_id, root, seq)?,
+        Some(root) => answer(ctx, &channel_id, root, seq, sender)?,
         None => ROOTS.insert(ctx, &(channel_id.clone(), newest_first(seq))),
     }
     replace_message(ctx, None, &row);
-    report(ctx, sender, None, &row);
+    report(ctx, sender, None, &row)?;
     MESSAGE_IDS.put(ctx, &message_id, &(channel_id.clone(), seq));
     HEADS.put(ctx, &channel_id, &seq);
     Ok(())
@@ -180,7 +180,13 @@ pub(crate) fn post(
 
 /// Reply `seq` joins the thread under `root`: the root counts it, and its
 /// author's [`ANSWERED`] entry moves to this reply.
-fn answer(ctx: &ExecCtx, channel_id: &str, root: u64, seq: u64) -> Result<(), Error> {
+fn answer(
+    ctx: &ExecCtx,
+    channel_id: &str,
+    root: u64,
+    seq: u64,
+    sender: &Principal,
+) -> Result<(), Error> {
     let mut row = message(ctx, channel_id, root)?;
     if row.thread.is_some() {
         return Err(invalid("a reply cannot be a thread root"));
@@ -190,6 +196,10 @@ fn answer(ctx: &ExecCtx, channel_id: &str, root: u64, seq: u64) -> Result<(), Er
     let answered = (channel_id.clone(), row.author.clone(), newest_first(seq));
     ANSWERED.put(ctx, &answered, &root);
     REPLIES.insert(ctx, &(channel_id.clone(), root, seq));
+    let taking_part = (channel_id.clone(), root, sender.clone());
+    if !PARTICIPANTS.has(ctx, &taking_part) {
+        PARTICIPANTS.put(ctx, &taking_part, &seq);
+    }
     row.reply_count += 1;
     row.last_reply_seq = Some(seq);
     MESSAGES.put(ctx, &(channel_id, root), &row);
@@ -231,7 +241,7 @@ pub(crate) fn edit(
         ..old.clone()
     };
     replace_message(ctx, Some(&old), &row);
-    report(ctx, sender, Some(&old), &row);
+    report(ctx, sender, Some(&old), &row)?;
     Ok(())
 }
 
@@ -266,7 +276,7 @@ pub(crate) fn delete(
         ..old.clone()
     };
     replace_message(ctx, Some(&old), &tombstone);
-    report(ctx, sender, Some(&old), &tombstone);
+    report(ctx, sender, Some(&old), &tombstone)?;
     Ok(())
 }
 
