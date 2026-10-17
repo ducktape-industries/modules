@@ -9,10 +9,11 @@ use ::program::{
 use abi::role::identity::{AccountNumber, Category, Kind, Profile, Standing};
 use attribution::{Actor, Change, Kind as Changed, Reason, Source};
 
+use crate::calls::deferred_while_shown;
 use crate::conversations::{conversation, current};
 use crate::state::{LAST, MODELS, PLACES, THREADS};
 use crate::turns::{converse, say};
-use crate::{AgentSetup, Body, Config, Configured, PROGRAM, ThreadRow};
+use crate::{AgentSetup, Body, Config, Configured, Op, PROGRAM, ThreadRow};
 
 pub(crate) struct Agent {
     pub number: AccountNumber,
@@ -314,8 +315,21 @@ pub(crate) async fn attributed(ctx: Ctx, change: Change) -> Result<(), Error> {
     Ok(())
 }
 
+pub(crate) fn hear_again(ctx: &ExecCtx, changes: Vec<Change>) {
+    for change in changes {
+        let resent = Op::Attributed(Box::new(change));
+        ctx.emit(PROGRAM, &resent, ::program::Reply::None);
+    }
+}
+
 fn heard(ctx: &ExecCtx, change: Change) -> Result<Option<u64>, Error> {
-    ctx.env().sent_by(attribution::PROGRAM)?;
+    let from_attribution = ctx.env().sent_by(attribution::PROGRAM).is_ok();
+    let held_back_by_harness = ctx.env().sent_by(PROGRAM).is_ok();
+    if !(from_attribution || held_back_by_harness) {
+        return Err(unauthorized(
+            "only attribution delivers a change, and harness one it held back",
+        ));
+    }
     let added = change.kind == Changed::Added;
     let Actor::Account(actor) = change.actor else {
         return Ok(None);
@@ -328,6 +342,9 @@ fn heard(ctx: &ExecCtx, change: Change) -> Result<Option<u64>, Error> {
         LAST.get(ctx, &change.recipient)? == Some((change.source.clone(), change.revision));
     let heeded = added && by_another && !told_already;
     if !heeded {
+        return Ok(None);
+    }
+    if deferred_while_shown(ctx, &change)? {
         return Ok(None);
     }
     let Some(agent) = running(ctx, change.recipient)? else {

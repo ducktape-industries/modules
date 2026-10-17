@@ -214,3 +214,5 @@ fn only_the_egress_role_streams_and_only_into_a_thread_waiting_on_its_model() {
         .unwrap_err();
     assert_eq!(idle.code, code::WRONG_STATE);
 }
+
+mod live;

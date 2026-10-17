@@ -7,7 +7,9 @@ use files::{Change, Content, EntryInfo, Node, Ownership, Party, Query, Reply};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{Run, Seat, Tool, blob, cursor_schema, next, object, page, principal, unexpected};
+use super::{
+    Run, Seat, Tool, blob, cursor_schema, next, object, page, principal, unexpected, write,
+};
 
 fn snapshot(text: &Option<String>) -> Result<Option<BlobId>, Error> {
     let Some(text) = text else {
@@ -295,10 +297,7 @@ fn commit(
         message,
         changes,
     };
-    Ok(Run::Write {
-        target: files::PROGRAM.into(),
-        payload: abi::encode(&op),
-    })
+    Ok(write(files::PROGRAM, abi::encode(&op)))
 }
 
 fn committed(output: &[u8]) -> Value {

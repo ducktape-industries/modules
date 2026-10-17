@@ -62,7 +62,7 @@ impl Awaiting for Harness {
                 name,
             } => set_model(&ctx, id, wire, service, name),
             Op::RemoveModel { id } => remove_model(&ctx, id),
-            Op::Streamed { thread, event } => streamed(&ctx, thread, event),
+            Op::Streamed { thread, event } => streamed(&ctx, thread, event).await,
             Op::NewThread { agent } => new_thread(&ctx, agent),
             Op::ForkThread { agent } => fork_thread(&ctx, agent),
         }

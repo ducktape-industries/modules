@@ -6,6 +6,7 @@
 //! a turn's reply back one event at a time (`Streamed`, folded into a [`Partial`]). Every tool
 //! call runs in a later block, as the agent.
 mod agents;
+mod calls;
 mod codec;
 pub mod config;
 mod conversations;
@@ -397,6 +398,8 @@ pub enum CallState {
     Relaying,
     Writing,
     Done { height: u64, failed: bool },
+    Showing,
+    Voided { height: u64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
