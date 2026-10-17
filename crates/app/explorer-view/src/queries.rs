@@ -1,9 +1,11 @@
 //! Typed reads of the system programs: accounts (identity), validators
 //! (valset), programs (programs), and every transaction and what each
-//! account did (activity). The window's blocks are the host's (`load.rs`).
+//! account did (activity), a page at a time. The window's blocks are the
+//! host's (`load.rs`).
+use view::host::Page;
 use view::prelude::*;
 
-use crate::state::{Accounts, Acted, Frames, Network, Used};
+use crate::state::{Accounts, Network, Used};
 
 /// Every account.
 pub(crate) async fn accounts(host: Host) -> Result<Accounts, Error> {
@@ -57,21 +59,37 @@ pub(crate) async fn used(host: Host) -> Result<Used, Error> {
     Ok(Used { list })
 }
 
-pub(crate) async fn frames(host: Host) -> Result<Frames, Error> {
-    let list = host
-        .query_all(|after| activity::ask::Frames {
-            page: activity::PageRequest { after, limit: None },
+/// A page of activity's frames, newest first. One page holds the
+/// Overview's latest and the phone's Activity rows (`load::ACTED`); an
+/// unbounded ask is one page of every frame on the network (garage's 57k,
+/// 104M fuel in one call).
+pub(crate) const PAGE: u64 = 50;
+
+/// The page of every transaction after `after`, as a [`Paged`](view::Paged)
+/// reads it: its frames and the cursor of the page after them.
+pub(crate) async fn frames(
+    host: Host,
+    after: Option<Vec<u8>>,
+) -> Result<Page<activity::Frame>, Error> {
+    let page = host
+        .query(activity::ask::Frames {
+            page: activity::PageRequest::resume(after, PAGE),
         })
         .await?;
-    Ok(Frames { list })
+    Ok((page.items, page.next))
 }
 
-pub(crate) async fn acted(host: Host, account: u64) -> Result<Acted, Error> {
-    let frames = host
-        .query_all(|after| activity::ask::Acted {
+/// The page of what account `account` did after `after`.
+pub(crate) async fn acted(
+    host: Host,
+    account: u64,
+    after: Option<Vec<u8>>,
+) -> Result<Page<activity::Frame>, Error> {
+    let page = host
+        .query(activity::ask::Acted {
             account,
-            page: activity::PageRequest { after, limit: None },
+            page: activity::PageRequest::resume(after, PAGE),
         })
         .await?;
-    Ok(Acted { account, frames })
+    Ok((page.items, page.next))
 }
