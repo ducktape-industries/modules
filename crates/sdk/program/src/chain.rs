@@ -274,11 +274,12 @@ impl MockChain {
 
     /// Puts `body` as a blob of `kind` the way the node's blob upload does,
     /// apart from any frame: the network holds it, so every program, seated
-    /// now or later, reads it.
+    /// now or later (at its next run or query), reads it.
     pub fn put_blob(&self, kind: &str, body: Vec<u8>) -> Result<BlobId, Error> {
         let id = crate::blob_id(HashKind::Sha256, kind, &body)?;
         let kind = kind.to_owned();
         self.held.borrow_mut().insert(id, Blob { kind, body });
+        self.share_blobs();
         Ok(id)
     }
 

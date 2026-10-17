@@ -1099,12 +1099,14 @@ methods! {
     /// one word, a blob over [`BLOB_MOST`], a handle not of the latest
     /// pick, or a slice past the file's size as picked.
     /// [`refusal::HOST_FAULT`]: a picked file that cannot be read, or whose
-    /// size changed since the pick. `anchor`: no block carried the put by
-    /// the last its frame may land at. Any other refusal, the node's or the
-    /// blobs program's (a key with no account), passes on as it came. To
-    /// put again is safe: the same blobs are the same ids, in a bundle of
-    /// their own. The answer waits as long as the network takes to hold
-    /// the bundle.
+    /// size changed since the pick. [`refusal::SESSION_LOCKED`]: no key is
+    /// unlocked to sign it. `anchor`: no block carried the put by the last
+    /// its frame may land at. [`refusal::NODE_FAILED`]: the node stopped
+    /// telling its blocks or changes before the bundle was held. The
+    /// node's refusals and the blobs program's (a key with no account) pass
+    /// on as they came. To put again is safe: the same blobs are the same
+    /// ids, in a bundle of their own. The answer waits as long as the
+    /// network takes to hold the bundle.
     OpPut, "op.put", PutBlobs, Vec<[u8; 32]>;
 }
 

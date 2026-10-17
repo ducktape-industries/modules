@@ -696,6 +696,9 @@ impl Network {
                 Ok(methods::encode(&picked))
             }
             "op.put" => {
+                // refused as the host refuses it
+                let malformed =
+                    |sentence: &str| Error::new(methods::refusal::MALFORMED_REQUEST, sentence);
                 let ask: methods::PutBlobs =
                     methods::decode(payload).map_err(|error| malformed(&error))?;
                 if ask.blobs.is_empty() {
