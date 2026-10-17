@@ -17,7 +17,7 @@
 //! | `Outcome` (carries a `Refusal`)          | [`Outcome`] (carries an [`Error`])        |
 //! | `Scan { lo, hi, reverse, limit }`        | [`Range`] `{ start, end, order, limit }`  |
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
 pub use abi::role::awaits::{FrameId, Ticket};
 pub use abi::role::scheduler::EntryId;
@@ -75,7 +75,18 @@ pub type AccountNumber = abi::role::identity::AccountNumber;
 ///
 /// There is no default principal: "nobody" is `Option<Principal>::None`,
 /// never the most trusted variant.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
@@ -132,7 +143,18 @@ impl From<Principal> for abi::Principal {
 
 /// A message a program emitted: the emitter and the message's number in
 /// its frame.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+)]
 pub struct MessageId {
     pub program: ProgramId,
     pub seq: u64,
@@ -156,7 +178,7 @@ impl From<MessageId> for abi::ItemRef {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Outcome {
     Applied { output: Vec<u8> },
     Rejected(Error),
@@ -180,7 +202,7 @@ impl From<Outcome> for abi::Outcome {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Cause {
     Direct,
     Message(MessageId),

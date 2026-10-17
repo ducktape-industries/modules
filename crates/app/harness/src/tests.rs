@@ -5,6 +5,7 @@
 //! tool call runs once its relay comes back, as the agent.
 mod config;
 mod models;
+mod network;
 mod streams;
 
 use ::program::{Error, MockChain, Origin, Principal, code};

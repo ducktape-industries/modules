@@ -79,6 +79,21 @@ fn a_describe_module_rides_beside_the_view_and_imports_nothing() {
     assert!(founding::embed_describe(&program, &importing.finish()).is_err());
 }
 
+#[test]
+fn a_schema_rides_beside_the_describe_module_and_names_an_op_a_query_and_a_reply() {
+    let program = module("program");
+    let chat = schema("chat");
+    let packed = founding::embed_schema(&program, &chat).unwrap();
+    assert_eq!(
+        section(&packed, founding::SCHEMA_SECTION),
+        std::slice::from_ref(&chat)
+    );
+    assert_eq!(founding::embed_schema(&packed, &chat).unwrap(), packed);
+    assert!(founding::embed_schema(&program, b"\x05").is_err());
+    let bare = borsh::to_vec(&borsh::schema::BorshSchemaContainer::for_type::<u64>()).unwrap();
+    assert!(founding::embed_schema(&program, &bare).is_err());
+}
+
 fn release(dir: &Path) {
     for (program, view) in founding::PROGRAMS {
         fs::write(dir.join(format!("{program}.wasm")), module(program)).unwrap();
@@ -96,6 +111,15 @@ fn release(dir: &Path) {
     for view in founding::VIEWS {
         fs::write(dir.join(format!("{view}.wasm")), module(view)).unwrap();
     }
+    let programs = founding::PROGRAMS
+        .iter()
+        .map(|(program, _)| *program)
+        .chain(founding::UNVIEWED.iter().copied());
+    founding::write_schemas(dir, &programs.collect::<Vec<_>>()).unwrap();
+}
+
+fn schema(program: &str) -> Vec<u8> {
+    borsh::to_vec(&founding::schema(program).unwrap()).unwrap()
 }
 
 #[test]
@@ -111,6 +135,10 @@ fn the_bundle_names_every_file_it_holds_and_packs_each_program_with_its_own_view
         assert_eq!(section(&packed, founding::VIEW_SECTION), [module(view)]);
         let describe = module(&format!("{program}.describe"));
         assert_eq!(section(&packed, founding::DESCRIBE_SECTION), [describe]);
+        assert_eq!(
+            section(&packed, founding::SCHEMA_SECTION),
+            [schema(program)]
+        );
         // chat and forge carry their notifier; the others none
         let notifier = founding::NOTIFIERS
             .iter()
@@ -128,6 +156,10 @@ fn the_bundle_names_every_file_it_holds_and_packs_each_program_with_its_own_view
         assert!(section(&packed, founding::NOTIFY_SECTION).is_empty());
         let describe = module(&format!("{program}.describe"));
         assert_eq!(section(&packed, founding::DESCRIBE_SECTION), [describe]);
+        assert_eq!(
+            section(&packed, founding::SCHEMA_SECTION),
+            [schema(program)]
+        );
     }
     let params = fs::read(out.path().join("forge.params")).unwrap();
     assert_eq!(

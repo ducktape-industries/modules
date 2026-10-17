@@ -23,6 +23,43 @@ fn apps() -> Vec<Founding> {
         .collect()
 }
 
+fn leb(mut value: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let byte = (value & 0x7f) as u8;
+        value >>= 7;
+        match value {
+            0 => {
+                out.push(byte);
+                return out;
+            }
+            _ => out.push(byte | 0x80),
+        }
+    }
+}
+
+fn with_schema(mut code: Vec<u8>, schema: &borsh::schema::BorshSchemaContainer) -> Vec<u8> {
+    let name = program::schema::SECTION.as_bytes();
+    let mut section = leb(name.len());
+    section.extend(name);
+    section.extend(borsh::to_vec(schema).unwrap());
+    code.push(0);
+    code.extend(leb(section.len()));
+    code.extend(section);
+    code
+}
+
+fn schemed_apps() -> Vec<Founding> {
+    let mut apps = apps();
+    for app in &mut apps {
+        if app.program == chat::PROGRAM {
+            let schema = program::schema::interface::<chat::Chat>();
+            app.code = with_schema(app.code.clone(), &schema);
+        }
+    }
+    apps
+}
+
 impl Net {
     async fn assigned(&self, service: &str) -> Vec<RequestRow> {
         let asked = egress::Query::Assigned { key: public(NODE) };
@@ -140,6 +177,101 @@ async fn configured(net: &mut Net, config: &harness::Config) -> Vec<files::Chang
     ]
 }
 
+struct Scout {
+    agent: u64,
+    snapshot: BlobId,
+    thread: ThreadRow,
+    asked: RequestRow,
+}
+
+async fn mentioned(net: &mut Net) -> Scout {
+    let serve = egress::Op::Serve {
+        services: vec![SERVICE.into(), RELAY.into()],
+    };
+    net.apply(&public(NODE), egress::PROGRAM, &serve).await;
+    let create = identity::Op::Create {
+        name: "Ada".into(),
+        scheme: Scheme::Ed25519,
+    };
+    net.apply(&public(ADA), identity::PROGRAM, &create).await;
+    let register = egress::Op::Register {
+        service: SERVICE.into(),
+    };
+    net.apply(&public(ADA), egress::PROGRAM, &register).await;
+    let assign = egress::Op::Assign {
+        service: SERVICE.into(),
+        nodes: vec![public(NODE)],
+    };
+    net.apply(&public(ADA), egress::PROGRAM, &assign).await;
+    let create = identity::Op::CreateAgent {
+        name: "Scout".into(),
+    };
+    let agent: u64 =
+        abi::decode(&net.apply(&public(ADA), identity::PROGRAM, &create).await).unwrap();
+    let config = harness::Config {
+        model: "claude-test".into(),
+        max_tokens: 512,
+        wait: None,
+        system: "Keep notes in /shared.".into(),
+    };
+    let commit = files::Op::Commit {
+        base: None,
+        message: "configure Scout".into(),
+        changes: configured(net, &config).await,
+    };
+    let snapshot: BlobId =
+        abi::decode(&net.apply(&public(ADA), files::PROGRAM, &commit).await).unwrap();
+    let script = identity::Op::SetScript {
+        account: agent,
+        script: Some(identity::Script {
+            calls: harness::PROGRAM.into(),
+            config: CONFIG.into(),
+        }),
+    };
+    net.apply(&public(ADA), identity::PROGRAM, &script).await;
+    let model = Op::SetModel {
+        id: "claude-test".into(),
+        wire: harness::Wire::AnthropicMessages,
+        service: SERVICE.into(),
+        name: "claude-test".into(),
+    };
+    net.apply(&public(ADA), harness::PROGRAM, &model).await;
+    let general = chat::Op::CreateChannel {
+        channel_id: "general".into(),
+        name: "general".into(),
+        post_policy: chat::PostPolicy::Open,
+    };
+    net.apply(&public(ADA), chat::PROGRAM, &general).await;
+    let mention = chat::Op::PostMessage {
+        channel_id: "general".into(),
+        message_id: "m1".into(),
+        blocks: chat::parse_message(&format!("<@{agent}> note that the network is up")),
+        thread: None,
+    };
+    net.apply(&public(ADA), chat::PROGRAM, &mention).await;
+
+    let [thread] = net.threads(agent).await.try_into().unwrap();
+    let [models] = net.assigned(SERVICE).await.try_into().unwrap();
+    let Request::Http { head, .. } = &models.request else {
+        panic!("the model is asked over http");
+    };
+    assert_eq!(head.target, "/v1/models/claude-test");
+    let info = json!({ "type": "model", "id": "claude-test", "max_input_tokens": 200_000 });
+    let window = abi::encode(&http::Response {
+        status: 200,
+        headers: Vec::new(),
+        body: info.to_string().into_bytes(),
+    });
+    net.answer(models.id, window).await;
+    let [asked] = net.assigned(SERVICE).await.try_into().unwrap();
+    Scout {
+        agent,
+        snapshot,
+        thread,
+        asked,
+    }
+}
+
 #[test]
 fn an_agents_configuration_is_its_managers_to_change_whoever_takes_the_managers_name() {
     deterministic::Runner::default().start(|context| async move {
@@ -236,85 +368,12 @@ fn a_mentioned_agent_answers_through_elected_nodes_and_writes_as_itself() {
             [harness::PROGRAM.to_owned()],
             "founding ran harness's init, which registered it with attribution"
         );
-        let serve = egress::Op::Serve {
-            services: vec![SERVICE.into(), RELAY.into()],
-        };
-        net.apply(&public(NODE), egress::PROGRAM, &serve).await;
-        let create = identity::Op::Create {
-            name: "Ada".into(),
-            scheme: Scheme::Ed25519,
-        };
-        net.apply(&public(ADA), identity::PROGRAM, &create).await;
-        let register = egress::Op::Register {
-            service: SERVICE.into(),
-        };
-        net.apply(&public(ADA), egress::PROGRAM, &register).await;
-        let assign = egress::Op::Assign {
-            service: SERVICE.into(),
-            nodes: vec![public(NODE)],
-        };
-        net.apply(&public(ADA), egress::PROGRAM, &assign).await;
-        let create = identity::Op::CreateAgent {
-            name: "Scout".into(),
-        };
-        let agent: u64 =
-            abi::decode(&net.apply(&public(ADA), identity::PROGRAM, &create).await).unwrap();
-        let config = harness::Config {
-            model: "claude-test".into(),
-            max_tokens: 512,
-            wait: None,
-            system: "Keep notes in /shared.".into(),
-        };
-        let commit = files::Op::Commit {
-            base: None,
-            message: "configure Scout".into(),
-            changes: configured(&mut net, &config).await,
-        };
-        let snapshot: BlobId =
-            abi::decode(&net.apply(&public(ADA), files::PROGRAM, &commit).await).unwrap();
-        let script = identity::Op::SetScript {
-            account: agent,
-            script: Some(identity::Script {
-                calls: harness::PROGRAM.into(),
-                config: CONFIG.into(),
-            }),
-        };
-        net.apply(&public(ADA), identity::PROGRAM, &script).await;
-        let model = Op::SetModel {
-            id: "claude-test".into(),
-            wire: harness::Wire::AnthropicMessages,
-            service: SERVICE.into(),
-            name: "claude-test".into(),
-        };
-        net.apply(&public(ADA), harness::PROGRAM, &model).await;
-        let general = chat::Op::CreateChannel {
-            channel_id: "general".into(),
-            name: "general".into(),
-            post_policy: chat::PostPolicy::Open,
-        };
-        net.apply(&public(ADA), chat::PROGRAM, &general).await;
-        let mention = chat::Op::PostMessage {
-            channel_id: "general".into(),
-            message_id: "m1".into(),
-            blocks: chat::parse_message(&format!("<@{agent}> note that the network is up")),
-            thread: None,
-        };
-        net.apply(&public(ADA), chat::PROGRAM, &mention).await;
-
-        let [thread] = net.threads(agent).await.try_into().unwrap();
-        let [models] = net.assigned(SERVICE).await.try_into().unwrap();
-        let Request::Http { head, .. } = &models.request else {
-            panic!("the model is asked over http");
-        };
-        assert_eq!(head.target, "/v1/models/claude-test");
-        let info = json!({ "type": "model", "id": "claude-test", "max_input_tokens": 200_000 });
-        let window = abi::encode(&http::Response {
-            status: 200,
-            headers: Vec::new(),
-            body: info.to_string().into_bytes(),
-        });
-        net.answer(models.id, window).await;
-        let [asked] = net.assigned(SERVICE).await.try_into().unwrap();
+        let Scout {
+            agent,
+            snapshot,
+            thread,
+            asked,
+        } = mentioned(&mut net).await;
         let sent = net.joined(&asked).await;
         assert_eq!(sent["max_tokens"], 512);
         let text = sent["messages"][0]["content"][0]["text"].as_str().unwrap();
@@ -437,5 +496,74 @@ fn a_mentioned_agent_answers_through_elected_nodes_and_writes_as_itself() {
         assert_eq!((usage.input, usage.output), (1, 2));
         assert!(net.assigned(SERVICE).await.is_empty());
         assert_eq!(net.parked(), 0, "the loop finished");
+    });
+}
+
+#[test]
+fn an_agent_queries_and_calls_a_program_through_the_schema_its_code_carries() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        let mut net =
+            Net::found_with(context, dir.path(), schemed_apps(), Vec::new(), MEMBER_CAP).await;
+        let Scout {
+            agent,
+            thread,
+            asked,
+            ..
+        } = mentioned(&mut net).await;
+        let post = json!({ "PostMessage": {
+            "channel_id": "general",
+            "message_id": "net-1",
+            "blocks": [{ "Paragraph": [{ "text": "hello", "marks": [] }] }],
+            "thread": null,
+        } });
+        let calls = json!([
+            { "type": "tool_use", "id": "toolu_s", "name": "network_schema", "input": { "program": "chat" } },
+            { "type": "tool_use", "id": "toolu_q", "name": "network_query", "input": { "program": "chat", "query": { "Channel": { "channel_id": "general" } } } },
+            { "type": "tool_use", "id": "toolu_c", "name": "network_call", "input": { "program": "chat", "op": post } },
+            { "type": "tool_use", "id": "toolu_f", "name": "network_schema", "input": { "program": "files" } },
+        ]);
+        net.answer(asked.id, model_reply(calls, "tool_use")).await;
+        for relay in net.assigned(RELAY).await {
+            net.answer(relay.id, Vec::new()).await;
+        }
+        let results: Vec<(String, String, bool)> = net
+            .frames(thread.id)
+            .await
+            .into_iter()
+            .filter_map(|body| match body {
+                Body::Result {
+                    call, text, failed, ..
+                } => Some((call, text, failed)),
+                _ => None,
+            })
+            .collect();
+        let result = |id: &str| {
+            results
+                .iter()
+                .find(|(call, _, _)| call == id)
+                .map(|(_, text, failed)| (text.clone(), *failed))
+                .unwrap_or_else(|| panic!("{id} has a result: {results:?}"))
+        };
+        let (shape, failed) = result("toolu_s");
+        assert!(!failed, "{shape}");
+        let shape: Value = serde_json::from_str(&shape).unwrap();
+        assert_eq!(shape["types"]["Op"]["enum"]["PostMessage"]["struct"]["thread"], json!({ "option": "u64" }));
+        let (channel, failed) = result("toolu_q");
+        assert!(!failed, "{channel}");
+        let channel: Value = serde_json::from_str(&channel).unwrap();
+        assert_eq!(channel["reply"]["Channel"]["channel"]["name"], "general");
+        let (posted, failed) = result("toolu_c");
+        assert!(!failed, "{posted}");
+        let asked = chat::Query::MessageById {
+            message_id: "net-1".into(),
+        };
+        let chat::Reply::Message(Some(row)) = net.ask(chat::PROGRAM, &asked).await else {
+            panic!("the agent's post landed")
+        };
+        assert_eq!(row.author, program::Principal::Account(agent));
+        assert_eq!(row.text, "hello");
+        let (unschemed, failed) = result("toolu_f");
+        assert!(failed && unschemed.starts_with(reason::UNSUPPORTED), "{unschemed}");
     });
 }

@@ -3,12 +3,12 @@
 //! system prompt. Harness parses it at each model call; harness-view writes it.
 use std::fmt;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 use serde::Deserialize;
 
 pub const FENCE: &str = "+++";
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Config {
     pub model: String,
     pub max_tokens: u32,
@@ -16,7 +16,7 @@ pub struct Config {
     pub system: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Malformed {
     NotText,
     NoOpeningFence,

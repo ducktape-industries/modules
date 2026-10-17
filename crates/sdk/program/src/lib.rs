@@ -56,6 +56,7 @@ mod origin;
 mod ownership;
 mod program;
 pub mod refuse;
+pub mod schema;
 
 pub use abi;
 pub use abi::hook;

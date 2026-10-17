@@ -2,10 +2,26 @@
 name = "founding"
 edition.workspace = true
 version.workspace = true
+default-run = "founding"
 
 [dependencies]
 abi = { workspace = true }
+borsh = { workspace = true }
+program = { workspace = true }
+programs = { workspace = true }
+valset = { workspace = true }
+identity = { workspace = true }
+blobs = { workspace = true }
+awaits = { workspace = true }
+halo = { workspace = true }
+scheduler = { workspace = true }
+chat = { workspace = true }
 forge = { workspace = true }
+files = { workspace = true }
+activity = { workspace = true }
+egress = { workspace = true }
+attribution = { workspace = true }
+harness = { workspace = true }
 wasm-encoder = "0.251"
 wasmparser = "0.251"
 

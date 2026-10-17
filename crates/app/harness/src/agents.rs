@@ -178,7 +178,9 @@ pub(crate) fn manual(agent: &Agent, title: &str) -> String {
          allows only what it allows that account.\n\
          - Tools: each tool call runs in a later block, and its result arrives before the next \
          model call.\n\
-         - Chat: chat_post posts to a channel; reply_to puts the post in a thread.",
+         - Chat: chat_post posts to a channel; reply_to puts the post in a thread.\n\
+         - Programs: network_schema gives any program's op, query and reply shapes; \
+         network_query asks it a query and network_call sends it an op as account {number}.",
         name = agent.name,
         number = agent.number,
         manager = agent.manager,

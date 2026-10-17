@@ -1,14 +1,21 @@
 //! Packs what `make wasm-modules` builds into a founding: each program with its describe module,
-//! any view and any notifier embedded, forge's and halo's params, and a founding file `ducktape
-//! init` reads.
+//! its schema, any view and any notifier embedded, forge's and halo's params, and a founding file
+//! `ducktape init` reads.
+
+mod schema;
 
 use std::borrow::Cow;
 use std::fs;
 use std::path::Path;
 
 use abi::role::halo::{Class, Founded, Genesis};
+use borsh::BorshDeserialize;
+use borsh::schema::BorshSchemaContainer;
+use program::schema::roots;
 use wasm_encoder::{CustomSection, Encode, Section};
 use wasmparser::{Encoding, Parser, Payload, Validator};
+
+pub use schema::{schema, write_schemas};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -17,6 +24,7 @@ pub const DESCRIBE_SECTION: &str = "ducktape.describe";
 /// A program's notifier: the headless module of its view crate the app runs
 /// once per network to post the program's notices (`view::Notifier`).
 pub const NOTIFY_SECTION: &str = "ducktape.notify";
+pub const SCHEMA_SECTION: &str = program::schema::SECTION;
 pub const FOUNDING: &str = include_str!("../founding.toml");
 
 pub const PROGRAMS: [(&str, &str); 7] = [
@@ -87,9 +95,14 @@ pub fn bundle(release: &Path, out: &Path) -> Result<()> {
         let path = release.join(format!("{name}.wasm"));
         fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))
     };
+    let schema = |name: &str| {
+        let path = release.join(format!("{name}.schema"));
+        fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))
+    };
     for (program, view) in PROGRAMS {
         let packed = embed(&read(program)?, &read(view)?)?;
-        let mut packed = embed_describe(&packed, &read(&format!("{program}.describe"))?)?;
+        let packed = embed_describe(&packed, &read(&format!("{program}.describe"))?)?;
+        let mut packed = embed_schema(&packed, &schema(program)?)?;
         if let Some((_, view)) = NOTIFIERS.iter().find(|(name, _)| *name == program) {
             packed = embed_notify(&packed, &read(&format!("{view}.notify"))?)?;
         }
@@ -97,6 +110,7 @@ pub fn bundle(release: &Path, out: &Path) -> Result<()> {
     }
     for program in UNVIEWED {
         let packed = embed_describe(&read(program)?, &read(&format!("{program}.describe"))?)?;
+        let packed = embed_schema(&packed, &schema(program)?)?;
         fs::write(out.join(format!("{program}.wasm")), packed)?;
     }
     for view in VIEWS {
@@ -166,6 +180,17 @@ pub fn embed_describe(program: &[u8], module: &[u8]) -> Result<Vec<u8>> {
         }
     }
     embed_section(program, DESCRIBE_SECTION, module)
+}
+
+pub fn embed_schema(program: &[u8], schema: &[u8]) -> Result<Vec<u8>> {
+    let container = BorshSchemaContainer::try_from_slice(schema)?;
+    container
+        .validate()
+        .map_err(|error| format!("the schema is not valid: {error:?}"))?;
+    if roots(&container).is_none() {
+        return Err("a schema names an op, a query and a reply".into());
+    }
+    embed_section(program, SCHEMA_SECTION, schema)
 }
 
 fn embed_section(program: &[u8], name: &str, payload: &[u8]) -> Result<Vec<u8>> {

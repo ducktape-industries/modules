@@ -17,7 +17,8 @@ make new-program NAME=poll
 
 writes `crates/app/poll/` in valset's shape, registers it (`PROGRAMS` and
 `VIEW_LINKABLE` in the Makefile, the workspace members and dependencies in
-`Cargo.toml`) and prints what to do next. The files, in reading order:
+`Cargo.toml`, its schema in `crates/sdk/founding/src/schema.rs`) and prints
+what to do next. The files, in reading order:
 
 | File | What |
 |---|---|
@@ -47,14 +48,14 @@ All three are borsh enums in `lib.rs`; the same types a view and a sibling
 program link. A write is an `Op`, a read a `Query` answered by a `Reply`.
 
 ```rust
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Op {
     Open { poll_id: String, channel: String, question: String, options: Vec<String> },
     Vote { poll_id: String, option: u32 },
     Close { poll_id: String },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, ::program::Ask)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask)]
 #[ask(Poll)]
 pub enum Query {
     #[ask(Reply::Poll(Option<PollRow>))]
@@ -65,7 +66,7 @@ pub enum Query {
     Tally { poll_id: String },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Reply {
     Poll(Option<PollRow>),
     Polls(PageResponse<PollRow>),
@@ -73,6 +74,15 @@ pub enum Reply {
     Tally(Vec<u64>),
 }
 ```
+
+**Each type on the wire has a schema.** `Op`, `Query`, `Reply` and every
+type they carry derive `BorshSchema`, and a type with a hand-written borsh
+encoding writes its schema by hand to match. `crates/sdk/founding/src/schema.rs`
+names the program's interface (`program::schema::interface::<poll::Poll>()`),
+`make wasm-schemas` writes it as `poll.schema`, and a founding packs it as the
+`ducktape.schema` section of the program's code. An agent reads it there:
+harness's `network_schema`, `network_query` and `network_call` speak any
+program's ops and queries as JSON through it.
 
 **The append-only rule.** Borsh encodes a variant by its index, and a host
 describes an op that landed at any height with the program's *current*
@@ -580,13 +590,13 @@ them for the crates a view may link).
 first `make dev`. Where a view's bytes go: `make wasm-why V=poll-view`
 (`twiggy top` over a build that keeps its names; `cargo install twiggy`).
 
-`make wasm-modules` builds every program, its describe module and every
+`make wasm-modules` builds every program, its describe module and schema and every
 view under `$CARGO_TARGET_DIR/wasm32-unknown-unknown/release/`, unpacked;
 nothing built is committed.
 
 ## 10. Founding
 
-`crates/sdk/founding` packs each program with its view and describe module,
+`crates/sdk/founding` packs each program with its view, describe module and schema,
 and `make wasm-publish` releases the result as `founding.tar.gz`, which
 `ducktape init` founds once its `founding.toml` is filled. To add poll to it:
 
