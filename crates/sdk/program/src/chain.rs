@@ -30,9 +30,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::awaiting::{self, Answer, Awaiting, Step, Suspended};
 use crate::{
-    AccountNumber, Called, Cause, EntryId, Env, Error, ExecCtx, FrameId, MessageId, MockHost,
-    Origin, Outcome, Principal, Program, ProgramId, QueryCtx, Resumed, Roles, Ticket, code,
-    identity_role, unauthorized, unexpected_reply,
+    AccountNumber, Blob, BlobId, Called, Cause, EntryId, Env, Error, ExecCtx, FrameId, HashKind,
+    MessageId, MockHost, Origin, Outcome, Principal, Program, ProgramId, QueryCtx, Resumed, Roles,
+    Ticket, code, identity_role, unauthorized, unexpected_reply,
 };
 
 /// How deep messages nest in one frame: a submission runs at depth 0 and
@@ -267,6 +267,21 @@ impl MockChain {
     pub fn seat_awaiting<A: Awaiting>(&mut self, program: impl Into<ProgramId>) -> MockHost {
         let execute = Rc::new(|ctx, payload: &[u8]| awaiting::start::<A>(ctx, payload));
         self.seat_with::<A>(program.into(), execute)
+    }
+
+    /// Puts `body` as a blob of `kind` the way the node's blob upload does,
+    /// apart from any frame: the network holds it, so every seated program
+    /// reads it.
+    pub fn put_blob(&self, kind: &str, body: Vec<u8>) -> Result<BlobId, Error> {
+        let id = crate::blob_id(HashKind::Sha256, kind, &body)?;
+        for seat in self.seats.values() {
+            let blob = Blob {
+                kind: kind.to_owned(),
+                body: body.clone(),
+            };
+            seat.host.borrow_mut().blobs.insert(id, blob);
+        }
+        Ok(id)
     }
 
     pub fn frames(&self) -> usize {

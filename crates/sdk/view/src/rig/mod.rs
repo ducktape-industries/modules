@@ -17,7 +17,9 @@
 //! [`refuse`](Network::refuse), FakeHost's signatures), else the chain.
 //!
 //! Left as constants, on purpose: one validator (the dev key), epoch 0, a
-//! zero state root, no blob put, no program upgrade.
+//! zero state root, no program upgrade, and blobs put held at once
+//! (`op.put`, answered on a test's front only: the live window's node takes
+//! no blob upload).
 
 mod node;
 mod pack;
@@ -92,6 +94,9 @@ struct State {
     overrides: HashMap<(String, Option<String>), Override>,
     invites: u64,
     founded_roster: bool,
+    /// The files a person picks on this device ([`Network::device`]): each
+    /// one's name and bytes, the handle `n`'s at `n - 1`.
+    device: Vec<(String, Vec<u8>)>,
 }
 
 /// The fake node: shared, single-threaded.
@@ -165,6 +170,7 @@ impl Network {
             overrides: HashMap::new(),
             invites: 0,
             founded_roster: false,
+            device: Vec::new(),
         })));
         let identity = net.seat::<identity::Identity>(identity::PROGRAM);
         identity.borrow_mut().verifier = Some(Box::new(verify));
@@ -476,6 +482,8 @@ impl Network {
             "blob.manifest",
             "invite.create",
             "program.describe",
+            "file.pick",
+            "op.put",
         ] {
             let net = self.clone();
             host.answer_with(kind, None, move |payload| {
@@ -493,6 +501,33 @@ impl Network {
                 host.send_raw("program.changes", Some(&program), methods::encode(&item));
             }
         });
+    }
+
+    /// Puts `body` as a blob of `kind`, as the node's blob upload does:
+    /// held, so every program reads it.
+    pub fn put_blob(&self, kind: &str, body: Vec<u8>) -> Result<abi::BlobId, Error> {
+        self.0.borrow().chain.put_blob(kind, body)
+    }
+
+    /// The files a person picks on this device, by name, in order:
+    /// `file.pick` answers them (handles from 1), and `op.put` reads a
+    /// picked body out of them.
+    pub fn device(&self, files: &[(&str, &[u8])]) {
+        self.0.borrow_mut().device = files
+            .iter()
+            .map(|(name, bytes)| ((*name).to_owned(), bytes.to_vec()))
+            .collect();
+    }
+
+    /// `len` bytes from `offset` of the picked file `file`, if it holds them.
+    fn picked(&self, file: u64, offset: u64, len: u64) -> Option<Vec<u8>> {
+        let state = self.0.borrow();
+        let (_, bytes) = state
+            .device
+            .get(usize::try_from(file).ok()?.checked_sub(1)?)?;
+        let start = usize::try_from(offset).ok()?;
+        let end = start.checked_add(usize::try_from(len).ok()?)?;
+        bytes.get(start..end).map(<[u8]>::to_vec)
     }
 
     /// One node method at the view-wire level: an override, else the chain.
@@ -632,6 +667,45 @@ impl Network {
                     })
                 });
                 Ok(methods::encode(&found))
+            }
+            "file.pick" => {
+                let picked: Vec<methods::Picked> = (self.0.borrow().device.iter().zip(1..))
+                    .map(|((name, bytes), file)| methods::Picked {
+                        name: name.clone(),
+                        size: bytes.len() as u64,
+                        file,
+                    })
+                    .collect();
+                Ok(methods::encode(&picked))
+            }
+            "op.put" => {
+                let ask: methods::PutBlobs =
+                    methods::decode(payload).map_err(|error| malformed(&error))?;
+                if ask.blobs.is_empty() {
+                    return Err(malformed("an op.put names at least one blob"));
+                }
+                // the bundle is put whole or not at all
+                let mut bodies = Vec::with_capacity(ask.blobs.len());
+                for blob in ask.blobs {
+                    let body = match blob.body {
+                        methods::BlobBody::Bytes(bytes) => bytes,
+                        methods::BlobBody::Picked { file, offset, len } => self
+                            .picked(file, offset, len)
+                            .ok_or_else(|| malformed("no picked file holds that slice"))?,
+                    };
+                    if body.len() as u64 > methods::BLOB_MOST {
+                        return Err(malformed("a blob holds at most BLOB_MOST bytes"));
+                    }
+                    bodies.push((blob.kind, body));
+                }
+                let mut ids = Vec::with_capacity(bodies.len());
+                for (kind, body) in bodies {
+                    let abi::BlobId::Sha256(digest) = self.put_blob(&kind, body)? else {
+                        unreachable!("a blob is put by its sha256")
+                    };
+                    ids.push(digest);
+                }
+                Ok(methods::encode(&ids))
             }
             "blob.get" => {
                 let body = self
