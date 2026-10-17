@@ -193,7 +193,7 @@ fn fields(
     }
     form.child(labelled(
         "Configuration file",
-        "Where in files its configuration lives. The script names this path; harness reads it at each model call. Only your account writes under your home, /home/<your name>/; any account may rewrite a file under /shared/.",
+        "Where in files its configuration lives. The script names this path; harness reads it at each model call. This commit sets the file's write list to your account alone; with no list, any account may rewrite a file.",
         input(
             Input::new("create-path", &draft.path, "Configuration file"),
             theme,
@@ -354,7 +354,7 @@ fn answers(
     let choices = [
         (Answers::Manager, "Only me"),
         (Answers::Anyone, "Anyone"),
-        (Answers::Accounts, "These accounts"),
+        (Answers::Listed, "These accounts and programs"),
     ];
     let picked = choices
         .iter()
@@ -384,13 +384,17 @@ fn answers(
             .flex_col()
             .gap(space::XS)
             .child(div().flex().child(segmented))
-            .when(draft.answers == Answers::Accounts, |field| {
+            .when(draft.answers == Answers::Listed, |field| {
                 field.child(
                     input(
-                        Input::new("create-accounts", &draft.accounts, "Account numbers"),
+                        Input::new(
+                            "create-accounts",
+                            &draft.listed,
+                            "Account numbers and programs",
+                        ),
                         theme,
                     )
-                    .placeholder("7, 12"),
+                    .placeholder("7, 12, forge"),
                 )
             }),
         theme,

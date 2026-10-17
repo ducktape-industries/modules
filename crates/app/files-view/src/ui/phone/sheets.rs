@@ -12,7 +12,7 @@ use view::design::space;
 use super::*;
 use crate::state::file_glyph;
 use crate::upload;
-use crate::write::{Form, Write};
+use crate::write::{Form, ListChoice, Write};
 
 /// Where the list of writes stops when it opens, and how far it may be
 /// pulled. Expo's `Sheet` sizes a short list to its content
@@ -84,6 +84,7 @@ pub(super) fn form(form: &Form, cx: Cx, k: &Kit) -> AnyElement {
         .children(removes)
         .children(naming(form, cx, k))
         .children(text(form, k))
+        .children(list(form, cx, k))
         .children(picked(form, k))
         .child(message(form, cx, k))
         .children(refused)
@@ -144,6 +145,42 @@ fn text(form: &Form, k: &Kit) -> Option<impl IntoElement> {
         design::field(area, &k.ladder, &k.theme)
             .label(words::TEXT)
             .mono(),
+    )
+}
+
+fn list(form: &Form, cx: Cx, k: &Kit) -> Option<Div> {
+    if !form.write.takes_list() {
+        return None;
+    }
+    let choices = crate::ui::list_choices(form, cx, k);
+    let below = match form.list {
+        ListChoice::Listed => Some(
+            design::field(crate::ui::listed_input(form), &k.ladder, &k.theme)
+                .label(words::LISTED)
+                .into_any_element(),
+        ),
+        ListChoice::AsItsFolder => Some(
+            div()
+                .text_type(k.ladder.secondary)
+                .text_color(k.theme.muted)
+                .child(words::AS_ITS_FOLDER_NOTE)
+                .into_any_element(),
+        ),
+        ListChoice::OnlyMe | ListChoice::Anyone => None,
+    };
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap(space::SM)
+            .child(
+                div()
+                    .text_type(k.ladder.secondary)
+                    .text_color(k.theme.muted)
+                    .child(words::WHO_WRITES),
+            )
+            .child(choices)
+            .children(below),
     )
 }
 

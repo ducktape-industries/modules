@@ -505,19 +505,18 @@ fn people(
     theme: &Theme,
 ) -> Stateful<Div> {
     let number = agent.number;
-    let listed: &[u64] = match &agent.ownership {
-        Ownership::Accounts(numbers) => numbers,
-        Ownership::Owner | Ownership::Anyone => &[],
-    };
+    let listed = agent.ownership.listed();
     let rows: Vec<Stateful<Div>> = listed
         .iter()
-        .map(|&person| {
-            let name = agent.person_name(person);
+        .map(|party| {
+            let name = agent.party_name(party);
+            let id = words::party_id(party);
+            let removed = party.clone();
             let remove = cx.listener(move |v: &mut Settings, _: &ClickEvent, _, cx| {
-                v.remove_listed_person(number, person, cx)
+                v.remove_listed_person(number, &removed, cx)
             });
             div()
-                .id(format!("settings/agents/{number}/answers/{person}"))
+                .id(format!("settings/agents/{number}/answers/{id}"))
                 .flex()
                 .items_center()
                 .gap(design::space::LG)
@@ -529,13 +528,13 @@ fn people(
                         .gap(design::space::SM)
                         .child(div().child(name))
                         .child(
-                            design::mono(words::account(person))
+                            design::mono(words::party(party))
                                 .text_size(design::text::CAPTION)
                                 .text_color(theme.muted),
                         ),
                 )
                 .child(submit(
-                    &format!("settings/agents/{number}/answers/{person}/remove"),
+                    &format!("settings/agents/{number}/answers/{id}/remove"),
                     words::REMOVE,
                     words::WORKING,
                     busy,

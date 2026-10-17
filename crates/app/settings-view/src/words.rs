@@ -3,7 +3,7 @@
 //! an agent answers, an agent's standing, why a form did not go, the
 //! network's name, and every sentence both designs show. Pure: nothing here
 //! reads the state or writes.
-use identity::{Kind, Ownership, Standing};
+use identity::{Kind, Ownership, Party, Standing};
 use view::methods::Session;
 
 use crate::state::Problem;
@@ -59,8 +59,8 @@ pub(crate) fn person_field(agent: &str) -> String {
     format!("Add someone {agent} answers")
 }
 pub(crate) const ADD_PERSON: FormWords = FormWords {
-    prompt: "Name or account number",
-    empty: "Enter a name or an account number.",
+    prompt: "Name, account number or program",
+    empty: "Enter a name, an account number or a program.",
     verb: "Add",
     busy: "Adding…",
 };
@@ -84,7 +84,8 @@ pub(crate) const ADD_KEY_TITLE: &str = "Add a key to an agent";
 pub(crate) const ADD_KEY_WHY: &str = "Paste the key request the agent's device shows.";
 pub(crate) const WHO_IT_ANSWERS: &str = "Who it answers";
 pub(crate) const ANYONE_WARNING: &str = "Anyone on the network can tell this agent what to do.";
-pub(crate) const NOBODY_LISTED: &str = "Add people by name or account number.";
+pub(crate) const NOBODY_LISTED: &str =
+    "Add people by name or account number, or a program by its name.";
 /// A standing change in flight.
 pub(crate) const WORKING: &str = "Working…";
 /// A write of whom an agent answers, or (on the phone) any write, in flight.
@@ -106,6 +107,20 @@ pub(crate) fn who_answers(agent: &str) -> String {
 /// An account by its number: `account 7`.
 pub(crate) fn account(number: u64) -> String {
     format!("account {number}")
+}
+
+pub(crate) fn party(party: &Party) -> String {
+    match party {
+        Party::Account(number) => account(*number),
+        Party::Program(_) => "program".into(),
+    }
+}
+
+pub(crate) fn party_id(party: &Party) -> String {
+    match party {
+        Party::Account(number) => number.to_string(),
+        Party::Program(program) => format!("program-{program}"),
+    }
 }
 
 /// An agent's number and how many keys it holds: `account 12 · 0 keys`.
@@ -142,8 +157,16 @@ pub(crate) fn answers(ownership: &Ownership) -> String {
     match ownership {
         Ownership::Owner => "only me".into(),
         Ownership::Anyone => "anyone".into(),
-        Ownership::Accounts(people) => {
-            view::design::plural(people.len() as u64, "person", "people")
+        Ownership::Listed(_) => {
+            let people = ownership.accounts().count() as u64;
+            let programs = ownership.programs().count() as u64;
+            let people_words = view::design::plural(people, "person", "people");
+            let program_words = view::design::plural(programs, "program", "programs");
+            match (people, programs) {
+                (_, 0) => people_words,
+                (0, _) => program_words,
+                _ => format!("{people_words}, {program_words}"),
+            }
         }
     }
 }
@@ -163,7 +186,7 @@ pub(crate) fn problem_text(problem: &Problem, empty: &str) -> String {
     match problem {
         Problem::Empty => empty.to_owned(),
         Problem::NotAKeyRequest => "That isn’t a key request for one of your agents.".into(),
-        Problem::NoSuchAccount => "No account has that name or number.".into(),
+        Problem::NoSuchAccount => "No account or program has that name or number.".into(),
         Problem::SeveralAccounts => {
             "More than one account has that name. Add it by its number.".into()
         }

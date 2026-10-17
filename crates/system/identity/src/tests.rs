@@ -6,7 +6,7 @@ use store::PageRequest;
 
 use crate::{
     Account, Admission, CONSENT_NAMESPACE, Category, Consent, Control, Identity, Kind, Life, Op,
-    Ownership, Query, Reply, Script, Standing,
+    Ownership, Party, Query, Reply, Script, Standing,
 };
 
 const ALICE: &[u8] = b"alice-key";
@@ -661,6 +661,10 @@ fn ownership_of(store: &MockHost, number: u64) -> Result<Ownership, ::program::E
     }
 }
 
+fn accounts(numbers: &[u64]) -> Ownership {
+    Ownership::Listed(numbers.iter().copied().map(Party::Account).collect())
+}
+
 fn answers(account: u64, ownership: Ownership) -> Op {
     Op::SetOwnership { account, ownership }
 }
@@ -691,15 +695,15 @@ fn an_agent_answers_its_manager_until_its_manager_says_otherwise() {
     run(&store, &alice, answers(agent, Ownership::Anyone)).unwrap();
     assert_eq!(ownership_of(&store, agent), Ok(Ownership::Anyone));
 
-    let listed = Ownership::Accounts(vec![agent, bob, 1, bob]);
+    let listed = accounts(&[agent, bob, 1, bob]);
     run(&store, &alice, answers(agent, listed)).unwrap();
     assert_eq!(
         ownership_of(&store, agent),
-        Ok(Ownership::Accounts(vec![bob, agent])),
+        Ok(accounts(&[bob, agent])),
         "sorted, once each, its manager implied"
     );
 
-    run(&store, &alice, answers(agent, Ownership::Accounts(vec![1]))).unwrap();
+    run(&store, &alice, answers(agent, accounts(&[1]))).unwrap();
     assert_eq!(ownership_of(&store, agent), Ok(Ownership::Owner));
     assert_eq!(ownership_rows(&store), 0, "its manager alone keeps no row");
 
@@ -755,12 +759,14 @@ fn only_a_live_agent_has_an_ownership() {
     let nobody = refused(&store, &alice, answers(99, Ownership::Anyone));
     assert_eq!(nobody.code, code::NOT_FOUND);
     assert_eq!(ownership_of(&store, 99).unwrap_err().code, code::NOT_FOUND);
-    let unknown = refused(
-        &store,
-        &alice,
-        answers(agent, Ownership::Accounts(vec![99])),
-    );
+    let unknown = refused(&store, &alice, answers(agent, accounts(&[99])));
     assert_eq!(unknown.code, code::NOT_FOUND);
+    let unadmitted = Ownership::Listed(vec![Party::Program("forge".into())]);
+    let unknown = refused(&store, &alice, answers(agent, unadmitted));
+    assert_eq!(unknown.code, code::NOT_FOUND);
+    let chat = Ownership::Listed(vec![Party::Program("chat".into())]);
+    run(&store, &alice, answers(agent, chat.clone())).unwrap();
+    assert_eq!(ownership_of(&store, agent), Ok(chat));
 
     run(&store, &alice, answers(agent, Ownership::Anyone)).unwrap();
     run(&store, &alice, Op::Revoke { account: agent }).unwrap();
@@ -785,10 +791,10 @@ fn an_ownership_list_keeps_each_account_once_and_never_the_manager() {
     let alice = signed(&store, ALICE);
     let mut named = people.clone();
     named.extend([1, people[0]]);
-    run(&store, &alice, answers(agent, Ownership::Accounts(named))).unwrap();
+    run(&store, &alice, answers(agent, accounts(&named))).unwrap();
     assert_eq!(
         ownership_of(&store, agent),
-        Ok(Ownership::Accounts(people)),
+        Ok(accounts(&people)),
         "duplicates and the manager do not count"
     );
 }

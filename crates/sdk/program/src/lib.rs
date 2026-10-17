@@ -73,7 +73,7 @@ pub use kernel::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use mock::{Called, MockHost, MockState, Resumed, Sibling, Verifier, blob_id, identity_role};
-pub use ownership::Ownership;
+pub use ownership::{Ownership, Party};
 #[cfg(target_arch = "wasm32")]
 pub use program::exports;
 pub use program::{Ask, Program, Reads, execute, hook, is_name, query};

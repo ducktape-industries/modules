@@ -74,14 +74,6 @@ pub(crate) fn commit(
     abi::decode(&output).expect("a commit answers its snapshot")
 }
 
-/// The network every test starts from: three commits and a pin.
-/// 1. dev: `/home/dev/notes.txt`, `/home/dev/docs/plan.md`
-/// 2. ada: `/home/ada/diary.txt`, `/shared/readme.txt`, `/shared/blob.bin`
-///    (not text), `/shared/dot.png` ([`PNG`]), the link `/shared/latest` to
-///    the readme
-/// 3. dev: `/home/dev/notes.txt` again, its text [`NOTES`]
-///
-/// and the pin `v1` on the first snapshot.
 pub(crate) fn seeded() -> Network {
     let net = Network::new();
     net.seat::<files::Files>(files::PROGRAM);
@@ -110,6 +102,10 @@ pub(crate) fn seeded() -> Network {
             Change::Symlink {
                 path: "/shared/latest".into(),
                 target: "/shared/readme.txt".into(),
+            },
+            Change::SetOwnership {
+                path: "/home/ada".into(),
+                write: Some(files::Ownership::Owner),
             },
         ],
     );

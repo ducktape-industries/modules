@@ -10,8 +10,30 @@ fn cy() -> Env {
 
 fn hosted() -> MockHost {
     let host = MockHost::default();
-    host.identity(vec![profile(1, "ada"), profile(2, "bo"), profile(3, "cy")]);
+    host.identity(vec![
+        profile(1, "ada"),
+        profile(2, "bo"),
+        profile(3, "cy"),
+        Profile {
+            number: 7,
+            name: "harness".into(),
+            kind: Kind::System("harness".into()),
+        },
+        Profile {
+            number: 8,
+            name: "scout".into(),
+            kind: Kind::User,
+        },
+    ]);
     host
+}
+
+fn sent_by(program: &str, account: u64) -> Env {
+    MockHost::env(PROGRAM).from_program(program, Some(account))
+}
+
+fn accounts(numbers: &[u64]) -> Ownership {
+    Ownership::Listed(numbers.iter().copied().map(Party::Account).collect())
 }
 
 fn set(path: &str, write: Option<Ownership>) -> Change {
@@ -63,18 +85,15 @@ fn the_first_account_to_make_a_path_and_the_directories_it_makes_is_their_creato
     assert_eq!(owned(&host, "/shared/d/g", None).creator, Some(2));
     let root = owned(&host, "/shared", None);
     assert_eq!((root.creator, root.write), (None, None));
-    assert_eq!(root.writers, Writers::Chain);
-    assert_eq!(owned(&host, "/shared/d/f", None).writers, Writers::Shared);
-    assert_eq!(
-        owned(&host, "/home/ada/x", None).writers,
-        Writers::Home("ada".into())
-    );
+    assert_eq!(root.writers, Writers::Anyone);
+    assert_eq!(owned(&host, "/shared/d/f", None).writers, Writers::Anyone);
+    assert_eq!(owned(&host, "/home/ada/x", None).writers, Writers::Anyone);
     change(&host, ada().root(), vec![put(&host, "/shared/c", "c")]).unwrap();
     assert_eq!(owned(&host, "/shared/c", None).creator, None);
 }
 
 #[test]
-fn owner_allows_its_creator_accounts_the_listed_and_anyone_every_account() {
+fn owner_allows_its_creator_listed_the_parties_too_and_anyone_every_account() {
     let host = hosted();
     change(
         &host,
@@ -99,11 +118,15 @@ fn owner_allows_its_creator_accounts_the_listed_and_anyone_every_account() {
     );
     change(&host, ada(), vec![put(&host, "/shared/d/f", "a2")]).unwrap();
 
-    let listed = Ownership::Accounts(vec![2, 1, 2]);
+    let listed = Ownership::Listed(vec![
+        Party::Account(2),
+        Party::Account(1),
+        Party::Account(2),
+    ]);
     change(&host, ada(), vec![set("/shared/d", Some(listed))]).unwrap();
     assert_eq!(
         owned(&host, "/shared/d", None).write,
-        Some(Ownership::Accounts(vec![2])),
+        Some(accounts(&[2])),
         "once each, never its creator"
     );
     change(&host, bo(), vec![put(&host, "/shared/d/f", "b")]).unwrap();
@@ -124,7 +147,7 @@ fn owner_allows_its_creator_accounts_the_listed_and_anyone_every_account() {
     change(&host, ada(), vec![set("/shared/d", None)]).unwrap();
     let cleared = owned(&host, "/shared/d", None);
     assert_eq!((cleared.creator, cleared.write), (Some(1), None));
-    assert_eq!(cleared.writers, Writers::Shared);
+    assert_eq!(cleared.writers, Writers::Anyone);
 }
 
 #[test]
@@ -176,7 +199,7 @@ fn every_write_to_a_listed_path_is_checked_and_a_refusal_leaves_nothing() {
 }
 
 #[test]
-fn the_nearest_list_wins_over_a_list_higher_up_and_over_the_home_rule() {
+fn the_nearest_list_wins_over_a_list_higher_up_and_a_path_with_none_is_anyones() {
     let host = hosted();
     change(
         &host,
@@ -184,7 +207,7 @@ fn the_nearest_list_wins_over_a_list_higher_up_and_over_the_home_rule() {
         vec![
             put(&host, "/home/ada/proj/f", "a"),
             put(&host, "/home/ada/proj/inner/g", "a"),
-            set("/home/ada/proj", Some(Ownership::Accounts(vec![2]))),
+            set("/home/ada/proj", Some(accounts(&[2]))),
             set("/home/ada/proj/inner", Some(Ownership::Owner)),
         ],
     )
@@ -194,10 +217,7 @@ fn the_nearest_list_wins_over_a_list_higher_up_and_over_the_home_rule() {
         refused_with(&host, bo(), vec![put(&host, "/home/ada/proj/inner/g", "b")]),
         code::UNAUTHORIZED
     );
-    assert_eq!(
-        refused_with(&host, bo(), vec![put(&host, "/home/ada/other", "b")]),
-        code::UNAUTHORIZED
-    );
+    change(&host, cy(), vec![put(&host, "/home/ada/other", "c")]).unwrap();
 
     change(
         &host,
@@ -252,10 +272,17 @@ fn only_its_creator_sets_a_paths_list_and_a_home_folders_by_the_account_named_so
         code::NOT_FOUND
     );
     assert_eq!(
+        refused_with(&host, ada(), vec![set("/shared/d", Some(accounts(&[99])))]),
+        code::NOT_FOUND
+    );
+    assert_eq!(
         refused_with(
             &host,
             ada(),
-            vec![set("/shared/d", Some(Ownership::Accounts(vec![99])))]
+            vec![set(
+                "/shared/d",
+                Some(Ownership::Listed(vec![Party::Program("nowhere".into())]))
+            )]
         ),
         code::NOT_FOUND
     );
@@ -264,7 +291,7 @@ fn only_its_creator_sets_a_paths_list_and_a_home_folders_by_the_account_named_so
         refused_with(&host, bo(), vec![set("/home/ada", Some(Ownership::Anyone))]),
         code::UNAUTHORIZED
     );
-    let shared_with_bo = Some(Ownership::Accounts(vec![2]));
+    let shared_with_bo = Some(accounts(&[2]));
     change(&host, ada(), vec![set("/home/ada", shared_with_bo.clone())]).unwrap();
     let home = owned(&host, "/home/ada", None);
     assert_eq!((home.creator, home.write), (Some(1), shared_with_bo));
@@ -355,7 +382,7 @@ fn the_chain_writes_anywhere_whatever_a_list_says() {
     change(
         &host,
         ada().root(),
-        vec![set("/shared/d", Some(Ownership::Accounts(vec![3])))],
+        vec![set("/shared/d", Some(accounts(&[3])))],
     )
     .unwrap();
     assert_eq!(text(&host, "/shared/d/f", None).unwrap(), "chain");
@@ -370,7 +397,7 @@ fn a_list_keeps_allowing_the_account_numbers_it_holds_whatever_they_are_named() 
         ada(),
         vec![
             put(&host, "/shared/d/f", "a"),
-            set("/shared/d", Some(Ownership::Accounts(vec![2]))),
+            set("/shared/d", Some(accounts(&[2]))),
         ],
     )
     .unwrap();
@@ -403,7 +430,13 @@ fn a_commit_that_sets_a_list_says_so_to_whoever_signs_it() {
         message: "lock".into(),
         changes: vec![
             put(&host, "/shared/d/f", "a"),
-            set("/shared/d", Some(Ownership::Accounts(vec![2]))),
+            set(
+                "/shared/d",
+                Some(Ownership::Listed(vec![
+                    Party::Account(2),
+                    Party::Program("harness".into()),
+                ])),
+            ),
         ],
     };
     let said = describe(&op);
@@ -417,7 +450,76 @@ fn a_commit_that_sets_a_list_says_so_to_whoever_signs_it() {
         lists,
         [Value::List(vec![
             Value::text("/shared/d"),
-            Value::List(vec![Value::text("its creator"), Value::Account(2)]),
+            Value::List(vec![
+                Value::text("its creator"),
+                Value::Account(2),
+                Value::Program("harness".into()),
+            ]),
         ])]
     );
+}
+
+#[test]
+fn a_listed_program_writes_by_its_own_call_and_for_an_account_it_sends_for() {
+    let host = hosted();
+    let harness = Ownership::Listed(vec![Party::Program("harness".into())]);
+    change(
+        &host,
+        ada(),
+        vec![
+            put(&host, "/shared/d/f", "a"),
+            set("/shared/d", Some(harness)),
+        ],
+    )
+    .unwrap();
+    change(
+        &host,
+        sent_by("harness", 7),
+        vec![put(&host, "/shared/d/f", "own")],
+    )
+    .unwrap();
+    assert_eq!(text(&host, "/shared/d/f", None).unwrap(), "own");
+    change(
+        &host,
+        sent_by("harness", 8),
+        vec![put(&host, "/shared/d/g", "for 8")],
+    )
+    .unwrap();
+    assert_eq!(owned(&host, "/shared/d/g", None).creator, Some(8));
+    let signed_by_8 = MockHost::env(PROGRAM).signed(vec![8; 32], Some(8));
+    for refused in [signed_by_8, sent_by("chat", 8), bo()] {
+        assert_eq!(
+            refused_with(&host, refused, vec![put(&host, "/shared/d/f", "x")]),
+            code::UNAUTHORIZED
+        );
+    }
+    change(&host, ada(), vec![put(&host, "/shared/d/f", "creator")]).unwrap();
+}
+
+#[test]
+fn a_new_path_and_its_list_go_in_one_commit() {
+    let host = hosted();
+    change(
+        &host,
+        ada(),
+        vec![
+            put(&host, "/shared/mine", "a"),
+            set("/shared/mine", Some(Ownership::Owner)),
+            Change::Mkdir {
+                path: "/shared/ours".into(),
+            },
+            set("/shared/ours", Some(accounts(&[2]))),
+        ],
+    )
+    .unwrap();
+    let mine = owned(&host, "/shared/mine", None);
+    assert_eq!(
+        (mine.creator, mine.write),
+        (Some(1), Some(Ownership::Owner))
+    );
+    assert_eq!(
+        refused_with(&host, bo(), vec![put(&host, "/shared/mine", "b")]),
+        code::UNAUTHORIZED
+    );
+    change(&host, bo(), vec![put(&host, "/shared/ours/b", "b")]).unwrap();
 }

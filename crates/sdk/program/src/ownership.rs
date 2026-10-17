@@ -1,44 +1,86 @@
-//! Who may act on something an account owns: its owner alone, its owner and the accounts
-//! listed by number, or anyone. identity says so of whom an agent answers, files of who writes a path.
+//! Who may act on something an account owns: its owner alone, its owner and the parties
+//! listed (accounts by number, programs by id), or anyone. identity says so of whom an agent
+//! answers, files of who writes a path.
 use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
-use crate::AccountNumber;
+use crate::{AccountNumber, ProgramId};
+
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    BorshSerialize,
+    BorshDeserialize,
+    BorshSchema,
+)]
+pub enum Party {
+    Account(AccountNumber),
+    Program(ProgramId),
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
 pub enum Ownership {
     #[default]
     Owner,
-    Accounts(Vec<AccountNumber>),
+    Listed(Vec<Party>),
     Anyone,
 }
 
 impl Ownership {
-    pub fn allows(&self, owner: Option<AccountNumber>, account: AccountNumber) -> bool {
-        let owns = owner == Some(account);
+    pub fn allows(&self, owner: Option<AccountNumber>, caller: &[Party]) -> bool {
+        let owns = owner.is_some_and(|owner| caller.contains(&Party::Account(owner)));
         match self {
             Ownership::Owner => owns,
-            Ownership::Accounts(listed) => owns || listed.contains(&account),
+            Ownership::Listed(listed) => owns || listed.iter().any(|party| caller.contains(party)),
             Ownership::Anyone => true,
         }
     }
 
     pub fn settled(self, owner: Option<AccountNumber>) -> Ownership {
-        let Ownership::Accounts(mut listed) = self else {
+        let Ownership::Listed(mut listed) = self else {
             return self;
         };
         listed.sort_unstable();
         listed.dedup();
-        listed.retain(|number| Some(*number) != owner);
+        listed.retain(|party| owner.is_none_or(|owner| *party != Party::Account(owner)));
         match listed.is_empty() {
             true => Ownership::Owner,
-            false => Ownership::Accounts(listed),
+            false => Ownership::Listed(listed),
         }
     }
 
-    pub fn listed(&self) -> &[AccountNumber] {
+    pub fn listed(&self) -> &[Party] {
         match self {
-            Ownership::Accounts(listed) => listed,
+            Ownership::Listed(listed) => listed,
             Ownership::Owner | Ownership::Anyone => &[],
+        }
+    }
+
+    pub fn accounts(&self) -> impl Iterator<Item = AccountNumber> + '_ {
+        self.listed().iter().filter_map(Party::account)
+    }
+
+    pub fn programs(&self) -> impl Iterator<Item = &ProgramId> {
+        self.listed().iter().filter_map(Party::program)
+    }
+}
+
+impl Party {
+    pub fn account(&self) -> Option<AccountNumber> {
+        match self {
+            Party::Account(number) => Some(*number),
+            Party::Program(_) => None,
+        }
+    }
+
+    pub fn program(&self) -> Option<&ProgramId> {
+        match self {
+            Party::Account(_) => None,
+            Party::Program(program) => Some(program),
         }
     }
 }

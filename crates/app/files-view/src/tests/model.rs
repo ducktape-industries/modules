@@ -3,7 +3,7 @@
 //! its pages out.
 use std::collections::BTreeMap;
 
-use files::{BlobId, Change, Content, EntryInfo, Node, Ownership, PathOwnership, Writers};
+use files::{BlobId, Change, Content, EntryInfo, Node, Ownership, Party, PathOwnership, Writers};
 use view::ImageFormat;
 use view::TextField;
 use view::prelude::Loadable;
@@ -15,7 +15,7 @@ use crate::tests::{PNG, file};
 use crate::ui::Layout;
 use crate::upload::{UPLOAD_MOST, puts, sent, uploads};
 use crate::words;
-use crate::write::{Form, Write, built, files_of};
+use crate::write::{Form, ListChoice, Write, built, files_of};
 use view::methods::{BlobBody, NewBlob, Picked};
 
 const DEV: u64 = 7;
@@ -51,6 +51,8 @@ fn form(write: Write, name: &str, text: &str, message: &str) -> Form {
         text: TextField::new(text),
         upload: Vec::new(),
         contents: Vec::new(),
+        list: ListChoice::default(),
+        listed: TextField::default(),
         message: TextField::new(message),
         problem: None,
         refused: None,
@@ -86,29 +88,26 @@ fn opened(bytes: &[u8], whole: bool) -> Opened {
 }
 
 #[test]
-fn what_is_made_under_shared_is_anyones_to_write() {
-    for path in ["/shared", "/shared/team/notes"] {
-        let children = folder(path, Some(Writers::Chain)).children();
-        assert_eq!(children, Writers::Shared, "{path}");
-        assert!(dev().writes(&children));
+fn what_is_made_where_no_list_covers_is_anyones_to_write() {
+    for path in [
+        "/",
+        "/shared",
+        "/shared/team/notes",
+        "/home/ada",
+        "/elsewhere",
+    ] {
+        let children = folder(path, Some(Writers::Anyone)).children();
+        assert_eq!(children, Writers::Anyone, "{path}");
+        assert!(dev().writes(&children), "{path}");
     }
+    assert_eq!(folder("/", None).children(), Writers::Anyone);
 }
 
 #[test]
-fn what_is_made_in_a_home_is_its_named_account_alone() {
-    let mine = folder("/home/dev/docs", Some(Writers::Home("dev".into()))).children();
-    let hers = folder("/home/ada", Some(Writers::Chain)).children();
-    assert_eq!(hers, Writers::Home("ada".into()));
-    assert!(dev().writes(&mine));
-    assert!(!dev().writes(&hers));
-}
-
-#[test]
-fn nothing_an_account_makes_goes_at_the_root_or_beside_the_homes() {
-    for path in ["/", "/home", "/elsewhere"] {
-        let children = folder(path, None).children();
-        assert_eq!(children, Writers::Chain, "{path}");
-        assert!(!dev().writes(&children), "{path}");
+fn only_the_folder_of_homes_holds_namespace_roots() {
+    assert!(folder("/home", None).holds_namespace_roots());
+    for path in ["/", "/shared", "/home/ada", "/home/ada/docs"] {
+        assert!(!folder(path, None).holds_namespace_roots(), "{path}");
     }
 }
 
@@ -117,7 +116,7 @@ fn a_write_list_over_a_folder_decides_for_what_is_made_in_it() {
     let listed = Writers::Listed {
         path: "/home/ada/team".into(),
         creator: Some(ADA),
-        write: Ownership::Accounts(vec![DEV]),
+        write: Ownership::Listed(vec![Party::Account(DEV)]),
     };
     let children = folder("/home/ada/team/plans", Some(listed.clone())).children();
     assert_eq!(children, listed);
@@ -131,22 +130,81 @@ fn a_write_list_over_a_folder_decides_for_what_is_made_in_it() {
         write: Ownership::Owner,
     };
     assert!(!dev().writes(&folder("/shared/ada", Some(owners_only)).children()));
+    let a_program = Writers::Listed {
+        path: "/shared/bots".into(),
+        creator: Some(ADA),
+        write: Ownership::Listed(vec![Party::Program("harness".into())]),
+    };
+    assert!(
+        !dev().writes(&a_program),
+        "a person's signed write is never the program's"
+    );
 }
 
 #[test]
 fn a_reader_signed_out_writes_nothing() {
     let nobody = Reader::default();
-    assert!(!nobody.writes(&Writers::Shared));
+    assert!(!nobody.writes(&Writers::Anyone));
 }
 
 #[test]
-fn a_reader_identity_names_no_way_writes_under_shared_only() {
+fn a_reader_identity_names_no_way_writes_where_anyone_may() {
     let unnamed = Reader {
         account: Some(DEV),
         name: Loadable::Ready(None),
     };
-    assert!(unnamed.writes(&Writers::Shared));
-    assert!(!unnamed.writes(&Writers::Home("dev".into())));
+    assert!(unnamed.writes(&Writers::Anyone));
+}
+
+#[test]
+fn a_new_file_or_folder_carries_the_write_list_picked_in_the_same_commit() {
+    let new_file = Write::NewFile {
+        folder: "/shared".into(),
+    };
+    let new_folder = Write::NewFolder {
+        folder: "/shared".into(),
+    };
+    let picked = |write: Write, list: ListChoice, listed: &str| {
+        let mut form = form(write, "x", "", "");
+        form.list = list;
+        form.listed = TextField::new(listed);
+        built(&form)
+    };
+    let set = |write: Ownership| Change::SetOwnership {
+        path: "/shared/x".into(),
+        write: Some(write),
+    };
+    let (_, changes) = picked(new_file.clone(), ListChoice::AsItsFolder, "").unwrap();
+    assert_eq!(changes.len(), 1, "no list of its own");
+    let (_, changes) = picked(new_file.clone(), ListChoice::OnlyMe, "").unwrap();
+    assert_eq!(changes[1..], [set(Ownership::Owner)]);
+    let (_, changes) = picked(new_folder.clone(), ListChoice::Anyone, "").unwrap();
+    assert!(matches!(changes[0], Change::Mkdir { .. }));
+    assert_eq!(changes[1..], [set(Ownership::Anyone)]);
+    let (_, changes) = picked(new_folder.clone(), ListChoice::Listed, " 9, harness 12 ").unwrap();
+    assert_eq!(
+        changes[1..],
+        [set(Ownership::Listed(vec![
+            Party::Account(9),
+            Party::Program("harness".into()),
+            Party::Account(12),
+        ]))]
+    );
+    assert_eq!(
+        picked(new_file, ListChoice::Listed, " , "),
+        Err(words::LIST_SOMEONE.into())
+    );
+    let mut rename = form(
+        Write::Rename {
+            path: "/shared/a".into(),
+        },
+        "/shared/b",
+        "",
+        "",
+    );
+    rename.list = ListChoice::OnlyMe;
+    let (_, changes) = built(&rename).unwrap();
+    assert_eq!(changes.len(), 1, "only a new path takes a list");
 }
 
 #[test]

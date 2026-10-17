@@ -115,7 +115,7 @@ Who may do what (the acting account is `ctx.sender()`):
 | `SetName`, `SetProfile` | a user or a program on its own account; a program account's manager on that account's (not once revoked) |
 | `Suspend`, `Resume`, `Revoke` | the program account's manager |
 | `SetScript { account, script }` | the program account's manager, not once revoked. `Some(Script { calls, config })` names in `calls` a program that has an account; that program then sends messages as the account (`Runs`) and reads `config`. `None` takes it back |
-| `SetOwnership { account, ownership }` | the agent's manager, not once revoked. It records whom the agent answers as a `program::Ownership`: `Owner` (its manager), `Accounts` (the manager and the account numbers listed) or `Anyone`. The agent's runtime reads it with `Query::Ownership`; nothing on the chain enforces it. An agent with no setting, or a revoked one, answers `Owner` |
+| `SetOwnership { account, ownership }` | the agent's manager, not once revoked. It records whom the agent answers as a `program::Ownership`: `Owner` (its manager), `Listed` (the manager and the parties listed: accounts by number, programs by id, each one identity holds) or `Anyone`. The agent's runtime reads it with `Query::Ownership`; nothing on the chain enforces it. An agent with no setting, or a revoked one, answers `Owner` |
 
 The role's queries, which views and other programs ask too, are
 `Account(key)`, `OfProgram(program)`, `Profile(number)`,

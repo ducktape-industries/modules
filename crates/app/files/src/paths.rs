@@ -1,8 +1,9 @@
 //! Paths as files spells them (NFC, absolute, `/`-separated) and the one check of who
-//! may write a path: the nearest write list at or above it, else an account under
-//! `/shared/` and its own home, `/home/<its identity name>/`; the chain anywhere.
+//! may write a path: the nearest write list at or above it, else anyone, beneath the namespace
+//! roots (`/home`, `/shared`, each `/home/<name>`) that the chain alone writes; the chain anywhere.
 use ::program::{
-    AccountNumber, Error, Ownership, Principal, QueryCtx, invalid, unauthorized, unexpected_reply,
+    AccountNumber, Error, Origin, Ownership, Party, Principal, QueryCtx, invalid, unauthorized,
+    unexpected_reply,
 };
 use unicode_normalization::UnicodeNormalization;
 
@@ -43,15 +44,20 @@ pub fn join(segments: &[String]) -> String {
 pub fn is_namespace_root(segments: &[String]) -> bool {
     match segments {
         [root] => root == "home" || root == "shared",
-        [root, _] => root == "home",
-        _ => false,
+        [folder @ .., _] => holds_namespace_roots(folder),
+        [] => false,
     }
+}
+
+pub fn holds_namespace_roots(folder: &[String]) -> bool {
+    matches!(folder, [root] if root == "home")
 }
 
 pub enum Writer {
     Chain,
     Account {
         number: AccountNumber,
+        caller: Vec<Party>,
         label: Option<String>,
     },
 }
@@ -81,10 +87,23 @@ pub fn writer(ctx: &QueryCtx, principal: &Principal) -> Result<Writer, Error> {
         Reply::Profile(profile) => profile.map(|profile| profile.name),
         other => return Err(unexpected_reply(&identity, "Profile", &other)),
     };
-    Ok(Writer::Account { number, label })
+    let caller = caller(number, &ctx.env().origin);
+    Ok(Writer::Account {
+        number,
+        caller,
+        label,
+    })
 }
 
-pub fn writers(segments: &[String], along: &[Option<Access>], act: Act) -> Writers {
+pub fn caller(number: AccountNumber, origin: &Origin) -> Vec<Party> {
+    let account = Party::Account(number);
+    match origin {
+        Origin::Program(program) => vec![account, Party::Program(program.clone())],
+        Origin::Signed(_) | Origin::Root => vec![account],
+    }
+}
+
+pub fn writers(segments: &[String], along: &[Option<Access>]) -> Writers {
     let nearest = along.iter().enumerate().rev().find_map(|(depth, row)| {
         let row = row.as_ref()?;
         let write = row.write.clone()?;
@@ -94,26 +113,7 @@ pub fn writers(segments: &[String], along: &[Option<Access>], act: Act) -> Write
             write,
         })
     });
-    if let Some(listed) = nearest {
-        return listed;
-    }
-    match (segments, act) {
-        ([root, home], Act::SetOwnership) if root == "home" => Writers::Home(home.clone()),
-        ([folder @ .., _], _) => made_in(folder),
-        _ => Writers::Chain,
-    }
-}
-
-/// Who may write what is made in `folder` when no write list applies: a
-/// child of `/shared` or below it is anyone's, a child of `/home/<name>`
-/// or below it that account's, any other the chain's. A view asks it to
-/// offer only the writes files would take.
-pub fn made_in(folder: &[String]) -> Writers {
-    match folder {
-        [root, ..] if root == "shared" => Writers::Shared,
-        [root, home, ..] if root == "home" => Writers::Home(home.clone()),
-        _ => Writers::Chain,
-    }
+    nearest.unwrap_or(Writers::Anyone)
 }
 
 pub fn writable(
@@ -122,95 +122,89 @@ pub fn writable(
     along: &[Option<Access>],
     act: Act,
 ) -> Result<(), Error> {
-    let Writer::Account { number, label } = writer else {
+    let Writer::Account {
+        number,
+        caller,
+        label,
+    } = writer
+    else {
         return Ok(());
     };
-    let label = label.as_deref();
-    allowed(*number, label, segments, &writers(segments, along, act))?;
+    let writers = writers(segments, along);
     match act {
-        Act::Write => Ok(()),
-        Act::SetOwnership => sets_list(*number, label, segments, along),
+        Act::Write => {
+            beneath_the_roots(segments)?;
+            allowed(*number, caller, segments, &writers)
+        }
+        Act::SetOwnership => {
+            allowed(*number, caller, segments, &writers)?;
+            sets_list(*number, label.as_deref(), segments, along)
+        }
     }
+}
+
+fn beneath_the_roots(segments: &[String]) -> Result<(), Error> {
+    if !is_namespace_root(segments) {
+        return Ok(());
+    }
+    Err(unauthorized(format!(
+        "{} is a namespace root: /home, /shared and each /home/<name> are written by the \
+         chain alone, and anyone writes beneath them where no write list says otherwise",
+        join(segments)
+    )))
 }
 
 fn allowed(
     number: AccountNumber,
-    label: Option<&str>,
+    caller: &[Party],
     segments: &[String],
     writers: &Writers,
 ) -> Result<(), Error> {
-    match writers {
-        Writers::Listed {
-            path,
-            creator,
-            write,
-        } => listed(number, segments, path, *creator, write),
-        Writers::Home(home) => owned(number, label, home, segments),
-        Writers::Shared => Ok(()),
-        Writers::Chain => Err(unauthorized(format!(
-            "{} is outside /shared/ and an account's own home, /home/<its name>/",
-            join(segments)
-        ))),
-    }
-}
-
-fn listed(
-    number: AccountNumber,
-    segments: &[String],
-    path: &str,
-    creator: Option<AccountNumber>,
-    write: &Ownership,
-) -> Result<(), Error> {
-    if write.allows(creator, number) {
+    let Writers::Listed {
+        path,
+        creator,
+        write,
+    } = writers
+    else {
+        return Ok(());
+    };
+    if write.allows(*creator, caller) {
         return Ok(());
     }
     Err(unauthorized(format!(
-        "account {number} may not write {}: the write list on {path} allows {}",
+        "{} may not write {}: the write list on {path} allows {}",
+        who(number, caller),
         join(segments),
-        allows(creator, write)
+        allows(*creator, write)
     )))
 }
 
-pub fn allows(creator: Option<AccountNumber>, write: &Ownership) -> String {
-    let accounts = |listed: &[AccountNumber]| {
-        listed
-            .iter()
-            .map(|number| format!("account {number}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    match (write, creator) {
-        (Ownership::Owner, Some(creator)) => format!("only its creator, account {creator}"),
-        (Ownership::Owner, None) => "no account: no account created it".into(),
-        (Ownership::Accounts(listed), Some(creator)) => {
-            format!("its creator, account {creator}, and {}", accounts(listed))
-        }
-        (Ownership::Accounts(listed), None) => accounts(listed),
-        (Ownership::Anyone, _) => "any account".into(),
+fn who(number: AccountNumber, caller: &[Party]) -> String {
+    let program = caller.iter().find_map(Party::program);
+    match program {
+        Some(program) => format!("account {number}, sent by program {program},"),
+        None => format!("account {number}"),
     }
 }
 
-fn owned(
-    number: AccountNumber,
-    label: Option<&str>,
-    home: &str,
-    segments: &[String],
-) -> Result<(), Error> {
-    let own_home = label == Some(home);
-    if own_home {
-        return Ok(());
+pub fn allows(creator: Option<AccountNumber>, write: &Ownership) -> String {
+    let parties = |listed: &[Party]| listed.iter().map(party).collect::<Vec<_>>().join(", ");
+    match (write, creator) {
+        (Ownership::Owner, Some(creator)) => format!("only its creator, account {creator}"),
+        (Ownership::Owner, None) => "no account: no account created it".into(),
+        (Ownership::Listed(listed), Some(creator)) => {
+            format!("its creator, account {creator}, and {}", parties(listed))
+        }
+        (Ownership::Listed(listed), None) => parties(listed),
+        (Ownership::Anyone, _) => "anyone".into(),
     }
-    let whose = format!(
-        "{} is in /home/{home}/, the home of the account named {home}",
-        join(segments)
-    );
-    let mine = match label {
-        Some(label) => format!(
-            "account {number} is named {label} and writes under /home/{label}/ and /shared/"
-        ),
-        None => format!("account {number} has no name in identity and writes under /shared/ only"),
-    };
-    Err(unauthorized(format!("{whose}: {mine}")))
+}
+
+fn party(party: &Party) -> String {
+    match party {
+        Party::Account(number) => format!("account {number}"),
+        Party::Program(program) => format!("program {program}"),
+    }
 }
 
 fn sets_list(

@@ -138,7 +138,7 @@ fn an_op_is_the_agents_and_the_program_allows_or_refuses_it() {
         ("c_post", "network_call", post("general", "net-1")),
         ("c_closed", "network_call", post("closed", "net-2")),
         ("c_home", "network_call", commit("/home/Scout/notes")),
-        ("c_etc", "network_call", commit("/etc/notes")),
+        ("c_root", "network_call", commit("/home/Ada")),
     ];
     let thread = called(&world, &calls);
 
@@ -157,8 +157,8 @@ fn an_op_is_the_agents_and_the_program_allows_or_refuses_it() {
     let home = json_result(chain, thread, "c_home");
     let snapshot = abi::decode::<BlobId>(&abi::unhex(home["returned"].as_str().unwrap()).unwrap());
     assert_eq!(snapshot.unwrap(), head(chain));
-    let etc = refusal(chain, thread, "c_etc");
-    assert!(etc.starts_with(code::UNAUTHORIZED), "{etc}");
+    let root = refusal(chain, thread, "c_root");
+    assert!(root.starts_with(code::UNAUTHORIZED), "{root}");
 }
 
 #[test]

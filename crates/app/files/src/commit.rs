@@ -176,7 +176,7 @@ fn plan(ctx: &QueryCtx, changes: Vec<Change>) -> Result<Vec<Step>, Error> {
             Change::SetOwnership { path, write } => {
                 let segments = change_path(&path)?;
                 if let Some(write) = &write {
-                    known(ctx, write.listed())?;
+                    known(ctx, write)?;
                 }
                 Step::SetOwnership { segments, write }
             }
@@ -186,14 +186,21 @@ fn plan(ctx: &QueryCtx, changes: Vec<Change>) -> Result<Vec<Step>, Error> {
     Ok(steps)
 }
 
-fn known(ctx: &QueryCtx, listed: &[AccountNumber]) -> Result<(), Error> {
+fn known(ctx: &QueryCtx, write: &Ownership) -> Result<(), Error> {
     use abi::role::identity::{Query, Reply};
     let identity = ctx.env().role(abi::role::IDENTITY)?.clone();
-    for number in listed {
-        match ctx.query::<Query, Reply>(&identity, &Query::Profile(*number))? {
+    for number in write.accounts() {
+        match ctx.query::<Query, Reply>(&identity, &Query::Profile(number))? {
             Reply::Profile(Some(_)) => {}
             Reply::Profile(None) => return Err(not_found(format!("account {number}"))),
             other => return Err(unexpected_reply(&identity, "Profile", &other)),
+        }
+    }
+    for program in write.programs() {
+        match ctx.query::<Query, Reply>(&identity, &Query::OfProgram(program.clone()))? {
+            Reply::Account(Some(_)) => {}
+            Reply::Account(None) => return Err(not_found(format!("program {program}"))),
+            other => return Err(unexpected_reply(&identity, "OfProgram", &other)),
         }
     }
     Ok(())

@@ -907,6 +907,32 @@ fn the_create_flow_sends_its_ops_in_order() {
 }
 
 #[test]
+fn the_create_flow_lists_accounts_and_programs_it_answers() {
+    let (mut cx, _) = seated(Net::default(), EDDY);
+    identity_takes(&cx);
+    files_take(&cx);
+    cx.simulate_click("agents-create");
+    cx.run_until_parked();
+    cx.simulate_input("create-name", "Rover");
+    fill(&mut cx);
+    cx.simulate_click("create-answers-2");
+    cx.simulate_input("create-accounts", "7, forge");
+    cx.simulate_click("create-next");
+    cx.run_until_parked();
+    let answered = cx.host().requests::<Submit<Identity>>().pop();
+    assert_eq!(
+        answered,
+        Some(identity::Op::SetOwnership {
+            account: ROVER,
+            ownership: identity::Ownership::Listed(vec![
+                identity::Party::Account(7),
+                identity::Party::Program("forge".into()),
+            ]),
+        })
+    );
+}
+
+#[test]
 fn a_path_typed_in_the_form_is_the_one_committed_and_scripted() {
     let (mut cx, _) = seated(Net::default(), EDDY);
     identity_takes(&cx);

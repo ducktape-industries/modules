@@ -11,7 +11,7 @@ use crate::state::{
     Holds, Names, NoHome, Note, Opened, PREVIEW, Place, SHOW_MOST, holds_by_name, name_of,
 };
 use crate::upload::UPLOAD_MOST;
-use crate::write::{Naming, Write};
+use crate::write::{ListChoice, Naming, Write};
 
 pub const TITLE: &str = "Files";
 pub const PLACES: &str = "Places";
@@ -32,7 +32,7 @@ pub const PATH: &str = "Path";
 
 pub const SHARED_CAPTION: &str = "Any account writes here";
 pub const EVERYTHING_CAPTION: &str = "The whole tree";
-pub const NO_NAME: &str = "No home: your account has no name, so you write under /shared only";
+pub const NO_NAME: &str = "No home: your account has no name in identity";
 pub const SIGNED_OUT: &str = "Sign in to have a home";
 pub const FINDING_HOME: &str = "Finding your home…";
 
@@ -76,6 +76,12 @@ pub const ONE_NAME: &str = "A name has no /: rename it afterwards to move it.";
 pub const SAME_PATH: &str = "It is at that path already.";
 
 pub const NAME: &str = "Name";
+pub const WHO_WRITES: &str = "Who may write it";
+pub const LISTED: &str = "Account numbers and programs";
+pub const LIST_SOMEONE: &str =
+    "List the account numbers and programs that may write it, like 7, 12, harness.";
+pub const AS_ITS_FOLDER_NOTE: &str =
+    "No list of its own: the nearest list above it decides, and with none, anyone writes it.";
 pub const NEW_PATH: &str = "New path";
 pub const TEXT: &str = "Text";
 pub const MESSAGE: &str = "Message";
@@ -119,6 +125,15 @@ pub fn byline(author: String, time_ms: u64) -> String {
 pub fn pin_caption(seq: Option<u64>, owner: String) -> String {
     let named = seq.map_or_else(|| OLDER_SNAPSHOT.to_owned(), snapshot);
     format!("{named} · {owner}")
+}
+
+pub fn list_choice(choice: ListChoice) -> &'static str {
+    match choice {
+        ListChoice::AsItsFolder => "As its folder",
+        ListChoice::OnlyMe => "Only me",
+        ListChoice::Listed => "Me and…",
+        ListChoice::Anyone => "Anyone",
+    }
 }
 
 /// Why the reader has no home to open.

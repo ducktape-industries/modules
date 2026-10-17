@@ -2,10 +2,11 @@
 //! program), as a file browser. A folder lists its entries at the newest
 //! snapshot, a file shows its picture or its text (else its size), and
 //! the history lists the snapshots every commit made and the pins that
-//! name some of them. Where `files` lets the reader write (their home,
-//! `/home/<their name>/`, and `/shared/`, unless a write list says other),
-//! they make folders and text files, upload files from their device,
-//! edit text, rename, move and remove, each one commit with a message.
+//! name some of them. Where `files` lets the reader write (anywhere no
+//! write list covers, else where the nearest list allows them), they make
+//! folders and text files, with an optional write list of their own set in
+//! the same commit, upload files from their device, edit text, rename, move
+//! and remove, each one commit with a message.
 //!
 //! The state is one struct (`state.rs`) and a stack of pages both designs
 //! draw. Reads are typed (`queries.rs`) and loaded in `load.rs`, read again

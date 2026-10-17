@@ -8,7 +8,7 @@ use ::program::{BlobId, Error, QueryCtx, invalid, not_found};
 
 use crate::cursor::Walk;
 use crate::objects::{digest, file, read as read_file, tree};
-use crate::paths::{Act, change_path, is_namespace_root, join, segments, writers};
+use crate::paths::{change_path, is_namespace_root, join, segments, writers};
 use crate::state::{HEAD, HISTORY, PINS, SNAPSHOTS, newest_first, resolve};
 use crate::tree::{TreeEdit, node_at};
 use crate::{
@@ -59,7 +59,7 @@ pub(crate) fn ownership(
         snapshot,
         creator: own.creator,
         write: own.write,
-        writers: writers(&segments, &along, Act::Write),
+        writers: writers(&segments, &along),
     })
 }
 

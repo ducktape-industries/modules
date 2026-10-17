@@ -3,7 +3,7 @@
 //! what its turns used. Its manager edits its configuration from here, or takes it back from
 //! harness.
 use harness::{AgentSetup, Configured};
-use identity::Ownership;
+use identity::{Ownership, Party};
 use view::FontWeight;
 use view::design::Ladder;
 use view::design::{size, space, text};
@@ -274,11 +274,19 @@ fn answers(ownership: &Ownership, roster: &Roster) -> String {
     match ownership {
         Ownership::Owner => "Its manager only".into(),
         Ownership::Anyone => "Anyone".into(),
-        Ownership::Accounts(numbers) => {
-            let names: Vec<String> = numbers.iter().map(|number| roster.name(*number)).collect();
-            format!("Its manager, {}", names.join(", "))
-        }
+        Ownership::Listed(parties) => format!("Its manager, {}", named_parties(parties, roster)),
     }
+}
+
+fn named_parties(parties: &[Party], roster: &Roster) -> String {
+    let names: Vec<String> = parties
+        .iter()
+        .map(|party| match party {
+            Party::Account(number) => roster.name(*number),
+            Party::Program(program) => format!("the {program} program"),
+        })
+        .collect();
+    names.join(", ")
 }
 
 fn config_writers(writers: &files::Writers, config: &str, roster: &Roster) -> String {
@@ -294,12 +302,10 @@ fn config_writers(writers: &files::Writers, config: &str, roster: &Roster) -> St
         } => {
             let who = match write {
                 Ownership::Owner => format!("Only {}", named(*creator)),
-                Ownership::Accounts(numbers) => {
-                    let names: Vec<String> =
-                        numbers.iter().map(|number| roster.name(*number)).collect();
-                    format!("{}, {}", named(*creator), names.join(", "))
+                Ownership::Listed(parties) => {
+                    format!("{}, {}", named(*creator), named_parties(parties, roster))
                 }
-                Ownership::Anyone => "Any account".into(),
+                Ownership::Anyone => "Anyone".into(),
             };
             let own_list = path == config;
             match own_list {
@@ -307,9 +313,7 @@ fn config_writers(writers: &files::Writers, config: &str, roster: &Roster) -> St
                 false => format!("{who}, by the list on {path}"),
             }
         }
-        files::Writers::Home(name) => format!("The account named {name}"),
-        files::Writers::Shared => "Any account".into(),
-        files::Writers::Chain => "The network alone".into(),
+        files::Writers::Anyone => "Anyone".into(),
     }
 }
 

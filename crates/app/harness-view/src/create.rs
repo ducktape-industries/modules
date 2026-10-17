@@ -13,7 +13,7 @@ use view::methods::{BlobBody, NewBlob, OpPut, PutBlobs};
 use view::prelude::*;
 
 use harness::{AgentSetup, BlobId, Config, Configured};
-use identity::{Identity, Ownership, Script};
+use identity::{Identity, Ownership, Party, Script};
 
 use crate::{Agents, Screen, applied};
 
@@ -26,7 +26,7 @@ pub(crate) struct Draft {
     pub wait: TextField,
     pub system: TextField,
     pub answers: Answers,
-    pub accounts: TextField,
+    pub listed: TextField,
     pub created: Option<u64>,
     pub committed: bool,
     pub scripted: bool,
@@ -44,7 +44,7 @@ pub(crate) enum Answers {
     #[default]
     Manager,
     Anyone,
-    Accounts,
+    Listed,
 }
 
 pub(crate) struct Form {
@@ -111,18 +111,21 @@ impl Draft {
         let ownership = match self.answers {
             Answers::Manager => Ownership::Owner,
             Answers::Anyone => Ownership::Anyone,
-            Answers::Accounts => {
-                let numbers: Result<Vec<u64>, _> = self
-                    .accounts
+            Answers::Listed => {
+                let parties: Vec<Party> = self
+                    .listed
                     .text()
                     .split([',', ' '])
                     .filter(|word| !word.is_empty())
-                    .map(str::parse)
+                    .map(party)
                     .collect();
-                match numbers {
-                    Ok(numbers) if !numbers.is_empty() => Ownership::Accounts(numbers),
-                    _ => return Err("List the account numbers it answers, like 7, 12.".into()),
+                if parties.is_empty() {
+                    return Err(
+                        "List the account numbers and programs it answers, like 7, 12, forge."
+                            .into(),
+                    );
                 }
+                Ownership::Listed(parties)
             }
         };
         Ok(Form {
@@ -153,6 +156,13 @@ impl Draft {
             return Next::Answer(agent, form.ownership.clone());
         }
         Next::Done(agent)
+    }
+}
+
+fn party(word: &str) -> Party {
+    match word.parse::<u64>() {
+        Ok(number) => Party::Account(number),
+        Err(_) => Party::Program(word.to_owned()),
     }
 }
 

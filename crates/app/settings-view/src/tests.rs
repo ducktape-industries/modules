@@ -778,6 +778,16 @@ fn person(number: u64, name: &str) -> identity::Profile {
 
 type Answers = std::rc::Rc<std::cell::RefCell<identity::Ownership>>;
 
+fn listed(numbers: &[u64]) -> identity::Ownership {
+    identity::Ownership::Listed(
+        numbers
+            .iter()
+            .copied()
+            .map(identity::Party::Account)
+            .collect(),
+    )
+}
+
 fn answering(ownership: identity::Ownership) -> (TestAppContext, Answers) {
     let mut cx = fixture("ready", false);
     let answers: Answers = std::rc::Rc::new(std::cell::RefCell::new(ownership));
@@ -788,7 +798,7 @@ fn answering(ownership: identity::Ownership) -> (TestAppContext, Answers) {
         person(9, "Eve"),
         person(10, "Sam"),
         person(11, "sam"),
-        profile(3, "Bob", identity::Kind::System("bob".into())),
+        profile(3, "forge", identity::Kind::System("forge".into())),
     ];
     cx.host().handle::<Query<Identity>>(move |q| {
         Ok(match q {
@@ -876,13 +886,27 @@ fn an_agent_reads_as_answering_its_manager_some_people_or_anyone() {
     assert!(!cx.has_text(WARNING));
     assert!(cx.find("settings/agents/12/answers/people").is_none());
 
-    let (cx, _) = answering(identity::Ownership::Accounts(vec![8, 9]));
+    let (cx, _) = answering(listed(&[8, 9]));
     assert_eq!(picked(&cx), ["specific"]);
     for text in ["Bob", "account 8", "Eve", "account 9", "Add someone"] {
         assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
     }
     assert!(cx.find("settings/agents/12/answers/8/remove").is_some());
     assert!(!cx.has_text(WARNING));
+
+    let with_forge = identity::Ownership::Listed(vec![
+        identity::Party::Account(8),
+        identity::Party::Program("forge".into()),
+    ]);
+    let (cx, _) = answering(with_forge);
+    assert_eq!(picked(&cx), ["specific"]);
+    for text in ["Bob", "forge", "program"] {
+        assert!(cx.has_text(text), "{text}: {:?}", cx.texts());
+    }
+    assert!(
+        cx.find("settings/agents/12/answers/program-forge/remove")
+            .is_some()
+    );
 
     let (cx, _) = answering(identity::Ownership::Anyone);
     assert_eq!(picked(&cx), ["anyone"]);
@@ -927,33 +951,46 @@ fn specific_people_are_added_by_name_or_number_and_removed() {
     cx.simulate_click("settings/agents/12/answers/specific");
     cx.run_until_parked();
     assert_eq!(picked(&cx), ["specific"]);
-    assert!(cx.has_text("Add people by name or account number."));
+    assert!(cx.has_text("Add people by name or account number, or a program by its name."));
     assert!(sent(&cx).is_empty(), "nobody is on the list yet");
 
     cx.simulate_input("settings/agents/12/answers/name", " bob ");
     cx.simulate_click("settings/agents/12/answers/add");
     cx.run_until_parked();
+    assert_eq!(*answers.borrow(), listed(&[8]));
+    assert!(cx.has_text("account 8"), "{:?}", cx.texts());
+
+    cx.simulate_input("settings/agents/12/answers/name", "Forge");
+    cx.simulate_click("settings/agents/12/answers/add");
+    cx.run_until_parked();
+    let forge = identity::Party::Program("forge".into());
     assert_eq!(
         *answers.borrow(),
-        identity::Ownership::Accounts(vec![8]),
-        "a program named Bob is not a person"
+        identity::Ownership::Listed(vec![identity::Party::Account(8), forge.clone()]),
+        "a program's own account adds the program"
     );
-    assert!(cx.has_text("account 8"), "{:?}", cx.texts());
 
     cx.simulate_input("settings/agents/12/answers/name", "#9");
     cx.simulate_submit("settings/agents/12/answers/name");
     cx.run_until_parked();
-    assert_eq!(*answers.borrow(), identity::Ownership::Accounts(vec![8, 9]));
+    assert_eq!(
+        *answers.borrow(),
+        identity::Ownership::Listed(vec![
+            identity::Party::Account(8),
+            forge.clone(),
+            identity::Party::Account(9)
+        ])
+    );
     assert!(cx.has_text("Eve"), "{:?}", cx.texts());
 
     for (typed, problem) in [
-        ("Nobody", "No account has that name or number."),
-        ("#99", "No account has that name or number."),
+        ("Nobody", "No account or program has that name or number."),
+        ("#99", "No account or program has that name or number."),
         (
             "Sam",
             "More than one account has that name. Add it by its number.",
         ),
-        ("", "Enter a name or an account number."),
+        ("", "Enter a name, an account number or a program."),
     ] {
         cx.simulate_input("settings/agents/12/answers/name", typed);
         cx.simulate_click("settings/agents/12/answers/add");
@@ -961,11 +998,17 @@ fn specific_people_are_added_by_name_or_number_and_removed() {
         assert!(cx.has_text(problem), "{typed}: {:?}", cx.texts());
         assert!(cx.find("settings/agents/12/answers/refused").is_some());
     }
-    assert_eq!(sent(&cx).len(), 2);
+    assert_eq!(sent(&cx).len(), 3);
 
     cx.simulate_click("settings/agents/12/answers/8/remove");
     cx.run_until_parked();
-    assert_eq!(*answers.borrow(), identity::Ownership::Accounts(vec![9]));
+    assert_eq!(
+        *answers.borrow(),
+        identity::Ownership::Listed(vec![forge.clone(), identity::Party::Account(9)])
+    );
+    cx.simulate_click("settings/agents/12/answers/program-forge/remove");
+    cx.run_until_parked();
+    assert_eq!(*answers.borrow(), listed(&[9]));
     assert!(!cx.has_text("account 8"), "{:?}", cx.texts());
     assert!(cx.find("settings/agents/12/answers/refused").is_none());
 }
@@ -981,7 +1024,7 @@ fn typed(cx: &TestAppContext) -> &str {
 /// through one that is refused (one form for both on dev).
 #[test]
 fn a_person_typed_goes_with_a_choice_that_lands() {
-    let (mut cx, _) = answering(identity::Ownership::Accounts(vec![8]));
+    let (mut cx, _) = answering(listed(&[8]));
     cx.simulate_click("settings/agents/12/answers/add");
     cx.simulate_input("settings/agents/12/answers/name", "Sam");
     cx.simulate_click("settings/agents/12/answers/anyone");
@@ -1001,7 +1044,7 @@ fn a_person_typed_goes_with_a_choice_that_lands() {
 /// The person field and Add wait while a choice is out (dev's one form).
 #[test]
 fn the_person_field_waits_for_a_choice_that_is_out() {
-    let (mut cx, _) = answering(identity::Ownership::Accounts(vec![8]));
+    let (mut cx, _) = answering(listed(&[8]));
     cx.simulate_click("settings/agents/12/answers/add");
     let anyone = press(&cx, "settings/agents/12/answers/anyone");
     cx.tick(vec![anyone]);
@@ -1019,7 +1062,7 @@ fn the_person_field_waits_for_a_choice_that_is_out() {
 /// A Remove that lands takes a refused choice's sentence with it.
 #[test]
 fn a_landed_remove_takes_a_refused_choices_sentence() {
-    let (mut cx, _) = answering(identity::Ownership::Accounts(vec![8, 9]));
+    let (mut cx, _) = answering(listed(&[8, 9]));
     cx.host()
         .refuse::<Submit<Identity>>("unauthorized", "account 7 does not manage account 12");
     cx.simulate_click("settings/agents/12/answers/anyone");

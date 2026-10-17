@@ -1,6 +1,6 @@
 //! The `files` program: duckfs, the network's versioned filesystem. Its wire types live
 //! here; `program.rs` dispatches them, `ops.rs`/`commit.rs` write, `queries.rs` reads, and
-//! `paths.rs` decides who writes a path, by its write list or the home and `/shared/` rule.
+//! `paths.rs` decides who writes a path: its nearest write list, else anyone.
 mod commit;
 mod cursor;
 mod objects;
@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 
 use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
-pub use ::program::{AccountNumber, BlobId, Ownership, Principal};
+pub use ::program::{AccountNumber, BlobId, Ownership, Party, Principal};
 pub use objects::{Access, CHUNK, FILE, FileObj, SNAPSHOT, SnapshotObj, TREE, Tree};
 pub use program::Files;
 pub use store::{PageRequest, PageResponse};
@@ -189,9 +189,7 @@ pub enum Writers {
         creator: Option<AccountNumber>,
         write: Ownership,
     },
-    Home(String),
-    Shared,
-    Chain,
+    Anyone,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
@@ -337,17 +335,24 @@ fn write_list(change: &Change) -> Option<describe::Field> {
     let who = match write {
         None => Value::text("no list"),
         Some(Ownership::Owner) => creator(),
-        Some(Ownership::Accounts(listed)) => Value::List(
+        Some(Ownership::Listed(listed)) => Value::List(
             std::iter::once(creator())
-                .chain(listed.iter().copied().map(Value::Account))
+                .chain(listed.iter().map(party))
                 .collect(),
         ),
-        Some(Ownership::Anyone) => Value::text("any account"),
+        Some(Ownership::Anyone) => Value::text("anyone"),
     };
     Some(field(
         "write list",
         Value::List(vec![Value::text(path), who]),
     ))
+}
+
+fn party(party: &Party) -> describe::Value {
+    match party {
+        Party::Account(number) => describe::Value::Account(*number),
+        Party::Program(program) => describe::Value::Program(program.clone()),
+    }
 }
 
 describe::export!(Op, describe);

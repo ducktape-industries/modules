@@ -155,7 +155,7 @@ fn the_first_snapshot_says_everything_in_it_is_new() {
 }
 
 #[test]
-fn another_accounts_home_offers_no_writes() {
+fn another_accounts_listed_home_offers_no_writes() {
     let net = seeded();
     let mut cx = desktop(&net);
     cx.simulate_click("files/place/everything");
@@ -179,6 +179,63 @@ fn a_new_folder_is_committed_and_listed() {
     assert!(cx.has_text("drafts"), "{:?}", cx.texts());
     assert!(cx.has_text("Committed: Make drafts"));
     assert!(cx.find("files/write").is_none(), "the form closes");
+}
+
+#[test]
+fn a_new_text_file_picked_only_mine_is_committed_with_its_list() {
+    let net = seeded();
+    let mut cx = desktop(&net);
+    cx.simulate_click("files/place/shared");
+    cx.run_until_parked();
+    begin(&mut cx, "new-file");
+    assert!(cx.has_text(words::AS_ITS_FOLDER_NOTE), "{:?}", cx.texts());
+    cx.simulate_input("files/write/name", "mine.txt");
+    cx.simulate_input("files/write/text", "keep out");
+    cx.simulate_click("files/write/list/me");
+    cx.run_until_parked();
+    assert!(!cx.has_text(words::AS_ITS_FOLDER_NOTE));
+    commit_form(&mut cx);
+    assert!(cx.find("files/write").is_none(), "the form closes");
+    let asked = files::Query::Ownership {
+        path: "/shared/mine.txt".into(),
+        at: None,
+    };
+    let Ok(files::Reply::Ownership(owned)) = net.query(files::PROGRAM, &asked) else {
+        panic!("files answers a path's ownership")
+    };
+    assert_eq!(owned.write, Some(files::Ownership::Owner));
+    assert_eq!(owned.creator, Some(net.me()));
+}
+
+#[test]
+fn a_new_folder_listed_for_accounts_and_programs_is_made_with_its_list() {
+    let net = seeded();
+    let mut cx = desktop(&net);
+    open_home(&mut cx);
+    begin(&mut cx, "new-folder");
+    cx.simulate_input("files/write/name", "team");
+    cx.simulate_click("files/write/list/listed");
+    cx.run_until_parked();
+    commit_form(&mut cx);
+    assert!(cx.has_text(words::LIST_SOMEONE), "{:?}", cx.texts());
+    let ada = net.person("ada");
+    cx.simulate_input("files/write/listed", &format!("{ada}, files"));
+    commit_form(&mut cx);
+    assert!(cx.find("files/write").is_none(), "the form closes");
+    let asked = files::Query::Ownership {
+        path: "/home/dev/team".into(),
+        at: None,
+    };
+    let Ok(files::Reply::Ownership(owned)) = net.query(files::PROGRAM, &asked) else {
+        panic!("files answers a path's ownership")
+    };
+    assert_eq!(
+        owned.write,
+        Some(files::Ownership::Listed(vec![
+            files::Party::Account(ada),
+            files::Party::Program(files::PROGRAM.into()),
+        ]))
+    );
 }
 
 #[test]

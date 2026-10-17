@@ -5,7 +5,7 @@ use view::prelude::*;
 use crate::queries::Found;
 use crate::state::{Answering, Choice, Form, Problem, Section, Sheet, TTL};
 use crate::{Settings, queries};
-use identity::{Identity, Ownership};
+use identity::{Identity, Ownership, Party};
 
 impl Settings {
     pub(crate) fn session_changed(&mut self, session: Session, cx: &mut Context<Self>) {
@@ -179,11 +179,10 @@ impl Settings {
         }
     }
 
-    fn listed(&self, number: u64) -> Vec<u64> {
-        match self.agent(number).map(|agent| &agent.ownership) {
-            Some(Ownership::Accounts(numbers)) => numbers.clone(),
-            Some(Ownership::Owner | Ownership::Anyone) | None => Vec::new(),
-        }
+    fn listed(&self, number: u64) -> Vec<Party> {
+        self.agent(number)
+            .map(|agent| agent.ownership.listed().to_vec())
+            .unwrap_or_default()
     }
 
     pub(crate) fn pick_ownership(&mut self, number: u64, choice: Choice, cx: &mut Context<Self>) {
@@ -266,10 +265,10 @@ impl Settings {
         let form = &mut self.answering.entry(number).or_default().form;
         form.busy = false;
         let problem = match found {
-            Ok(Found::Account(person)) => {
+            Ok(Found::Party(party)) => {
                 let mut listed = self.listed(number);
-                listed.push(person);
-                let ownership = Ownership::Accounts(listed);
+                listed.push(party);
+                let ownership = Ownership::Listed(listed);
                 return self.submit_ownership(
                     number,
                     ownership,
@@ -293,12 +292,12 @@ impl Settings {
     pub(crate) fn remove_listed_person(
         &mut self,
         number: u64,
-        person: u64,
+        party: &Party,
         cx: &mut Context<Self>,
     ) {
         let mut listed = self.listed(number);
-        listed.retain(|listed| *listed != person);
-        let ownership = Ownership::Accounts(listed);
+        listed.retain(|listed| listed != party);
+        let ownership = Ownership::Listed(listed);
         let from = self.sheet;
         self.submit_ownership(number, ownership, |answering| &mut answering.form, from, cx);
     }
