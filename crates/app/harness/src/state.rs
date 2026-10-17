@@ -1,8 +1,9 @@
-//! Everything harness keeps: model records, threads by agent, each agent's current thread and
-//! the thread each place last reached, transcript frames, held input, sealed request parts, tool
-//! calls, frames left out of the model's view, and the reply a model call is streaming back.
+//! Everything harness keeps: model records, threads by agent, current threads, the thread each
+//! place last reached, frames, held input, sealed request parts, tool calls and the calls of the
+//! reply streaming in, frames left out of the model's view, and each streaming reply.
 use abi::role::identity::AccountNumber;
-use attribution::Source;
+use attribution::{Change, Source};
+use borsh::{BorshDeserialize, BorshSerialize};
 use store::{Item, Map, Set};
 
 use crate::{Body, CallRow, Frame, ModelRow, Partial, Sealed, ThreadRow};
@@ -19,7 +20,16 @@ pub const SEALED: Map<(u64, u64), Sealed> = Map::new("sealed/");
 pub const CALLS: Map<(u64, String), CallRow> = Map::new("call/");
 pub const WITHHELD: Set<(u64, u64)> = Set::new("withheld/");
 pub const PARTIALS: Map<u64, Partial> = Map::new("partial/");
+pub const LIVE: Map<(u64, u64), Live> = Map::new("live/");
+pub const SHOWN: Map<(u64, String), String> = Map::new("shown/");
+pub const DEFERRED: Map<(u64, String, u64), Change> = Map::new("deferred/");
 pub const COUNT: Item<u64> = Item::new("count");
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Live {
+    pub call: String,
+    pub outcome: Option<Body>,
+}
 
 pub(crate) fn newest_first(id: u64) -> u64 {
     u64::MAX - id

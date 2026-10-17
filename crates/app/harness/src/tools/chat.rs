@@ -1,11 +1,17 @@
-//! Tools over `chat`: channels, messages, threads and search read as the agent reads them,
-//! and posts and reactions the agent makes, which chat allows where it allows the agent.
+//! Tools over `chat`: channels, messages, threads and search read as the agent reads them, and
+//! posts and reactions the agent makes, which chat allows where it allows the agent. A post
+//! shows as its text arrives and a reaction once its input is whole.
 use ::program::{Error, ExecCtx, Principal};
+use attribution::Source;
+use chat::attributed::MESSAGE;
 use chat::{ChannelInfo, MsgRow, Query, Reply};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::{Run, Seat, Tool, cursor_schema, next, object, page, principal, unexpected};
+use super::prefix::Prefix;
+use super::{
+    Run, Seat, Show, Tool, Write, cursor_schema, next, object, page, principal, unexpected,
+};
 
 fn ask(ctx: &ExecCtx, query: Query) -> Result<Reply, Error> {
     ctx.query(chat::PROGRAM, &query)
@@ -213,44 +219,199 @@ pub(crate) struct PostArgs {
     reply_to: Option<u64>,
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+struct Posted {
+    channel: String,
+    reply_to: Option<u64>,
+    text: String,
+}
+
+pub(crate) fn message_id(thread: u64, call: &str) -> String {
+    format!("harness-{thread}-{call}")
+}
+
+pub(crate) fn shown_by(source: &Source) -> Option<(u64, String)> {
+    let is_message = source.program == chat::PROGRAM && source.object.kind == MESSAGE;
+    let rest = source
+        .object
+        .id
+        .strip_prefix("harness-")
+        .filter(|_| is_message)?;
+    let (thread, call) = rest.split_once('-')?;
+    Some((thread.parse().ok()?, call.to_owned()))
+}
+
+fn record<T: serde::de::DeserializeOwned>(seat: &Seat) -> Option<T> {
+    seat.shown
+        .and_then(|shown| serde_json::from_value(shown.clone()).ok())
+}
+
+fn standing(ctx: &ExecCtx, message_id: String) -> Result<Option<MsgRow>, Error> {
+    match ask(ctx, Query::MessageById { message_id })? {
+        Reply::Message(row) => Ok(row.filter(|row| !row.deleted)),
+        other => Err(unexpected(chat::PROGRAM, "MessageById", &other)),
+    }
+}
+
+fn moved_id(own: &str) -> String {
+    format!("{own}-moved")
+}
+
+fn post(message_id: String, posted: &Posted) -> Write {
+    let op = chat::Op::PostMessage {
+        channel_id: posted.channel.clone(),
+        message_id,
+        blocks: chat::parse_message(&posted.text),
+        thread: posted.reply_to,
+    };
+    Write {
+        target: chat::PROGRAM.into(),
+        payload: abi::encode(&op),
+    }
+}
+
+fn edit(row: &MsgRow, text: &str) -> Write {
+    let op = chat::Op::EditMessage {
+        channel_id: row.channel_id.clone(),
+        seq: row.seq,
+        blocks: chat::parse_message(text),
+        base_rev: None,
+    };
+    Write {
+        target: chat::PROGRAM.into(),
+        payload: abi::encode(&op),
+    }
+}
+
+fn delete(row: &MsgRow) -> Write {
+    let op = chat::Op::DeleteMessage {
+        channel_id: row.channel_id.clone(),
+        seq: row.seq,
+    };
+    Write {
+        target: chat::PROGRAM.into(),
+        payload: abi::encode(&op),
+    }
+}
+
+fn arrived(input: &Prefix) -> Option<Posted> {
+    let channel = input.settled("channel")?.as_str()?.to_owned();
+    let text = input.arriving("text")?.as_str()?.to_owned();
+    let reply_to = input.settled("reply_to").and_then(Value::as_u64);
+    let started = !text.trim().is_empty();
+    started.then_some(Posted {
+        channel,
+        reply_to,
+        text,
+    })
+}
+
 pub(crate) struct Post;
 
 impl Tool for Post {
     const NAME: &'static str = "chat_post";
-    const DESCRIPTION: &'static str = "Post a message to a chat channel, or a reply in a message's thread. Markdown works; `<@N>` mentions account N, and `@name` mentions the one account named so. The message is yours, and chat allows it where it allows your account.";
+    const DESCRIPTION: &'static str = "Post a message to a chat channel, or a reply in a message's thread. Markdown works; `<@N>` mentions account N, and `@name` mentions the one account named so. The message is yours, and chat allows it where it allows your account. It appears as you write it, so give channel and reply_to before text.";
     const WRITES: bool = true;
+    const STREAMS: bool = true;
     type Args = PostArgs;
 
     fn schema() -> Value {
         object(
             json!({
                 "channel": channel_schema(),
-                "text": { "type": "string" },
                 "reply_to": { "type": "integer", "description": "the seq of the message whose thread this replies in" },
+                "text": { "type": "string" },
             }),
             &["channel", "text"],
         )
     }
 
-    fn run(_: &ExecCtx, seat: &Seat, args: PostArgs) -> Result<Run, Error> {
-        let op = chat::Op::PostMessage {
-            channel_id: args.channel,
-            message_id: format!("harness-{}-{}", seat.thread, seat.call),
-            blocks: chat::parse_message(&args.text),
-            thread: args.reply_to,
+    fn run(ctx: &ExecCtx, seat: &Seat, args: PostArgs) -> Result<Run, Error> {
+        let posted = Posted {
+            channel: args.channel,
+            reply_to: args.reply_to,
+            text: args.text,
         };
-        Ok(Run::Write {
-            target: chat::PROGRAM.into(),
-            payload: abi::encode(&op),
+        let own = message_id(seat.thread, seat.call);
+        let Some(row) = standing(ctx, own.clone())? else {
+            return Ok(Run::Write(vec![post(own, &posted)]));
+        };
+        let same_place = row.channel_id == posted.channel && row.thread == posted.reply_to;
+        let same_text = row.blocks == chat::parse_message(&posted.text);
+        match (same_place, same_text) {
+            (true, true) => Ok(Run::Done(json!({ "ok": true }))),
+            (true, false) => Ok(Run::Write(vec![edit(&row, &posted.text)])),
+            (false, _) => Ok(Run::Write(vec![
+                delete(&row),
+                post(moved_id(&own), &posted),
+            ])),
+        }
+    }
+
+    fn show(ctx: &ExecCtx, seat: &Seat, input: &Prefix) -> Result<Show, Error> {
+        let Some(posted) = arrived(input) else {
+            return Ok(Show::Wait);
+        };
+        let own = message_id(seat.thread, seat.call);
+        let Some(shown) = record::<Posted>(seat) else {
+            return Ok(Show::Write {
+                writes: vec![post(own, &posted)],
+                shown: json!(posted),
+            });
+        };
+        if shown.text == posted.text {
+            return Ok(Show::Wait);
+        }
+        let Some(row) = standing(ctx, own)? else {
+            return Ok(Show::Wait);
+        };
+        let shown = Posted {
+            text: posted.text,
+            ..shown
+        };
+        Ok(Show::Write {
+            writes: vec![edit(&row, &shown.text)],
+            shown: json!(shown),
         })
+    }
+
+    fn void(ctx: &ExecCtx, seat: &Seat) -> Result<Vec<Write>, Error> {
+        let own = message_id(seat.thread, seat.call);
+        let mut writes = Vec::new();
+        for id in [moved_id(&own), own] {
+            if let Some(row) = standing(ctx, id)? {
+                writes.push(delete(&row));
+            }
+        }
+        Ok(writes)
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ReactArgs {
     channel: String,
     seq: u64,
     emoji: String,
+}
+
+fn reaction(args: &ReactArgs, on: bool) -> Write {
+    let (channel_id, seq, emoji) = (args.channel.clone(), args.seq, args.emoji.clone());
+    let op = match on {
+        true => chat::Op::AddReaction {
+            channel_id,
+            seq,
+            emoji,
+        },
+        false => chat::Op::RemoveReaction {
+            channel_id,
+            seq,
+            emoji,
+        },
+    };
+    Write {
+        target: chat::PROGRAM.into(),
+        payload: abi::encode(&op),
+    }
 }
 
 pub(crate) struct React;
@@ -259,6 +420,7 @@ impl Tool for React {
     const NAME: &'static str = "chat_react";
     const DESCRIPTION: &'static str = "React to a chat message with an emoji, as yourself.";
     const WRITES: bool = true;
+    const STREAMS: bool = true;
     type Args = ReactArgs;
 
     fn schema() -> Value {
@@ -272,15 +434,41 @@ impl Tool for React {
         )
     }
 
-    fn run(_: &ExecCtx, _: &Seat, args: ReactArgs) -> Result<Run, Error> {
-        let op = chat::Op::AddReaction {
-            channel_id: args.channel,
-            seq: args.seq,
-            emoji: args.emoji,
+    fn run(_: &ExecCtx, seat: &Seat, args: ReactArgs) -> Result<Run, Error> {
+        match record::<ReactArgs>(seat) {
+            Some(shown) if shown == args => Ok(Run::Done(json!({ "ok": true }))),
+            Some(shown) => Ok(Run::Write(vec![
+                reaction(&shown, false),
+                reaction(&args, true),
+            ])),
+            None => Ok(Run::Write(vec![reaction(&args, true)])),
+        }
+    }
+
+    fn show(_: &ExecCtx, seat: &Seat, input: &Prefix) -> Result<Show, Error> {
+        let settled = |key| input.settled(key).cloned();
+        let (Some(channel), Some(seq), Some(emoji)) =
+            (settled("channel"), settled("seq"), settled("emoji"))
+        else {
+            return Ok(Show::Wait);
         };
-        Ok(Run::Write {
-            target: chat::PROGRAM.into(),
-            payload: abi::encode(&op),
+        let whole = json!({ "channel": channel, "seq": seq, "emoji": emoji });
+        let Ok(args) = serde_json::from_value::<ReactArgs>(whole) else {
+            return Ok(Show::Wait);
+        };
+        if seat.shown.is_some() {
+            return Ok(Show::Wait);
+        }
+        Ok(Show::Write {
+            writes: vec![reaction(&args, true)],
+            shown: json!(args),
         })
+    }
+
+    fn void(_: &ExecCtx, seat: &Seat) -> Result<Vec<Write>, Error> {
+        Ok(record::<ReactArgs>(seat)
+            .map(|shown| reaction(&shown, false))
+            .into_iter()
+            .collect())
     }
 }

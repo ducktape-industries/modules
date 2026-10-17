@@ -44,11 +44,15 @@ fn definitions() -> Vec<Value> {
     tools::CATALOG
         .iter()
         .map(|entry| {
-            json!({
+            let mut definition = json!({
                 "name": entry.name,
                 "description": entry.description,
                 "input_schema": (entry.schema)(),
-            })
+            });
+            if entry.streams {
+                definition["eager_input_streaming"] = json!(true);
+            }
+            definition
         })
         .collect()
 }

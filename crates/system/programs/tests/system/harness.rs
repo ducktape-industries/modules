@@ -569,3 +569,118 @@ fn an_agent_queries_and_calls_a_program_through_the_schema_its_code_carries() {
         assert!(failed && unschemed.starts_with(reason::UNSUPPORTED), "{unschemed}");
     });
 }
+
+async fn message(net: &Net, message_id: &str) -> Option<chat::MsgRow> {
+    let asked = chat::Query::MessageById {
+        message_id: message_id.into(),
+    };
+    let chat::Reply::Message(row) = net.ask(chat::PROGRAM, &asked).await else {
+        panic!()
+    };
+    row
+}
+
+#[test]
+fn a_streamed_post_shows_as_it_arrives_and_a_mention_in_it_is_heard_once_it_is_whole() {
+    deterministic::Runner::default().start(|context| async move {
+        let dir = tempfile::tempdir().unwrap();
+        let mut net = Net::found_with(context, dir.path(), apps(), Vec::new(), MEMBER_CAP).await;
+        let Scout {
+            agent,
+            thread,
+            asked,
+            ..
+        } = mentioned(&mut net).await;
+        let create = identity::Op::CreateAgent {
+            name: "Echo".into(),
+        };
+        let echo: u64 =
+            abi::decode(&net.apply(&public(ADA), identity::PROGRAM, &create).await).unwrap();
+        let script = identity::Op::SetScript {
+            account: echo,
+            script: Some(identity::Script {
+                calls: harness::PROGRAM.into(),
+                config: CONFIG.into(),
+            }),
+        };
+        net.apply(&public(ADA), identity::PROGRAM, &script).await;
+        let anyone = identity::Op::SetOwnership {
+            account: echo,
+            ownership: identity::Ownership::Anyone,
+        };
+        net.apply(&public(ADA), identity::PROGRAM, &anyone).await;
+
+        let piece = |json: String| {
+            json!({
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": { "type": "input_json_delta", "partial_json": json },
+            })
+        };
+        let events = [
+            json!({
+                "type": "message_start",
+                "message": {
+                    "model": "claude-test",
+                    "content": [],
+                    "usage": { "input_tokens": 1, "output_tokens": 1 },
+                },
+            }),
+            json!({
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": { "type": "tool_use", "id": "toolu_p", "name": "chat_post", "input": {} },
+            }),
+            piece(format!(r#"{{"channel":"general","text":"<@{echo}> pl"#)),
+            piece(r#"ease check"}"#.into()),
+            json!({ "type": "content_block_stop", "index": 0 }),
+            json!({
+                "type": "message_delta",
+                "delta": { "stop_reason": "tool_use" },
+                "usage": { "output_tokens": 2 },
+            }),
+            json!({ "type": "message_stop" }),
+        ];
+        let id = format!("harness-{}-toolu_p", thread.id);
+        net.stream(asked.id, &events, 0..3).await;
+        let shown = message(&net, &id).await.expect("the post shows as its text arrives");
+        assert_eq!(shown.author, program::Principal::Account(agent));
+        assert_eq!(
+            shown.blocks,
+            chat::parse_message(&format!("<@{echo}> pl"))
+        );
+        assert!(net.threads(echo).await.is_empty(), "a post still forming wakes no one");
+
+        net.stream(asked.id, &events, 3..5).await;
+        let [relay] = net.assigned(RELAY).await.try_into().unwrap();
+        net.stream(asked.id, &events, 5..events.len()).await;
+        net.end_stream(asked.id, events.len() as u64).await;
+        net.answer(relay.id, Vec::new()).await;
+        let whole = message(&net, &id).await.unwrap();
+        assert_eq!(whole.seq, shown.seq, "one message, edited");
+        assert_eq!(
+            whole.blocks,
+            chat::parse_message(&format!("<@{echo}> please check"))
+        );
+        let frames = net.frames(thread.id).await;
+        let [.., Body::Turn { .. }, Body::Result { call, failed, .. }] = &frames[..] else {
+            panic!("the turn, then its result: {frames:?}");
+        };
+        assert_eq!((call.as_str(), *failed), ("toolu_p", false));
+
+        let [heard] = net.threads(echo).await.try_into().unwrap();
+        let posts: Vec<String> = net
+            .frames(heard.id)
+            .await
+            .into_iter()
+            .filter_map(|body| match body {
+                Body::Post { text, .. } => Some(text),
+                _ => None,
+            })
+            .collect();
+        let [post] = &posts[..] else {
+            panic!("heard once: {posts:?}");
+        };
+        assert!(post.ends_with("please check"), "{post}");
+    });
+}

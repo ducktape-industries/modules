@@ -4,7 +4,7 @@ use ::program::{Error, ExecCtx, code, invalid};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{Run, Seat, Tool, object};
+use super::{Run, Seat, Tool, object, write};
 use crate::codec::{self, Fault};
 use crate::schema::schema_of;
 
@@ -110,10 +110,7 @@ impl Tool for Call {
         let interface = schema_of(ctx, &args.program)?;
         let payload =
             codec::encode(&interface.schema, &interface.op, "op", &args.op).map_err(refused)?;
-        Ok(Run::Write {
-            target: args.program,
-            payload,
-        })
+        Ok(write(args.program, payload))
     }
 
     fn render(output: &[u8]) -> Value {
