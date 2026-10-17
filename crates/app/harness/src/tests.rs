@@ -4,6 +4,7 @@
 //! egress service answers as the model would, whole or one streamed event at a time, and every
 //! tool call runs once its relay comes back, as the agent.
 mod config;
+mod conversations;
 mod models;
 mod network;
 mod streams;
@@ -383,7 +384,7 @@ fn tool_use(id: &str, name: &str, input: Value) -> Value {
 }
 
 #[test]
-fn a_mention_by_its_manager_asks_the_model_in_the_agents_thread_for_that_channel() {
+fn a_mention_by_its_manager_asks_the_model_in_the_agents_conversation() {
     let world = world();
     let chain = &world.chain;
     let thread = world.opened("m1", "note that the network is up", Some(WINDOW));
@@ -428,7 +429,7 @@ fn a_mention_by_its_manager_asks_the_model_in_the_agents_thread_for_that_channel
     );
 
     world.mention("m2", "still there?");
-    assert_eq!(world.threads().len(), 1, "one thread per channel");
+    assert_eq!(world.threads().len(), 1, "one conversation");
     assert_eq!(
         assigned(chain, SERVICE).len(),
         1,
@@ -496,7 +497,22 @@ fn a_direct_message_reaches_the_agent_and_only_those_it_answers_are_heard() {
     };
     identity_op(chain, ADA, ownership).unwrap();
     world.post(BO, "general", "b2", &format!("<@{}> now?", world.agent));
-    assert_eq!(world.threads().len(), 2);
+    let [same] = world.threads().try_into().unwrap();
+    assert_eq!(
+        same.id, thread.id,
+        "another person continues the one conversation"
+    );
+    let bo = format!(
+        "Bo (account {}) mentioned you in chat channel general",
+        world.bo
+    );
+    assert!(
+        frames(chain, thread.id)
+            .into_iter()
+            .chain(held(chain, thread.id))
+            .any(|body| matches!(body, Body::Post { text, .. } if text.starts_with(&bo))),
+        "{bo}"
+    );
 }
 
 #[test]

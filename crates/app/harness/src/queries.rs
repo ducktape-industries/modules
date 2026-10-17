@@ -1,6 +1,6 @@
 //! Every read: what harness resolves for an agent, a thread, an agent's threads newest first,
 //! a transcript in order, the input held while a thread's loop runs, a thread's tool calls, the
-//! tool catalog, an agent's thread for a place, the model records, the frames left out of the
+//! tool catalog, the thread a place last reached, the model records, the frames left out of the
 //! model's view with their size, and the reply a thread's model call is streaming back.
 use ::program::{Error, QueryCtx, corrupt};
 use abi::role::identity::AccountNumber;

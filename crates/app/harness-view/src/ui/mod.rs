@@ -162,6 +162,19 @@ pub(crate) fn asking(asking: Asking) -> String {
     }
 }
 
+pub(crate) fn conversation_label(thread: &ThreadRow) -> String {
+    let mut letters = thread.title.chars();
+    match letters.next() {
+        Some(first) => first.to_uppercase().chain(letters).collect(),
+        None => format!("Conversation {}", thread.id),
+    }
+}
+
+pub(crate) fn began_words(thread: &ThreadRow, roster: Option<&Roster>) -> Option<String> {
+    let began = !thread.place.is_empty();
+    began.then(|| format!("began in {}", place_label(thread, roster)))
+}
+
 /// A thread's place as people read it: `#general`, `DM · Ada`, else the place as is.
 pub(crate) fn place_label(thread: &ThreadRow, roster: Option<&Roster>) -> String {
     let Some(channel) = thread.place.strip_prefix("chat/") else {

@@ -5,6 +5,7 @@
 use ::program::{Awaiting, Ctx, Error, ExecCtx, Program, QueryCtx};
 
 use crate::agents::{attributed, close, setup};
+use crate::conversations::{fork_thread, new_thread};
 use crate::models::{remove_model, set_model};
 use crate::streams::streamed;
 use crate::{Op, PROGRAM, Query, Reply, attributed_as, queries, tools};
@@ -62,6 +63,8 @@ impl Awaiting for Harness {
             } => set_model(&ctx, id, wire, service, name),
             Op::RemoveModel { id } => remove_model(&ctx, id),
             Op::Streamed { thread, event } => streamed(&ctx, thread, event),
+            Op::NewThread { agent } => new_thread(&ctx, agent),
+            Op::ForkThread { agent } => fork_thread(&ctx, agent),
         }
     }
 }

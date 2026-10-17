@@ -4,7 +4,7 @@ use view::design::{size, space, text};
 use view::prelude::*;
 use view::{FontWeight, Stateful};
 
-use super::{agent_state, asking, caption, place_label, state_badge, waiting};
+use super::{agent_state, asking, caption, conversation_label, state_badge, waiting};
 use crate::read::{Card, Roster, Unscripted};
 use crate::{Agents, Screen, State, thread_state};
 
@@ -30,7 +30,7 @@ pub(super) fn render(
                 .gap(space::HAIR)
                 .child(design::heading("agents-title", "Agents", 1, theme))
                 .child(caption(
-                    "The accounts whose script calls harness. A mention or a direct message opens a thread for its channel.",
+                    "The accounts whose script calls harness. A mention or a direct message continues the agent's one conversation, from any person and any place.",
                     theme,
                 )),
         )
@@ -196,11 +196,9 @@ fn row(
             format!("No member node serves {}", model.service)
         }
         (State::NoNode, _, _, _) => "No member node serves relay".to_owned(),
-        (_, Some(thread), _, _) => format!(
-            "{} · {}",
-            place_label(thread, Some(roster)),
-            asking(thread.asking)
-        ),
+        (_, Some(thread), _, _) => {
+            format!("{} · {}", conversation_label(thread), asking(thread.asking))
+        }
         (_, None, _, _) => design::plural(open.len() as u64, "open thread", "open threads"),
     };
     let held: u64 = open.iter().map(|thread| thread.held).sum();
