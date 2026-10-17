@@ -9,7 +9,7 @@ use ::program::{
 use abi::role::egress::{self, RELAY, http};
 use serde_json::Value;
 
-use crate::agents::{Agent, configured, preamble, running, thread};
+use crate::agents::{Agent, configured, manual, running, thread};
 use crate::models::learned;
 use crate::state::{CALLS, FRAMES, HELD, PARTIALS, SEALED, THREADS, WITHHELD};
 use crate::tools::{self, Run, Seat};
@@ -428,11 +428,8 @@ fn plan(ctx: &ExecCtx, thread: &mut ThreadRow, agent: &Agent) -> Result<Option<S
         Window::Tokens(tokens) => Some(tokens),
     };
     reseal(ctx, thread, model.wire)?;
-    let mut system = preamble(agent, &thread.title);
-    if !config.system.is_empty() {
-        system.push_str("\n\n");
-        system.push_str(&config.system);
-    }
+    let mut system = config.paragraphs();
+    system.push(manual(agent, &thread.title));
     let header = Header {
         name: &model.name,
         max_tokens: config.max_tokens,

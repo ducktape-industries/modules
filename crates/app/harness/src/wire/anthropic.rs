@@ -62,11 +62,16 @@ pub(crate) fn header(header: &Header) -> String {
     request.insert("model".into(), json!(header.name));
     request.insert("max_tokens".into(), json!(header.max_tokens));
     request.insert("tools".into(), Value::Array(tools));
-    if !header.system.is_empty() {
-        request.insert(
-            "system".into(),
-            json!([{ "type": "text", "text": header.system, "cache_control": cached() }]),
-        );
+    let mut system: Vec<Value> = header
+        .system
+        .iter()
+        .map(|text| json!({ "type": "text", "text": text }))
+        .collect();
+    if let Some(Value::Object(last)) = system.last_mut() {
+        last.insert("cache_control".into(), cached());
+    }
+    if !system.is_empty() {
+        request.insert("system".into(), Value::Array(system));
     }
     let mut text = Value::Object(request).to_string();
     text.pop();

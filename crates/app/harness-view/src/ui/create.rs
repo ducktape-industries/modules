@@ -233,7 +233,7 @@ fn fields(
     )
     .child(labelled(
         "System prompt",
-        "Harness puts its own preamble first (who the agent is, and where people reach it), then this.",
+        "Harness sends each paragraph as its own system block, in order, then its ducktape resource manual (the agent's account, its manager, the conversation).",
         Textarea::new("create-system", &draft.system, "System prompt")
             .min_h(size::CONTROL * 4.)
             .w_full()

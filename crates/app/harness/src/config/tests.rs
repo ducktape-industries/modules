@@ -32,6 +32,29 @@ fn a_file_parses_into_its_front_matter_and_its_system_prompt() {
 }
 
 #[test]
+fn each_paragraph_of_the_system_prompt_is_one_block_in_order() {
+    let config = Config {
+        model: "sonnet".into(),
+        max_tokens: 1,
+        wait: None,
+        system: "Who you are.\n\n\nWhat you do,\nline two.\n  \n- a list\r\n- of two".into(),
+    };
+    assert_eq!(
+        config.paragraphs(),
+        [
+            "Who you are.",
+            "What you do,\nline two.",
+            "- a list\n- of two"
+        ]
+    );
+    let empty = Config {
+        system: String::new(),
+        ..config
+    };
+    assert!(empty.paragraphs().is_empty());
+}
+
+#[test]
 fn what_it_writes_parses_back_to_itself() {
     let config = Config {
         model: "a \"quoted\" id".into(),

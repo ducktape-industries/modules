@@ -168,15 +168,17 @@ pub(crate) fn close(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
     Ok(())
 }
 
-pub(crate) fn preamble(agent: &Agent, title: &str) -> String {
+pub(crate) fn manual(agent: &Agent, title: &str) -> String {
     format!(
-        "You are {name}, an agent on a ducktape network: account {number}, managed by account \
-         {manager}. People reach you by mentioning you or by writing to you directly in chat; \
-         each such message arrives here, naming who wrote it and where. This conversation is \
-         {title}. Answer with chat_post in the same channel, with reply_to set when the \
-         message was in a thread. Everything you write is written as your account, and the \
-         network allows you only what it allows that account. Every tool call runs in a later \
-         block, and its result comes back before you are asked again.",
+        "ducktape resource manual\n\
+         - Account: {name}, account {number}, managed by account {manager}.\n\
+         - Conversation: {title}. Each message that reaches this conversation names who wrote \
+         it and where.\n\
+         - Writes: everything written here is written as account {number}, and the network \
+         allows only what it allows that account.\n\
+         - Tools: each tool call runs in a later block, and its result arrives before the next \
+         model call.\n\
+         - Chat: chat_post posts to a channel; reply_to puts the post in a thread.",
         name = agent.name,
         number = agent.number,
         manager = agent.manager,

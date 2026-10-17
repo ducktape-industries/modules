@@ -320,11 +320,12 @@ fn a_mentioned_agent_answers_through_elected_nodes_and_writes_as_itself() {
             "{text}"
         );
         assert!(text.ends_with("note that the network is up"), "{text}");
+        assert_eq!(sent["system"][0]["text"], "Keep notes in /shared.");
         assert!(
-            sent["system"][0]["text"]
+            sent["system"][1]["text"]
                 .as_str()
                 .unwrap()
-                .starts_with("You are Scout")
+                .starts_with("ducktape resource manual\n- Account: Scout, account ")
         );
 
         let write = json!([{

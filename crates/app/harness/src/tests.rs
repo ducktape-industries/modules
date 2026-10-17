@@ -368,15 +368,19 @@ fn a_mention_by_its_manager_asks_the_model_in_the_agents_thread_for_that_channel
     head.check_path().unwrap();
     let sent = body(chain, &request);
     assert_eq!(sent["model"], "claude-test");
-    let system = sent["system"][0]["text"].as_str().unwrap();
+    let system = sent["system"].as_array().unwrap();
+    assert_eq!(system.len(), 2, "{system:?}");
+    assert_eq!(system[0]["text"], "Keep notes in /shared.");
+    assert!(system[0].get("cache_control").is_none(), "{system:?}");
+    let manual = system[1]["text"].as_str().unwrap();
     assert!(
-        system.starts_with(&format!(
-            "You are Scout, an agent on a ducktape network: account {}",
-            world.agent
+        manual.starts_with(&format!(
+            "ducktape resource manual\n- Account: Scout, account {}, managed by account {}.",
+            world.agent, world.ada
         )),
-        "{system}"
+        "{manual}"
     );
-    assert!(system.ends_with("Keep notes in /shared."), "{system}");
+    assert_eq!(system[1]["cache_control"]["type"], "ephemeral");
     assert_eq!(
         sent["tools"].as_array().unwrap().len(),
         tools::CATALOG.len()

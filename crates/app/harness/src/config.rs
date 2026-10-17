@@ -87,6 +87,20 @@ impl Config {
         })
     }
 
+    pub fn paragraphs(&self) -> Vec<String> {
+        let mut paragraphs = Vec::new();
+        let mut lines: Vec<&str> = Vec::new();
+        for line in self.system.lines().chain([""]) {
+            let blank = line.trim().is_empty();
+            match blank {
+                false => lines.push(line),
+                true if lines.is_empty() => {}
+                true => paragraphs.push(std::mem::take(&mut lines).join("\n")),
+            }
+        }
+        paragraphs
+    }
+
     pub fn write(&self) -> String {
         let model = toml::Value::String(self.model.clone());
         let mut front = format!("model = {model}\nmax_tokens = {}\n", self.max_tokens);
