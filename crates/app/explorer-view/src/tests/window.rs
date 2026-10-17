@@ -298,8 +298,15 @@ fn a_snapshot_restores_without_reading_the_window_again() {
     restored.restore::<Explorer>(&bytes).unwrap();
     restored.run_until_parked();
     assert!(restored.has_text("6f6f6f6f…6f6f"), "{:?}", restored.texts());
-    assert!(restored.find("explorer-tx-12-0").is_some());
+    assert!(restored.find("explorer-block-12").is_some());
     assert!(restored.host().requests::<ChainBlocks>().is_empty());
+    // the frames are not in the snapshot: their first page is asked again
+    let first = activity::Query::Frames {
+        page: activity::PageRequest::first(crate::queries::PAGE),
+    };
+    let asked = restored.host().requests::<Query<Activity>>();
+    assert_eq!(asked.iter().filter(|query| **query == first).count(), 1);
+    assert!(restored.has_text("Reading transactions…"));
 }
 
 /// Every page over a full window stays inside the host's frame budgets, and
@@ -322,11 +329,7 @@ fn a_full_window_renders_inside_the_frame_budget() {
     }
     cx.simulate_click("explorer-tab-transactions");
     cx.run_until_parked();
-    assert!(
-        cx.has_text("1,001 transactions") && cx.has_text("forge"),
-        "{:?}",
-        cx.texts()
-    );
+    assert!(cx.has_text("forge"), "{:?}", cx.texts());
     cx.simulate_click(&format!("explorer-tx-{WINDOW}-0"));
     cx.run_until_parked();
     assert!(cx.has_text("1048576 bytes · 50505050…5050"));

@@ -3,6 +3,14 @@ use super::*;
 use crate::decode::{amount, clip, preview};
 use view::design::Ladder;
 
+/// Every transaction, newest first, or those sent to `program`: the rows
+/// read so far, and a line that reads on past them as it comes into view.
+/// Activity lists no transaction by program, so the program's are the
+/// rows held that went to it, its pages read on until they fill the list,
+/// activity ends or `load::LOOK_BACK` more rows are
+/// read, when Look further back reads on; the caption says how far back
+/// that looked. Rows written above a listing read on past its first page
+/// show as Newer transactions (`Listing::behind`).
 pub(super) fn transactions(
     view: &Explorer,
     program: Option<String>,
@@ -10,28 +18,55 @@ pub(super) fn transactions(
     theme: &Theme,
     ladder: &Ladder,
 ) -> AnyElement {
-    let frames = match &view.frames {
-        Loadable::Ready(frames) | Loadable::Reloading(frames, _) => frames,
-        Loadable::Failed(refusal) => return failed(&design::sentence(refusal), cx, theme, ladder),
-        Loadable::Idle | Loadable::Loading(_) => {
-            return quiet("explorer-txs-loading", "Reading transactions…", theme);
-        }
+    let frames = match landed(view.frames.as_ref()) {
+        Ok(frames) => frames,
+        Err(Some(refusal)) => return failed(&design::sentence(&refusal), cx, theme, ladder),
+        Err(None) => return quiet("explorer-txs-loading", "Reading transactions…", theme),
     };
-    let matching = sent_to(&frames.list, program.as_deref()).count();
+    let (matching, held, more) = frames.rows.read(|frames| {
+        let matching = sent_to(frames.rows(), program.as_deref()).count();
+        (
+            matching,
+            frames.rows().len(),
+            frames.count() > frames.rows().len(),
+        )
+    });
+    // a program's list reads back by itself as far as `reach`, then asks
+    let further = program.is_some() && more && held >= view.reach;
+    let reading_on = more && !further;
     let list = rows("explorer-transactions-list", "Transactions", view);
-    let rows = (matching > 0).then(|| {
+    let rows = (matching > 0 || reading_on).then(|| {
         let program = program.clone();
-        frame_rows(list, view, move |view| {
-            sent_to(view.frame_list(), program.as_deref()).collect()
+        frame_rows(list, &frames.rows, move |frames| {
+            sent_to(frames, program.as_deref()).collect()
         })
+        .more(reading_on.then_some(words::READING_OLDER))
         .build(cx)
     });
     let title = match &program {
         Some(program) => words::transactions_to(program),
         None => "Transactions".into(),
     };
-    let empty =
-        (matching == 0).then(|| quiet("explorer-no-txs", "No transactions recorded.", theme));
+    // a count is a total only once activity is read to its end, and only
+    // while nothing was written above the rows read
+    let count = match (more, &program) {
+        _ if frames.behind => None,
+        (false, _) => Some(plural(matching as u64, "transaction", "transactions")),
+        (true, Some(_)) => Some(words::of_the_newest(matching as u64, held as u64)),
+        (true, None) => None,
+    };
+    let empty = (matching == 0 && !more && !frames.behind)
+        .then(|| quiet("explorer-no-txs", "No transactions recorded.", theme));
+    let further = further.then(|| {
+        let look = |view: &mut Explorer, cx: &mut Context<Explorer>| view.look_further(cx);
+        div().px_5().py_2().child(press(
+            "explorer-look-further",
+            words::LOOK_FURTHER,
+            cx,
+            theme,
+            look,
+        ))
+    });
     div()
         .id("explorer-transactions")
         .flex_1()
@@ -44,16 +79,15 @@ pub(super) fn transactions(
             heading(
                 "explorer-transactions-heading",
                 &title,
-                Some(caption(
-                    plural(matching as u64, "transaction", "transactions"),
-                    theme,
-                )),
+                count.map(|count| caption(count, theme)),
                 theme,
             )
             .mr(design::size::SCROLLBAR),
         )
+        .children(frames.behind.then(|| newer(cx, theme)))
         .children(rows)
         .children(empty)
+        .children(further)
         .into_any_element()
 }
 

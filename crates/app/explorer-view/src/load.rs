@@ -3,18 +3,28 @@
 //! says it does (`program.describe`). A list is read with `cx.load`,
 //! which keeps what is on screen while it reads again and draws only what
 //! changed.
+use std::future::Future;
+
+use view::Paged;
+use view::host::Page;
 use view::prelude::*;
 
 use crate::chain::{self, BlockRow, TxRow};
-use crate::state::{Route, blob_ref};
+use crate::state::{Listing, Route, blob_ref};
 use crate::{Explorer, WINDOW, decode, queries};
 
 /// The newest frames of an account a phone reads the transactions of
-/// (Expo `ACTED`, `query/page.ts:12`).
-const ACTED: usize = 50;
+/// (Expo `ACTED`, `query/page.ts:12`): its first page.
+const ACTED: usize = queries::PAGE as usize;
 /// The payload a row's transaction is read with (Expo `ROW_PAYLOAD`,
 /// `query/page.ts:10`): past it, the row is titled by its size.
 const ROW_PAYLOAD: u32 = 4 << 10;
+/// The rows a program's transactions read back by themselves before they
+/// ask to look further: twenty pages. Activity lists no transaction by
+/// program, so one with few would otherwise read all of activity, a page
+/// a tick (garage's 60k frames: 1,200 pages, 9 MB held and walked on every
+/// draw).
+pub(crate) const LOOK_BACK: usize = 1_000;
 
 impl Explorer {
     /// Everything, again: the boot, a restore, a retry.
@@ -120,9 +130,19 @@ impl Explorer {
         cx.load(self, work, |view| &mut view.network);
     }
 
+    /// Every transaction, newest first, a page at a time: the Overview
+    /// shows the first page, the Transactions tab reads on as it is
+    /// scrolled. Asked again (a write to activity, a retry), it reads its
+    /// first page again as [`reread_first`](Self::reread_first) says.
     pub(crate) fn read_frames(&mut self, cx: &mut Context<Self>) {
-        let work = queries::frames(cx.host());
-        cx.load(self, work, |view| &mut view.frames);
+        let host = cx.host();
+        if self.frames.is_some() {
+            let first = move || queries::frames(host, None);
+            return self.reread_first(first, |view| view.frames.as_mut(), cx);
+        }
+        let page = move |after| queries::frames(host.clone(), after);
+        self.frames = Some(Listing::new(page, cx));
+        self.reach = LOOK_BACK;
     }
 
     pub(crate) fn read_used(&mut self, cx: &mut Context<Self>) {
@@ -130,16 +150,111 @@ impl Explorer {
         cx.load(self, work, |view| &mut view.used);
     }
 
+    /// What the account page on screen did, newest first, a page at a time;
+    /// its first page again when it is asked again, as
+    /// [`reread_first`](Self::reread_first) says.
     pub(crate) fn read_acted(&mut self, cx: &mut Context<Self>) {
         let Route::Account(number) = *self.pages.top() else {
             return;
         };
-        let unheld = self.acted(number).is_none();
-        if unheld {
-            self.acted = Loadable::Idle;
+        let host = cx.host();
+        if self.acted(number).is_some() {
+            let first = move || queries::acted(host, number, None);
+            return self.reread_first(
+                first,
+                move |view| {
+                    let (account, acted) = view.acted.as_mut()?;
+                    (*account == number).then_some(acted)
+                },
+                cx,
+            );
         }
-        let work = queries::acted(cx.host(), number);
-        cx.load(self, work, |view| &mut view.acted);
+        let page = move |after| queries::acted(host.clone(), number, after);
+        self.acted = Some((number, Listing::new(page, cx)));
+    }
+
+    /// A write to activity, for the listing `listing` picks: its first page
+    /// again. While that is all it holds, it is read again in place
+    /// ([`Paged::reread`]), the rows on screen staying until it lands. A
+    /// listing read on past it is not: `reread` reads every page held from
+    /// the first, and with a write nearly every block (garage's bots) a
+    /// listing read far enough never lands that read before the next write
+    /// starts it again, nor reads on while it is out. Its first page is
+    /// asked alone instead (`first`), and one that starts with a row it
+    /// does not hold marks it [`behind`](Listing::behind) until it starts
+    /// over ([`show_newest`](Self::show_newest), or arriving on a page), or
+    /// is back to one page (a page refused empties it). A listing whose
+    /// first page is still on its way is left to land.
+    fn reread_first<F>(
+        &mut self,
+        first: impl FnOnce() -> F,
+        listing: impl Fn(&mut Explorer) -> Option<&mut Listing> + 'static,
+        cx: &mut Context<Self>,
+    ) where
+        F: Future<Output = Result<Page<activity::Frame>, Error>> + 'static,
+    {
+        let Some(held) = listing(self) else {
+            return;
+        };
+        if held.rows.read(Paged::is_loading) {
+            return;
+        }
+        // a listing back to one page (a refused page empties it) is read
+        // again whatever it was told before
+        if !held.past_first_page() {
+            held.behind = false;
+            return held.rows.update(cx, |rows, cx| rows.reread(cx));
+        }
+        if held.behind {
+            return;
+        }
+        let newest = held.rows.read(|rows| rows.rows().first().cloned());
+        let checked = cx.land(first(), move |view, page, cx| match page {
+            Ok((rows, _)) => {
+                if rows.first() != newest.as_ref()
+                    && let Some(listing) = listing(view)
+                    && listing.past_first_page()
+                {
+                    listing.behind = true;
+                    cx.notify();
+                }
+            }
+            Err(refusal) => cx.log_refused("activity's newest frames", &refusal),
+        });
+        held.checking = Some(checked);
+    }
+
+    /// A listing read on past its first page starts over at it: the page
+    /// the reader arrives on opens at its top.
+    pub(crate) fn start_over(&mut self, cx: &mut Context<Self>) {
+        self.start_over_where(Listing::past_first_page, cx);
+    }
+
+    /// Show newest: a listing behind the rows written above it starts over
+    /// at its first page, its list at the top.
+    pub(crate) fn show_newest(&mut self, cx: &mut Context<Self>) {
+        self.start_over_where(|listing| listing.behind, cx);
+        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+        cx.notify();
+    }
+
+    /// Look further back: a program's transactions read [`LOOK_BACK`] rows
+    /// further by themselves.
+    pub(crate) fn look_further(&mut self, cx: &mut Context<Self>) {
+        self.reach += LOOK_BACK;
+        cx.notify();
+    }
+
+    /// The listings `stale` picks, read anew from their first page.
+    fn start_over_where(&mut self, stale: impl Fn(&Listing) -> bool, cx: &mut Context<Self>) {
+        if self.frames.as_ref().is_some_and(&stale) {
+            self.frames = None;
+            self.read_frames(cx);
+        }
+        if self.acted.as_ref().is_some_and(|(_, acted)| stale(acted)) {
+            self.acted = None;
+            self.read_acted(cx);
+        }
     }
 
     pub(crate) fn pull(&mut self, cx: &mut Context<Self>) {
@@ -342,15 +457,21 @@ impl Explorer {
         let Route::Account(number) = *self.pages.top() else {
             return;
         };
-        let Some(frames) = self.acted(number) else {
+        let Some(acted) = self.acted(number) else {
             return;
         };
-        let of = Some((number, frames.len()));
-        let places: Vec<(u64, u32)> = frames
-            .iter()
-            .take(ACTED)
-            .map(|frame| (frame.height, frame.position))
-            .collect();
+        let places = acted.rows.read(|acted| {
+            let read = !acted.is_loading() && acted.failed().is_none();
+            let newest = acted.rows().iter().take(ACTED);
+            read.then(|| {
+                let places = newest.map(|frame| (frame.height, frame.position));
+                places.collect::<Vec<_>>()
+            })
+        });
+        let Some(places) = places else {
+            return;
+        };
+        let of = Some((number, places.clone()));
         if self.rows_of == of {
             return;
         }

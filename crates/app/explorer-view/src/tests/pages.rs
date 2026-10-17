@@ -650,7 +650,11 @@ fn the_transactions_list_lowers_only_the_rows_the_host_shows() {
         other => panic!("no list of rows: {other:?}"),
     };
     let (count, lowered, _) = list(&cx);
-    assert_eq!(count, WINDOW + 1, "every frame, past the window too");
+    assert_eq!(
+        count,
+        crate::queries::PAGE as usize + 1,
+        "the first page, and the line that reads on"
+    );
     assert!(
         (14..count).contains(&lowered),
         "a screenful and a margin, not every row: {lowered}"
@@ -729,6 +733,7 @@ fn the_transactions_list_reaches_the_panes_edge_and_writes_no_gutter() {
     );
 }
 
+/// An account's activity is its newest page, drawn whole.
 #[test]
 fn an_accounts_activity_and_a_blocks_transactions_are_drawn_whole() {
     let mut cx = TestAppContext::new();
@@ -753,5 +758,10 @@ fn an_accounts_activity_and_a_blocks_transactions_are_drawn_whole() {
         "an account's activity is no window"
     );
     let row = |index: usize| format!("explorer-tx-{}-0", WINDOW - index);
-    assert!(cx.find(&row(0)).is_some() && cx.find(&row(WINDOW - 1)).is_some());
+    let page = crate::queries::PAGE as usize;
+    assert!(cx.find(&row(0)).is_some() && cx.find(&row(page - 1)).is_some());
+    assert!(
+        cx.find(&row(page)).is_none(),
+        "the page past it is not read"
+    );
 }

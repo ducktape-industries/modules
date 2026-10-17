@@ -8,6 +8,7 @@ use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
 use crate::decode::{grouped, plural, scheme, short};
+use crate::state::landed;
 use crate::words;
 use crate::{Cx, Explorer, Route};
 
@@ -148,7 +149,6 @@ fn figures(view: &Explorer, account: &identity::Account, k: &Look) -> Stateful<D
 fn devices(view: &Explorer, account: &identity::Account, k: &Look) -> Vec<AnyElement> {
     let keys = account.keys();
     let now = view.chain.now();
-    let signed = view.acted(account.number).unwrap_or_default();
     let head = section(
         "explorer-devices-heading",
         "Devices",
@@ -156,9 +156,9 @@ fn devices(view: &Explorer, account: &identity::Account, k: &Look) -> Vec<AnyEle
         k,
     );
     let rows = keys.iter().enumerate().map(|(index, key)| {
-        let last = signed.iter().find(|frame| frame.signer == key.key);
+        let last = view.last_signed(account.number, &key.key);
         let label = key.label.clone().unwrap_or_else(|| words::device(index));
-        let used = words::last_used(now, last.map(|frame| frame.time));
+        let used = words::last_used(now, last);
         list_row(
             SharedString::from(format!("explorer-device-{}", abi::hex(&key.key))),
             k,
@@ -259,17 +259,16 @@ fn activity(view: &Explorer, number: u64, cx: Cx, k: &Look) -> Vec<AnyElement> {
         recorded.map(aside),
         k,
     );
-    // the frames, then each one's transaction (`read_rows`), as Expo
-    // reads them in one query
-    let rows = match (view.acted(number), &view.acted) {
-        (Some([]), _) => Ok(&[][..]),
-        (Some(_), _) => match &view.acted_rows {
+    // the newest frames, then each one's transaction (`read_rows`), as
+    // Expo reads them in one query
+    let rows = match landed(view.acted(number)) {
+        Ok(acted) if acted.rows.read(|acted| acted.rows().is_empty()) => Ok(&[][..]),
+        Ok(_) => match &view.acted_rows {
             Loadable::Ready(rows) | Loadable::Reloading(rows, _) => Ok(rows.as_slice()),
-            Loadable::Failed(refusal) => Err(Some(refusal)),
+            Loadable::Failed(refusal) => Err(Some(refusal.clone())),
             Loadable::Idle | Loadable::Loading(_) => Err(None),
         },
-        (None, Loadable::Failed(refusal)) => Err(Some(refusal)),
-        (None, _) => Err(None),
+        Err(refusal) => Err(refusal),
     };
     let list = match rows {
         Ok([]) => quiet("explorer-no-activity", words::NO_ACTIVITY, k),
@@ -280,7 +279,7 @@ fn activity(view: &Explorer, number: u64, cx: Cx, k: &Look) -> Vec<AnyElement> {
                 .collect(),
         )
         .into_any_element(),
-        Err(Some(refusal)) => refused(&design::sentence(refusal), cx, k),
+        Err(Some(refusal)) => refused(&design::sentence(&refusal), cx, k),
         Err(None) => quiet("explorer-activity-loading", words::READING_ACTIVITY, k),
     };
     vec![head.into_any_element(), list]
