@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use ::program::{AccountNumber, BlobId, Env, Origin, Principal, ProgramId};
+use ::program::{AccountNumber, BlobId, Env, Origin, Principal, ProgramId, Roles};
 use ::program::{
     Error, ExecCtx, QueryCtx, already_exists, invalid, not_found, unauthorized, unexpected_reply,
     wrong_state,
@@ -22,6 +22,7 @@ use crate::{
 const PROGRAMS: Map<ProgramId, Entry> = Map::new("p/");
 const VIEWS: Map<ProgramId, View> = Map::new("v/");
 const HOOKS: Set<ProgramId> = Set::new("h/");
+pub(crate) const ROLES: Map<String, ProgramId> = Map::new("r/");
 type At = (u64, ProgramId);
 /// The value stays a bare `Change`, so a `programs` swapped in over pending
 /// entries still reads them; who made one is `BY`.
@@ -66,6 +67,9 @@ pub(crate) fn init(ctx: &ExecCtx, genesis: Genesis) {
     for hook in genesis.hooks {
         HOOKS.insert(ctx, &hook);
     }
+    for (role, program) in genesis.roles.iter() {
+        ROLES.put(ctx, &role.to_owned(), program);
+    }
     FOLDED.put(ctx, &0);
 }
 
@@ -109,7 +113,7 @@ fn actor(env: &Env, name: &str) -> Result<Option<AccountNumber>, Error> {
 /// Refused unless `account` maintains `name`: a grant of `name` or of every
 /// program, and `name` fills no role.
 fn maintains(ctx: &QueryCtx, account: AccountNumber, name: &str) -> Result<(), Error> {
-    if role_bound(&ctx.env().roles, name) {
+    if role_bound(&roles_at(ctx, ctx.env().height)?, name) {
         return Err(unauthorized(format!(
             "{name} fills a role the kernel calls: only the validators' vote changes it"
         )));
@@ -132,6 +136,12 @@ fn by_grant(ctx: &QueryCtx, account: AccountNumber, scheduled: &Scheduled) -> Re
             "only the validators' vote sets or removes a hook, as on {name}"
         )));
     }
+    let declares = matches!(&scheduled.change, Change::Publish { roles, .. } if !roles.is_empty());
+    if declares {
+        return Err(unauthorized(format!(
+            "only the validators' vote publishes {name} to fill a role"
+        )));
+    }
     maintains(ctx, account, name)?;
     let earliest = ctx.env().height.checked_add(NOTICE);
     if earliest.is_none_or(|earliest| scheduled.height < earliest) {
@@ -148,7 +158,9 @@ fn by_grant(ctx: &QueryCtx, account: AccountNumber, scheduled: &Scheduled) -> Re
     // a cascade drops a maintainer's removal with no guard, so a name it
     // frees is claimed only once it lands: never a program and a view at once
     let frees: Option<fn(&Change) -> bool> = match scheduled.change {
-        Change::Set(_) => Some(|change| matches!(change, Change::RemoveView(_))),
+        Change::Set(_) | Change::Publish { .. } => {
+            Some(|change| matches!(change, Change::RemoveView(_)))
+        }
         Change::SetView(_) => Some(|change| matches!(change, Change::Remove(_))),
         _ => None,
     };
@@ -198,24 +210,28 @@ pub(crate) fn schedule(ctx: &ExecCtx, scheduled: Scheduled) -> Result<(), Error>
     let name = scheduled.change.program();
     // an id lands in its one spelling (`program::is_name`), so no id reads
     // as another's; a removal names what is there, however it is spelled
-    let lands = matches!(scheduled.change, Change::Set(_) | Change::SetView(_));
+    let lands = matches!(
+        scheduled.change,
+        Change::Set(_) | Change::SetView(_) | Change::Publish { .. }
+    );
     if lands && !::program::is_name(name) {
         return Err(invalid(format!(
             "{name:?} is not a program id: 1..=64 of [a-z0-9_-]"
         )));
     }
-    // the kernel calls these by their genesis binding: with one gone every
-    // frame is refused (identity) or the chain halts (validators), and no
-    // change could land to bring it back
-    let bound = role_bound(&env.roles, name);
-    if matches!(scheduled.change, Change::Remove(_)) && bound {
-        return Err(invalid(format!("{name} fills a role the kernel calls")));
+    if let Change::Publish { roles, .. } = &scheduled.change {
+        declarable(roles)?;
     }
+    let before = roster(ctx, scheduled.height, &changes)?;
+    let mut after = before.clone();
+    apply(&mut after, scheduled.change.clone());
+    fillable(&after)?;
     let Roster {
         programs,
         views,
         hooks,
-    } = roster(ctx, scheduled.height, &changes)?;
+        ..
+    } = before;
     // the vote's removal of a name nothing holds by then has its goal met:
     // it takes the name's grants along and waits as no entry
     let gone = by.is_none()
@@ -223,13 +239,15 @@ pub(crate) fn schedule(ctx: &ExecCtx, scheduled: Scheduled) -> Result<(), Error>
         && !programs.contains_key(name)
         && !views.contains_key(name);
     let clash = match &scheduled.change {
-        Change::Set(_) => {
+        Change::Set(_) | Change::Publish { .. } => {
             views.contains_key(name)
                 || waits(ctx, name, &changes, |c| matches!(c, Change::SetView(_)))?
         }
         Change::SetView(_) => {
             programs.contains_key(name)
-                || waits(ctx, name, &changes, |c| matches!(c, Change::Set(_)))?
+                || waits(ctx, name, &changes, |c| {
+                    matches!(c, Change::Set(_) | Change::Publish { .. })
+                })?
         }
         _ if gone => false,
         Change::Remove(_) | Change::SetHook(_) if !programs.contains_key(name) => {
@@ -388,8 +406,14 @@ pub(crate) fn cancel(ctx: &ExecCtx, height: u64, program: ProgramId) -> Result<(
     // other kind may since have claimed.
     let reinstated: Option<fn(&Change) -> bool> = match change {
         Change::Remove(_) => Some(|change| matches!(change, Change::SetView(_))),
-        Change::RemoveView(_) => Some(|change| matches!(change, Change::Set(_))),
-        Change::Set(_) | Change::SetView(_) | Change::SetHook(_) | Change::RemoveHook(_) => None,
+        Change::RemoveView(_) => {
+            Some(|change| matches!(change, Change::Set(_) | Change::Publish { .. }))
+        }
+        Change::Set(_)
+        | Change::SetView(_)
+        | Change::SetHook(_)
+        | Change::RemoveHook(_)
+        | Change::Publish { .. } => None,
     };
     if let Some(other) = reinstated
         && waits(ctx, &key.1, &[], other)?
@@ -409,26 +433,92 @@ pub(crate) fn fold(ctx: &ExecCtx, height: u64) -> Result<(), Error> {
     if nothing_new {
         return Ok(());
     }
-    for (key, change) in due(ctx, height)? {
-        match &change {
-            Change::Set(entry) => PROGRAMS.put(ctx, &entry.program, entry),
-            Change::Remove(program) => {
-                PROGRAMS.remove(ctx, program);
-                HOOKS.remove(ctx, program);
-            }
-            Change::SetView(view) => VIEWS.put(ctx, &view.name, view),
-            Change::RemoveView(name) => VIEWS.remove(ctx, name),
-            Change::SetHook(program) => {
-                if PROGRAMS.has(ctx, program) {
-                    HOOKS.insert(ctx, program);
-                }
-            }
-            Change::RemoveHook(program) => HOOKS.remove(ctx, program),
-        }
+    let due = due(ctx, height)?;
+    if due.is_empty() {
+        FOLDED.put(ctx, &height);
+        return Ok(());
+    }
+    let before = stored(ctx)?;
+    let mut after = before.clone();
+    for (key, change) in due {
+        apply(&mut after, change);
         drop_change(ctx, &key);
     }
+    write(ctx, &before, &after);
     FOLDED.put(ctx, &height);
     Ok(())
+}
+
+fn write(ctx: &ExecCtx, before: &Roster, after: &Roster) {
+    write_map(ctx, PROGRAMS, &before.programs, &after.programs);
+    write_map(ctx, VIEWS, &before.views, &after.views);
+    write_map(ctx, ROLES, &before.roles, &after.roles);
+    before
+        .hooks
+        .difference(&after.hooks)
+        .for_each(|hook| HOOKS.remove(ctx, hook));
+    after
+        .hooks
+        .difference(&before.hooks)
+        .for_each(|hook| HOOKS.insert(ctx, hook));
+}
+
+fn write_map<K, V>(ctx: &ExecCtx, table: Map<K, V>, before: &BTreeMap<K, V>, after: &BTreeMap<K, V>)
+where
+    K: KeyCodec + Ord,
+    V: borsh::BorshSerialize + borsh::BorshDeserialize + PartialEq,
+{
+    before
+        .keys()
+        .filter(|key| !after.contains_key(*key))
+        .for_each(|key| table.remove(ctx, key));
+    after
+        .iter()
+        .filter(|(key, value)| before.get(*key) != Some(*value))
+        .for_each(|(key, value)| table.put(ctx, key, value));
+}
+
+fn declarable(roles: &[String]) -> Result<(), Error> {
+    let named = roles.iter().find(|role| !::program::is_name(role));
+    if let Some(role) = named {
+        return Err(invalid(format!(
+            "{role:?} is not a role name: 1..=64 of [a-z0-9_-]"
+        )));
+    }
+    let unique: BTreeSet<&String> = roles.iter().collect();
+    if unique.len() != roles.len() {
+        return Err(invalid("a change declares each role once"));
+    }
+    Ok(())
+}
+
+fn fillable(roster: &Roster) -> Result<(), Error> {
+    if let Some(role) = table(&roster.roles).unfilled() {
+        return Err(invalid(format!(
+            "the change leaves the {role} role, which the kernel calls, unfilled"
+        )));
+    }
+    let unlisted = roster
+        .roles
+        .iter()
+        .find(|(_, program)| !roster.programs.contains_key(*program));
+    if let Some((role, program)) = unlisted {
+        return Err(invalid(format!(
+            "the {role} role names {program}, which no entry runs"
+        )));
+    }
+    Ok(())
+}
+
+fn table(roles: &BTreeMap<String, ProgramId>) -> Roles {
+    roles
+        .iter()
+        .map(|(role, program)| (role.clone(), program.clone()))
+        .collect()
+}
+
+pub(crate) fn roles_at(ctx: &QueryCtx, height: u64) -> Result<Roles, Error> {
+    Ok(table(&roster(ctx, height, &[])?.roles))
 }
 
 fn due(ctx: &QueryCtx, height: u64) -> Result<Vec<(At, Change)>, Error> {
@@ -447,50 +537,68 @@ pub(crate) fn hooks_at(ctx: &QueryCtx, height: u64) -> Result<Vec<ProgramId>, Er
     Ok(roster(ctx, height, &[])?.hooks.into_iter().collect())
 }
 
+#[derive(Clone)]
 pub(crate) struct Roster {
     pub(crate) programs: BTreeMap<ProgramId, Entry>,
     pub(crate) views: BTreeMap<ProgramId, View>,
     pub(crate) hooks: BTreeSet<ProgramId>,
+    pub(crate) roles: BTreeMap<String, ProgramId>,
+}
+
+fn stored(ctx: &QueryCtx) -> Result<Roster, Error> {
+    Ok(Roster {
+        programs: PROGRAMS.all(ctx)?.into_iter().collect(),
+        views: VIEWS.all(ctx)?.into_iter().collect(),
+        hooks: HOOKS.all(ctx)?.into_iter().collect(),
+        roles: ROLES.all(ctx)?.into_iter().collect(),
+    })
+}
+
+fn apply(roster: &mut Roster, change: Change) {
+    match change {
+        Change::Set(entry) => {
+            roster.programs.insert(entry.program.clone(), entry);
+        }
+        Change::Publish { entry, roles } => {
+            let program = entry.program.clone();
+            roster.roles.retain(|_, filled| *filled != program);
+            for role in roles {
+                roster.roles.insert(role, program.clone());
+            }
+            roster.programs.insert(program, entry);
+        }
+        Change::Remove(program) => {
+            roster.programs.remove(&program);
+            roster.hooks.remove(&program);
+            roster.roles.retain(|_, filled| *filled != program);
+        }
+        Change::SetView(view) => {
+            roster.views.insert(view.name.clone(), view);
+        }
+        Change::RemoveView(name) => {
+            roster.views.remove(&name);
+        }
+        Change::SetHook(program) => {
+            if roster.programs.contains_key(&program) {
+                roster.hooks.insert(program);
+            }
+        }
+        Change::RemoveHook(program) => {
+            roster.hooks.remove(&program);
+        }
+    }
 }
 
 /// Every list at a height, by name: what is folded, and every change due
 /// by then but the `overruled` ones.
 pub(crate) fn roster(ctx: &QueryCtx, height: u64, overruled: &[At]) -> Result<Roster, Error> {
-    let mut programs: BTreeMap<_, _> = PROGRAMS.all(ctx)?.into_iter().collect();
-    let mut views: BTreeMap<_, _> = VIEWS.all(ctx)?.into_iter().collect();
-    let mut hooks: BTreeSet<_> = HOOKS.all(ctx)?.into_iter().collect();
+    let mut roster = stored(ctx)?;
     let due = due(ctx, height)?;
     let due = due.into_iter().filter(|(at, _)| !overruled.contains(at));
     for (_, change) in due {
-        match change {
-            Change::Set(entry) => {
-                programs.insert(entry.program.clone(), entry);
-            }
-            Change::Remove(program) => {
-                programs.remove(&program);
-                hooks.remove(&program);
-            }
-            Change::SetView(view) => {
-                views.insert(view.name.clone(), view);
-            }
-            Change::RemoveView(name) => {
-                views.remove(&name);
-            }
-            Change::SetHook(program) => {
-                if programs.contains_key(&program) {
-                    hooks.insert(program);
-                }
-            }
-            Change::RemoveHook(program) => {
-                hooks.remove(&program);
-            }
-        }
+        apply(&mut roster, change);
     }
-    Ok(Roster {
-        programs,
-        views,
-        hooks,
-    })
+    Ok(roster)
 }
 
 /// Whether a change to `name` that `this` picks waits anywhere in the

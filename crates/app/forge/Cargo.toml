@@ -16,6 +16,7 @@ program = []
 describe = []
 
 [dependencies]
+access = { workspace = true }
 abi = { workspace = true }
 describe = { workspace = true }
 program = { workspace = true, features = ["serde"] }

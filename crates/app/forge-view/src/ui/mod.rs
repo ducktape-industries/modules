@@ -20,6 +20,7 @@ use view::prelude::*;
 use view::{Div, FontWeight, Stateful};
 
 use crate::Forge;
+use crate::select::Writer;
 use crate::state::{Dock, Menu, Progress, RepoTab};
 use crate::words;
 use components::{button, heading, id, quiet};
@@ -269,7 +270,7 @@ fn title(
         .pt(design::space::BLOCK)
         .pb(design::space::XS)
         .child(heading(id("forge-repo-name"), name.to_owned(), 1, theme));
-    if let Some((info, _, _)) = forge.repo() {
+    if let Some((info, _)) = forge.repo() {
         let owner = forge.principal_name(&info.repo.owner);
         title = title.child(
             div()
@@ -445,7 +446,7 @@ fn panel(
 }
 
 fn about(forge: &Forge, theme: &Theme) -> AnyElement {
-    let Some((info, bounds, writers)) = forge.repo() else {
+    let Some((info, bounds)) = forge.repo() else {
         return quiet(words::READING_REPOSITORY, theme);
     };
     let mut column = div()
@@ -467,11 +468,17 @@ fn about(forge: &Forge, theme: &Theme) -> AnyElement {
             theme,
         ))
         .child(heading(id("forge-about-access"), "Access", 3, theme));
-    if writers.items.is_empty() {
+    let Some(list) = forge.writers() else {
+        return column
+            .child(quiet(words::READING_WRITERS, theme))
+            .into_any_element();
+    };
+    let writers = Writer::rows(list);
+    if writers.is_empty() {
         column = column.child(quiet(words::ONLY_THE_OWNER, theme));
     }
-    for key in &writers.items {
-        column = column.child(quiet(forge.principal_name(key), theme));
+    for writer in &writers {
+        column = column.child(quiet(forge.writer_name(writer), theme));
     }
     column.into_any_element()
 }

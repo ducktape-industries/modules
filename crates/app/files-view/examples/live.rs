@@ -34,6 +34,7 @@ const TAPE: &[u8] = include_bytes!("tape.png");
 fn main() {
     rig::run("files", |net| {
         net.seat::<files::Files>(files::PROGRAM);
+        net.seat::<access::Access>(access::PROGRAM);
         let dev = net.me();
         let ada = net.person("ada");
         // each commit is based on the head, so it is stale on nothing
@@ -79,12 +80,14 @@ fn main() {
                     target: "/shared/readme.txt".into(),
                 },
                 put(net, "/home/ada/diary.txt", b"Dear diary,"),
-                Change::SetOwnership {
-                    path: "/home/ada".into(),
-                    write: Some(files::Ownership::Owner),
-                },
             ],
         )?;
+        let only_ada = access::Op::Set {
+            program: files::PROGRAM.into(),
+            key: "/home/ada".into(),
+            list: Some(files::Ownership::Owner),
+        };
+        net.submit(ada, access::PROGRAM, &only_ada)?;
         commit(
             dev,
             "Say more in my notes",

@@ -89,27 +89,39 @@ fn commit(chain: &MockChain, key: &[u8], path: &str, text: &str) -> BlobId {
     abi::decode(&chain.submit(signed(key), files::PROGRAM, &commit).unwrap()).unwrap()
 }
 
-fn list(chain: &MockChain, key: &[u8], path: &str, write: files::Ownership) {
-    let commit = files::Op::Commit {
-        base: None,
-        message: "list".into(),
-        changes: vec![files::Change::SetOwnership {
-            path: path.into(),
-            write: Some(write),
-        }],
+fn set_list(chain: &MockChain, key: &[u8], program: &str, at: String, list: ::program::Ownership) {
+    let set = access::Op::Set {
+        program: program.into(),
+        key: at,
+        list: Some(list),
     };
-    chain.submit(signed(key), files::PROGRAM, &commit).unwrap();
+    chain.submit(signed(key), "access", &set).unwrap();
 }
 
-fn ownership(chain: &MockChain, path: &str) -> files::PathOwnership {
-    let asked = files::Query::Ownership {
-        path: path.into(),
-        at: None,
-    };
-    match chain.query(files::PROGRAM, &asked).unwrap() {
-        files::Reply::Ownership(ownership) => ownership,
+fn list(chain: &MockChain, key: &[u8], path: &str, write: ::program::Ownership) {
+    set_list(chain, key, files::PROGRAM, path.into(), write);
+}
+
+fn listed(
+    chain: &MockChain,
+    path: &str,
+) -> (Option<::program::Party>, Option<::program::Ownership>) {
+    let ask = |query| chain.query::<_, access::Reply>("access", &query).unwrap();
+    let owner = match ask(access::Query::Resource {
+        program: files::PROGRAM.into(),
+        key: path.into(),
+    }) {
+        access::Reply::Resource(resource) => resource.owner,
         other => panic!("{other:?}"),
-    }
+    };
+    let list = match ask(access::Query::List {
+        program: files::PROGRAM.into(),
+        key: path.into(),
+    }) {
+        access::Reply::List(list) => list,
+        other => panic!("{other:?}"),
+    };
+    (owner, list)
 }
 
 fn scripted(chain: &MockChain, agent: AccountNumber, path: &str) {
@@ -134,7 +146,9 @@ fn world() -> World {
     chain.seat_awaiting::<Harness>(PROGRAM);
     chain.seat::<files::Files>(files::PROGRAM);
     chain.seat::<chat::Chat>(chat::PROGRAM);
+    chain.seat::<access::Access>("access");
     for program in [
+        "access",
         "valset",
         egress::PROGRAM,
         attribution::PROGRAM,
@@ -192,7 +206,7 @@ fn world() -> World {
         .submit(signed(ADA), PROGRAM, &set_model(MODEL, MODEL))
         .unwrap();
     commit(&chain, ADA, CONFIG, &scout().write());
-    list(&chain, ADA, CONFIG, files::Ownership::Owner);
+    list(&chain, ADA, CONFIG, ::program::Ownership::Owner);
     scripted(&chain, agent, CONFIG);
     let general = chat::Op::CreateChannel {
         channel_id: "general".into(),
@@ -492,11 +506,13 @@ fn a_direct_message_reaches_the_agent_and_only_those_it_answers_are_heard() {
     );
     assert!(posts[0].contains("mentioned you"), "{}", posts[0]);
 
-    let ownership = identity::Op::SetOwnership {
-        account: world.agent,
-        ownership: identity::Ownership::Listed(vec![identity::Party::Account(world.bo)]),
-    };
-    identity_op(chain, ADA, ownership).unwrap();
+    set_list(
+        chain,
+        ADA,
+        PROGRAM,
+        crate::agent_key(world.agent),
+        ::program::Ownership::Listed(vec![::program::Party::Account(world.bo)]),
+    );
     world.post(BO, "general", "b2", &format!("<@{}> now?", world.agent));
     let [same] = world.threads().try_into().unwrap();
     assert_eq!(
@@ -548,7 +564,11 @@ fn a_reply_in_a_thread_the_agent_took_part_in_reaches_it_unmentioned_and_is_answ
     chain
         .submit(signed(ADA), chat::PROGRAM, &follow_up)
         .unwrap();
-    assert_eq!(world.threads().len(), 1, "the agent's one conversation continues");
+    assert_eq!(
+        world.threads().len(),
+        1,
+        "the agent's one conversation continues"
+    );
     let posts: Vec<String> = frames(chain, thread)
         .into_iter()
         .filter_map(|body| match body {
@@ -603,13 +623,13 @@ fn an_agent_that_answers_a_program_hears_what_that_program_posts_as_itself() {
         .submit(by_egress.clone(), chat::PROGRAM, &post("e1"))
         .unwrap();
     assert!(world.threads().is_empty(), "Scout answers its manager only");
-    let ownership = identity::Op::SetOwnership {
-        account: world.agent,
-        ownership: identity::Ownership::Listed(vec![identity::Party::Program(
-            egress::PROGRAM.into(),
-        )]),
-    };
-    identity_op(chain, ADA, ownership).unwrap();
+    set_list(
+        chain,
+        ADA,
+        PROGRAM,
+        crate::agent_key(world.agent),
+        ::program::Ownership::Listed(vec![::program::Party::Program(egress::PROGRAM.into())]),
+    );
     world.post(BO, "general", "b1", &format!("<@{}> me too?", world.agent));
     assert!(world.threads().is_empty(), "a listed program is not Bo");
     chain.submit(by_egress, chat::PROGRAM, &post("e2")).unwrap();
@@ -918,7 +938,7 @@ fn a_write_is_the_agents_and_reaches_only_where_the_agent_may_write() {
 }
 
 #[test]
-fn a_write_sets_the_new_files_list_in_the_same_commit() {
+fn an_agent_writes_a_file_and_lists_who_else_writes_it() {
     let world = world();
     let chain = &world.chain;
     let thread = world.opened("m1", "write", Some(WINDOW));
@@ -927,29 +947,38 @@ fn a_write_sets_the_new_files_list_in_the_same_commit() {
         tool_use(
             "toolu_o",
             "files_write",
-            json!({ "path": "/shared/mine.md", "content": "a", "write": { "who": "creator" } })
+            json!({ "path": "/shared/mine.md", "content": "a" })
+        ),
+        tool_use(
+            "toolu_p",
+            "files_set_list",
+            json!({ "path": "/shared/mine.md", "write": { "who": "creator" } })
         ),
         tool_use(
             "toolu_h",
             "files_write",
+            json!({ "path": "/shared/agents.md", "content": "b" })
+        ),
+        tool_use(
+            "toolu_i",
+            "files_set_list",
             json!({
                 "path": "/shared/agents.md",
-                "content": "b",
                 "write": { "who": "listed", "accounts": [world.bo], "programs": [PROGRAM] }
             })
         ),
         tool_use(
             "toolu_m",
-            "files_write",
-            json!({ "path": CONFIG, "content": "x", "write": { "who": "anyone" } })
+            "files_set_list",
+            json!({ "path": CONFIG, "write": { "who": "anyone" } })
         ),
     ]);
     model_says(chain, calls, "tool_use");
     chain.at(4, 0);
-    for call in ["toolu_o", "toolu_h", "toolu_m"] {
+    for call in ["toolu_o", "toolu_p", "toolu_h", "toolu_i", "toolu_m"] {
         relay_back(chain, call);
     }
-    for call in ["toolu_o", "toolu_h"] {
+    for call in ["toolu_o", "toolu_p", "toolu_h", "toolu_i"] {
         let (text, failed) = result_of(chain, thread, call);
         assert!(!failed, "{call}: {text}");
     }
@@ -958,17 +987,18 @@ fn a_write_sets_the_new_files_list_in_the_same_commit() {
         failed && manager.starts_with(code::UNAUTHORIZED),
         "{manager}"
     );
-    let mine = ownership(chain, "/shared/mine.md");
     assert_eq!(
-        (mine.creator, mine.write),
-        (Some(world.agent), Some(files::Ownership::Owner))
+        listed(chain, "/shared/mine.md"),
+        (
+            Some(::program::Party::Account(world.agent)),
+            Some(::program::Ownership::Owner)
+        )
     );
-    let shared = ownership(chain, "/shared/agents.md");
     assert_eq!(
-        shared.write,
-        Some(files::Ownership::Listed(vec![
-            files::Party::Account(world.bo),
-            files::Party::Program(PROGRAM.into()),
+        listed(chain, "/shared/agents.md").1,
+        Some(::program::Ownership::Listed(vec![
+            ::program::Party::Account(world.bo),
+            ::program::Party::Program(PROGRAM.into()),
         ]))
     );
     let by_ada = files::Op::Commit {
@@ -1606,4 +1636,37 @@ fn every_tool_schema_is_an_object_and_names_its_required_fields() {
         assert_eq!(empty.is_ok(), required.is_empty(), "{}", entry.name);
         assert!(entry.name.len() <= 64 && !entry.description.is_empty());
     }
+}
+
+#[test]
+fn the_votes_migrate_copies_whom_each_agent_answers_from_identity_into_access() {
+    let world = world();
+    let chain = &world.chain;
+    #[derive(borsh::BorshSerialize, borsh::BorshDeserialize)]
+    enum Stored {
+        #[allow(dead_code)]
+        Owner,
+        Accounts(Vec<AccountNumber>),
+    }
+    let old: store::Map<AccountNumber, Stored> = store::Map::new("u/");
+    let ctx = chain
+        .host(identity::PROGRAM)
+        .exec(::program::MockHost::env(identity::PROGRAM));
+    let bo = ::program::Ownership::Listed(vec![::program::Party::Account(world.bo)]);
+    old.put(&ctx, &world.agent, &Stored::Accounts(vec![world.bo]));
+    world.post(BO, "general", "b1", &format!("<@{}> before?", world.agent));
+    assert!(world.threads().is_empty(), "the old list is no longer read");
+    let migrate = chain.submit(signed(ADA), PROGRAM, &Op::Migrate);
+    assert_eq!(migrate.unwrap_err().code, code::UNAUTHORIZED);
+    chain
+        .submit(Origin::Program("valset".into()), PROGRAM, &Op::Migrate)
+        .unwrap();
+    let asked = access::Query::List {
+        program: PROGRAM.into(),
+        key: crate::agent_key(world.agent),
+    };
+    let listed: access::Reply = chain.query("access", &asked).unwrap();
+    assert_eq!(listed, access::Reply::List(Some(bo)));
+    world.post(BO, "general", "b2", &format!("<@{}> now?", world.agent));
+    assert_eq!(world.threads().len(), 1);
 }

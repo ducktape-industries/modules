@@ -143,23 +143,6 @@ pub fn describe(op: &Op) -> describe::Description {
                 // in the words of the program this repo binds to the role, which the app's
                 // confirm shows; another role's op as its bytes
                 Motion::Role { role, op } => described_op(role, op),
-                Motion::Bind {
-                    role,
-                    program: Some(program),
-                } => (
-                    format!("bind {role} to {program}"),
-                    vec![
-                        field("role", Value::text(role)),
-                        field("program", Value::text(program)),
-                    ],
-                ),
-                Motion::Bind {
-                    role,
-                    program: None,
-                } => (
-                    format!("unbind {role}"),
-                    vec![field("role", Value::text(role))],
-                ),
             };
             (format!("Vote · {verb}"), fields)
         }

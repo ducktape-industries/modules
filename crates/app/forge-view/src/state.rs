@@ -54,6 +54,8 @@ pub struct Forge {
     #[serde(skip)]
     pub(crate) names: Loadable<chat::view::Names>,
     #[serde(skip)]
+    pub(crate) writers: BTreeMap<String, Loadable<Option<identity::Ownership>>>,
+    #[serde(skip)]
     /// each change channel's rows
     pub(crate) messages: BTreeMap<String, Loadable<Vec<chat::MsgRow>>>,
     /// a refusal on screen, read again with the block: the read lives

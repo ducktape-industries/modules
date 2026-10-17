@@ -16,6 +16,7 @@ program = []
 describe = []
 
 [dependencies]
+access = { workspace = true }
 abi = { workspace = true }
 borsh = { workspace = true }
 describe = { workspace = true }

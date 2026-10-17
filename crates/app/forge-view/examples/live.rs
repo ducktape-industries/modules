@@ -17,6 +17,7 @@ fn main() {
     rig::run("forge", |net| {
         net.seat::<chat::Chat>(chat::PROGRAM);
         net.seat::<forge::Forge>(forge::PROGRAM);
+        net.seat::<access::Access>(access::PROGRAM);
         net.init(forge::PROGRAM, &founding::forge_bounds())?;
         let ada = net.person("ada");
         for repo in ["web", "docs"] {
@@ -30,10 +31,13 @@ fn main() {
             )?;
             net.submit(
                 ada,
-                forge::PROGRAM,
-                &Op::Grant {
-                    repo: repo.into(),
-                    principal: forge::Principal::Account(net.me()),
+                access::PROGRAM,
+                &access::Op::Set {
+                    program: forge::PROGRAM.into(),
+                    key: forge::repo_key(repo),
+                    list: Some(identity::Ownership::Listed(vec![identity::Party::Account(
+                        net.me(),
+                    )])),
                 },
             )?;
         }

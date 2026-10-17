@@ -8,7 +8,7 @@ fn a_network_is_founded_with_the_boot_set_and_a_signed_in_person() {
     let net = Network::new();
     assert_eq!(
         net.seats(),
-        ["identity", "valset", "programs", "blobs"].map(String::from)
+        ["identity", "valset", "programs", "blobs", "access"].map(String::from)
     );
     let me = net.me();
     let asked: identity::Reply = net
@@ -31,7 +31,10 @@ fn a_network_is_founded_with_the_boot_set_and_a_signed_in_person() {
     };
     let mut listed: Vec<_> = entries.into_iter().map(|entry| entry.program).collect();
     listed.sort();
-    assert_eq!(listed, ["blobs", "identity", "programs", "valset"]);
+    assert_eq!(
+        listed,
+        ["access", "blobs", "identity", "programs", "valset"]
+    );
     assert_eq!(net.session().account, Some(me));
 }
 

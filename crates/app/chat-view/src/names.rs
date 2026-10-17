@@ -45,10 +45,6 @@ pub fn mentioned(token: &str) -> Option<u64> {
     token.strip_prefix("<@")?.strip_suffix('>')?.parse().ok()
 }
 
-/// Why `agent` would give `reader` no answer, by the rule harness answers
-/// by: an active agent's manager always gets one, anyone else as its
-/// `Ownership` in identity says. None when it answers them, for anyone not
-/// an active agent, and while its `Ownership` is unread.
 pub fn unanswered(
     names: &Names,
     ownerships: &BTreeMap<u64, Ownership>,

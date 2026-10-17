@@ -1,15 +1,15 @@
 //! One commit: every change checked, every touched path compared between the base
-//! and the head, then the head's tree edited change by change, each write checked against
-//! the tree as the changes before it left it, written back and named by a new snapshot.
+//! and the head, then the head's tree edited change by change, written back and named by a
+//! new snapshot. What each change needs of the access program is [`needs`]; a move carries
+//! the lists at and below its path to where it lands.
 use std::collections::{BTreeMap, BTreeSet};
 
 use ::program::{
-    AccountNumber, BlobId, Error, ExecCtx, Ownership, Principal, QueryCtx, invalid, not_found,
-    stale, unexpected_reply,
+    AccountNumber, BlobId, Error, ExecCtx, Need, Principal, QueryCtx, Reply, invalid, stale,
 };
 
-use crate::objects::{Access, FileObj, SnapshotObj, check_chunks, digest, put_file, put_snapshot};
-use crate::paths::{Act, change_path, join, writable, writer};
+use crate::objects::{FileObj, SnapshotObj, check_chunks, digest, put_file, put_snapshot};
+use crate::paths::{beneath_the_roots, change_path, join};
 use crate::state::{COUNT, HEAD, HISTORY, SNAPSHOTS, minted, newest_first};
 use crate::tree::{TreeEdit, node_at};
 use crate::{Change, Content, Node, SnapshotRow, carried};
@@ -32,10 +32,6 @@ enum Step {
         segments: Vec<String>,
         target: String,
     },
-    SetOwnership {
-        segments: Vec<String>,
-        write: Option<Ownership>,
-    },
 }
 
 impl Step {
@@ -44,29 +40,24 @@ impl Step {
             Step::Put { segments, .. }
             | Step::Mkdir(segments)
             | Step::Remove(segments)
-            | Step::Symlink { segments, .. }
-            | Step::SetOwnership { segments, .. } => vec![segments],
+            | Step::Symlink { segments, .. } => vec![segments],
             Step::Rename { from, to } => vec![from, to],
         }
     }
+}
 
-    fn act(&self) -> Act {
-        match self {
-            Step::Put { .. }
-            | Step::Mkdir(_)
-            | Step::Remove(_)
-            | Step::Rename { .. }
-            | Step::Symlink { .. } => Act::Write,
-            Step::SetOwnership { .. } => Act::SetOwnership,
-        }
-    }
-
-    fn touched(&self) -> Vec<&[String]> {
-        match self.act() {
-            Act::Write => self.paths(),
-            Act::SetOwnership => Vec::new(),
-        }
-    }
+pub(crate) fn needs(changes: &[Change]) -> Vec<Need> {
+    changes
+        .iter()
+        .flat_map(|change| match change {
+            Change::Put { path, .. } | Change::Mkdir { path } | Change::Symlink { path, .. } => {
+                vec![Need::write(path.clone())]
+            }
+            Change::Remove { path } => vec![Need::delete(path.clone())],
+            Change::Move { from, to } => vec![Need::write(from.clone()), Need::write(to.clone())],
+            Change::SetOwnership { .. } => Vec::new(),
+        })
+        .collect()
 }
 
 pub(crate) fn commit(
@@ -87,15 +78,14 @@ pub(crate) fn commit(
     let head = HEAD.get(ctx)?;
     let head_root = head.as_ref().map(|row| row.root);
     let steps = plan(ctx, changes)?;
-    let writer = writer(ctx, &author)?;
+    let by = author.account();
     let mut edit = TreeEdit::over(head_root);
     for step in steps {
-        for segments in step.paths() {
-            let along = edit.access_along(ctx, segments)?;
-            writable(&writer, segments, &along, step.act())?;
+        if by.is_some() {
+            step.paths().into_iter().try_for_each(beneath_the_roots)?;
         }
-        unchanged_since_base(ctx, base_root, head_root, &step.touched())?;
-        apply(ctx, writer.number(), &mut edit, step)?;
+        unchanged_since_base(ctx, base_root, head_root, &step.paths())?;
+        apply(ctx, by, &mut edit, step)?;
     }
     let (root, _) = edit.build(ctx)?;
     let snapshot = SnapshotObj {
@@ -173,37 +163,15 @@ fn plan(ctx: &QueryCtx, changes: Vec<Change>) -> Result<Vec<Step>, Error> {
                 }
                 Step::Symlink { segments, target }
             }
-            Change::SetOwnership { path, write } => {
-                let segments = change_path(&path)?;
-                if let Some(write) = &write {
-                    known(ctx, write)?;
-                }
-                Step::SetOwnership { segments, write }
-            }
+            Change::SetOwnership { .. } => return Err(retired()),
         };
         steps.push(step);
     }
     Ok(steps)
 }
 
-fn known(ctx: &QueryCtx, write: &Ownership) -> Result<(), Error> {
-    use abi::role::identity::{Query, Reply};
-    let identity = ctx.env().role(abi::role::IDENTITY)?.clone();
-    for number in write.accounts() {
-        match ctx.query::<Query, Reply>(&identity, &Query::Profile(number))? {
-            Reply::Profile(Some(_)) => {}
-            Reply::Profile(None) => return Err(not_found(format!("account {number}"))),
-            other => return Err(unexpected_reply(&identity, "Profile", &other)),
-        }
-    }
-    for program in write.programs() {
-        match ctx.query::<Query, Reply>(&identity, &Query::OfProgram(program.clone()))? {
-            Reply::Account(Some(_)) => {}
-            Reply::Account(None) => return Err(not_found(format!("program {program}"))),
-            other => return Err(unexpected_reply(&identity, "OfProgram", &other)),
-        }
-    }
-    Ok(())
+pub(crate) fn retired() -> Error {
+    ::program::unauthorized("a path's write list is set in the access program, by the path's owner")
 }
 
 fn check_meta(meta: &BTreeMap<String, String>) -> Result<(), Error> {
@@ -256,35 +224,24 @@ fn apply(
         }
         Step::Mkdir(segments) => edit.mkdir(ctx, &segments, by),
         Step::Remove(segments) => edit.remove(ctx, &segments),
-        Step::Rename { from, to } => edit.rename(ctx, &from, &to),
+        Step::Rename { from, to } => {
+            edit.rename(ctx, &from, &to)?;
+            let carried = access::Op::Move {
+                program: crate::PROGRAM.into(),
+                from: join(&from),
+                to: join(&to),
+            };
+            let checker = ctx.env().role(abi::role::ACCESS)?.clone();
+            ctx.emit(checker, &carried, Reply::None);
+            Ok(())
+        }
         Step::Symlink { segments, target } => {
             edit.put(ctx, &segments, Node::Symlink { target }, by)
         }
-        Step::SetOwnership { segments, write } => {
-            let row = edit.access_along(ctx, &segments)?.pop().flatten();
-            edit.set_access(ctx, &segments, owned_access(&segments, row, by, write))
-        }
     }
 }
 
-fn owned_access(
-    segments: &[String],
-    row: Option<Access>,
-    setter: Option<AccountNumber>,
-    write: Option<Ownership>,
-) -> Access {
-    let recorded = row.and_then(|row| row.creator);
-    let creator = match segments {
-        [root, _] if root == "home" => setter.or(recorded),
-        _ => recorded,
-    };
-    Access {
-        creator,
-        write: write.map(|write| write.settled(creator)),
-    }
-}
-
-fn record(ctx: &ExecCtx, id: BlobId, snapshot: SnapshotObj) -> Result<(), Error> {
+pub(crate) fn record(ctx: &ExecCtx, id: BlobId, snapshot: SnapshotObj) -> Result<(), Error> {
     let seq = COUNT.get(ctx)?.unwrap_or(0) + 1;
     let row = SnapshotRow {
         id,

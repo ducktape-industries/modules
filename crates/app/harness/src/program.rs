@@ -26,6 +26,14 @@ impl Program for Harness {
         Ok(())
     }
 
+    fn access(ctx: &QueryCtx, op: &Op) -> Result<Vec<::program::Need>, Error> {
+        crate::gate::needs(ctx, op)
+    }
+
+    fn resource(ctx: &QueryCtx, key: &str) -> Result<::program::Resource, Error> {
+        crate::gate::resource(ctx, key)
+    }
+
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
         match query {
             Query::Agent { agent } => Ok(Reply::Agent(setup(ctx, agent)?)),
@@ -65,6 +73,7 @@ impl Awaiting for Harness {
             Op::Streamed { thread, event } => streamed(&ctx, thread, event).await,
             Op::NewThread { agent } => new_thread(&ctx, agent),
             Op::ForkThread { agent } => fork_thread(&ctx, agent),
+            Op::Migrate => crate::migrate::migrate(&ctx),
         }
     }
 }

@@ -35,6 +35,7 @@ fn apps() -> Vec<Founding> {
             program: forge::PROGRAM.to_owned(),
             code: program("forge"),
             params: abi::encode(&bounds()),
+            roles: Vec::new(),
         },
     ]
 }

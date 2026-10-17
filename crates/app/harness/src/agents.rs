@@ -3,8 +3,10 @@
 //! head, and the model record that file names. A mention, a direct message or a reply in a chat
 //! thread it took part in, from someone it answers, continues its one current thread, from any
 //! place, and its manager closes a thread.
+//! Whom an agent answers is its key's list in the access program, its manager alone by default.
 use ::program::{
-    BlobId, Ctx, Error, ExecCtx, Principal, QueryCtx, not_found, unauthorized, unexpected_reply,
+    BlobId, Ctx, Error, ExecCtx, Ownership, Party, Principal, QueryCtx, not_found, unauthorized,
+    unexpected_reply,
 };
 use abi::role::identity::{AccountNumber, Category, Kind, Profile, Standing};
 use attribution::{Actor, Change, Kind as Changed, Reason, Source};
@@ -155,12 +157,15 @@ pub(crate) fn managed(ctx: &ExecCtx, number: AccountNumber) -> Result<Agent, Err
     Ok(agent)
 }
 
-fn ownership(ctx: &QueryCtx, agent: AccountNumber) -> Result<identity::Ownership, Error> {
-    let identity = &ctx.env().role(abi::role::IDENTITY)?.clone();
-    let asked = identity::Query::Ownership { number: agent };
-    match ctx.query::<identity::Query, identity::Reply>(identity, &asked)? {
-        identity::Reply::Ownership(ownership) => Ok(ownership),
-        other => Err(unexpected_reply(identity, "Ownership", &other)),
+fn listed(ctx: &QueryCtx, agent: AccountNumber) -> Result<Option<Ownership>, Error> {
+    let checker = &ctx.env().role(abi::role::ACCESS)?.clone();
+    let asked = access::Query::List {
+        program: PROGRAM.into(),
+        key: crate::agent_key(agent),
+    };
+    match ctx.query::<access::Query, access::Reply>(checker, &asked)? {
+        access::Reply::List(list) => Ok(list),
+        other => Err(unexpected_reply(checker, "List", &other)),
     }
 }
 
@@ -169,14 +174,15 @@ fn answers(ctx: &QueryCtx, agent: &Agent, actor: AccountNumber) -> Result<bool, 
     if by_manager {
         return Ok(true);
     }
-    let ownership = ownership(ctx, agent.number)?;
-    Ok(ownership.allows(Some(agent.manager), &caller(ctx, actor)?))
+    let list = listed(ctx, agent.number)?.unwrap_or_default();
+    let manager = Party::Account(agent.manager);
+    Ok(list.allows(Some(&manager), &caller(ctx, actor)?))
 }
 
-fn caller(ctx: &QueryCtx, actor: AccountNumber) -> Result<Vec<identity::Party>, Error> {
-    let account = identity::Party::Account(actor);
+fn caller(ctx: &QueryCtx, actor: AccountNumber) -> Result<Vec<Party>, Error> {
+    let account = Party::Account(actor);
     let program = profile(ctx, actor)?.and_then(|profile| match profile.kind {
-        Kind::System(program) => Some(identity::Party::Program(program)),
+        Kind::System(program) => Some(Party::Program(program)),
         Kind::User | Kind::Program { .. } => None,
     });
     Ok(std::iter::once(account).chain(program).collect())
@@ -190,11 +196,6 @@ pub(crate) fn thread(ctx: &QueryCtx, id: u64) -> Result<ThreadRow, Error> {
 
 pub(crate) fn close(ctx: &ExecCtx, id: u64) -> Result<(), Error> {
     let mut thread = thread(ctx, id)?;
-    if acting(ctx)? != thread.manager {
-        return Err(unauthorized(format!(
-            "thread {id} is closed by its agent's manager"
-        )));
-    }
     thread.closed = true;
     THREADS.put(ctx, &id, &thread);
     Ok(())

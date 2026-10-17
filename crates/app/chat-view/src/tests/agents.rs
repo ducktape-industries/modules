@@ -51,15 +51,19 @@ fn agents() -> (TestAppContext, Entity<Chat>) {
             query => chat_reply(query),
         })
     });
-    cx.host().handle::<Ask<Identity>>(|query| {
+    cx.host().handle::<Ask<access::Access>>(|query| {
         Ok(match query {
-            identity::Query::Ownership { number } => identity::Reply::Ownership(match number {
-                11 => Ownership::Owner,
-                12 => Ownership::Listed(vec![identity::Party::Account(14)]),
-                13 => Ownership::Anyone,
-                number => panic!("account {number} is no agent"),
-            }),
-            query => panic!("unexpected identity query: {query:?}"),
+            access::Query::List { program, key } if program == harness::PROGRAM => {
+                access::Reply::List(match key {
+                    key if key == harness::agent_key(11) => None,
+                    key if key == harness::agent_key(12) => {
+                        Some(Ownership::Listed(vec![identity::Party::Account(14)]))
+                    }
+                    key if key == harness::agent_key(13) => Some(Ownership::Anyone),
+                    key => panic!("{key} is no agent's"),
+                })
+            }
+            query => panic!("unexpected access query: {query:?}"),
         })
     });
     let view = cx.open::<Chat>();

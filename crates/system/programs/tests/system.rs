@@ -4,7 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use commonware_cryptography::{Signer as _, ed25519};
 use commonware_runtime::{Runner as _, deterministic};
 use host::{
-    Applied, Block, BlockId, Founding, FoundingView, Genesis, Host, Layer, Limits, PARKED, Roles,
+    Applied, Block, BlockId, Founding, FoundingView, Genesis, Host, Layer, Limits, PARKED,
     Submission, Tip,
 };
 use identity::AccountNumber;
@@ -131,6 +131,14 @@ fn founding(program: &str, code: &[u8]) -> Founding {
         program: program.to_owned(),
         code: code.to_vec(),
         params: Vec::new(),
+        roles: Vec::new(),
+    }
+}
+
+fn filling(role: &str, founding: Founding) -> Founding {
+    Founding {
+        roles: vec![role.to_owned()],
+        ..founding
     }
 }
 
@@ -139,6 +147,7 @@ fn probe(program: &str) -> Founding {
         program: program.to_owned(),
         code: PROBE.to_vec(),
         params: abi::encode(&Vec::<Step>::new()),
+        roles: Vec::new(),
     }
 }
 
@@ -166,39 +175,51 @@ impl Net {
         hooks: Vec<&str>,
         member_cap: u32,
     ) -> Net {
-        let mut roles = Roles::from_iter([
-            (abi::role::PROGRAMS, programs::PROGRAM),
-            (abi::role::VALIDATORS, valset::PROGRAM),
-            (abi::role::IDENTITY, identity::PROGRAM),
-            (abi::role::BLOBS, blobs::PROGRAM),
-            (abi::role::AWAITS, awaits::PROGRAM),
-            (abi::role::HALO, halo::PROGRAM),
-            (abi::role::SCHEDULER, scheduler::PROGRAM),
-        ]);
-        let egress_founded = apps.iter().any(|app| app.program == egress::PROGRAM);
-        if egress_founded {
-            roles.bind(abi::role::EGRESS, egress::PROGRAM);
-        }
+        let apps = apps.into_iter().map(|app| match app.program.as_str() {
+            egress::PROGRAM => filling(abi::role::EGRESS, app),
+            _ => app,
+        });
         let genesis = Genesis {
             network: NETWORK.to_vec(),
-            roles,
             validators: FOUNDERS.iter().map(|seed| member(*seed)).collect(),
             programs: vec![
-                founding(programs::PROGRAM, &program("programs")),
-                founding(valset::PROGRAM, &program("valset")),
-                founding(identity::PROGRAM, &program("identity")),
-                founding(blobs::PROGRAM, &program("blobs")),
+                filling(
+                    abi::role::PROGRAMS,
+                    founding(programs::PROGRAM, &program("programs")),
+                ),
+                filling(
+                    abi::role::VALIDATORS,
+                    founding(valset::PROGRAM, &program("valset")),
+                ),
+                filling(
+                    abi::role::IDENTITY,
+                    founding(identity::PROGRAM, &program("identity")),
+                ),
+                filling(
+                    abi::role::BLOBS,
+                    founding(blobs::PROGRAM, &program("blobs")),
+                ),
                 probe("probe"),
             ]
             .into_iter()
             .chain(apps)
             .chain([
-                founding(awaits::PROGRAM, &program("awaits")),
-                Founding {
-                    params: abi::encode(&halo::Genesis { lanes: Vec::new() }),
-                    ..founding(halo::PROGRAM, &program("halo"))
-                },
-                founding(scheduler::PROGRAM, &program("scheduler")),
+                filling(
+                    abi::role::AWAITS,
+                    founding(awaits::PROGRAM, &program("awaits")),
+                ),
+                filling(
+                    abi::role::HALO,
+                    Founding {
+                        params: abi::encode(&halo::Genesis { lanes: Vec::new() }),
+                        ..founding(halo::PROGRAM, &program("halo"))
+                    },
+                ),
+                filling(
+                    abi::role::SCHEDULER,
+                    founding(scheduler::PROGRAM, &program("scheduler")),
+                ),
+                filling(abi::role::ACCESS, founding("access", &program("access"))),
             ])
             .collect(),
             views: vec![FoundingView {

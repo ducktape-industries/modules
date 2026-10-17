@@ -1,14 +1,14 @@
 // The rules: who acts as an account, then the ops and queries.
 
 use ::program::{
-    Error, ExecCtx, Origin, ProgramId, QueryCtx, Scheme, already_exists, invalid, not_found,
-    unauthorized, wrong_state,
+    Error, ExecCtx, Need, Origin, Ownership, Party, ProgramId, QueryCtx, Resource, Scheme,
+    already_exists, invalid, not_found, unauthorized, wrong_state,
 };
 use store::{Item, Map, Set};
 
 use crate::{
     Account, AccountNumber, Admission, CONSENT_NAMESPACE, Card, Category, Consent, Control, Key,
-    Life, Ownership, Reference, Reply, Script,
+    Life, Op, Reference, Reply, Script,
 };
 
 pub(crate) const ACCOUNTS: Map<AccountNumber, Account> = Map::new("a/");
@@ -19,7 +19,6 @@ const GENERATION: Map<Vec<u8>, u64> = Map::new("g/");
 /// ones too, so a manager's list keeps what they answered for.
 pub(crate) const MANAGED: Set<(AccountNumber, AccountNumber)> = Set::new("d/");
 const NEXT: Item<AccountNumber> = Item::new("next");
-const OWNERSHIPS: Map<AccountNumber, Ownership> = Map::new("u/");
 
 pub(crate) fn account(ctx: &QueryCtx, number: AccountNumber) -> Result<Account, Error> {
     ACCOUNTS
@@ -357,25 +356,58 @@ pub(crate) fn remove_key(ctx: &ExecCtx, number: AccountNumber, key: &Vec<u8>) ->
     Ok(())
 }
 
-/// The account whose card the frame may edit: a user's or a system
-/// account's own, a program account's by its manager alone.
 fn editable(ctx: &ExecCtx, number: AccountNumber) -> Result<Account, Error> {
     let account = account(ctx, number)?;
-    let acting = acting(ctx)?;
-    let editor = match &account.control {
-        Control::User { .. } | Control::System { .. } => number,
+    let revoked_for_good = matches!(
+        account.control,
         Control::Program {
             life: Life::Revoked,
             ..
-        } => return Err(revoked(number)),
-        Control::Program { manager, .. } => *manager,
-    };
-    if acting != editor {
-        return Err(unauthorized(format!(
-            "account {acting} does not edit account {number}"
-        )));
+        }
+    );
+    if revoked_for_good {
+        return Err(revoked(number));
     }
     Ok(account)
+}
+
+pub fn account_key(number: AccountNumber) -> String {
+    number.to_string()
+}
+
+pub(crate) fn needs(op: &Op) -> Vec<Need> {
+    match op {
+        Op::SetName { account, .. }
+        | Op::SetProfile { account, .. }
+        | Op::Suspend { account }
+        | Op::Resume { account }
+        | Op::Revoke { account }
+        | Op::SetScript { account, .. } => vec![Need::write(account_key(*account))],
+        Op::RegisterProgram { .. }
+        | Op::Create { .. }
+        | Op::CreateAgent { .. }
+        | Op::AddKey { .. }
+        | Op::RemoveKey { .. }
+        | Op::SetOwnership { .. }
+        | Op::Migrate => Vec::new(),
+    }
+}
+
+pub(crate) fn resource(ctx: &QueryCtx, key: &str) -> Result<Resource, Error> {
+    let Ok(number) = key.parse::<AccountNumber>() else {
+        return Ok(Resource::default());
+    };
+    let Some(account) = ACCOUNTS.get(ctx, &number)? else {
+        return Ok(Resource::default());
+    };
+    let owner = match account.control {
+        Control::User { .. } | Control::System { .. } => number,
+        Control::Program { manager, .. } => manager,
+    };
+    Ok(Resource {
+        owner: Some(Party::Account(owner)),
+        default: Some(Ownership::Owner),
+    })
 }
 
 pub(crate) fn set_name(ctx: &ExecCtx, number: AccountNumber, name: String) -> Result<(), Error> {
@@ -400,19 +432,15 @@ pub(crate) fn set_profile(
     Ok(())
 }
 
-/// The program account `number` as its manager, who signed the frame,
-/// changes it: `change` takes its life and gives the next, or says why
-/// not.
 fn relive(
     ctx: &ExecCtx,
     number: AccountNumber,
     change: impl FnOnce(Life) -> Result<Life, Error>,
 ) -> Result<(), Error> {
     let mut account = account(ctx, number)?;
-    let Control::Program { manager, life, .. } = &mut account.control else {
+    let Control::Program { life, .. } = &mut account.control else {
         return Err(not_managed(number));
     };
-    managing(ctx, *manager, number)?;
     let was = std::mem::replace(life, Life::Revoked);
     *life = change(was)?;
     save(ctx, account);
@@ -443,7 +471,6 @@ pub(crate) fn revoke(ctx: &ExecCtx, number: AccountNumber) -> Result<(), Error> 
     relive(ctx, number, |life| match life {
         Life::Active { keys } | Life::Suspended { keys } => {
             drop_keys(ctx, &keys);
-            OWNERSHIPS.remove(ctx, &number);
             Ok(Life::Revoked)
         }
         Life::Revoked => Err(revoked(number)),
@@ -457,7 +484,6 @@ pub(crate) fn set_script(
 ) -> Result<(), Error> {
     let mut account = account(ctx, number)?;
     let Control::Program {
-        manager,
         life,
         script: current,
         ..
@@ -465,7 +491,6 @@ pub(crate) fn set_script(
     else {
         return Err(not_managed(number));
     };
-    managing(ctx, *manager, number)?;
     if *life == Life::Revoked {
         return Err(revoked(number));
     }
@@ -497,43 +522,4 @@ pub(crate) fn runs(
         Life::Suspended { .. } => Err(unauthorized(format!("account {number} is suspended"))),
         Life::Revoked => Err(revoked(number)),
     }
-}
-
-pub(crate) fn ownership(ctx: &QueryCtx, number: AccountNumber) -> Result<Ownership, Error> {
-    let Control::Program { .. } = account(ctx, number)?.control else {
-        return Err(not_managed(number));
-    };
-    Ok(OWNERSHIPS.get(ctx, &number)?.unwrap_or_default())
-}
-
-pub(crate) fn set_ownership(
-    ctx: &ExecCtx,
-    number: AccountNumber,
-    ownership: Ownership,
-) -> Result<(), Error> {
-    let Control::Program { manager, life, .. } = account(ctx, number)?.control else {
-        return Err(not_managed(number));
-    };
-    managing(ctx, manager, number)?;
-    if life == Life::Revoked {
-        return Err(revoked(number));
-    }
-    let ownership = ownership.settled(Some(manager));
-    if let Some(missing) = ownership
-        .accounts()
-        .find(|number| !ACCOUNTS.has(ctx, number))
-    {
-        return Err(not_found(format!("account {missing}")));
-    }
-    if let Some(missing) = ownership
-        .programs()
-        .find(|program| !OF_PROGRAM.has(ctx, program))
-    {
-        return Err(not_found(format!("program {missing}")));
-    }
-    match ownership {
-        Ownership::Owner => OWNERSHIPS.remove(ctx, &number),
-        ownership => OWNERSHIPS.put(ctx, &number, &ownership),
-    }
-    Ok(())
 }

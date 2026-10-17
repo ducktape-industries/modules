@@ -24,6 +24,7 @@
 //! its wasm exports.
 pub mod attributed;
 mod description;
+mod gate;
 mod mentions;
 pub mod message;
 mod ops;
@@ -44,6 +45,7 @@ pub use ::program::{AccountNumber, Principal};
 pub use abi::hex;
 pub use abi::role::identity::{Category, Kind, Profile, Standing};
 pub use description::describe;
+pub use gate::message_key;
 pub use message::{Block, ListMarker, Mark, Span, list_item, parse_message};
 pub use program::Chat;
 pub use queries::roots_below;

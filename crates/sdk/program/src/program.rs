@@ -9,7 +9,7 @@ use std::fmt::Debug;
 use abi::hook::Record;
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::{Cause, Error, ExecCtx, MessageId, Outcome, QueryCtx, code, decoded};
+use crate::{Cause, Error, ExecCtx, MessageId, Need, Outcome, QueryCtx, Resource, code, decoded};
 
 /// A program: its name on the node, the types it speaks and what it does
 /// with each op and query. A read-only program names `()` as its `Op`. The
@@ -49,6 +49,14 @@ pub trait Program {
     }
 
     fn query(ctx: &QueryCtx, query: Self::Query) -> Result<Self::Reply, Error>;
+
+    fn access(_ctx: &QueryCtx, _op: &Self::Op) -> Result<Vec<Need>, Error> {
+        Ok(Vec::new())
+    }
+
+    fn resource(_ctx: &QueryCtx, _key: &str) -> Result<Resource, Error> {
+        Ok(Resource::default())
+    }
 
     fn hook(_ctx: &ExecCtx, _record: Record) -> Result<(), Error> {
         Err(Error::new(code::UNSUPPORTED, "this program is no hook"))
@@ -150,6 +158,17 @@ pub fn query<M: Program>(ctx: &QueryCtx, request: &[u8]) -> Result<(), Error> {
     Ok(())
 }
 
+pub fn access<M: Program>(ctx: &QueryCtx, payload: &[u8]) -> Result<(), Error> {
+    let op = decoded::<M::Op>(&ctx.env().program, "Op", payload)?;
+    ctx.respond(abi::encode(&M::access(ctx, &op)?));
+    Ok(())
+}
+
+pub fn resource<M: Program>(ctx: &QueryCtx, key: &str) -> Result<(), Error> {
+    ctx.respond(abi::encode(&M::resource(ctx, key)?));
+    Ok(())
+}
+
 /// The two wasm exports' bodies, over the host's calling convention: the
 /// host writes an [`Invocation`](abi::Invocation) into memory `alloc` gave
 /// it, and `call` answers a [`ProgramReply`](abi::ProgramReply) as `ptr << 32 | len`.
@@ -157,7 +176,7 @@ pub fn query<M: Program>(ctx: &QueryCtx, request: &[u8]) -> Result<(), Error> {
 pub mod exports {
     use abi::{Invocation, ProgramCall, ProgramReply, Refusal, reason};
 
-    use super::{Program, execute, hook, query};
+    use super::{Program, access, execute, hook, query, resource};
     use crate::{ExecCtx, QueryCtx};
 
     pub fn alloc(len: u32) -> u32 {
@@ -182,6 +201,8 @@ pub mod exports {
             ProgramCall::Init(params) => M::init(&ExecCtx::new(env), &params),
             ProgramCall::Execute(payload) => execute::<M>(&ExecCtx::new(env), &payload),
             ProgramCall::Query(request) => query::<M>(&QueryCtx::new(env), &request),
+            ProgramCall::Access(payload) => access::<M>(&QueryCtx::new(env), &payload),
+            ProgramCall::Resource(key) => resource::<M>(&QueryCtx::new(env), &key),
             ProgramCall::Hook(record) => hook::<M>(&ExecCtx::new(env), record),
             ProgramCall::Resume { .. } => Err(crate::Error::new(
                 crate::code::UNSUPPORTED,

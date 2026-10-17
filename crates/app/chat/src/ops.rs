@@ -81,30 +81,18 @@ pub(crate) fn open_dm(
     Ok(())
 }
 
-pub(crate) fn rename(
-    ctx: &ExecCtx,
-    sender: &Principal,
-    id: &str,
-    name: String,
-) -> Result<(), Error> {
+pub(crate) fn rename(ctx: &ExecCtx, id: &str, name: String) -> Result<(), Error> {
     rules::name(&name)?;
     let mut channel = channel(ctx, id)?;
     rules::not_dm(&channel)?;
-    rules::owned(&channel, sender)?;
     channel.name = name;
     CHANNELS.put(ctx, &channel.id, &channel);
     Ok(())
 }
 
-pub(crate) fn set_archived(
-    ctx: &ExecCtx,
-    sender: &Principal,
-    id: &str,
-    archived: bool,
-) -> Result<(), Error> {
+pub(crate) fn set_archived(ctx: &ExecCtx, id: &str, archived: bool) -> Result<(), Error> {
     let mut channel = channel(ctx, id)?;
     rules::not_dm(&channel)?;
-    rules::owned(&channel, sender)?;
     channel.archived = archived;
     CHANNELS.put(ctx, &channel.id, &channel);
     Ok(())
@@ -112,14 +100,12 @@ pub(crate) fn set_archived(
 
 pub(crate) fn set_membership(
     ctx: &ExecCtx,
-    sender: &Principal,
     id: &str,
     principal: Principal,
     member: bool,
 ) -> Result<(), Error> {
     let channel = channel(ctx, id)?;
     rules::not_dm(&channel)?;
-    rules::owned(&channel, sender)?;
     if member {
         seat(ctx, id, principal);
     } else {
@@ -228,7 +214,7 @@ pub(crate) fn edit(
 ) -> Result<(), Error> {
     rules::writable(ctx, &channel(ctx, channel_id)?, sender)?;
     let old = message(ctx, channel_id, seq)?;
-    rules::editable(&old, sender)?;
+    rules::standing(&old)?;
     let blocks = resolve_typed(ctx, blocks)?;
     let row = MsgRow {
         text: plain_text(&blocks),
@@ -245,20 +231,14 @@ pub(crate) fn edit(
     Ok(())
 }
 
-/// The author or the channel's owner deletes. What stays is a tombstone
-/// holding the message's place in its timeline or thread; its body, its
-/// postings and its reactions go.
 pub(crate) fn delete(
     ctx: &ExecCtx,
     sender: &Principal,
     channel_id: &str,
     seq: u64,
 ) -> Result<(), Error> {
-    let channel = channel(ctx, channel_id)?;
+    channel(ctx, channel_id)?;
     let old = message(ctx, channel_id, seq)?;
-    if old.author != *sender && channel.owner != *sender {
-        return Err(unauthorized("only the author or the owner deletes"));
-    }
     if old.deleted {
         return Ok(());
     }

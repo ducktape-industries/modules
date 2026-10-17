@@ -1,8 +1,11 @@
 //! The `files` program: duckfs, the network's versioned filesystem. Its wire types live
-//! here; `program.rs` dispatches them, `ops.rs`/`commit.rs` write, `queries.rs` reads, and
-//! `paths.rs` decides who writes a path: its nearest write list, else anyone.
+//! here; `program.rs` dispatches them, `ops.rs`/`commit.rs` write and `queries.rs` reads. Who
+//! writes a path is its nearest write list in the access program, else anyone; `gate.rs`
+//! answers what each op needs there and who owns each path.
 mod commit;
 mod cursor;
+mod gate;
+mod migrate;
 mod objects;
 mod ops;
 pub mod paths;
@@ -18,6 +21,7 @@ use std::collections::BTreeMap;
 use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 
 pub use ::program::{AccountNumber, BlobId, Ownership, Party, Principal};
+pub use gate::pin_key;
 pub use objects::{Access, CHUNK, FILE, FileObj, SNAPSHOT, SnapshotObj, TREE, Tree};
 pub use program::Files;
 pub use store::{PageRequest, PageResponse};
@@ -46,6 +50,7 @@ pub enum Op {
     Unpin {
         name: String,
     },
+    Migrate,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
@@ -182,24 +187,6 @@ pub struct DiffEntry {
     pub kind: DiffKind,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
-pub enum Writers {
-    Listed {
-        path: String,
-        creator: Option<AccountNumber>,
-        write: Ownership,
-    },
-    Anyone,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
-pub struct PathOwnership {
-    pub snapshot: Option<BlobId>,
-    pub creator: Option<AccountNumber>,
-    pub write: Option<Ownership>,
-    pub writers: Writers,
-}
-
 #[derive(
     Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema, ::program::Ask,
 )]
@@ -260,9 +247,6 @@ pub enum Query {
     #[ask(Reply::Pin(Option<PinRow>))]
     #[reads(state::PINS)]
     Pin { name: String },
-    #[ask(Reply::Ownership(crate::PathOwnership))]
-    #[reads(state::HEAD, state::HISTORY, state::SNAPSHOTS)]
-    Ownership { path: String, at: Option<BlobId> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, BorshSchema)]
@@ -286,7 +270,6 @@ pub enum Reply {
     Diff(Vec<DiffEntry>),
     Pins(PageResponse<PinRow>),
     Pin(Option<PinRow>),
-    Ownership(PathOwnership),
 }
 
 pub fn describe(op: &Op) -> describe::Description {
@@ -322,6 +305,7 @@ pub fn describe(op: &Op) -> describe::Description {
             vec![field("snapshot", hash(snapshot))],
         ),
         Op::Unpin { name } => (format!("Unpin {name}"), Vec::new()),
+        Op::Migrate => ("Migrate · write lists".to_owned(), Vec::new()),
     };
     describe::Description { title, fields }
 }
@@ -361,6 +345,6 @@ describe::export!(Op, describe);
 fn op_variants_only_append() {
     assert_eq!(
         describe::variants::<Op>(),
-        ["Stage", "Commit", "Pin", "Unpin"]
+        ["Stage", "Commit", "Pin", "Unpin", "Migrate"]
     );
 }

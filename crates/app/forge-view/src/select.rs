@@ -11,6 +11,7 @@ use forge::{
     Bounds, Change, ChangeState, CommitInfo, Comparison, FileDiff, PageRequest, PageResponse,
     Query, RefInfo, Reply, RepoInfo, Review, Revision, Side, Verdict,
 };
+use identity::{Ownership, Party};
 
 /// The open change, as its screens read it: the record, its two current
 /// endpoints (either can be gone) and the reviews landed so far.
@@ -89,10 +90,36 @@ pub(crate) struct Published {
 }
 
 /// A read, in the three states a screen draws.
-pub(crate) enum Stage<'a> {
+pub(crate) enum Stage<'a, T = Reply> {
     Loading,
     Failed(&'a Error),
-    Ready(&'a Reply),
+    Ready(&'a T),
+}
+
+const OWNER_ONLY: &Ownership = &Ownership::Owner;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Writer {
+    Party(Party),
+    Everyone,
+}
+
+impl Writer {
+    pub(crate) fn rows(list: &Ownership) -> Vec<Writer> {
+        match list {
+            Ownership::Owner => Vec::new(),
+            Ownership::Listed(parties) => parties.iter().cloned().map(Writer::Party).collect(),
+            Ownership::Anyone => vec![Writer::Everyone],
+        }
+    }
+
+    pub(crate) fn key(&self) -> String {
+        match self {
+            Writer::Party(Party::Account(number)) => format!("acct-{number}"),
+            Writer::Party(Party::Program(program)) => format!("program-{program}"),
+            Writer::Everyone => "everyone".into(),
+        }
+    }
 }
 
 impl Forge {
@@ -114,21 +141,25 @@ impl Forge {
         self.session.connected && self.me_principal().is_some()
     }
 
-    /// Whether the reader may push, merge and close in the open repository:
-    /// its owner or a writer, as forge's `require_writer` checks.
-    // ponytail: reads the writers' first page only; a reader granted past it
-    // sees Merge and Close off until the page walks further
     pub(crate) fn writes_repo(&self) -> bool {
-        let (Some(me), Some((info, _, writers))) = (self.me_principal(), self.repo()) else {
+        let (Some(me), Some((info, _))) = (self.me_principal(), self.repo()) else {
             return false;
         };
-        self.may_write() && (info.repo.owner == me || writers.items.contains(&me))
+        let owner = info.repo.owner == me;
+        let listed = self.writers().is_some_and(|list| match list {
+            Ownership::Owner => false,
+            Ownership::Listed(parties) => me
+                .account()
+                .is_some_and(|number| parties.contains(&Party::Account(number))),
+            Ownership::Anyone => true,
+        });
+        self.may_write() && (owner || listed)
     }
 
     /// Whether the reader owns the open repository: only the owner changes
     /// its settings and writers.
     pub(crate) fn owns_repo(&self) -> bool {
-        let (Some(me), Some((info, _, _))) = (self.me_principal(), self.repo()) else {
+        let (Some(me), Some((info, _))) = (self.me_principal(), self.repo()) else {
             return false;
         };
         self.may_write() && info.repo.owner == me
@@ -177,7 +208,6 @@ impl Forge {
     pub(crate) fn repo_query(&self) -> Query {
         Query::Repo {
             repo: self.repo_name(),
-            page: PAGE,
         }
     }
 
@@ -188,15 +218,42 @@ impl Forge {
         }
     }
 
-    pub(crate) fn repo(&self) -> Option<(&RepoInfo, &Bounds, &PageResponse<Principal>)> {
+    pub(crate) fn repo(&self) -> Option<(&RepoInfo, &Bounds)> {
         match self.ready(&self.repo_query())? {
-            Reply::Repo {
-                repo,
-                bounds,
-                writers,
-                ..
-            } => Some((repo, bounds, writers)),
+            Reply::Repo { repo, bounds, .. } => Some((repo, bounds)),
             _ => None,
+        }
+    }
+
+    pub(crate) fn writers_stage(&self) -> Stage<'_, Ownership> {
+        let slot = self
+            .nav
+            .repo
+            .as_ref()
+            .and_then(|repo| self.writers.get(repo));
+        match slot {
+            Some(Loadable::Ready(list) | Loadable::Reloading(list, _)) => {
+                Stage::Ready(list.as_ref().unwrap_or(OWNER_ONLY))
+            }
+            Some(Loadable::Failed(refusal)) => Stage::Failed(refusal),
+            Some(Loadable::Idle | Loadable::Loading(_)) | None => Stage::Loading,
+        }
+    }
+
+    pub(crate) fn writers(&self) -> Option<&Ownership> {
+        match self.writers_stage() {
+            Stage::Ready(list) => Some(list),
+            Stage::Loading | Stage::Failed(_) => None,
+        }
+    }
+
+    pub(crate) fn writer_name(&self, writer: &Writer) -> String {
+        match writer {
+            Writer::Party(Party::Account(number)) => {
+                self.principal_name(&Principal::Account(*number))
+            }
+            Writer::Party(Party::Program(program)) => program.clone(),
+            Writer::Everyone => words::EVERYONE.to_owned(),
         }
     }
 
@@ -288,7 +345,7 @@ impl Forge {
     /// The default head of the repo, or `refs/heads/main` before it lands.
     pub(crate) fn default_head(&self) -> Vec<u8> {
         self.repo()
-            .map(|(info, _, _)| info.repo.settings.head.clone())
+            .map(|(info, _)| info.repo.settings.head.clone())
             .unwrap_or_else(|| b"refs/heads/main".to_vec())
     }
 
@@ -693,7 +750,7 @@ impl Forge {
 
     /// What the open repository's settings forbid a push, once read.
     pub(crate) fn forbids(&self) -> Option<String> {
-        let (info, _, _) = self.repo()?;
+        let (info, _) = self.repo()?;
         let settings = &info.repo.settings;
         words::forbids(settings.allow_force, settings.allow_delete)
     }

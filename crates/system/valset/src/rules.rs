@@ -283,10 +283,6 @@ pub(crate) fn motions(ctx: &QueryCtx, page: &PageRequest) -> Result<crate::Reply
     })
 }
 
-/// What a vote refuses before it counts: what the motion names must hold now. A
-/// `Role` motion's role must be bound; its op is the role's program's to judge, when the
-/// vote passes, and this program reads none of it. A `Bind` never names a role the
-/// network binds for its life, as the host refuses that.
 fn admissible(ctx: &QueryCtx, motion: &Motion) -> Result<(), Error> {
     match motion {
         Motion::Promote { key } => promotable(ctx, key),
@@ -294,17 +290,7 @@ fn admissible(ctx: &QueryCtx, motion: &Motion) -> Result<(), Error> {
         Motion::Remove { key } => removable(ctx, key),
         Motion::Door { open } => door_moves(ctx, *open),
         Motion::Role { role, .. } => ctx.env().role(role).map(drop),
-        Motion::Bind { role, .. } => rebindable(role),
     }
-}
-
-fn rebindable(role: &str) -> Result<(), Error> {
-    if abi::role::REQUIRED.contains(&role) {
-        return Err(invalid(format!(
-            "the {role} role is bound for the network's life"
-        )));
-    }
-    Ok(())
 }
 
 fn enact(ctx: &ExecCtx, motion: Motion) -> Result<(), Error> {
@@ -325,7 +311,6 @@ fn enact(ctx: &ExecCtx, motion: Motion) -> Result<(), Error> {
             ctx.emit_raw(ctx.env().role(&role)?.clone(), op, Reply::Wanted);
             Ok(())
         }
-        Motion::Bind { role, program } => ctx.bind(role, program),
     }
 }
 

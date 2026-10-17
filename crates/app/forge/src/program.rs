@@ -7,10 +7,12 @@ use ::program::{Error, ExecCtx, Program, QueryCtx};
 use crate::change_queries::{change, changes, judgment};
 use crate::changes::{Draft, Edit, MergeRequest, close, edit, merge_heads, open, submit_review};
 use crate::contract::*;
-use crate::ops::{configure, create, grant, init, push, revoke, signed_account, stage, touch};
+use crate::ops::{
+    configure, create, init, needs, push, resource, retired, signed_account, stage, touch,
+};
 use crate::queries::{advertise, closure, listing, refs, repos, upload};
 use crate::reads::{blob, comparison, diff, log, tree};
-use crate::state::{WRITERS, load_bounds, load_repo};
+use crate::state::{load_bounds, load_repo};
 
 pub struct Forge;
 
@@ -27,20 +29,20 @@ impl Program for Forge {
     /// Runs one op as the signer's account (`ctx.sender()`).
     /// Every op names its repository; an accepted one marks it active.
     fn execute(ctx: &ExecCtx, op: Op) -> Result<(), Error> {
+        let Some(repo) = op.repo().map(str::to_owned) else {
+            return crate::migrate::migrate(ctx);
+        };
         let actor = &signed_account(ctx)?;
-        let repo = op.repo().to_owned();
         let reply = match op {
             Op::Create { repo, hash } => create(ctx, actor, &repo, hash).map(|()| None),
-            Op::Configure { repo, settings } => {
-                configure(ctx, actor, &repo, settings).map(|()| None)
-            }
-            Op::Grant { repo, principal } => grant(ctx, actor, &repo, principal).map(|()| None),
-            Op::Revoke { repo, principal } => revoke(ctx, actor, &repo, principal).map(|()| None),
+            Op::Configure { repo, settings } => configure(ctx, &repo, settings).map(|()| None),
+            Op::Grant { .. } | Op::Revoke { .. } => Err(retired()),
+            Op::Migrate => crate::migrate::migrate(ctx).map(|()| None),
             Op::Push {
                 repo,
                 request,
                 pack,
-            } => push(ctx, actor, &repo, &request, pack).map(|()| None),
+            } => push(ctx, &repo, &request, pack).map(|()| None),
             Op::Merge {
                 repo,
                 into,
@@ -95,7 +97,7 @@ impl Program for Forge {
             Op::ReviewSubmit { repo, n, review } => {
                 submit_review(ctx, actor, &repo, n, review).map(Some)
             }
-            Op::Stage { repo, pack } => stage(ctx, actor, &repo, pack).map(|()| None),
+            Op::Stage { repo, pack } => stage(ctx, &repo, pack).map(|()| None),
         }?;
         if let Some(reply) = reply {
             ctx.set_return_data(abi::encode(&reply));
@@ -112,6 +114,14 @@ impl Program for Forge {
             Query::Upload { repo, request } => upload(ctx, repo, request),
             _ => Ok(abi::encode(&Self::query(ctx, query)?)),
         }
+    }
+
+    fn access(ctx: &QueryCtx, op: &Op) -> Result<Vec<::program::Need>, Error> {
+        needs(ctx, op)
+    }
+
+    fn resource(ctx: &QueryCtx, key: &str) -> Result<::program::Resource, Error> {
+        resource(ctx, key)
     }
 
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
@@ -131,16 +141,13 @@ impl Program for Forge {
                 height,
                 page: repos(ctx, &listing(page)?)?,
             },
-            Query::Repo { repo, page } => Reply::Repo {
+            Query::Repo { repo } => Reply::Repo {
                 height,
                 repo: RepoInfo {
                     name: repo.clone(),
                     repo: load_repo(ctx, repo)?,
                 },
                 bounds,
-                writers: WRITERS
-                    .page_of(ctx, repo, &listing(page)?)?
-                    .map(|(_, principal)| principal),
             },
             Query::Refs { repo, page } => Reply::Refs {
                 height,

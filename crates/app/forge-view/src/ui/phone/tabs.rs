@@ -15,12 +15,13 @@ use view::{Div, Paged, Stateful};
 
 use super::document;
 use super::parts::{self, Chip, Row, Tone};
-use crate::Forge;
 use crate::id;
 use crate::list;
+use crate::select::Writer;
 use crate::state::{Filter, Menu, RepoTab, Sheet};
 use crate::tree::{self, Slot};
 use crate::words::{self, ref_label};
+use crate::{Forge, Stage};
 use forge::{BlobView, ChangeSummary, CommitInfo, Content, Judgment, Query, Reply};
 
 /// The open tab's body.
@@ -882,8 +883,8 @@ fn settings(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &The
         cx,
         (ladder, theme),
     );
-    let (repo, writers) = match reply {
-        Ok(Reply::Repo { repo, writers, .. }) => (repo, writers),
+    let repo = match reply {
+        Ok(Reply::Repo { repo, .. }) => repo,
         Ok(_) => return page.into_any_element(),
         Err(state) => return page.child(state).into_any_element(),
     };
@@ -919,7 +920,7 @@ fn settings(forge: &Forge, cx: &mut Context<Forge>, ladder: &Ladder, theme: &The
             theme,
         ))
         .child(section("forge-settings-writers", words::CAN_WRITE))
-        .children(writer_rows(forge, &writers.items, owner, cx, ladder, theme))
+        .children(writers(forge, owner, cx, ladder, theme))
         .into_any_element()
 }
 
@@ -1004,11 +1005,45 @@ fn switches(
     ]
 }
 
+fn writers(
+    forge: &Forge,
+    owner: bool,
+    cx: &mut Context<Forge>,
+    ladder: &Ladder,
+    theme: &Theme,
+) -> Vec<AnyElement> {
+    match forge.writers_stage() {
+        Stage::Ready(list) => writer_rows(forge, &Writer::rows(list), owner, cx, ladder, theme),
+        Stage::Loading => vec![
+            parts::quiet(
+                id("forge-settings-writers-loading"),
+                words::READING_WRITERS,
+                ladder,
+                theme,
+            )
+            .into_any_element(),
+        ],
+        Stage::Failed(refusal) => {
+            let retry = cx.listener(|forge, _: &ClickEvent, _, cx| forge.retry_writers(cx));
+            vec![
+                design::refused(
+                    "forge-settings-writers",
+                    design::sentence(refusal),
+                    ladder,
+                    theme,
+                    retry,
+                )
+                .into_any_element(),
+            ]
+        }
+    }
+}
+
 /// Who may write: a row each, Revoke beside it for the owner; none says
 /// so; the owner's "Grant write access…" opens the people sheet.
 fn writer_rows(
     forge: &Forge,
-    writers: &[forge::Principal],
+    writers: &[Writer],
     owner: bool,
     cx: &mut Context<Forge>,
     ladder: &Ladder,
@@ -1018,7 +1053,7 @@ fn writer_rows(
     let mut rows: Vec<AnyElement> = writers
         .iter()
         .map(|writer| {
-            let name = forge.principal_name(writer);
+            let name = forge.writer_name(writer);
             let mut row = Row::titled(id(format!("forge-writer-{name}")), name.clone());
             if owner {
                 let who = writer.clone();
@@ -1073,14 +1108,17 @@ pub(super) fn grant_sheet(
     ladder: &Ladder,
     theme: &Theme,
 ) -> AnyElement {
+    let listed = forge
+        .writers()
+        .into_iter()
+        .flat_map(|list| list.accounts())
+        .map(forge::Principal::Account);
     let skip: Vec<forge::Principal> = forge
         .repo()
-        .map(|(info, _, writers)| {
-            std::iter::once(info.repo.owner.clone())
-                .chain(writers.items.iter().cloned())
-                .collect()
-        })
-        .unwrap_or_default();
+        .map(|(info, _)| info.repo.owner.clone())
+        .into_iter()
+        .chain(listed)
+        .collect();
     let ask = parts::PeopleAsk {
         key: "forge-grant-sheet",
         title: words::GRANT_WRITE_ACCESS,

@@ -15,6 +15,14 @@ impl Program for Egress {
     type Query = Query;
     type Reply = Reply;
 
+    fn access(_: &QueryCtx, op: &Op) -> Result<Vec<::program::Need>, Error> {
+        Ok(crate::rules::needs(op))
+    }
+
+    fn resource(ctx: &QueryCtx, key: &str) -> Result<::program::Resource, Error> {
+        crate::rules::resource(ctx, key)
+    }
+
     fn query(ctx: &QueryCtx, query: Query) -> Result<Reply, Error> {
         match query {
             Query::Assigned { key } => Ok(Reply::Requests(assigned(ctx, &key)?)),

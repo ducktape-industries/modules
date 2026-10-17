@@ -7,7 +7,7 @@ mod desktop;
 mod model;
 mod phone;
 
-use files::{Change, Content, Op};
+use files::{Change, Content, Op, Ownership, Party};
 use view::methods::{HostSession, Session};
 use view::rig::Network;
 use view::testing::TestAppContext;
@@ -77,6 +77,7 @@ pub(crate) fn commit(
 pub(crate) fn seeded() -> Network {
     let net = Network::new();
     net.seat::<files::Files>(files::PROGRAM);
+    net.seat::<access::Access>(access::PROGRAM);
     let dev = net.me();
     let ada = net.person("ada");
     net.at(T0);
@@ -103,12 +104,15 @@ pub(crate) fn seeded() -> Network {
                 path: "/shared/latest".into(),
                 target: "/shared/readme.txt".into(),
             },
-            Change::SetOwnership {
-                path: "/home/ada".into(),
-                write: Some(files::Ownership::Owner),
-            },
         ],
     );
+    let only_ada = access::Op::Set {
+        program: files::PROGRAM.into(),
+        key: "/home/ada".into(),
+        list: Some(Ownership::Owner),
+    };
+    net.submit(ada, access::PROGRAM, &only_ada)
+        .expect("ada lists her home for herself");
     net.at(T0 + 120_000);
     commit(
         &net,
@@ -124,6 +128,23 @@ pub(crate) fn seeded() -> Network {
     net.submit(dev, files::PROGRAM, &pin)
         .expect("a pin on a minted snapshot");
     net
+}
+
+pub(crate) fn list_at(net: &Network, path: &str) -> (Option<Ownership>, Option<Party>) {
+    let key = path.to_owned();
+    let program = files::PROGRAM.to_owned();
+    let asked = access::Query::List {
+        program: program.clone(),
+        key: key.clone(),
+    };
+    let Ok(access::Reply::List(list)) = net.query(access::PROGRAM, &asked) else {
+        panic!("access answers a path's list")
+    };
+    let asked = access::Query::Resource { program, key };
+    let Ok(access::Reply::Resource(resource)) = net.query(access::PROGRAM, &asked) else {
+        panic!("access answers who owns a path")
+    };
+    (list, resource.owner)
 }
 
 /// A file node, for the words a file's kind is said in.

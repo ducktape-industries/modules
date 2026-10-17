@@ -4,6 +4,7 @@
 //! takes it back from harness.
 use harness::{AgentSetup, Configured, Thinking};
 use identity::{Ownership, Party};
+use program::Writers;
 use view::FontWeight;
 use view::design::Ladder;
 use view::design::{size, space, text};
@@ -341,39 +342,39 @@ fn answers(ownership: &Ownership, roster: &Roster) -> String {
 fn named_parties(parties: &[Party], roster: &Roster) -> String {
     let names: Vec<String> = parties
         .iter()
-        .map(|party| match party {
-            Party::Account(number) => roster.name(*number),
-            Party::Program(program) => format!("the {program} program"),
-        })
+        .map(|party| party_name(party, roster))
         .collect();
     names.join(", ")
 }
 
-fn config_writers(writers: &files::Writers, config: &str, roster: &Roster) -> String {
-    let named = |number: Option<u64>| match number {
-        Some(number) => roster.name(number),
+fn party_name(party: &Party, roster: &Roster) -> String {
+    match party {
+        Party::Account(number) => roster.name(*number),
+        Party::Program(program) => format!("the {program} program"),
+    }
+}
+
+fn config_writers(writers: &Writers, config: &str, roster: &Roster) -> String {
+    let named = |owner: &Option<Party>| match owner {
+        Some(owner) => party_name(owner, roster),
         None => "no account".into(),
     };
     match writers {
-        files::Writers::Listed {
-            path,
-            creator,
-            write,
-        } => {
-            let who = match write {
-                Ownership::Owner => format!("Only {}", named(*creator)),
+        Writers::Listed { at, owner, list } => {
+            let who = match list {
+                Ownership::Owner => format!("Only {}", named(owner)),
                 Ownership::Listed(parties) => {
-                    format!("{}, {}", named(*creator), named_parties(parties, roster))
+                    format!("{}, {}", named(owner), named_parties(parties, roster))
                 }
                 Ownership::Anyone => "Anyone".into(),
             };
-            let own_list = path == config;
+            let own_list = at == config;
             match own_list {
                 true => who,
-                false => format!("{who}, by the list on {path}"),
+                false => format!("{who}, by the list on {at}"),
             }
         }
-        files::Writers::Anyone => "Anyone".into(),
+        Writers::Anyone => "Anyone".into(),
     }
 }
 

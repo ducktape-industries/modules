@@ -1,11 +1,12 @@
 //! The create form: a new agent is identity's `CreateAgent`, a `files` commit of its
 //! configuration file (its bytes put first as `chunk` blobs, `op.put`, never in the commit;
-//! proposed in its manager's home, `/home/<manager's name>/agents/`) that
-//! also sets the file's write list to `Owner`, so only the manager's account number changes it
-//! whatever names change, identity's `SetScript` with a script that calls harness and names that
-//! file, then identity's `SetOwnership` when it answers more than its manager. A step that is refused keeps the steps before it, so pressing on resumes where it
-//! stopped. Editing an agent is the same form at its commit: a new version of its file, which
-//! keeps its list, and a new script and a new list when its path moves.
+//! proposed in its manager's home, `/home/<manager's name>/agents/`), access's `Set` of the
+//! file's write list to `Owner`, so only the manager's account number changes it whatever names
+//! change, identity's `SetScript` with a script that calls harness and names that file, then
+//! access's `Set` of the agent's harness key when it answers more than its manager. A step that
+//! is refused keeps the steps before it, so pressing on resumes where it stopped. Editing an
+//! agent is the same form at its commit: a new version of its file, which keeps its list, and a
+//! new list and a new script when its path moves.
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,7 @@ pub(crate) struct Draft {
     pub listed: TextField,
     pub created: Option<u64>,
     pub committed: bool,
+    pub kept: bool,
     pub scripted: bool,
     pub answered: bool,
     pub again: bool,
@@ -55,9 +57,16 @@ pub(crate) struct Form {
     pub ownership: Ownership,
 }
 
+#[derive(Clone, Copy)]
+enum Listing {
+    Config,
+    Answers,
+}
+
 enum Next {
     Create(String),
     Commit(u64),
+    Keep(String),
     Script(u64),
     Answer(u64, Ownership),
     Done(u64),
@@ -151,6 +160,9 @@ impl Draft {
             return Next::Commit(agent);
         }
         let moved = self.script_path.as_deref() != Some(form.path.as_str());
+        if moved && !self.kept {
+            return Next::Keep(form.path.clone());
+        }
         if moved && !self.scripted {
             return Next::Script(agent);
         }
@@ -268,8 +280,21 @@ impl Agents {
                 });
                 self.send(identity::Op::SetScript { account, script }, cx)
             }
-            Next::Answer(account, ownership) => {
-                self.send(identity::Op::SetOwnership { account, ownership }, cx)
+            Next::Keep(path) => {
+                let op = access::Op::Set {
+                    program: files::PROGRAM.to_owned(),
+                    key: path,
+                    list: Some(Ownership::Owner),
+                };
+                self.set_list(op, Listing::Config, cx)
+            }
+            Next::Answer(agent, ownership) => {
+                let op = access::Op::Set {
+                    program: harness::PROGRAM.to_owned(),
+                    key: harness::agent_key(agent),
+                    list: Some(ownership),
+                };
+                self.set_list(op, Listing::Answers, cx)
             }
             Next::Done(agent) => {
                 self.draft = Draft::default();
@@ -304,11 +329,21 @@ impl Agents {
                         view.draft.scripted = true;
                         Ok(())
                     }
-                    _ => {
-                        view.draft.answered = true;
-                        Ok(())
-                    }
+                    _ => Ok(()),
                 });
+            view.landed(landed, cx);
+        }));
+        cx.notify();
+    }
+
+    fn set_list(&mut self, op: access::Op, listing: Listing, cx: &mut Context<Self>) {
+        let submit = cx.host().ask::<Submit<access::Access>>(op);
+        self.draft.sending = Some(cx.land(submit, move |view, answer, cx| {
+            view.draft.sending = None;
+            let landed = applied(answer).map(|_| match listing {
+                Listing::Config => view.draft.kept = true,
+                Listing::Answers => view.draft.answered = true,
+            });
             view.landed(landed, cx);
         }));
         cx.notify();
@@ -357,19 +392,12 @@ impl Agents {
         cx: &mut Context<Self>,
     ) {
         let name = self.draft.name.text();
-        let new_path = self.draft.script_path.as_deref() != Some(form.path.as_str());
-        let mut changes = vec![files::Change::Put {
-            path: form.path.clone(),
+        let changes = vec![files::Change::Put {
+            path: form.path,
             exec: false,
             meta: BTreeMap::new(),
             content,
         }];
-        if new_path {
-            changes.push(files::Change::SetOwnership {
-                path: form.path,
-                write: Some(Ownership::Owner),
-            });
-        }
         let op = files::Op::Commit {
             base: self.draft.base.map(BlobId::Sha256),
             message: format!("Configure agent {name} (account {agent})"),

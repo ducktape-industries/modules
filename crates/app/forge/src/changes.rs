@@ -8,7 +8,7 @@ use ::program::{Error, ExecCtx, QueryCtx, capacity, invalid, stale, unauthorized
 
 use crate::contract::*;
 use crate::discussion::{self, Event};
-use crate::ops::{require_user_or_program_account, require_writer};
+use crate::ops::require_user_or_program_account;
 use crate::state::{
     load_bounds, load_change, load_ref, load_repo, next, next_message, next_number, parse_oid,
     peek_message, repo_hash, resolve, save_change, save_review, set_ref,
@@ -128,11 +128,7 @@ pub(crate) fn close(
     n: u64,
 ) -> Result<OpReply, Error> {
     let env = ctx.env();
-    let record = load_repo(ctx, repo)?;
     let mut change = load_change(ctx, repo, n)?;
-    if change.author != *actor {
-        require_writer(ctx, repo, &record, actor)?;
-    }
     require_open(&change)?;
     change.state = ChangeState::Closed;
     change.closed_by = Some(actor.clone());
@@ -216,7 +212,6 @@ pub(crate) fn merge_heads(
 ) -> Result<OpReply, Error> {
     let env = ctx.env();
     let record = load_repo(ctx, repo)?;
-    require_writer(ctx, repo, &record, actor)?;
     check_endpoints(&merge.into, &merge.from)?;
     let hash = repo_hash(&record);
     let expected_into = parse_oid(hash, &merge.expected_into)?;

@@ -1,11 +1,11 @@
 //! What each op checks and writes: an account registering a service and assigning the nodes
-//! that may serve it, a member node serving, a program's call and the chain electing its node,
+//! that may serve it (its key's list in the access program decides who assigns), a member node serving, a program's call and the chain electing its node,
 //! the node answering it (whole, or as events and then the stream's end), and the request's own
 //! scheduled run expiring it.
 use ::program::kernel::error_from;
 use ::program::{
-    BlobId, Cause, Ctx, Error, ExecCtx, Origin, QueryCtx, code, invalid, not_found, unauthorized,
-    unexpected_reply, wrong_state,
+    BlobId, Cause, Ctx, Error, ExecCtx, Need, Origin, Ownership, Party, QueryCtx, Resource, code,
+    invalid, not_found, unauthorized, unexpected_reply, wrong_state,
 };
 use abi::role::validators;
 use store::{PageRequest, PageResponse};
@@ -68,15 +68,36 @@ pub(crate) fn register(ctx: &ExecCtx, name: String) -> Result<(), Error> {
     Ok(())
 }
 
-pub(crate) fn assign(ctx: &ExecCtx, name: String, mut nodes: Vec<Vec<u8>>) -> Result<(), Error> {
-    let account = ctx.sender_account()?;
-    let mut row = registered(ctx, &name)?;
-    if row.owner != account {
-        return Err(unauthorized(format!(
-            "service {name} is account {}'s to assign",
-            row.owner
-        )));
+pub fn service_key(name: &str) -> String {
+    format!("services/{name}")
+}
+
+pub(crate) fn needs(op: &Op) -> Vec<Need> {
+    match op {
+        Op::Assign { service, .. } => vec![Need::write(service_key(service))],
+        Op::Register { .. }
+        | Op::Serve { .. }
+        | Op::Request { .. }
+        | Op::Answer { .. }
+        | Op::Events(_)
+        | Op::EndStream { .. }
+        | Op::Expire { .. } => Vec::new(),
     }
+}
+
+pub(crate) fn resource(ctx: &QueryCtx, key: &str) -> Result<Resource, Error> {
+    let Some(name) = key.strip_prefix("services/") else {
+        return Ok(Resource::default());
+    };
+    let owner = SERVICES.get(ctx, &name.to_owned())?.map(|row| row.owner);
+    Ok(Resource {
+        owner: owner.map(Party::Account),
+        default: Some(Ownership::Owner),
+    })
+}
+
+pub(crate) fn assign(ctx: &ExecCtx, name: String, mut nodes: Vec<Vec<u8>>) -> Result<(), Error> {
+    let mut row = registered(ctx, &name)?;
     nodes.sort();
     nodes.dedup();
     row.nodes = nodes;

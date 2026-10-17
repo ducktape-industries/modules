@@ -154,20 +154,7 @@ fn replay(tape: &mut Tape) {
             page: PageRequest::first(2),
         },
     );
-    rig.sandbox.hold(b"ninth", 9);
-    rig.execute(&Op::Grant {
-        repo: REPO.into(),
-        principal: Principal::Account(9),
-    })
-    .unwrap();
-    tape.capture(
-        &rig,
-        "repo",
-        Query::Repo {
-            repo: REPO.into(),
-            page: PageRequest::first(2),
-        },
-    );
+    tape.capture(&rig, "repo", Query::Repo { repo: REPO.into() });
     let Reply::Refs { page, .. } = tape.capture(
         &rig,
         "refs",
@@ -408,10 +395,9 @@ fn replay(tape: &mut Tape) {
     };
     // an empty block keeps the cursor; forge writing after it does not
     rig.advance();
-    rig.sandbox.hold(b"tenth", 10);
-    rig.execute(&Op::Grant {
+    rig.execute(&Op::Configure {
         repo: REPO.into(),
-        principal: Principal::Account(10),
+        settings: Settings::default(),
     })
     .unwrap();
     tape.refusal(

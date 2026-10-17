@@ -1,9 +1,22 @@
 //! Who may call, read off the env's [`Origin`]: the checks a program makes
 //! before it trusts a frame's raw caller rather than its sender.
 
-use crate::{Env, Error, Origin, ProgramId, unauthorized};
+use crate::{Env, Error, Origin, Party, Principal, ProgramId, unauthorized};
 
 impl Env {
+    pub fn actor(&self) -> Vec<Party> {
+        let account = self
+            .sender
+            .as_ref()
+            .and_then(Principal::account)
+            .map(Party::Account);
+        let program = match &self.origin {
+            Origin::Program(program) => Some(Party::Program(program.clone())),
+            Origin::Signed(_) | Origin::Root => None,
+        };
+        account.into_iter().chain(program).collect()
+    }
+
     /// The signing key of a signed frame; any other origin is refused.
     pub fn signer(&self) -> Result<Vec<u8>, Error> {
         match &self.origin {
@@ -99,7 +112,7 @@ mod tests {
             assert_eq!(refused.code, code::UNAUTHORIZED);
         }
         let mut rebound = env(Origin::Program("gov".into()));
-        rebound.roles.bind(abi::role::VALIDATORS, "gov");
+        rebound.roles = MockHost::roles_with(abi::role::VALIDATORS, "gov");
         assert!(rebound.authority().is_ok());
         let mut unbound = env(Origin::Program("gov".into()));
         unbound.roles = MockHost::roles()

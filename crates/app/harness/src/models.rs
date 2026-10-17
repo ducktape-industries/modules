@@ -1,7 +1,7 @@
 //! The model records: an id the first account to set it owns, the wire the model speaks, the
 //! egress service that reaches it, the vendor's name for it, and the context window harness
 //! learns from the vendor. Only its owner changes or removes a record.
-use ::program::{Error, ExecCtx, invalid, not_found, unauthorized};
+use ::program::{Error, ExecCtx, invalid, not_found};
 
 use crate::state::MODELS;
 use crate::{ModelRow, Window, Wire};
@@ -44,15 +44,12 @@ pub(crate) fn set_model(
     service: String,
     name: String,
 ) -> Result<(), Error> {
-    let owner = ctx.sender_account()?;
     checked(&id, &service, &name)?;
     let existing = MODELS.get(ctx, &id)?;
-    if let Some(row) = existing.as_ref().filter(|row| row.owner != owner) {
-        return Err(unauthorized(format!(
-            "model {id} is account {}'s to change",
-            row.owner
-        )));
-    }
+    let owner = match &existing {
+        Some(row) => row.owner,
+        None => ctx.sender_account()?,
+    };
     let same_model = |row: &ModelRow| row.wire == wire && row.name == name;
     let window = existing
         .filter(same_model)
@@ -70,15 +67,8 @@ pub(crate) fn set_model(
 }
 
 pub(crate) fn remove_model(ctx: &ExecCtx, id: String) -> Result<(), Error> {
-    let owner = ctx.sender_account()?;
-    let Some(row) = MODELS.get(ctx, &id)? else {
+    if !MODELS.has(ctx, &id) {
         return Err(not_found(format!("no model {id}")));
-    };
-    if row.owner != owner {
-        return Err(unauthorized(format!(
-            "model {id} is account {}'s to remove",
-            row.owner
-        )));
     }
     MODELS.remove(ctx, &id);
     Ok(())

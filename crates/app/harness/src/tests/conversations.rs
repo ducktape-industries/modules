@@ -66,11 +66,13 @@ fn every_person_and_every_place_continue_the_agents_one_conversation() {
     chain.submit(signed(ADA), chat::PROGRAM, &open).unwrap();
     let room = chat::dm_channel_id(world.ada, world.agent);
     world.post(ADA, &room, "d1", "and a word in private");
-    let ownership = identity::Op::SetOwnership {
-        account: world.agent,
-        ownership: identity::Ownership::Listed(vec![identity::Party::Account(world.bo)]),
-    };
-    identity_op(chain, ADA, ownership).unwrap();
+    set_list(
+        chain,
+        ADA,
+        PROGRAM,
+        crate::agent_key(world.agent),
+        ::program::Ownership::Listed(vec![::program::Party::Account(world.bo)]),
+    );
     world.post(BO, "general", "b1", &format!("<@{}> me too", world.agent));
 
     let [only] = world.threads().try_into().unwrap();

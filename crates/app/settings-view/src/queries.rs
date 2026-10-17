@@ -1,6 +1,6 @@
-//! Typed reads: who the seated key is and whom each of its agents answers
-//! (identity), the account a typed name or number is, and whether each of
-//! its keys validates (valset). Rows keep what the programs said; they are
+//! Typed reads: who the seated key is (identity) and whom each of its
+//! agents answers (access), the account a typed name or number is, and
+//! whether each of its keys validates (valset). Rows keep what the programs said; they are
 //! worded only when drawn.
 use identity::{Control, Kind, Ownership, PageRequest, Party, Reference, Standing};
 use serde::{Deserialize, Serialize};
@@ -166,7 +166,13 @@ async fn agents(host: &Host, manager: u64) -> Result<Vec<Agent>, Error> {
             )));
         };
         let number = agent.number;
-        let ownership = host.query(identity::ask::Ownership { number }).await?;
+        let ownership = host
+            .query(access::ask::List {
+                program: harness::PROGRAM.into(),
+                key: harness::agent_key(number),
+            })
+            .await?
+            .unwrap_or(Ownership::Owner);
         let names = names(host, &ownership).await?;
         agents.push(Agent {
             number,
