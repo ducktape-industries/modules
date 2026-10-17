@@ -152,9 +152,10 @@ fn sanitize_fields(
             walk.style(*style)?;
             canvas::sanitize(commands);
         }
-        Node::Web { style, .. } | Node::Camera { style, .. } | Node::Microphone { style, .. } => {
-            walk.style(*style)?
-        }
+        Node::Web { style, .. }
+        | Node::Camera { style, .. }
+        | Node::Microphone { style, .. }
+        | Node::Remote { style, .. } => walk.style(*style)?,
         Node::Anchored {
             fit,
             position,
@@ -226,6 +227,9 @@ fn sanitize_fields(
             crate::validate_field(value, *cursor, tokens, claims)?;
             walk.style(*style)?;
         }
+    }
+    if let Some(track) = node.live_track() {
+        track.check()?;
     }
     Ok(())
 }

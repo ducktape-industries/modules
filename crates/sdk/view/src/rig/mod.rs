@@ -497,7 +497,7 @@ impl Network {
             });
         }
         let net = self.clone();
-        host.after_frame(move |host, _| {
+        host.after_frame(move |host, _, _| {
             for (program, change) in net.take_changes() {
                 let keys = change.writes.into_iter().map(|(key, _)| key).collect();
                 let item = Some(methods::Change {

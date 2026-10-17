@@ -64,6 +64,7 @@ pub struct Units {
     text_transform: Vec<view_wire::TextTransform>,
     toggled: Vec<accesskit::Toggled>,
     touch_phase: Vec<interactivity::TouchPhase>,
+    track_state: Vec<TrackState>,
     uniform_list_horizontal_sizing: Vec<UniformListHorizontalSizing>,
     uniform_list_scroll_strategy: Vec<UniformListScrollStrategy>,
     uniform_list_sizing: Vec<UniformListSizing>,

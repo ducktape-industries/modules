@@ -92,14 +92,14 @@ pub use widget::{WidgetCommand, WidgetTarget};
 pub mod web;
 pub use web::{WebCommand, WebState};
 pub mod media;
-pub use media::{MediaState, MediaStatus, MicCommand, Playback};
+pub use media::{MediaState, MediaStatus, MicCommand, Playback, TrackState};
 
 mod styled_nodes;
 pub use styled_nodes::{ContainerNode, TextNode, TextTransform};
 mod node;
 pub use node::{
-    Anchor, AnchoredFitMode, AnchoredPositionMode, ImageObjectFit, ImageStyle, Node, SvgSource,
-    SvgTransformation, safe_asset_path,
+    Anchor, AnchoredFitMode, AnchoredPositionMode, ImageObjectFit, ImageStyle, Node, RemoteMedia,
+    SvgSource, SvgTransformation, safe_asset_path,
 };
 mod accessibility;
 pub use accessibility::{Fault, FaultKind, audit};

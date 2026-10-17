@@ -614,6 +614,36 @@ pub struct Notification {
     pub body: String,
     pub tag: String,
     pub link: String,
+    /// What the notice is to a carrier: a [`NoticeKind::Notice`] is shown
+    /// and logged; a [`NoticeKind::Call`] rings (a VoIP push on a phone, a
+    /// banner with Answer and Decline on a desktop) until `notify.seen` of
+    /// its tag or `until`.
+    pub kind: NoticeKind,
+    /// Unix seconds past which the notice is stale: a carrier drops it
+    /// undelivered, and a ring stops. 0: never.
+    pub until: u64,
+}
+/// What a [`Notification`] is to the app and to a push server that carry
+/// it: they know a call from a notice by this alone, never by its program.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum NoticeKind {
+    /// Shown and logged.
+    #[default]
+    Notice,
+    /// Someone is calling: it rings, and its `link` answers.
+    Call,
 }
 /// What the host did with a [`Notification`].
 #[derive(
@@ -715,6 +745,32 @@ pub struct AudioDevices {
 pub struct LiveTrack {
     pub room: String,
     pub name: String,
+}
+
+impl LiveTrack {
+    /// Why the track is out of its rule, as far as it can be told without
+    /// the chain and the program the host stamps in front of `room`; `Ok`
+    /// when it holds. A host checks the stamped room's length on top.
+    pub fn check(&self) -> Result<(), &'static str> {
+        use program::live::{MAX_NAMESPACE, MAX_TRACK_NAME};
+        let plain = |c: char| {
+            !(c.is_control()
+                || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+                || matches!(c, '\u{2028}' | '\u{2029}'))
+        };
+        if self.room.is_empty() || self.room.len() > MAX_NAMESPACE || !self.room.chars().all(plain)
+        {
+            return Err("a live room is one line of plain text");
+        }
+        let segments_hold = self
+            .name
+            .split('/')
+            .all(|segment| !segment.is_empty() && segment != "..");
+        if self.name.len() > MAX_TRACK_NAME || !segments_hold {
+            return Err("a live track's name is `/`-separated segments, none empty or `..`");
+        }
+        Ok(())
+    }
 }
 
 /// How a track's objects travel, chosen at `live.publish` for the track's
@@ -1113,8 +1169,8 @@ methods! {
 /// The `<capability>` half of every kind in [`ALL`]: what a view's manifest
 /// declares, and the only names it may. A method is reached only through the
 /// capability its kind starts with. One capability gates a node, not a
-/// method: [`Capability::Web`]; two gate a node and their methods:
-/// [`Capability::Camera`], [`Capability::Microphone`].
+/// method: [`Capability::Web`]; three gate a node and their methods:
+/// [`Capability::Camera`], [`Capability::Microphone`], [`Capability::Live`].
 #[derive(
     Clone,
     Copy,
@@ -1149,7 +1205,9 @@ pub enum Capability {
     Web,
     /// Tracks through the connected node, off consensus (`live.*`): the
     /// node lets an account publish or subscribe in a room only as the
-    /// view's program granted it.
+    /// view's program granted it. Also gates the pieces that publish or
+    /// play one: a camera or microphone piece's `publish`, and every
+    /// [`crate::Node::Remote`].
     Live,
     /// The view places camera pieces ([`crate::Node::Camera`]) and lists
     /// the cameras (`camera.devices`). Apart from `microphone`, as the

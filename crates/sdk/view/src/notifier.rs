@@ -213,6 +213,44 @@ mod tests {
         assert!(!blocks.subscribed());
     }
 
+    /// Rings once per session it is handed.
+    struct Ring;
+    impl Notifier for Ring {
+        const NAME: &'static str = "Ring";
+        const CAPABILITIES: &'static [Capability] = &[Capability::Host, Capability::Notify];
+        fn new(cx: &mut Context<Self>) -> Self {
+            cx.follow::<HostSession>((), |_, session, cx| {
+                if session.is_ok() {
+                    cx.host().notify::<NotifyPost>(ring());
+                }
+            })
+            .detach();
+            Ring
+        }
+    }
+
+    fn ring() -> Notification {
+        Notification {
+            title: "alice is calling".into(),
+            tag: "call/c-1".into(),
+            link: "duck://local/huddle/call/c-1".into(),
+            kind: NoticeKind::Call,
+            until: 1_700_000_045,
+            ..Notification::default()
+        }
+    }
+
+    /// A ring crosses as it was posted: its kind and its end with it.
+    #[test]
+    fn a_ring_reaches_the_host_with_its_kind_and_its_end() {
+        let mut cx = TestNotifier::<Ring>::new();
+        let sessions = cx.host().stream::<HostSession>();
+        cx.start();
+        sessions.send(Session::default());
+        cx.run_until_parked();
+        assert_eq!(cx.host().requests::<NotifyPost>(), [ring()]);
+    }
+
     /// The notifier's manifest is a view's: the host reads its name,
     /// capabilities and targets with the same parser, at the wire it speaks.
     #[test]

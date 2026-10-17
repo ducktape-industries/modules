@@ -253,42 +253,86 @@ fn gen_device(rng: &mut Rng) -> Option<String> {
         .then(|| "d".repeat(rng.next_range(2 * LONG_DEVICE)))
 }
 
-/// A camera or microphone piece: hostile device ids, and commands
-/// recording any length.
+/// A live track a piece publishes into or plays, one in two out of the
+/// rule `live.publish` holds a track to: a room empty, over-long or with a
+/// line break; a name over-long, empty, or with an empty or `..` segment.
+fn gen_track(rng: &mut Rng) -> view_wire::methods::LiveTrack {
+    use program::live::{MAX_NAMESPACE, MAX_TRACK_NAME};
+    let room = match rng.next_range(6) {
+        0 => String::new(),
+        1 => "call\nroom".into(),
+        2 => "r".repeat(MAX_NAMESPACE + rng.next_range(2)),
+        _ => "call".into(),
+    };
+    let name = match rng.next_range(8) {
+        0 => "x".repeat(MAX_TRACK_NAME + rng.next_range(2)),
+        1 => "mic/../1".into(),
+        2 => "mic//1".into(),
+        3 => String::new(),
+        _ => format!("mic/{}", rng.next_u64()),
+    };
+    view_wire::methods::LiveTrack { room, name }
+}
+
+/// A camera, microphone or remote piece: hostile device ids, commands
+/// recording any length, and hostile tracks to publish into or play.
 pub(super) fn gen_media(rng: &mut Rng) -> Node {
-    if rng.next_bool() {
-        return Node::Camera {
+    let on_state = |rng: &mut Rng| rng.next_bool().then(|| rng.next_u64() as u32);
+    let object_fit = |rng: &mut Rng| {
+        *rng.choose(&[
+            ImageObjectFit::Fill,
+            ImageObjectFit::Contain,
+            ImageObjectFit::Cover,
+            ImageObjectFit::ScaleDown,
+            ImageObjectFit::None,
+        ])
+    };
+    match rng.next_range(3) {
+        0 => Node::Camera {
             id: gen_id(rng),
             style: PLAIN,
             device: gen_device(rng),
             mirror: rng.next_bool(),
-            object_fit: *rng.choose(&[
-                ImageObjectFit::Fill,
-                ImageObjectFit::Contain,
-                ImageObjectFit::Cover,
-                ImageObjectFit::ScaleDown,
-                ImageObjectFit::None,
-            ]),
-            on_state: rng.next_bool().then(|| rng.next_u64() as u32),
-        };
-    }
-    let commands = (0..=rng.next_range(MIC_COMMANDS))
-        .map(|_| match rng.next_bool() {
-            true => view_wire::MicCommand::Record {
-                seconds: rng.next_u64() as u8,
+            object_fit: object_fit(rng),
+            on_state: on_state(rng),
+            publish: rng.next_bool().then(|| gen_track(rng)),
+        },
+        1 => {
+            let commands = (0..=rng.next_range(MIC_COMMANDS))
+                .map(|_| match rng.next_bool() {
+                    true => view_wire::MicCommand::Record {
+                        seconds: rng.next_u64() as u8,
+                    },
+                    false => view_wire::MicCommand::Stop,
+                })
+                .collect();
+            Node::Microphone {
+                id: gen_id(rng),
+                style: PLAIN,
+                device: gen_device(rng),
+                output: gen_device(rng),
+                monitor: rng.next_bool(),
+                revision: rng.next_u64(),
+                commands,
+                on_state: on_state(rng),
+                publish: rng.next_bool().then(|| gen_track(rng)),
+                muted: rng.next_bool(),
+            }
+        }
+        _ => Node::Remote {
+            id: gen_id(rng),
+            style: PLAIN,
+            track: gen_track(rng),
+            media: match rng.next_bool() {
+                true => RemoteMedia::Video {
+                    object_fit: object_fit(rng),
+                },
+                false => RemoteMedia::Audio {
+                    output: gen_device(rng),
+                },
             },
-            false => view_wire::MicCommand::Stop,
-        })
-        .collect();
-    Node::Microphone {
-        id: gen_id(rng),
-        style: PLAIN,
-        device: gen_device(rng),
-        output: gen_device(rng),
-        monitor: rng.next_bool(),
-        revision: rng.next_u64(),
-        commands,
-        on_state: rng.next_bool().then(|| rng.next_u64() as u32),
+            on_state: on_state(rng),
+        },
     }
 }
 

@@ -96,8 +96,14 @@ pub(super) fn check_bounds(node: &Node, styles: &Styles, depth: usize, ctx: &str
             check_native_style(&styles[*style]);
             check_bounds(child, styles, depth + 1, ctx);
         }
-        Node::Web { style, .. } | Node::Camera { style, .. } | Node::Microphone { style, .. } => {
-            check_native_style(&styles[*style])
+        Node::Web { style, .. }
+        | Node::Camera { style, .. }
+        | Node::Microphone { style, .. }
+        | Node::Remote { style, .. } => {
+            check_native_style(&styles[*style]);
+            if let Some(track) = node.live_track() {
+                assert_eq!(track.check(), Ok(()), "{ctx}: a track out of its rule kept");
+            }
         }
         Node::ResizeHandle { content, .. } => {
             check_bounds(content, styles, depth + 1, ctx);

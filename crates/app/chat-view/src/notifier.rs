@@ -487,6 +487,7 @@ pub(crate) fn notice(
         tag: tag(me, &row.channel_id, name, names),
         // a notice without a link is one the centre cannot open, not a bad one
         link: links::channel_link(chain, &row.channel_id, Some(row.seq)).unwrap_or_default(),
+        ..Notification::default()
     })
 }
 

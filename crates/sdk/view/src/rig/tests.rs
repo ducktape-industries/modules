@@ -265,6 +265,7 @@ fn the_chain_backs_a_fake_host() {
             ..Default::default()
         },
         &channel,
+        None,
     );
     for event in host.take_events() {
         let crate::wire::Event::Response { id, result, done } = event else {
@@ -304,6 +305,7 @@ fn a_typed_handler_on_the_host_wins_over_the_chain() {
             ..Default::default()
         },
         &channel,
+        None,
     );
     for event in host.take_events() {
         let crate::wire::Event::Response { id, result, done } = event else {

@@ -558,7 +558,11 @@
               "device": "0",
               "mirror": true,
               "object_fit": "Cover",
-              "on_state": 18
+              "on_state": 18,
+              "publish": {
+                "room": "lobby",
+                "name": "cam/3"
+              }
             }
           },
           {
@@ -579,7 +583,48 @@
                 },
                 "Stop"
               ],
-              "on_state": 19
+              "on_state": 19,
+              "publish": {
+                "room": "lobby",
+                "name": "mic/3"
+              },
+              "muted": true
+            }
+          },
+          {
+            "Remote": {
+              "id": {
+                "Name": "tile"
+              },
+              "style": 0,
+              "track": {
+                "room": "lobby",
+                "name": "cam/4"
+              },
+              "media": {
+                "Video": {
+                  "object_fit": "Cover"
+                }
+              },
+              "on_state": 20
+            }
+          },
+          {
+            "Remote": {
+              "id": {
+                "Name": "voice"
+              },
+              "style": 0,
+              "track": {
+                "room": "lobby",
+                "name": "mic/4"
+              },
+              "media": {
+                "Audio": {
+                  "output": "Headphones"
+                }
+              },
+              "on_state": 21
             }
           },
           {
@@ -2582,7 +2627,31 @@
           "detail": "the driver stopped",
           "speaking": true,
           "opens_settings": true,
-          "monitor_stopped": true
+          "monitor_stopped": true,
+          "track": {
+            "Up": {
+              "subscribers": 2
+            }
+          }
+        }
+      }
+    },
+    {
+      "Media": {
+        "handler": 20,
+        "state": {
+          "status": "Gone",
+          "device": "",
+          "playback": "Idle",
+          "detail": "",
+          "speaking": false,
+          "opens_settings": false,
+          "monitor_stopped": false,
+          "track": {
+            "Ended": {
+              "code": "track_ended"
+            }
+          }
         }
       }
     }
@@ -3409,6 +3478,10 @@
       "Moved",
       "Ended",
       "Cancelled"
+    ],
+    "TrackState": [
+      "None",
+      "Waiting"
     ],
     "UniformListHorizontalSizing": [
       "FitList",

@@ -361,6 +361,7 @@ fn first_nodes() -> Vec<Node> {
             mirror: true,
             object_fit: ImageObjectFit::Cover,
             on_state: Some(18),
+            publish: Some(live_track("cam/3")),
         },
         Node::Microphone {
             id: id("microphone"),
@@ -371,6 +372,26 @@ fn first_nodes() -> Vec<Node> {
             revision: 2,
             commands: vec![MicCommand::Record { seconds: 5 }, MicCommand::Stop],
             on_state: Some(19),
+            publish: Some(live_track("mic/3")),
+            muted: true,
+        },
+        Node::Remote {
+            id: id("tile"),
+            style: style(),
+            track: live_track("cam/4"),
+            media: RemoteMedia::Video {
+                object_fit: ImageObjectFit::Cover,
+            },
+            on_state: Some(20),
+        },
+        Node::Remote {
+            id: id("voice"),
+            style: style(),
+            track: live_track("mic/4"),
+            media: RemoteMedia::Audio {
+                output: Some("Headphones".into()),
+            },
+            on_state: Some(21),
         },
         text("plain"),
         // drawn in capitals, named as written
@@ -916,5 +937,6 @@ pub fn node_variant(node: &Node) -> &'static str {
         Node::Web { .. } => "Web",
         Node::Camera { .. } => "Camera",
         Node::Microphone { .. } => "Microphone",
+        Node::Remote { .. } => "Remote",
     }
 }

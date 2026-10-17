@@ -373,6 +373,18 @@ pub fn every_event() -> Vec<Event> {
                 speaking: true,
                 opens_settings: true,
                 monitor_stopped: true,
+                track: TrackState::Up { subscribers: 2 },
+            },
+        },
+        // a remote piece whose publisher left
+        Event::Media {
+            handler: 20,
+            state: MediaState {
+                status: MediaStatus::Gone,
+                track: TrackState::Ended {
+                    code: "track_ended".into(),
+                },
+                ..MediaState::default()
             },
         },
     ]

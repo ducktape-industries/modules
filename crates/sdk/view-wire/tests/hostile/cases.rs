@@ -20,9 +20,18 @@ const SHAPE_REFUSALS: [&str; 6] = [
     "on_back below the root",
 ];
 
+/// What `sanitize` refuses a tree for on a piece's live track's account
+/// (`LiveTrack::check`).
+const TRACK_REFUSALS: [&str; 2] = [
+    "a live room is one line of plain text",
+    "a live track's name is `/`-separated segments, none empty or `..`",
+];
+
 fn field_refusal(refused: &Refused) -> bool {
     matches!(refused.reason(), Refused::Invalid(reason)
-        if FIELD_REFUSALS.contains(reason) || SHAPE_REFUSALS.contains(reason))
+        if FIELD_REFUSALS.contains(reason)
+            || SHAPE_REFUSALS.contains(reason)
+            || TRACK_REFUSALS.contains(reason))
 }
 
 // --------------------------------------------------------------- test 1

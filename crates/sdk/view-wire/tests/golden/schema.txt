@@ -124,7 +124,10 @@ Manifested = Struct { fields: NamedFields([("size", "u64"), ("view", "Option<Car
 NetworkStatus = Struct { fields: NamedFields([("height", "u64"), ("members", "Vec<Peer>")]) }
 NewBlob = Struct { fields: NamedFields([("kind", "String"), ("body", "BlobBody")]) }
 NodeStatus = Struct { fields: NamedFields([("chain_id", "String"), ("time", "u64"), ("block_time_ms", "u64"), ("epoch_length", "u64"), ("height", "u64"), ("tip", "[u8; 32]"), ("root", "[u8; 32]"), ("epoch", "u64"), ("identity", "Vec<u8>"), ("contract", "u32")]) }
-Notification = Struct { fields: NamedFields([("title", "String"), ("body", "String"), ("tag", "String"), ("link", "String")]) }
+NoticeKind = Enum { tag_width: 1, variants: [(0, "Notice", "NoticeKind__Notice"), (1, "Call", "NoticeKind__Call")] }
+NoticeKind__Call = Struct { fields: Empty }
+NoticeKind__Notice = Struct { fields: Empty }
+Notification = Struct { fields: NamedFields([("title", "String"), ("body", "String"), ("tag", "String"), ("link", "String"), ("kind", "NoticeKind"), ("until", "u64")]) }
 Option<Block> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Block")] }
 Option<CarriedView> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "CarriedView")] }
 Option<Change> = Enum { tag_width: 1, variants: [(0, "None", "()"), (1, "Some", "Change")] }
@@ -750,6 +753,9 @@ Live enum
   0 off: Unit
   1 polite: Unit
   2 assertive: Unit
+LiveTrack struct
+  room: Str
+  name: Str
 Location enum
   0 Standard: Unit
   1 Left: Unit
@@ -763,6 +769,7 @@ MediaState struct
   speaking: Bool
   opens_settings: Bool
   monitor_stopped: Bool
+  track: TypeName("TrackState")
 MediaStatus enum
   0 Starting: Unit
   1 Live: Unit
@@ -1012,6 +1019,7 @@ Node enum
     mirror: Bool
     object_fit: TypeName("ImageObjectFit")
     on_state: Option(U32)
+    publish: Option(TypeName("LiveTrack"))
   18 Microphone struct
     id: TypeName("WireRepr")
     style: U32
@@ -1020,6 +1028,14 @@ Node enum
     monitor: Bool
     revision: U64
     commands: Seq(TypeName("MicCommand"))
+    on_state: Option(U32)
+    publish: Option(TypeName("LiveTrack"))
+    muted: Bool
+  19 Remote struct
+    id: TypeName("WireRepr")
+    style: U32
+    track: TypeName("LiveTrack")
+    media: TypeName("RemoteMedia")
     on_state: Option(U32)
 NodeId NewTypeStruct(U64)
 Orientation enum
@@ -1065,6 +1081,11 @@ PressureStage enum
 Range struct
   start: U64
   end: U64
+RemoteMedia enum
+  0 Video struct
+    object_fit: TypeName("ImageObjectFit")
+  1 Audio struct
+    output: Option(Str)
 Request struct
   id: U64
   kind: Str
@@ -1372,6 +1393,13 @@ TouchPhase enum
   1 Moved: Unit
   2 Ended: Unit
   3 Cancelled: Unit
+TrackState enum
+  0 None: Unit
+  1 Waiting: Unit
+  2 Up struct
+    subscribers: U32
+  3 Ended struct
+    code: Str
 UnderlineStyle struct
   thickness: TypeName("Pixels")
   color: Option(Str)

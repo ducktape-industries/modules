@@ -355,6 +355,15 @@ pub enum Node {
     /// when a frame no longer has the node or its window closes. A view
     /// turns its camera off by not placing the piece. `on_state` hears
     /// where the camera is as [`Event::Media`].
+    ///
+    /// With `publish`, the host also encodes what it captures and
+    /// publishes it into that track of the view's room (stream mode,
+    /// priority 128: the kind decides, not the view) for as long as the
+    /// piece is placed, and [`crate::MediaState::track`] says where the
+    /// track stands. The track goes up whatever the camera's status. The
+    /// published picture is never mirrored: `mirror` and `object_fit` are
+    /// the preview's. A view that publishes also declares the `live`
+    /// capability.
     Camera {
         id: ElementIdWire,
         style: StyleId,
@@ -362,6 +371,7 @@ pub enum Node {
         mirror: bool,
         object_fit: ImageObjectFit,
         on_state: Option<u32>,
+        publish: Option<crate::methods::LiveTrack>,
     },
     /// A microphone's level, drawn by the host as a meter in the node's
     /// box: a bar from the left in the style's text colour over its
@@ -384,6 +394,17 @@ pub enum Node {
     /// pattern): [`crate::MicCommand::Record`] records, then plays back.
     /// `on_state` hears the microphone and the recording as
     /// [`Event::Media`].
+    ///
+    /// With `publish`, the host also encodes what it hears and publishes
+    /// it into that track of the view's room (datagram mode, priority 64,
+    /// one 20 ms frame per object) for as long as the piece is placed; the
+    /// track goes up whatever the microphone's status, so a person with no
+    /// working microphone is still in the room. `muted` (with `publish`)
+    /// releases the device (the system's mark off), keeps the track up
+    /// and sends nothing on it: a muted person stays in the room. Without
+    /// `publish`, `muted` is ignored: a view mutes a plain piece by not
+    /// placing it. A view that publishes also declares the `live`
+    /// capability.
     Microphone {
         id: ElementIdWire,
         style: StyleId,
@@ -393,7 +414,46 @@ pub enum Node {
         revision: u64,
         commands: Vec<crate::media::MicCommand>,
         on_state: Option<u32>,
+        publish: Option<crate::methods::LiveTrack>,
+        muted: bool,
     },
+    /// A person's track from the view's room, played by the host: a
+    /// picture drawn in the node's box ([`RemoteMedia::Video`]), or a
+    /// voice on a speaker ([`RemoteMedia::Audio`]). Nothing of it crosses
+    /// to the view. Only a view whose manifest declares the `live`
+    /// capability may send one; a host refuses the frame of any other
+    /// ([`Frame::undeclared`]).
+    ///
+    /// The host subscribes to `track` when it first sees the node (under
+    /// its path): a picture from the group the node holds (its keyframe),
+    /// a voice from now on. It lets go when a frame no longer has the
+    /// node. `on_state` hears it as [`Event::Media`]: `status` is
+    /// `Starting` until the first object, `Live` while they flow, `Gone`
+    /// when the track ended, `Unsupported` where this build decodes no
+    /// video (a voice still plays); [`crate::MediaState::track`] says why,
+    /// and a voice's `speaking` says the person speaks.
+    ///
+    /// The host keeps its own cap on how many remote pieces one view
+    /// places, apart from its own devices'.
+    Remote {
+        id: ElementIdWire,
+        style: StyleId,
+        track: crate::methods::LiveTrack,
+        media: RemoteMedia,
+        on_state: Option<u32>,
+    },
+}
+
+/// What a [`Node::Remote`] plays of its track.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RemoteMedia {
+    /// A picture, fitting the node's box as an image's does by
+    /// `object_fit`.
+    Video { object_fit: ImageObjectFit },
+    /// A voice, mixed with the room's others on `output` (an output
+    /// `microphone.devices` listed; `None`: the default). It draws
+    /// nothing.
+    Audio { output: Option<String> },
 }
 
 mod impls;

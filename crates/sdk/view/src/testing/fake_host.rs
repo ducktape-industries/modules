@@ -1,7 +1,7 @@
 use crate::{
     host::{Error, Shape, malformed},
     methods::{self, Method},
-    wire::{Event, Frame, Request},
+    wire::{ElementIdWire, Event, Frame, MediaState, Node, Request, TrackState},
 };
 use std::{cell::RefCell, collections::HashMap, marker::PhantomData, rc::Rc};
 
@@ -9,7 +9,7 @@ use std::{cell::RefCell, collections::HashMap, marker::PhantomData, rc::Rc};
 type Key = (String, Option<String>);
 type Handler = Box<dyn FnMut(&Request) -> Option<Event>>;
 type Stream = Rc<RefCell<StreamState>>;
-type Hook = Box<dyn FnMut(&FakeHost, &Frame)>;
+type Hook = Box<dyn FnMut(&FakeHost, &Frame, Option<&Node>)>;
 
 #[derive(Default)]
 struct State {
@@ -28,6 +28,29 @@ struct State {
     /// The programs the view's `TARGETS` names; a node method naming
     /// another fails the test, as the app refuses it.
     targets: &'static [&'static str],
+    /// The camera, microphone and remote pieces of the tree the host
+    /// holds, as the app keeps them.
+    pieces: Vec<Piece>,
+}
+
+/// A piece as the host keeps it, by the path it is filed under: what it
+/// opens, its state route and the state last told it (none yet), which the
+/// host tells again only when it changes.
+struct Piece {
+    path: Vec<ElementIdWire>,
+    opens: Opens,
+    handler: Option<u32>,
+    state: Option<MediaState>,
+}
+
+/// What the host opens for a piece: a camera or a microphone by its device,
+/// a remote piece by its track. A piece that opens another under the same
+/// path starts over, as the app opens it anew.
+#[derive(PartialEq)]
+enum Opens {
+    Camera(Option<String>),
+    Microphone(Option<String>),
+    Remote(methods::LiveTrack),
 }
 
 /// A typed host, by the shape of each request:
@@ -166,10 +189,41 @@ impl FakeHost {
             }));
     }
 
-    /// Runs `hook` on every frame the host takes, once its requests are
-    /// answered and no borrow is held.
-    pub(crate) fn after_frame(&self, hook: impl FnMut(&FakeHost, &Frame) + 'static) {
+    /// Runs `hook` on every frame the host takes, with the tree it holds
+    /// after it (none for a notifier's), once its requests are answered and
+    /// no borrow is held.
+    pub(crate) fn after_frame(&self, hook: impl FnMut(&FakeHost, &Frame, Option<&Node>) + 'static) {
         self.0.borrow_mut().after_frame.push(Box::new(hook));
+    }
+
+    /// The piece filed under `path` reports the state `update` leaves:
+    /// told to its `on_state` on the view's next tick when it is the
+    /// piece's first or changed, as the app tells it. A piece the tree does
+    /// not hold is not told.
+    pub(crate) fn media(&self, path: &[ElementIdWire], update: impl FnOnce(&mut MediaState)) {
+        let mut state = self.0.borrow_mut();
+        let Some(piece) = state.pieces.iter_mut().find(|piece| piece.path == path) else {
+            return;
+        };
+        let mut next = piece.state.clone().unwrap_or_default();
+        update(&mut next);
+        if piece.state.as_ref() == Some(&next) {
+            return;
+        }
+        piece.state = Some(next.clone());
+        let told = piece.handler.map(|handler| Event::Media {
+            handler,
+            state: next,
+        });
+        state.events.extend(told);
+    }
+
+    /// The track the piece filed under `path` was last told; `None` before
+    /// it was told any, or with no such piece.
+    pub(crate) fn told_track(&self, path: &[ElementIdWire]) -> Option<TrackState> {
+        let state = self.0.borrow();
+        let piece = state.pieces.iter().find(|piece| piece.path == path)?;
+        Some(piece.state.as_ref()?.track.clone())
     }
 
     pub(super) fn reset_connection(&self) {
@@ -209,11 +263,46 @@ impl FakeHost {
         !self.0.borrow().events.is_empty()
     }
 
-    pub(crate) fn accept(&self, frame: &Frame, host: &crate::host::Host) {
+    /// Takes `frame`, after which the host holds `tree` (none for a
+    /// notifier, which has no tree).
+    pub(crate) fn accept(&self, frame: &Frame, host: &crate::host::Host, tree: Option<&Node>) {
         let mut state = self.0.borrow_mut();
-        // The app refuses a web, camera or microphone piece from a view
-        // whose manifest leaves out its capability (and ends the view); a
-        // test fails on it instead.
+        if let Some(tree) = tree {
+            // a piece keeps its state while its path is in the tree and it
+            // opens what it opened; one placed anew, or opening another,
+            // starts over, as the app keeps them
+            let mut held = std::mem::take(&mut state.pieces);
+            state.pieces = super::pieces(tree)
+                .into_iter()
+                .map(|(path, node)| {
+                    let (opens, handler) = match node {
+                        Node::Camera {
+                            device, on_state, ..
+                        } => (Opens::Camera(device.clone()), *on_state),
+                        Node::Microphone {
+                            device, on_state, ..
+                        } => (Opens::Microphone(device.clone()), *on_state),
+                        Node::Remote {
+                            track, on_state, ..
+                        } => (Opens::Remote(track.clone()), *on_state),
+                        _ => unreachable!("a piece"),
+                    };
+                    let state = held
+                        .iter()
+                        .position(|piece| piece.path == path && piece.opens == opens)
+                        .and_then(|at| held.swap_remove(at).state);
+                    Piece {
+                        path,
+                        opens,
+                        handler,
+                        state,
+                    }
+                })
+                .collect();
+        }
+        // The app refuses a web, camera, microphone or remote piece from a
+        // view whose manifest leaves out what it needs (and ends the view);
+        // a test fails on it instead.
         if let Some(capability) = state
             .declared
             .and_then(|declared| frame.undeclared(declared))
@@ -321,7 +410,7 @@ impl FakeHost {
         drop(state);
         let mut hooks = std::mem::take(&mut self.0.borrow_mut().after_frame);
         for hook in &mut hooks {
-            hook(self, frame);
+            hook(self, frame, tree);
         }
         let mut state = self.0.borrow_mut();
         hooks.append(&mut state.after_frame);
@@ -469,6 +558,7 @@ mod tests {
                 ..Frame::default()
             },
             &crate::host::Host::default(),
+            None,
         );
         assert_eq!(host.requests::<Query<First>>(), ["one"]);
         assert_eq!(host.requests::<Query<Second>>(), ["two"]);
@@ -490,6 +580,7 @@ mod tests {
                 ..Frame::default()
             },
             channel,
+            None,
         );
     }
 

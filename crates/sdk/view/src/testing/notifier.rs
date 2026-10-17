@@ -80,7 +80,7 @@ impl<N: Notifier> TestNotifier<N> {
                 unchanged: true,
                 ..Frame::default()
             };
-            self.host.accept(&frame, &driver.app.host());
+            self.host.accept(&frame, &driver.app.host(), None);
             if !turn.busy && !self.host.owes_events() {
                 return;
             }
