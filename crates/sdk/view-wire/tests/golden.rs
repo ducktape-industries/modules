@@ -23,6 +23,7 @@ use view_wire::list::{
     ListCommand, UniformListHorizontalSizing, UniformListScrollRequest, UniformListScrollStrategy,
     UniformListSizing,
 };
+use view_wire::manifest::{Manifest, Tint};
 use view_wire::methods::{self, Method, Program};
 use view_wire::{
     Action, ActionData, Anchor, AnchoredFitMode, AnchoredPositionMode, Aria, AriaCurrent,
@@ -398,24 +399,6 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             None,
         ),
         exchange::<BlobGet>("sha256:00".into(), Some(b"blob".to_vec())),
-        exchange::<BlobManifest>(
-            "sha256:00".into(),
-            Some(Manifested {
-                size: 2_048,
-                view: Some(CarriedView {
-                    size: 1_024,
-                    manifest: Some(view_wire::manifest::Manifest {
-                        wire_id: "0123abcd".into(),
-                        name: "Chat".into(),
-                        description: "Rooms and threads.".into(),
-                        capabilities: Capability::ALL.to_vec(),
-                        min_width: 480,
-                        targets: vec!["chat".into()],
-                        icon: "icons/chat.svg".into(),
-                    }),
-                }),
-            }),
-        ),
         // a view this host cannot read the manifest of
         exchange::<BlobManifest>(
             "sha256:01".into(),
@@ -778,6 +761,33 @@ fn every_method() -> Vec<(Exchange, serde_json::Value)> {
             }),
         ),
     ]
+    .into_iter()
+    // a view's manifest in every tint: the borsh rule samples each one
+    .chain(
+        Tint::ALL
+            .map(|tint| exchange::<BlobManifest>("sha256:00".into(), Some(carried_view(tint)))),
+    )
+    .collect()
+}
+
+/// A program's code carrying a view, its manifest in `tint`.
+fn carried_view(tint: Tint) -> methods::Manifested {
+    methods::Manifested {
+        size: 2_048,
+        view: Some(methods::CarriedView {
+            size: 1_024,
+            manifest: Some(Manifest {
+                wire_id: "0123abcd".into(),
+                name: "Chat".into(),
+                description: "Rooms and threads.".into(),
+                capabilities: methods::Capability::ALL.to_vec(),
+                min_width: 480,
+                targets: vec!["chat".into()],
+                icon: "icons/chat.svg".into(),
+                tint,
+            }),
+        }),
+    }
 }
 
 fn live_track(name: &str) -> methods::LiveTrack {

@@ -752,6 +752,7 @@ fn the_manifest_bytes_are_what_the_view_trait_says() {
         const NAME: &'static str = "App";
         const DESCRIPTION: &'static str = "Words";
         const ICON: &'static str = "icons/hammer.svg";
+        const TINT: Tint = Tint::Orange;
         const CAPABILITIES: &'static [Capability] = &[Capability::Clock, Capability::Program];
         const TARGETS: &'static [&'static str] = &["chat", "identity"];
         const MIN_WINDOW_WIDTH: u32 = 560;
@@ -768,7 +769,7 @@ fn the_manifest_bytes_are_what_the_view_trait_says() {
     assert_eq!(
         std::str::from_utf8(&bytes).unwrap(),
         format!(
-            "ducktape.view.manifest\nApp\nWords\nclock,program,\n560\n{}\nchat,identity,\nicons/hammer.svg",
+            "ducktape.view.manifest\nApp\nWords\nclock,program,\n560\n{}\nchat,identity,\nicons/hammer.svg\norange",
             wire::WIRE_ID
         )
     );
@@ -778,9 +779,10 @@ fn the_manifest_bytes_are_what_the_view_trait_says() {
     assert_eq!(manifest.capabilities, App::CAPABILITIES);
     assert_eq!(manifest.targets, App::TARGETS);
     assert_eq!(manifest.icon, App::ICON);
+    assert_eq!(manifest.tint, Tint::Orange);
     assert_eq!((&*manifest.name, &*manifest.description), ("App", "Words"));
     // a view that declares nothing is laid out from 480, reaches no method
-    // and has no icon
+    // and has no icon and no tint
     assert_eq!(<UniformProbe as View>::MIN_WINDOW_WIDTH, 480);
     assert_eq!(<UniformProbe as View>::DESCRIPTION, "");
     assert_eq!(<UniformProbe as View>::ICON, "");
@@ -791,4 +793,5 @@ fn the_manifest_bytes_are_what_the_view_trait_says() {
     assert_eq!(manifest.min_width, 480);
     assert_eq!(manifest.name, "UniformProbe");
     assert_eq!(manifest.icon, "");
+    assert_eq!(manifest.tint, Tint::None);
 }

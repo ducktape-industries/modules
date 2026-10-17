@@ -18,6 +18,7 @@ pub use gpui::{
 };
 pub use view_derive::IntoElement;
 pub use view_wire as wire;
+pub use wire::manifest::Tint;
 mod theme;
 pub use theme::Theme;
 mod behavior;
@@ -81,10 +82,10 @@ pub mod prelude {
         ObjectFit, ParentElement, PinchEvent, Pixels, Playback, Render, RenderOnce, Role,
         ScrollHandle, ScrollStrategy, ScrollWheelEvent, SharedString, StatefulInteractiveElement,
         Styled, StyledImage, StyledText, Subscription, Task, TextField, TextInputAction, Textarea,
-        Theme, TrackState, UniformListScrollHandle, View, VirtualKeyboard, WebHandle, WebState,
-        Window, anchored, camera, canvas, deferred, design, div, export_notifier, export_view,
-        hsla, img, list, microphone, modal_overlay, px, remote_audio, remote_video, rems,
-        resize_handle, rgb, sensor, sheet, svg, uniform_list, web,
+        Theme, Tint, TrackState, UniformListScrollHandle, View, VirtualKeyboard, WebHandle,
+        WebState, Window, anchored, camera, canvas, deferred, design, div, export_notifier,
+        export_view, hsla, img, list, microphone, modal_overlay, px, remote_audio, remote_video,
+        rems, resize_handle, rgb, sensor, sheet, svg, uniform_list, web,
     };
 }
 mod text;
@@ -122,8 +123,9 @@ pub(crate) use notifier::NotifierDriver;
 const MANIFEST_HEADER: &str = "ducktape.view.manifest\n";
 
 /// What a manifest says, field by field: a view's from its [`View`] impl, a
-/// notifier's from its [`Notifier`] impl (no description, no icon, a width
-/// of 1: it draws nothing). One writer for both, so both read the same.
+/// notifier's from its [`Notifier`] impl (no description, no icon, no
+/// tint, a width of 1: it draws nothing). One writer for both, so both read
+/// the same.
 #[doc(hidden)]
 pub struct Manifested {
     pub name: &'static str,
@@ -132,6 +134,7 @@ pub struct Manifested {
     pub min_width: u32,
     pub targets: &'static [&'static str],
     pub icon: &'static str,
+    pub tint: Tint,
 }
 
 impl Manifested {
@@ -143,6 +146,7 @@ impl Manifested {
             min_width: V::MIN_WINDOW_WIDTH,
             targets: V::TARGETS,
             icon: V::ICON,
+            tint: V::TINT,
         }
     }
 
@@ -154,6 +158,7 @@ impl Manifested {
             min_width: 1,
             targets: N::TARGETS,
             icon: "",
+            tint: Tint::None,
         }
     }
 
@@ -179,11 +184,11 @@ impl Manifested {
             len += self.targets[i].len() + 1;
             i += 1;
         }
-        len + 1 + self.icon.len()
+        len + 1 + self.icon.len() + 1 + self.tint.as_str().len()
     }
 
     /// The manifest text (`view_wire::manifest`: header, name, description,
-    /// capabilities, min width, [`wire::WIRE_ID`], targets, icon), at compile
+    /// capabilities, min width, [`wire::WIRE_ID`], targets, icon, tint), at compile
     /// time: a target that is not a program name, no target where the
     /// capabilities could address a program, or an icon that is not an
     /// asset path ([`wire::manifest::is_icon`]), fails the build.
@@ -230,6 +235,8 @@ impl Manifested {
         }
         at = put(&mut out, at, b"\n");
         at = put(&mut out, at, self.icon.as_bytes());
+        at = put(&mut out, at, b"\n");
+        at = put(&mut out, at, self.tint.as_str().as_bytes());
         assert!(at == N);
         out
     }
@@ -242,12 +249,12 @@ pub const fn manifest_len<V: View>() -> usize {
 
 // the lines written above, in this order: a line added to the manifest
 // is added here and to `Manifest::parse` together
-const _: () = assert!(wire::manifest::LINES.len() == 8);
+const _: () = assert!(wire::manifest::LINES.len() == 9);
 
 /// The manifest text of a view ([`Manifested::bytes`]), from what its
 /// [`View`] impl says: [`View::NAME`], [`View::DESCRIPTION`],
 /// [`View::CAPABILITIES`], [`View::MIN_WINDOW_WIDTH`], [`View::TARGETS`],
-/// [`View::ICON`].
+/// [`View::ICON`], [`View::TINT`].
 pub const fn manifest_bytes<V: View, const N: usize>() -> [u8; N] {
     Manifested::of_view::<V>().bytes()
 }

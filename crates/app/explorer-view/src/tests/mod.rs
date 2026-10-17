@@ -401,6 +401,7 @@ pub(crate) fn manifests(cx: &TestAppContext) {
             min_width: 480,
             targets: vec!["chat".into()],
             icon: "icons/chat.svg".into(),
+            tint: Tint::Blue,
         };
         Ok(match id.as_str() {
             CHAT_CODE => Some(Manifested {

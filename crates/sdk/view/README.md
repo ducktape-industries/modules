@@ -390,7 +390,10 @@ built and how it joins the host: `NAME` (the tab and catalog name), `DESCRIPTION
 catalog line, `""` by default), `ICON` (its icon where the app shows it
 small, named as `svg().path(..)` names one the app bundles, the Lucide set
 as `"icons/<lucide name>.svg"`; `""` by default, and then, or for a name the
-app lacks, the app shows the name's initial), `CAPABILITIES` (the `methods::Capability`
+app lacks, the app shows the name's initial), `TINT` (the colour of its tile
+where the app lists it, a phone's Home: a `Tint` by name, `Tint::Blue`, whose
+light and dark values are the app's; `Tint::None` by default, the neutral
+tile), `CAPABILITIES` (the `methods::Capability`
 halves of the kinds it asks through, `&[]` by default: a method whose
 capability is not listed is refused `undeclared_capability`), `TARGETS` (the
 programs it addresses with `op.submit`, `program.query` and `program.changes`,
@@ -433,7 +436,7 @@ A child is not a `View`: it logs with `cx.host().log(..)`.
 `export_view!(View)` (`src/lib.rs`) writes the five wasm exports and the
 manifest section `ducktape.view.manifest` from the trait's consts
 (`view-wire/src/manifest.rs`: header, `NAME`, `DESCRIPTION`,
-`CAPABILITIES`, `MIN_WINDOW_WIDTH` in decimal, `WIRE_ID`, `TARGETS`, `ICON`; the
+`CAPABILITIES`, `MIN_WINDOW_WIDTH` in decimal, `WIRE_ID`, `TARGETS`, `ICON`, `TINT`; the
 line list is `manifest::LINES`, part of `schema.txt` and so of `WIRE_ID`).
 
 The ABI gate (`view-wire/src/abi.rs`, `tools/check-view-abi.py`): exactly one

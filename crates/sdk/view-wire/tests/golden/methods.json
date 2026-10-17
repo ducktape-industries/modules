@@ -985,44 +985,6 @@
   },
   {
     "kind": "blob.manifest",
-    "request": "sha256:00",
-    "reply": {
-      "size": 2048,
-      "view": {
-        "size": 1024,
-        "manifest": {
-          "wire_id": "0123abcd",
-          "name": "Chat",
-          "description": "Rooms and threads.",
-          "capabilities": [
-            "Chain",
-            "Program",
-            "Op",
-            "Invite",
-            "Link",
-            "Blob",
-            "Host",
-            "Clock",
-            "Clipboard",
-            "Notify",
-            "Store",
-            "Web",
-            "Live",
-            "Camera",
-            "Microphone",
-            "File"
-          ],
-          "min_width": 480,
-          "targets": [
-            "chat"
-          ],
-          "icon": "icons/chat.svg"
-        }
-      }
-    }
-  },
-  {
-    "kind": "blob.manifest",
     "request": "sha256:01",
     "reply": {
       "size": 512,
@@ -1870,6 +1832,396 @@
         "by": 3,
         "mode": "Datagram",
         "up": true
+      }
+    }
+  },
+  {
+    "kind": "blob.manifest",
+    "request": "sha256:00",
+    "reply": {
+      "size": 2048,
+      "view": {
+        "size": 1024,
+        "manifest": {
+          "wire_id": "0123abcd",
+          "name": "Chat",
+          "description": "Rooms and threads.",
+          "capabilities": [
+            "Chain",
+            "Program",
+            "Op",
+            "Invite",
+            "Link",
+            "Blob",
+            "Host",
+            "Clock",
+            "Clipboard",
+            "Notify",
+            "Store",
+            "Web",
+            "Live",
+            "Camera",
+            "Microphone",
+            "File"
+          ],
+          "min_width": 480,
+          "targets": [
+            "chat"
+          ],
+          "icon": "icons/chat.svg",
+          "tint": "None"
+        }
+      }
+    }
+  },
+  {
+    "kind": "blob.manifest",
+    "request": "sha256:00",
+    "reply": {
+      "size": 2048,
+      "view": {
+        "size": 1024,
+        "manifest": {
+          "wire_id": "0123abcd",
+          "name": "Chat",
+          "description": "Rooms and threads.",
+          "capabilities": [
+            "Chain",
+            "Program",
+            "Op",
+            "Invite",
+            "Link",
+            "Blob",
+            "Host",
+            "Clock",
+            "Clipboard",
+            "Notify",
+            "Store",
+            "Web",
+            "Live",
+            "Camera",
+            "Microphone",
+            "File"
+          ],
+          "min_width": 480,
+          "targets": [
+            "chat"
+          ],
+          "icon": "icons/chat.svg",
+          "tint": "Blue"
+        }
+      }
+    }
+  },
+  {
+    "kind": "blob.manifest",
+    "request": "sha256:00",
+    "reply": {
+      "size": 2048,
+      "view": {
+        "size": 1024,
+        "manifest": {
+          "wire_id": "0123abcd",
+          "name": "Chat",
+          "description": "Rooms and threads.",
+          "capabilities": [
+            "Chain",
+            "Program",
+            "Op",
+            "Invite",
+            "Link",
+            "Blob",
+            "Host",
+            "Clock",
+            "Clipboard",
+            "Notify",
+            "Store",
+            "Web",
+            "Live",
+            "Camera",
+            "Microphone",
+            "File"
+          ],
+          "min_width": 480,
+          "targets": [
+            "chat"
+          ],
+          "icon": "icons/chat.svg",
+          "tint": "Teal"
+        }
+      }
+    }
+  },
+  {
+    "kind": "blob.manifest",
+    "request": "sha256:00",
+    "reply": {
+      "size": 2048,
+      "view": {
+        "size": 1024,
+        "manifest": {
+          "wire_id": "0123abcd",
+          "name": "Chat",
+          "description": "Rooms and threads.",
+          "capabilities": [
+            "Chain",
+            "Program",
+            "Op",
+            "Invite",
+            "Link",
+            "Blob",
+            "Host",
+            "Clock",
+            "Clipboard",
+            "Notify",
+            "Store",
+            "Web",
+            "Live",
+            "Camera",
+            "Microphone",
+            "File"
+          ],
+          "min_width": 480,
+          "targets": [
+            "chat"
+          ],
+          "icon": "icons/chat.svg",
+          "tint": "Green"
+        }
+      }
+    }
+  },
+  {
+    "kind": "blob.manifest",
+    "request": "sha256:00",
+    "reply": {
+      "size": 2048,
+      "view": {
+        "size": 1024,
+        "manifest": {
+          "wire_id": "0123abcd",
+          "name": "Chat",
+          "description": "Rooms and threads.",
+          "capabilities": [
+            "Chain",
+            "Program",
+            "Op",
+            "Invite",
+            "Link",
+            "Blob",
+            "Host",
+            "Clock",
+            "Clipboard",
+            "Notify",
+            "Store",
+            "Web",
+            "Live",
+            "Camera",
+            "Microphone",
+            "File"
+          ],
+          "min_width": 480,
+          "targets": [
+            "chat"
+          ],
+          "icon": "icons/chat.svg",
+          "tint": "Lime"
+        }
+      }
+    }
+  },
+  {
+    "kind": "blob.manifest",
+    "request": "sha256:00",
+    "reply": {
+      "size": 2048,
+      "view": {
+        "size": 1024,
+        "manifest": {
+          "wire_id": "0123abcd",
+          "name": "Chat",
+          "description": "Rooms and threads.",
+          "capabilities": [
+            "Chain",
+            "Program",
+            "Op",
+            "Invite",
+            "Link",
+            "Blob",
+            "Host",
+            "Clock",
+            "Clipboard",
+            "Notify",
+            "Store",
+            "Web",
+            "Live",
+            "Camera",
+            "Microphone",
+            "File"
+          ],
+          "min_width": 480,
+          "targets": [
+            "chat"
+          ],
+          "icon": "icons/chat.svg",
+          "tint": "Amber"
+        }
+      }
+    }
+  },
+  {
+    "kind": "blob.manifest",
+    "request": "sha256:00",
+    "reply": {
+      "size": 2048,
+      "view": {
+        "size": 1024,
+        "manifest": {
+          "wire_id": "0123abcd",
+          "name": "Chat",
+          "description": "Rooms and threads.",
+          "capabilities": [
+            "Chain",
+            "Program",
+            "Op",
+            "Invite",
+            "Link",
+            "Blob",
+            "Host",
+            "Clock",
+            "Clipboard",
+            "Notify",
+            "Store",
+            "Web",
+            "Live",
+            "Camera",
+            "Microphone",
+            "File"
+          ],
+          "min_width": 480,
+          "targets": [
+            "chat"
+          ],
+          "icon": "icons/chat.svg",
+          "tint": "Orange"
+        }
+      }
+    }
+  },
+  {
+    "kind": "blob.manifest",
+    "request": "sha256:00",
+    "reply": {
+      "size": 2048,
+      "view": {
+        "size": 1024,
+        "manifest": {
+          "wire_id": "0123abcd",
+          "name": "Chat",
+          "description": "Rooms and threads.",
+          "capabilities": [
+            "Chain",
+            "Program",
+            "Op",
+            "Invite",
+            "Link",
+            "Blob",
+            "Host",
+            "Clock",
+            "Clipboard",
+            "Notify",
+            "Store",
+            "Web",
+            "Live",
+            "Camera",
+            "Microphone",
+            "File"
+          ],
+          "min_width": 480,
+          "targets": [
+            "chat"
+          ],
+          "icon": "icons/chat.svg",
+          "tint": "Red"
+        }
+      }
+    }
+  },
+  {
+    "kind": "blob.manifest",
+    "request": "sha256:00",
+    "reply": {
+      "size": 2048,
+      "view": {
+        "size": 1024,
+        "manifest": {
+          "wire_id": "0123abcd",
+          "name": "Chat",
+          "description": "Rooms and threads.",
+          "capabilities": [
+            "Chain",
+            "Program",
+            "Op",
+            "Invite",
+            "Link",
+            "Blob",
+            "Host",
+            "Clock",
+            "Clipboard",
+            "Notify",
+            "Store",
+            "Web",
+            "Live",
+            "Camera",
+            "Microphone",
+            "File"
+          ],
+          "min_width": 480,
+          "targets": [
+            "chat"
+          ],
+          "icon": "icons/chat.svg",
+          "tint": "Pink"
+        }
+      }
+    }
+  },
+  {
+    "kind": "blob.manifest",
+    "request": "sha256:00",
+    "reply": {
+      "size": 2048,
+      "view": {
+        "size": 1024,
+        "manifest": {
+          "wire_id": "0123abcd",
+          "name": "Chat",
+          "description": "Rooms and threads.",
+          "capabilities": [
+            "Chain",
+            "Program",
+            "Op",
+            "Invite",
+            "Link",
+            "Blob",
+            "Host",
+            "Clock",
+            "Clipboard",
+            "Notify",
+            "Store",
+            "Web",
+            "Live",
+            "Camera",
+            "Microphone",
+            "File"
+          ],
+          "min_width": 480,
+          "targets": [
+            "chat"
+          ],
+          "icon": "icons/chat.svg",
+          "tint": "Violet"
+        }
       }
     }
   }

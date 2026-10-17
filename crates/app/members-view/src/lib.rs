@@ -356,6 +356,7 @@ impl View for Members {
     const DESCRIPTION: &'static str =
         "Every account of this network: who it is, what it runs and what it signed lately.";
     const ICON: &'static str = "icons/users.svg";
+    const TINT: Tint = Tint::Teal;
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Chain,
         Capability::Program,

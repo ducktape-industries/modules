@@ -111,6 +111,7 @@ impl View for Agents {
     const DESCRIPTION: &'static str =
         "The agents harness runs, and how each one worked: threads, tool calls and usage.";
     const ICON: &'static str = "icons/bot.svg";
+    const TINT: Tint = Tint::Violet;
     const CAPABILITIES: &'static [Capability] = &[
         Capability::Program,
         Capability::Op,

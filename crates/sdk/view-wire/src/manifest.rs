@@ -10,7 +10,7 @@ pub const MANIFEST_SECTION: &str = "ducktape.view.manifest";
 /// The manifest's lines, in order: what `export_view!` writes and
 /// [`Manifest::parse`] reads, listed in `tests/golden/schema.txt` so a
 /// line added or moved moves [`crate::WIRE_ID`] like any other shape.
-pub const LINES: [&str; 8] = [
+pub const LINES: [&str; 9] = [
     "ducktape.view.manifest",
     "name",
     "description",
@@ -19,6 +19,7 @@ pub const LINES: [&str; 8] = [
     "wire_id",
     "targets",
     "icon",
+    "tint",
 ];
 
 /// Crosses the wire as `blob.manifest`'s answer, so its shape is in
@@ -37,6 +38,76 @@ pub struct Manifest {
     /// names at least one.
     pub targets: Vec<String>,
     pub icon: String,
+    pub tint: Tint,
+}
+
+/// The colour a view asks its tile in, where the app lists it (a phone's
+/// Home): a name from this closed set, never a value. The host owns what
+/// each name looks like, in the light and in the dark, so a view picks a
+/// meaning and every view's tile stays legible beside the others. `None`
+/// is the neutral tile, and what a host reads for a tint it cannot name
+/// ([`Manifest::parse`]).
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+#[cfg_attr(feature = "schema", derive(borsh::BorshSchema))]
+pub enum Tint {
+    #[default]
+    None,
+    Blue,
+    Teal,
+    Green,
+    Lime,
+    Amber,
+    Orange,
+    Red,
+    Pink,
+    Violet,
+}
+
+impl Tint {
+    pub const ALL: [Self; 10] = [
+        Self::None,
+        Self::Blue,
+        Self::Teal,
+        Self::Green,
+        Self::Lime,
+        Self::Amber,
+        Self::Orange,
+        Self::Red,
+        Self::Pink,
+        Self::Violet,
+    ];
+
+    /// The name a manifest spells it with.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Blue => "blue",
+            Self::Teal => "teal",
+            Self::Green => "green",
+            Self::Lime => "lime",
+            Self::Amber => "amber",
+            Self::Orange => "orange",
+            Self::Red => "red",
+            Self::Pink => "pink",
+            Self::Violet => "violet",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|known| known.as_str() == name)
+    }
 }
 
 /// Whether a view declaring `capabilities` must name targets: it may
@@ -101,11 +172,17 @@ pub fn read_manifest(bytes: &[u8]) -> Option<Manifest> {
 }
 
 impl Manifest {
-    /// Parses the strict eight-line ([`LINES`]) `ducktape.view.manifest`
+    /// Parses the strict nine-line ([`LINES`]) `ducktape.view.manifest`
     /// text and its bounds. A capability this host does not know refuses
     /// the whole manifest: a grant is never silently narrowed; so does a
     /// view that could address a program (`op`, `program`) and names no
     /// target, and an icon that is not an asset path ([`is_icon`]).
+    ///
+    /// The tint alone is read leniently: a name this host does not know,
+    /// or no ninth line at all (a view built before tints), reads as
+    /// [`Tint::None`], the neutral tile. A colour grants nothing, so
+    /// reading it as none narrows nothing, and a view built against
+    /// another wire still runs (a host refuses a manifest, never a look).
     pub fn parse(text: &str) -> Option<Self> {
         if text.chars().any(|c| c.is_control() && c != '\n') {
             return None;
@@ -132,6 +209,7 @@ impl Manifest {
             .map(str::to_owned)
             .collect();
         let icon = lines.next()?.to_owned();
+        let tint = lines.next().and_then(Tint::parse).unwrap_or_default();
         if lines.next().is_some() {
             return None;
         }
@@ -143,6 +221,7 @@ impl Manifest {
             min_width,
             targets,
             icon,
+            tint,
         };
         manifest.within_bounds().then_some(manifest)
     }
@@ -176,7 +255,7 @@ mod tests {
     #[test]
     fn extraction_rejects_duplicate_and_truncated_sections() {
         let mut bytes = b"\0asm\x01\0\0\0".to_vec();
-        let text = b"ducktape.view.manifest\nSized\n\n\n640\n0123abcd\n\n";
+        let text = b"ducktape.view.manifest\nSized\n\n\n640\n0123abcd\n\n\nnone";
         let mut section = vec![
             0,
             (1 + MANIFEST_SECTION.len() + text.len()) as u8,
@@ -207,7 +286,8 @@ mod tests {
     // those guards is Red.
     #[test]
     fn the_manifest_format_is_strict() {
-        let good = "ducktape.view.manifest\nSized\nDescription\nclock,store,\n480\n0123abcd\n\n";
+        let good =
+            "ducktape.view.manifest\nSized\nDescription\nclock,store,\n480\n0123abcd\n\n\nnone";
         let parsed = Manifest::parse(good).unwrap();
         assert_eq!(parsed.capabilities, [Capability::Clock, Capability::Store]);
         assert_eq!(
@@ -216,16 +296,17 @@ mod tests {
         );
         assert!(parsed.targets.is_empty());
         assert!(parsed.icon.is_empty());
+        assert_eq!(parsed.tint, Tint::None);
         for invalid in [
             "Sized\nDescription\nclock,", // no header
-            "ducktape.view\nSized\nDescription\nclock,\n480\n0123abcd\n\n", // another header
+            "ducktape.view\nSized\nDescription\nclock,\n480\n0123abcd\n\n\nnone", // another header
             "ducktape.view.manifest\nSized\nDescription\n\n480",
             "ducktape.view.manifest\nSized\nDescription\n\n480\n0123abcd", // six lines: the shape before targets
             "ducktape.view.manifest\nSized\nDescription\n\n480\n0123abcd\n", // seven lines: the shape before icon
-            "ducktape.view.manifest\nSized\nDescription\n\n480\n0123abcd\n\n\nextra",
-            "ducktape.view.manifest\nSized\nDescription\nclock\n480\n0123abcd\n\n",
-            "ducktape.view.manifest\nSized\nDescription\nclock,,\n480\n0123abcd\n\n",
-            "ducktape.view.manifest\nSized\nDescription\nclock,storage,\n480\n0123abcd\n\n",
+            "ducktape.view.manifest\nSized\nDescription\n\n480\n0123abcd\n\n\nnone\nextra",
+            "ducktape.view.manifest\nSized\nDescription\nclock\n480\n0123abcd\n\n\nnone",
+            "ducktape.view.manifest\nSized\nDescription\nclock,,\n480\n0123abcd\n\n\nnone",
+            "ducktape.view.manifest\nSized\nDescription\nclock,storage,\n480\n0123abcd\n\n\nnone",
         ] {
             assert!(
                 Manifest::parse(invalid).is_none(),
@@ -238,7 +319,7 @@ mod tests {
     fn a_manifest_carries_its_min_width() {
         let parse = |width: &str| {
             Manifest::parse(&format!(
-                "ducktape.view.manifest\nApp\n\n\n{width}\n0123abcd\n\n"
+                "ducktape.view.manifest\nApp\n\n\n{width}\n0123abcd\n\n\nnone"
             ))
         };
         assert_eq!(parse("480").unwrap().min_width, 480);
@@ -259,10 +340,10 @@ mod tests {
             assert!(parse(invalid).is_none(), "accepted {invalid:?}");
         }
         // every line valid on its own (`480` is hex, so a wire id too): only
-        // the ninth line refuses it
+        // the tenth line refuses it
         assert!(
-            Manifest::parse("ducktape.view.manifest\nApp\n\n\n480\n480\n\n\n").is_none(),
-            "a ninth line accepted"
+            Manifest::parse("ducktape.view.manifest\nApp\n\n\n480\n480\n\n\nnone\n").is_none(),
+            "a tenth line accepted"
         );
     }
 
@@ -273,7 +354,7 @@ mod tests {
     fn a_manifest_names_its_targets_when_it_can_address_a_program() {
         let parse = |caps: &str, targets: &str| {
             Manifest::parse(&format!(
-                "ducktape.view.manifest\nApp\n\n{caps}\n480\n0123abcd\n{targets}\n"
+                "ducktape.view.manifest\nApp\n\n{caps}\n480\n0123abcd\n{targets}\n\nnone"
             ))
         };
         assert_eq!(
@@ -305,7 +386,7 @@ mod tests {
     fn a_manifest_carries_its_icon() {
         let parse = |icon: &str| {
             Manifest::parse(&format!(
-                "ducktape.view.manifest\nApp\n\n\n480\n0123abcd\n\n{icon}"
+                "ducktape.view.manifest\nApp\n\n\n480\n0123abcd\n\n{icon}\nnone"
             ))
         };
         assert_eq!(parse("icons/hammer.svg").unwrap().icon, "icons/hammer.svg");
@@ -322,10 +403,39 @@ mod tests {
         assert!(is_icon("icons/\u{e9}.svg"));
     }
 
+    // Claim: line 9 is a tint by its name, one of the closed set. Unlike a
+    // capability, a tint this host cannot name (a value, a name from a
+    // later set, or no line: a view built before tints) reads as none, the
+    // neutral tile, and the rest of the manifest stands.
+    #[test]
+    fn a_manifest_carries_its_tint() {
+        let parse = |tint: &str| {
+            Manifest::parse(&format!(
+                "ducktape.view.manifest\nApp\n\n\n480\n0123abcd\n\n\n{tint}"
+            ))
+        };
+        for tint in Tint::ALL {
+            assert_eq!(parse(tint.as_str()).unwrap().tint, tint);
+        }
+        for unknown in ["", "Blue", " blue", "blue,", "#2a6", "grey", "indigo"] {
+            assert_eq!(parse(unknown).unwrap().tint, Tint::None, "{unknown:?}");
+        }
+        let before =
+            Manifest::parse("ducktape.view.manifest\nApp\n\nclock,\n480\n0123abcd\n\nicons/a.svg")
+                .expect("an eight-line manifest reads");
+        assert_eq!(
+            (before.tint, &*before.icon, &*before.capabilities),
+            (Tint::None, "icons/a.svg", &[Capability::Clock][..])
+        );
+    }
+
     #[test]
     fn the_wire_id_is_lowercase_hex() {
-        let parse =
-            |id: &str| Manifest::parse(&format!("ducktape.view.manifest\nApp\n\n\n480\n{id}\n\n"));
+        let parse = |id: &str| {
+            Manifest::parse(&format!(
+                "ducktape.view.manifest\nApp\n\n\n480\n{id}\n\n\nnone"
+            ))
+        };
         assert_eq!(
             parse("0123456789abcdef").unwrap().wire_id,
             "0123456789abcdef"

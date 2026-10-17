@@ -13,7 +13,7 @@ pub trait Render: 'static + Sized {
 /// A root view: everything the host reads about it (the manifest
 /// `export_view!` writes: [`NAME`](View::NAME), [`DESCRIPTION`](View::DESCRIPTION),
 /// [`CAPABILITIES`](View::CAPABILITIES), [`MIN_WINDOW_WIDTH`](View::MIN_WINDOW_WIDTH),
-/// [`TARGETS`](View::TARGETS), [`ICON`](View::ICON)), how it is built
+/// [`TARGETS`](View::TARGETS), [`ICON`](View::ICON), [`TINT`](View::TINT)), how it is built
 /// ([`new`](View::new)) and how it joins the host ([`attach`](View::attach)).
 pub trait View: Render + Serialize + DeserializeOwned + Default {
     /// The name on the tab and in the catalog, `1..=64` bytes.
@@ -46,6 +46,11 @@ pub trait View: Render + Serialize + DeserializeOwned + Default {
     /// # fn main() {}
     /// ```
     const ICON: &'static str = "";
+    /// The colour of the view's tile where the app lists it (a phone's
+    /// Home): a [`Tint`](crate::Tint) by name (`Tint::Blue`), whose light
+    /// and dark values are the app's, so every tile reads beside the
+    /// others. With none, the tile is the app's neutral one.
+    const TINT: crate::Tint = crate::Tint::None;
     /// The `<capability>` halves of the method kinds this view asks
     /// through, and the only ones the host lets it reach: a method whose
     /// capability is not here is refused `undeclared_capability`, by the
