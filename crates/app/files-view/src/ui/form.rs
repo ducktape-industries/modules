@@ -184,7 +184,7 @@ fn message(form: &Form, cx: Cx, k: &Kit) -> Div {
 fn buttons(form: &Form, cx: Cx, k: &Kit) -> Div {
     let cancel = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.close_sheet(cx));
     let commit = cx.listener(|view: &mut Files, _: &ClickEvent, _, cx| view.submit(cx));
-    let verb = words::commit(form.sending, upload::progress(&form.upload));
+    let verb = words::commit(form.sending, form.progress());
     div()
         .flex()
         .justify_end()

@@ -1,5 +1,6 @@
 //! The create form: a new agent is identity's `CreateAgent`, a `files` commit of its
-//! configuration file (proposed in its manager's home, `/home/<manager's name>/agents/`) that
+//! configuration file (its bytes put first as `chunk` blobs, `op.put`, never in the commit;
+//! proposed in its manager's home, `/home/<manager's name>/agents/`) that
 //! also sets the file's write list to `Owner`, so only the manager's account number changes it
 //! whatever names change, identity's `SetScript` with a script that calls harness and names that
 //! file, then identity's `SetOwnership` when it answers more than its manager. A step that is refused keeps the steps before it, so pressing on resumes where it
@@ -8,6 +9,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use view::methods::{BlobBody, NewBlob, OpPut, PutBlobs};
 use view::prelude::*;
 
 use harness::{AgentSetup, BlobId, Config, Configured};
@@ -274,14 +276,55 @@ impl Agents {
         cx.notify();
     }
 
+    /// Puts the agent's config on the network as `chunk` blobs, then commits it.
     fn commit(&mut self, agent: u64, form: Form, cx: &mut Context<Self>) {
+        let config = form.config.write().into_bytes();
+        let size = config.len() as u64;
+        let blobs: Vec<NewBlob> = config
+            .chunks(files::CHUNK_SIZE as usize)
+            .map(|chunk| NewBlob {
+                kind: files::CHUNK.into(),
+                body: BlobBody::Bytes(chunk.to_vec()),
+            })
+            .collect();
+        // an empty config has no chunk to put
+        if blobs.is_empty() {
+            let content = files::Content::Chunks {
+                size,
+                chunks: Vec::new(),
+            };
+            return self.commit_put(agent, form, content, cx);
+        }
+        let put = cx.host().ask::<OpPut>(PutBlobs { blobs });
+        self.draft.sending = Some(cx.land(put, move |view, answer, cx| {
+            view.draft.sending = None;
+            match answer {
+                Ok(digests) => {
+                    let chunks = digests.into_iter().map(BlobId::Sha256).collect();
+                    let content = files::Content::Chunks { size, chunks };
+                    view.commit_put(agent, form, content, cx);
+                }
+                Err(refusal) => view.landed(Err(design::sentence(&refusal)), cx),
+            }
+        }));
+        cx.notify();
+    }
+
+    /// Commits the agent's config, its bytes on the network as `content`.
+    fn commit_put(
+        &mut self,
+        agent: u64,
+        form: Form,
+        content: files::Content,
+        cx: &mut Context<Self>,
+    ) {
         let name = self.draft.name.text();
         let new_path = self.draft.script_path.as_deref() != Some(form.path.as_str());
         let mut changes = vec![files::Change::Put {
             path: form.path.clone(),
             exec: false,
             meta: BTreeMap::new(),
-            content: files::Content::Inline(form.config.write().into_bytes()),
+            content,
         }];
         if new_path {
             changes.push(files::Change::SetOwnership {

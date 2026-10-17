@@ -7,7 +7,7 @@ use harness::{
     Forming, Frame, ModelRow, Partial, Principal, Said, Standing, Stop, ToolInfo, Usage, Window,
     Wire, WithheldFrame,
 };
-use view::methods::{Change, Changes, LinkOpen, Query, Session, Submitted};
+use view::methods::{Change, Changes, LinkOpen, OpPut, Query, Session, Submitted};
 use view::testing::TestAppContext;
 
 const EDDY: u64 = 7;
@@ -276,6 +276,9 @@ type Shared = Rc<RefCell<Net>>;
 fn seated(net: Net, me: u64) -> (TestAppContext, Shared) {
     let net = Rc::new(RefCell::new(net));
     let mut cx = TestAppContext::new();
+    // every config goes up as one chunk the network holds as CONFIG_CHUNK
+    cx.host()
+        .handle::<OpPut>(|ask| Ok(vec![CONFIG_CHUNK; ask.blobs.len()]));
     let shared = net.clone();
     cx.host().handle::<Query<harness::Harness>>(move |query| {
         let net = shared.borrow();
@@ -785,6 +788,9 @@ fn files_take(cx: &TestAppContext) {
         .handle::<Submit<files::Files>>(|_| Ok(applied(Vec::new())));
 }
 
+/// What the fake host answers a config's chunk is held as.
+const CONFIG_CHUNK: [u8; 32] = [0x0c; 32];
+
 fn edit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -> files::Op {
     files::Op::Commit {
         base,
@@ -793,7 +799,10 @@ fn edit_of(path: &str, config: &Config, base: Option<BlobId>, message: String) -
             path: path.into(),
             exec: false,
             meta: Default::default(),
-            content: files::Content::Inline(config.write().into_bytes()),
+            content: files::Content::Chunks {
+                size: config.write().len() as u64,
+                chunks: vec![BlobId::Sha256(CONFIG_CHUNK)],
+            },
         }],
     }
 }
